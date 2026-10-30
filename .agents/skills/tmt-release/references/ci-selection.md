@@ -175,7 +175,8 @@ worker/no retries/no Rust; native-executable specs skip with a named reason, so
 the run proves the browser components only. Bounded logs/failure traces last seven days. Whole-file weights in
 `e2e/shard-weights.json` use `typescript/scripts/colab-acceptance-shards.mjs`;
 helper/matrix share eleven whole-file shards under the unchanged 720-second modeled
-wall guard, assigning each spec exactly once, including
+wall guard (`colab-component-shards.test.ts`, run by Code quality on every PR and merge
+group, so a spec-only change that skips Unit tests still runs it), assigning each spec exactly once, including
 new default-weight files. Keep the 20-minute job/30-second test limits, one worker
 and no retries. Component jobs restore the main-owned Chromium cache without saving,
 and always install system dependencies. Dot/JSON reporters share the results artifact (`results.json`

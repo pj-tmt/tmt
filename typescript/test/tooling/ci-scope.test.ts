@@ -2222,6 +2222,22 @@ describe('CI diff and command integration', () => {
     expect(selectColabApp([file])).toBe(false);
   });
 
+  it('runs the component shard-model guard before merge when a Colab spec change skips Unit tests', () => {
+    // #4128: a new component spec can push the modeled shard wall past its guard. Colab
+    // spec changes are not full scope, so Unit tests skip; Code quality must run it.
+    const spec = 'extensions/tmt-colab/typescript/app/e2e/brand-new.spec.ts';
+    expect(selectColabApp([spec])).toBe(true);
+    expect(selectNativeScope([spec])).not.toBe('full');
+    const ci = readFileSync(new URL('../../../.github/workflows/ci.yml', import.meta.url), 'utf8');
+    const quality = ci.split('\n  code-quality:\n')[1].split(/\n {2}[a-z0-9-]+:\n/)[0];
+    expect(quality).not.toContain('native_scope');
+    const checks = quality
+      .split('      - name: Run code quality checks\n')[1]
+      .split('      - name:')[0];
+    expect(checks).not.toMatch(/continue-on-error|\n\s+if:/);
+    expect(checks).toContain('test/tooling/colab-component-shards.test.ts');
+  });
+
   it.each([
     '.github/workflows/colab-browser.yml',
     'extensions/tmt-remote/typescript/remote-client/firebase-build-pin.json',
