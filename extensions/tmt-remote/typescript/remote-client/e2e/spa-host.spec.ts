@@ -669,8 +669,9 @@ test.describe('the app in a browser', () => {
     await page.setViewportSize({ width: 1440, height: 900 });
     const rail = page.locator('nav.tmt-ui-rail');
     const brand = rail.locator('> .tmt-ui-shell-brand');
-    const header = page.locator('.root-title-row');
-    // The brand sits once in the rail; the adopted page title starts the content column.
+    const header = page.getByRole('heading', { level: 1 });
+    // The brand sits once in the rail; the page's single hero starts the content column.
+    await expect(page.locator('.root-title-row')).toHaveCount(0);
     await expect(brand).toContainText('tmt');
     await expect(header).toContainText('Agents');
     const [railBox, brandBox, headerBox] = await Promise.all(
@@ -683,10 +684,10 @@ test.describe('the app in a browser', () => {
     expect(Math.round(headerBox!.x)).toBeGreaterThanOrEqual(
       Math.round(railBox!.x + railBox!.width),
     );
-    await expect(header.locator('.tmt-ui-title')).toHaveCSS('font-size', '16px');
+    await expect(header).toHaveCSS('font-size', '37px');
     // The bar draws no module crumb and no second TMT: the title is the page's name.
     await expect(header.locator('.tmt-ui-wordmark, .tmt-ui-brand')).toHaveCount(0);
-    await expect(header.locator('.tmt-ui-title')).toHaveText('Agents');
+    await expect(header).toHaveText('Agents');
     await expect(page.locator('.tmt-ui-module-menu-title')).toHaveCount(0);
     await expect(rail).toHaveCSS('width', '232px');
     await expect(page.getByRole('button', { name: /sidebar/i })).toHaveCount(0);
@@ -1521,7 +1522,7 @@ test.describe('Settings General website presentation', () => {
           await menu.getByRole('link', { name: 'Drivers & hooks', exact: true }).click();
           await expect(general).toHaveClass(/tmt-ui-page/);
           await expect(
-            general.getByRole('heading', { name: 'Drivers & hooks', exact: true, level: 2 }),
+            general.getByRole('heading', { name: 'Drivers & hooks', exact: true, level: 1 }),
           ).toBeVisible();
           await expect(general.getByRole('button', { name: 'Copy tmt driver ls' })).toBeVisible();
           await menu.getByRole('link', { name: 'General', exact: true }).click();
