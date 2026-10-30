@@ -1129,8 +1129,25 @@ fn the_top_bar_and_row_unread_counts_highlight_only_under_the_pointer() {
             ],
         );
         app.workspace.expanded.insert(ROOM.into());
+        // A colour look, so the hover has a background to compare whatever NO_COLOR says.
+        let look = crate::look::Look {
+            theme: tmt_cli_style::Theme::new(tmt_cli_style::Base::Tmt),
+            depth: tmt_cli_style::Depth::TrueColor,
+        };
+        let view = app.view.as_mut().unwrap();
+        view.look = look;
+        for held in view
+            .home
+            .as_mut()
+            .unwrap()
+            .workspace
+            .squad_looks
+            .values_mut()
+        {
+            *held = look;
+        }
         draw(&app, 51);
-        let look = app.look();
+        assert_eq!(app.look(), look);
         let hot = tmt_cli_style::theme::screen::chip(
             &look.theme,
             tmt_cli_style::theme::screen::ChipKind::Secondary,
