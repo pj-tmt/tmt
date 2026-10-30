@@ -23,6 +23,8 @@ pub(in crate::board) struct Draft {
     /// The note's words, then its link.
     pub fields: [Editor; 2],
     pub focus: usize,
+    /// Shown again with text kept from before: a Discard line follows the fields.
+    pub reopened: bool,
     original: [String; 2],
     sent: bool,
 }
@@ -59,6 +61,7 @@ impl Draft {
             seed: None,
             fields: [editor(title), editor(reference)],
             focus: 0,
+            reopened: false,
             original: [title.to_owned(), reference.to_owned()],
             sent: false,
         }
@@ -164,5 +167,13 @@ impl Draft {
         } else {
             Some(self.focus)
         }
+        .filter(|field| *field < 2)
+    }
+    /// The form's stops for ↑↓: Kind on a seeded form, Title, Link, then Discard when reopened.
+    pub fn stops(&self) -> usize {
+        usize::from(self.seed.is_some()) + 2 + usize::from(self.reopened)
+    }
+    pub fn on_discard(&self) -> bool {
+        self.reopened && self.focus + 1 == self.stops()
     }
 }

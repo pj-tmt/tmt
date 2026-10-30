@@ -72,6 +72,10 @@ pub(in crate::board) struct Controller {
     focus: usize,
     pending: Option<load::Key>,
     draft: Option<forms::Draft>,
+    /// The Form shows a kept draft again (reopened or resumed): Discard drops it.
+    form_reopened: bool,
+    /// The screen that asked for the open confirm: Cancel returns there.
+    confirm_from: Option<Screen>,
     submit: Option<Request>,
     reviewed: bool,
     target_label: Option<String>,
@@ -110,6 +114,8 @@ impl Controller {
             focus: 0,
             pending: None,
             draft: None,
+            form_reopened: false,
+            confirm_from: None,
             submit: None,
             reviewed: false,
             target_label: None,
