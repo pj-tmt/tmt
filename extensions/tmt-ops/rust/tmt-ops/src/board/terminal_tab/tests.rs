@@ -1317,6 +1317,37 @@ fn a_drag_over_the_screen_copies_its_text_while_watching_and_while_typing() {
 }
 
 #[test]
+fn a_click_on_the_watched_screen_still_lands_on_the_board() {
+    use ratatui::crossterm::event::{MouseButton, MouseEventKind};
+    let mut attached = Attached::new(b"hello world");
+    text(&attached.app);
+    let screen = Some(crate::config::Pane::Replies);
+    attached.app.focus = 0;
+    assert_ne!(attached.app.focused_pane(), screen);
+    let area = attached.app.terminal.area().unwrap();
+    let (x, y) = (area.x + 2, area.y);
+    for kind in [
+        MouseEventKind::Down(MouseButton::Left),
+        MouseEventKind::Up(MouseButton::Left),
+    ] {
+        assert!(
+            attached.app.terminal_mouse(mouse_at(kind, x, y)).is_none(),
+            "{kind:?} without a move is the board's"
+        );
+    }
+    attached.app.mouse(
+        mouse_at(MouseEventKind::Down(MouseButton::Left), x, y),
+        std::time::Instant::now(),
+    );
+    assert_eq!(
+        attached.app.focused_pane(),
+        screen,
+        "the press focuses the pane"
+    );
+    assert_eq!(copied(drag(&mut attached, (2, 0), (2, 0))), None);
+}
+
+#[test]
 fn a_program_that_asked_for_the_mouse_keeps_the_drag_and_the_line_names_the_bypass() {
     let mut attached = Attached::new(b"hello\x1b[?1002h");
     attached.start_typing();

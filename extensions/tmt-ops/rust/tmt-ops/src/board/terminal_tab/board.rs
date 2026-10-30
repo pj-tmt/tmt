@@ -222,11 +222,18 @@ impl App {
         let at = (event.column - area.x, event.row - area.y);
         let program_mouse = typing && self.terminal.modes().mouse != MouseMode::Off;
         match event.kind {
+            // The press only anchors a selection; it still lands on the board (focus, menus).
             MouseEventKind::Down(MouseButton::Left) if !program_mouse => {
                 self.terminal.select_from(at);
+                if !typing {
+                    return None;
+                }
             }
             MouseEventKind::Drag(MouseButton::Left) if !program_mouse => {
                 self.terminal.select_to(at);
+                if !typing && !self.terminal.dragged() {
+                    return None;
+                }
             }
             MouseEventKind::Up(MouseButton::Left) if !program_mouse => {
                 self.terminal.select_to(at);
@@ -236,6 +243,9 @@ impl App {
                         program: self.view.as_ref().and_then(|view| view.clipboard.clone()),
                         feedback: CopyFeedback::Selection,
                     }));
+                }
+                if !typing {
+                    return None;
                 }
             }
             MouseEventKind::ScrollUp | MouseEventKind::ScrollDown if typing => {

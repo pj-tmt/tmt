@@ -253,6 +253,11 @@ impl Tab {
         }
     }
 
+    /// The press has moved into a selection, so the drag and its release are the screen's.
+    pub(in crate::board) fn dragged(&self) -> bool {
+        self.selected_range().is_some()
+    }
+
     /// The selection in reading order, first cell then last, both included; none for a press
     /// that did not move.
     fn selected_range(&self) -> Option<((u16, u16), (u16, u16))> {
