@@ -146,7 +146,7 @@ export function RailFrame({ params }: { params: URLSearchParams }) {
                 count: shellCount(0),
               },
             ],
-            add: { label: '+ New project', onActivate: () => setStatus(`New ${revision}`) },
+            add: { label: 'New project', onActivate: () => setStatus(`New ${revision}`) },
           },
         ],
         settings: {
@@ -200,7 +200,7 @@ export function RailFrame({ params }: { params: URLSearchParams }) {
         icon: 'settings',
         onActivate: () => setStatus(`Manage ${revision}`),
       };
-      group.add = { label: '+ New shortcut', onActivate: () => setStatus(`New ${revision}`) };
+      group.add = { label: 'New shortcut', onActivate: () => setStatus(`New ${revision}`) };
       group.reorder = reorderEnabled
         ? (from, to) => {
             setReorderRequests((n) => n + 1);

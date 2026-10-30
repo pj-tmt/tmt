@@ -3521,6 +3521,7 @@ function createMenuController(options) {
 * of Remote's describe contract; an unknown name falls back to `box`.
 */
 var shellIconNodes = {
+	plus: [["path", { d: "M12 5v14M5 12h14" }]],
 	"grip-vertical": [
 		["circle", {
 			cx: "9",
@@ -5775,7 +5776,9 @@ function mountShell(root, view, select) {
 			}
 			if (group.add) {
 				const row = document.createElement("li");
-				row.append(command("tmt-ui-rail-sub-item tmt-ui-rail-add", group.add, () => latest.menu?.groups[index]?.add?.onActivate()));
+				const add = command("tmt-ui-rail-sub-item tmt-ui-rail-add", group.add, () => latest.menu?.groups[index]?.add?.onActivate());
+				add.prepend(icon(document, "plus"));
+				row.append(add);
 				entries.append(row);
 			}
 		});

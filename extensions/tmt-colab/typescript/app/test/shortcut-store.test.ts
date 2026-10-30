@@ -75,3 +75,20 @@ it('never commits unreadable filters or a migration marker after failed persiste
   ).toThrow();
   expect(store.read().items).toHaveLength(1);
 });
+
+it('moves a shortcut to the target row index in either direction using the latest record', () => {
+  const storage = memory();
+  const first = new ShortcutStore('one', storage);
+  const second = new ShortcutStore('one', storage);
+  const a = first.save({ name: 'A', search: {} });
+  const b = first.save({ name: 'B', search: {} });
+  const c = first.save({ name: 'C', search: {} });
+  second.moveTo(a.id, c.id);
+  expect(first.read().items.map((item) => item.name)).toEqual(['B', 'C', 'A']);
+  first.moveTo(a.id, b.id);
+  expect(second.read().items.map((item) => item.name)).toEqual(['A', 'B', 'C']);
+  second.delete(b.id);
+  first.moveTo(a.id, b.id);
+  first.moveTo('unknown', c.id);
+  expect(first.read().items.map((item) => item.name)).toEqual(['A', 'C']);
+});

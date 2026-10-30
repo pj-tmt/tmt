@@ -143,6 +143,7 @@ it('caps counts at 99+ and falls back to the box icon', () => {
   expect(moduleIcon('network')).toBe('box');
   expect(moduleIcon('users')).toBe('users');
   expect(moduleIcon('pencil')).toBe('box');
+  expect(moduleIcon('plus')).toBe('box');
   expect(moduleIcon('grip-vertical')).toBe('box');
   expect(moduleIcon('trash-2')).toBe('box');
 });

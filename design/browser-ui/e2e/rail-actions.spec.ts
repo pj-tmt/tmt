@@ -36,6 +36,25 @@ for (const renderer of ['native', 'react'])
         await link('empty').hover();
         const edit = row('empty').getByRole('button', { name: 'Edit Remote', exact: true });
         await expect(edit).toBeVisible();
+        expect((await edit.boundingBox())!.width).toBeGreaterThanOrEqual(28);
+        expect((await edit.boundingBox())!.height).toBeGreaterThanOrEqual(28);
+        const editIcon = edit.locator('svg');
+        await expect(editIcon).toHaveCSS('width', '16px');
+        await expect(editIcon).toHaveCSS('height', '16px');
+        await expect(editIcon).toHaveCSS('stroke-width', '1.75px');
+        const longLabel = link('project').locator('.tmt-ui-module-menu-label');
+        const originalLabel = await longLabel.textContent();
+        await longLabel.evaluate((node) => {
+          node.textContent = 'A long shortcut name '.repeat(6);
+        });
+        const labelBox = (await longLabel.boundingBox())!;
+        const actionsLeft = await row('project')
+          .locator('.tmt-ui-rail-row-actions')
+          .evaluate((node) => node.getBoundingClientRect().left);
+        expect(labelBox.x + labelBox.width).toBeLessThanOrEqual(actionsLeft);
+        await longLabel.evaluate((node, value) => {
+          node.textContent = value;
+        }, originalLabel);
         await expect(link('empty').locator('.tmt-ui-shell-count')).toBeHidden();
         expect(await link('empty').boundingBox()).toEqual(geometry);
         await capture('hover');

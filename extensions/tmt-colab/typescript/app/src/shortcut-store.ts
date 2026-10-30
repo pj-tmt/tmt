@@ -72,6 +72,16 @@ export class ShortcutStore {
       value.items.splice(value.items.indexOf(target), 0, item);
     });
   }
+  /** Move to the target's current index, as requested by the shared rail. */
+  moveTo(id: string, target: string) {
+    this.#write((value) => {
+      const from = value.items.findIndex((item) => item.id === id);
+      const to = value.items.findIndex((item) => item.id === target);
+      if (from < 0 || to < 0 || from === to) return;
+      const [item] = value.items.splice(from, 1);
+      value.items.splice(to, 0, item);
+    });
+  }
   migrate(pins: ProjectPins | undefined) {
     if (!pins || this.read().migrated) return;
     this.#write((value) => {

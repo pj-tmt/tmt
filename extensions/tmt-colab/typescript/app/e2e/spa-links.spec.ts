@@ -519,7 +519,7 @@ test.describe('the door serving the TMT app', () => {
       expect(limit.status, String(limit.stderr)).toBe(0);
       await door!.createPage('Session page', '<h1>Session content</h1>');
       await door!.pair(page);
-      await page.goto(`${door!.origin}/remote/devices`);
+      await page.goto(`${door!.origin}/remote/my-devices`);
       // In-document moves, as the rail and in-page links make them.
       const go = (path: string) =>
         page.evaluate((path) => {
@@ -535,13 +535,13 @@ test.describe('the door serving the TMT app', () => {
         expect(await live(), `round ${round}`).toBeLessThanOrEqual(2);
         await go('/ops');
         await expect(page.locator('.tmt-ui-shell-main[data-route="ops"]')).toBeVisible();
-        await go('/remote/devices');
+        await go('/remote/my-devices');
         await expect(thisDevice).toBeVisible();
         await expect(page.locator('#access')).not.toContainText('connection limit');
         await go('/colab/');
         await expect(page.locator('.colab-route')).toBeVisible();
         await expect(page.getByRole('tab', { name: /^Discussion/ })).toBeVisible();
-        await go('/remote/devices');
+        await go('/remote/my-devices');
       }
       await expect(thisDevice).toBeVisible();
       expect(await live()).toBeLessThanOrEqual(2);

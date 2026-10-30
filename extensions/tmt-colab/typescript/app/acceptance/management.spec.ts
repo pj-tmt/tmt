@@ -427,3 +427,38 @@ test('archive commit reopens paired tabs read-only while retaining unsent Chat d
     await expect(second.locator('.status')).toContainText('Archived · Read only');
   });
 });
+
+test('sidebar shortcuts reorder and delete survive a real served-page reload', async () => {
+  await withWorld(async (world) => {
+    const door = await startDoor(world, await freePort());
+    const device = await pairBrowser(world, 'shortcut-sidebar');
+    const created = createPage(world, 'Shortcut source', '<p>Shortcut source.</p>');
+    const page = await openPage(door, device, created);
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await page.goto(`${door.address}/x/colab/`);
+    await expect(homeList(page)).toBeVisible();
+    const rail = page.locator('.tmt-ui-rail-sub:visible');
+    for (const name of ['First shortcut', 'Second shortcut']) {
+      await page.getByRole('button', { name: 'Save as shortcut', exact: true }).click();
+      const save = page.getByRole('dialog', { name: 'Save as shortcut', exact: true });
+      await save.getByRole('textbox', { name: 'Name', exact: true }).fill(name);
+      await save.getByRole('button', { name: 'Save', exact: true }).click();
+      await expect(save).not.toBeVisible();
+      await rail.getByRole('link', { name: 'All pages', exact: true }).click();
+    }
+    const labels = rail.locator('a[data-id^="shortcut:"] .tmt-ui-module-menu-label');
+    await expect(labels).toHaveText(['First shortcut', 'Second shortcut']);
+    await rail.getByRole('link', { name: 'Second shortcut', exact: true }).press('Alt+ArrowUp');
+    await expect(labels).toHaveText(['Second shortcut', 'First shortcut']);
+    await page.reload();
+    await expect(labels).toHaveText(['Second shortcut', 'First shortcut']);
+    const row = rail
+      .locator('li[data-menu-item^="shortcut:"]')
+      .filter({ has: page.getByRole('link', { name: 'First shortcut', exact: true }) });
+    await row.hover({ timeout: 5000 });
+    await row.getByRole('button', { name: 'Delete First shortcut' }).click();
+    await expect(labels).toHaveText(['Second shortcut']);
+    await page.reload();
+    await expect(labels).toHaveText(['Second shortcut']);
+  });
+});
