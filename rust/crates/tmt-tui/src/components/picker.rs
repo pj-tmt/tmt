@@ -107,8 +107,9 @@ impl Picker {
             &query[query.cursor()..end]
         ))
     }
-    /// Convenience for a filter picker whose query remains focused. Consumers
-    /// with Tab-separated fields use input_field and their shared FocusStack.
+    /// Convenience for a filter picker whose query remains focused. A dialog
+    /// that moves focus between its query and its list itself passes the
+    /// focused field to input_field; the app routes it every event as one layer.
     pub fn input(&mut self, event: &Event, frame: &ListFrame) -> Option<PickerInput> {
         let field = if self.query.is_some() {
             PickerField::Query
