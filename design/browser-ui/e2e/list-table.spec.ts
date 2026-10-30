@@ -6,14 +6,19 @@ test('table headers and rows share tracks and phone-hidden cells are hidden', as
   const table = page.getByRole('table', { name: 'People' }).first();
   const header = table.getByRole('columnheader', { name: 'Role' });
   const cell = table.getByRole('cell', { name: 'Owner' });
+  const row = table.locator('.tmt-ui-list-table-row').first();
+  const trackCount = () =>
+    row.evaluate((element) => getComputedStyle(element).gridTemplateColumns.split(' ').length);
   const h = (await header.boundingBox())!;
   const c = (await cell.boundingBox())!;
   expect(Math.abs(h.x - c.x)).toBeLessThan(1);
   expect(Math.abs(h.width - c.width)).toBeLessThan(1);
   await page.setViewportSize({ width: 761, height: 900 });
   await expect(header).toBeVisible();
+  expect(await trackCount()).toBe(2);
   await page.setViewportSize({ width: 760, height: 900 });
   await expect(header).toBeHidden();
+  expect(await trackCount()).toBe(1);
   await page.setViewportSize({ width: 390, height: 900 });
   await expect(header).toBeHidden();
   await expect(cell).toBeHidden();

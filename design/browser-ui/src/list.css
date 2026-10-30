@@ -204,6 +204,13 @@
   .tmt-ui-subheader-text p {
     font-size: var(--tmt-ui-page-subtitle-compact-size);
   }
+  .tmt-ui-list-columns,
+  .tmt-ui-list-table-row {
+    grid-template-columns: var(
+      --tmt-ui-list-tracks-compact,
+      var(--tmt-ui-list-tracks, minmax(0, 1fr))
+    );
+  }
   .tmt-ui-list-columns {
     display: none;
   }
