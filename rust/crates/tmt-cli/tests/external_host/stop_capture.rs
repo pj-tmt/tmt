@@ -33,6 +33,16 @@ fn a_blocking_digest_keeps_both_claude_finals_in_causal_order_for_both_hook_orde
 }
 
 #[test]
+fn a_member_bound_without_a_managed_launch_still_hands_off_its_digest() {
+    blocking_digest(
+        "claude",
+        true,
+        &[(false, false)],
+        CaptureScenario::NoLaunchRow,
+    );
+}
+
+#[test]
 fn a_blocking_digest_keeps_the_answer_to_text_folded_into_a_running_claude_turn() {
     blocking_digest(
         "claude",
@@ -356,17 +366,24 @@ fn observer(
     }
 }
 
-/// Each launch's stored session-learning detail: a fixed token such as
-/// `digest_stop:launch:binding` names why a Digest Stop ended with no output (#5459).
-fn stored_launch_outcomes(fixture: &Fixture) -> Vec<Option<String>> {
-    let db = rusqlite::Connection::open(fixture.state().join("tmt.db")).unwrap();
+/// Each launch row's stored session learning (status, step, reason, detail): a detail such
+/// as `digest_stop:launch:binding` names why a Digest Stop ended with no output (#5459).
+/// Read only, so the diagnostic never writes to the store it reports on.
+fn stored_launch_outcomes(fixture: &Fixture) -> Vec<[Option<String>; 4]> {
+    let db = rusqlite::Connection::open_with_flags(
+        fixture.state().join("tmt.db"),
+        rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY,
+    )
+    .unwrap();
     let mut rows = db
-        .prepare("SELECT detail FROM launch_observations ORDER BY created_at_ms")
+        .prepare("SELECT status,step,reason,detail FROM launch_observations ORDER BY created_at_ms")
         .unwrap();
-    rows.query_map([], |row| row.get(0))
-        .unwrap()
-        .collect::<Result<_, _>>()
-        .unwrap()
+    rows.query_map([], |row| {
+        Ok([row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?])
+    })
+    .unwrap()
+    .collect::<Result<_, _>>()
+    .unwrap()
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -383,6 +400,8 @@ enum CaptureScenario {
     FoldedInput,
     /// The provider compacts its context inside the turn, before the Stop (#5268).
     CompactedMidTurn,
+    /// The member was bound without a managed launch, so no launch row exists.
+    NoLaunchRow,
 }
 
 fn blocking_digest(
@@ -488,17 +507,26 @@ fn blocking_digest(
         let ProcessObservation::Live(owner) = owner else {
             panic!("test owner is not live");
         };
-        let mut storage = Storage::open(fixture.state().join("tmt.db")).unwrap();
-        storage
-            .with_binding_transaction::<_, tmt_adapters::storage::StorageError>(|rows| {
-                let binding = rows.entry_by_id(&agent)?.unwrap().binding.unwrap();
-                let mut state = binding.session.clone();
-                state.launch_owner = Some(owner.clone());
-                assert!(rows.set_session_state(&binding.id, &binding.session, &state)?);
-                Ok(())
-            })
-            .unwrap();
-        storage.close().unwrap();
+        if scenario == CaptureScenario::NoLaunchRow {
+            // A member bound without a managed launch: Digest still verifies the owner, but
+            // has no launch row to record a refusal on.
+            let mut storage = Storage::open(fixture.state().join("tmt.db")).unwrap();
+            storage
+                .with_binding_transaction::<_, tmt_adapters::storage::StorageError>(|rows| {
+                    let binding = rows.entry_by_id(&agent)?.unwrap().binding.unwrap();
+                    let mut state = binding.session.clone();
+                    state.launch_owner = Some(owner.clone());
+                    assert!(rows.set_session_state(&binding.id, &binding.session, &state)?);
+                    Ok(())
+                })
+                .unwrap();
+            storage.close().unwrap();
+        } else {
+            // As a managed launch: an admitted launch row and its observation on every hook,
+            // so a Digest Stop that hands nothing off stores why (#5459).
+            let launch = record_admitted_launch(&fixture, &agent, driver, &owner);
+            provider.launch = Some(serde_json::to_string(&launch).unwrap());
+        }
         let now = tmt_adapters::request_runtime::wall_time_ms();
         let policy = passthrough::api(
             &fixture,
