@@ -146,6 +146,7 @@ fn close_rule_test(overlay: Overlay) -> &'static str {
         Overlay::UsageControls => {
             "overview::chart::host::tests::navigation::the_chart_dropdown_follows_the_close_rule"
         }
+        Overlay::Confirm => "confirm::tests::the_confirm_follows_the_close_rule",
         Overlay::PastePreview => "home::tests::light_dismiss::every_peek_follows_the_close_rule",
     }
 }

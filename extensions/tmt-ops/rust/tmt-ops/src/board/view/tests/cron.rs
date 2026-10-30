@@ -242,7 +242,7 @@ fn the_clock_reads_checking_until_a_second_read_and_the_holder_shows_its_window(
 mod controls {
     use super::*;
     use crate::board::{
-        app::{Choice, Compose, Request},
+        app::{Compose, Request},
         cronboard::{CronRequest, Op},
     };
     use crate::cron_service::{CronActor, JobKey};
@@ -306,15 +306,14 @@ mod controls {
     fn delete_asks_first_and_the_default_keeps_the_job() {
         let (mut app, key) = focused();
         assert_eq!(press(&mut app, KeyCode::Char('d')), Effect::None);
-        let menu = app.menu.as_ref().expect("a confirmation");
-        assert!(menu.title.contains("delete product c0"));
-        assert_eq!(menu.entries[0].choice, Choice::Dismiss);
+        let confirm = app.confirm.as_ref().expect("a confirmation");
+        assert!(confirm.title().contains("delete product c0"));
         assert_eq!(
             press(&mut app, KeyCode::Enter),
             Effect::None,
-            "Enter keeps the job"
+            "Enter on the starting Cancel keeps the job"
         );
-        assert!(app.menu.is_none());
+        assert!(app.confirm.is_none());
         open_timers(&mut app);
         press(&mut app, KeyCode::Char('d'));
         assert_eq!(
