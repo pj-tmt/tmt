@@ -428,9 +428,18 @@ unless exact retained-text replay is proven. The same transaction writes the exi
 event receipt: an event replay adds nothing, while distinct misses in one batch remain
 separate entries. Historical failure placement changes no newer activity, batch or
 passthrough. A changed binding cannot attribute a failure to another identity.
-Queue append failures keep their existing best-effort diagnostics; committed queue work
-remains pending after a flusher failure. Missing recorded batches and pre-enqueue failures
-have no new correlation rule. Interrupted events retain no final.
+Publication keeps three distinct outcomes. Confirmed unpublished text uses the same
+recorded-batch/event fence with `storage_error` or `budget_timeout`, within the original
+hook allowance. An append error is reconciled by exact event ID: the queue is read first,
+then the main receipt because ingestion may already have acknowledged the row. Unavailable
+readback remains unknown and never authorizes another append, direct recapture or a terminal
+failure receipt. Missing/incompatible queues alone retain the bounded direct fallback.
+Accepted queue work remains pending after a flusher startup failure; the existing worker
+log keeps bounded content-free startup diagnostics and existing finite notifications or
+explicit drains recover it. Startup failure never becomes a false capture failure. No
+pending-chat projection or new correlation rule for missing batches is introduced.
+Total-store or exhausted-budget unavailability may prevent even a diagnostic. Interrupted
+events retain no final.
 
 Refused verified ends may carry text in the existing optional response slot; no queue
 field or version changes. A running old flusher still returns before consuming a refused

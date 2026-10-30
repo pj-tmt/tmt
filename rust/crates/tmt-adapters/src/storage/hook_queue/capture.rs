@@ -660,25 +660,6 @@ impl Storage {
         }
         Ok(())
     }
-    pub fn try_capture_failure(
-        path: &Path,
-        expected: &super::super::IdentityContextSnapshot,
-        reason: super::super::CaptureFailure,
-        deadline: std::time::Instant,
-    ) -> Result<(), StorageError> {
-        let mut storage = Self::open_hook_flusher(path)?;
-        storage
-            .connection()?
-            .busy_timeout(Duration::ZERO)
-            .map_err(|e| classify(e, "Disable capture failure writer wait"))?;
-        storage.record_capture_failure(
-            expected,
-            reason,
-            crate::request_runtime::wall_time_ms(),
-            deadline,
-        )?;
-        storage.close()
-    }
     /// The terminal Stop diagnostic and its batch fence share one writer.
     /// A newer prompt can clear it without a delayed flusher restoring it later.
     pub fn update_hook_capture_learning(
@@ -707,6 +688,100 @@ impl Storage {
             ingest(db, event)
         })
     }
+}
+
+impl super::CapturePublication {
+    /// Only definite non-publication may consume a terminal failure receipt.
+    /// Accepted and unknown work must remain available to the finite flusher.
+    pub fn record_failure(
+        &self,
+        database: &Path,
+        event: &CaptureEvent,
+        deadline: std::time::Instant,
+    ) -> Result<(), StorageError> {
+        let Self::Unpublished(error) = self else {
+            return Ok(());
+        };
+        if !event.valid() {
+            return Err(invalid("Invalid unpublished capture event"));
+        }
+        let Some(capture) = event.capture.as_ref().filter(|capture| {
+            !capture.provisional
+                && capture.batch.is_some()
+                && !capture.interrupted
+                && capture.response.is_some()
+        }) else {
+            return Ok(());
+        };
+        let process = ProcessIncarnation::new(capture.pid, &capture.start)
+            .map_err(|_| invalid("Invalid unpublished capture process"))?;
+        let response = capture
+            .response
+            .as_ref()
+            .map(KeptFinal::decode)
+            .transpose()?
+            .map(|text| responses::ResponseCapture { text });
+        let reason = if error.code == super::super::StorageErrorCode::Busy {
+            super::super::CaptureFailure::Budget
+        } else {
+            super::super::CaptureFailure::Storage
+        };
+        let mut storage = Storage::open_hook(database, deadline)?;
+        let result = super::super::identities::commit_immediate_transaction(
+            &mut storage,
+            "unpublished capture failure",
+            |db| {
+                if std::time::Instant::now() >= deadline {
+                    return Err(StorageError::new(
+                        super::super::StorageErrorCode::Busy,
+                        "Unpublished capture diagnostic budget expired",
+                    ));
+                }
+                responses::finish_capture_disposition(
+                    db,
+                    &responses::CaptureDisposition {
+                        event_id: event.id(),
+                        identity: &capture.identity,
+                        binding: &capture.binding,
+                        batch: capture.batch.as_deref(),
+                        provider: Some(&capture.provider),
+                        session: Some(&capture.session),
+                        process: &process,
+                        response: response.as_ref(),
+                        interrupted: capture.interrupted,
+                        now_ms: capture.now_ms,
+                        outcome: CaptureResult::NotApplicable,
+                    },
+                    reason,
+                )
+            },
+        );
+        let closed = storage.close();
+        result.and(closed)
+    }
+}
+
+/// Called only after queue absence was observed on a completed append attempt.
+pub(super) fn read_publication_receipt(
+    database: &Path,
+    event_id: &str,
+    deadline: std::time::Instant,
+) -> Result<Option<CaptureResult>, StorageError> {
+    if std::time::Instant::now() >= deadline {
+        return Err(StorageError::new(
+            super::super::StorageErrorCode::Busy,
+            "Hook publication receipt budget expired",
+        ));
+    }
+    let mut db = Connection::open_with_flags(database, OpenFlags::SQLITE_OPEN_READ_ONLY)
+        .map_err(|error| classify(error, "Read hook publication receipt"))?;
+    db.busy_timeout(Duration::ZERO)
+        .map_err(|error| classify(error, "Disable publication receipt writer wait"))?;
+    let tx = db
+        .transaction()
+        .map_err(|error| classify(error, "Read publication receipt snapshot"))?;
+    super::super::migrations::require_current(&tx)?;
+    responses::capture_receipt(&tx, event_id)
 }
 
 fn ingest(db: &Connection, event: &CaptureEvent) -> Result<CaptureResult, StorageError> {
@@ -743,6 +818,7 @@ fn ingest(db: &Connection, event: &CaptureEvent) -> Result<CaptureResult, Storag
                 now_ms: capture.now_ms,
                 outcome: result,
             },
+            super::super::CaptureFailure::Worker,
         )?;
     } else {
         db.execute("INSERT INTO hook_capture_receipts(event_id,identity_id,batch_id,outcome,committed_ms) VALUES(?,?,NULL,?,?)",params![event.id(),event.identity(),result.token(),crate::request_runtime::wall_time_ms() as i64]).map_err(|e|classify(e,"Commit metadata capture receipt"))?;

@@ -1927,3 +1927,396 @@ fn new_queued_finals_round_trip_through_the_shipped_strict_payload_shape() {
     assert!(serde_json::from_value::<ShippedKeptFinal>(incompatible).is_err());
     assert_eq!(queue.next().unwrap().unwrap().id(), event.id());
 }
+
+#[test]
+fn a_rejected_append_is_unpublished_only_after_exact_queue_and_receipt_readback() {
+    let w = World::new();
+    let queue = HookQueue::open(&w.path, Duration::ZERO).unwrap();
+    queue.connection.execute_batch("CREATE TRIGGER reject_publication BEFORE INSERT ON hook_writes BEGIN SELECT RAISE(ABORT, 'fixture rejection'); END;").unwrap();
+    let event = w.event("never queued", false);
+    let outcome = queue.enqueue_observed(&event, Instant::now() + Duration::from_secs(2));
+    assert!(
+        matches!(outcome, CapturePublication::Unpublished(_)),
+        "{outcome:?}"
+    );
+    assert!(queue.next().unwrap().is_none());
+    assert_eq!(w.final_count(), 0);
+}
+
+#[test]
+fn uncertain_append_readback_distinguishes_queued_ingested_and_absent_events() {
+    let mut w = World::new();
+    let queue = HookQueue::open(&w.path, Duration::ZERO).unwrap();
+    let event = w.event("accepted once", false);
+    queue.enqueue(&event).unwrap();
+    let uncertain = || {
+        Err(StorageError::new(
+            StorageErrorCode::Unknown,
+            "fixture commit response unavailable",
+        ))
+    };
+    let deadline = Instant::now() + Duration::from_secs(2);
+    assert!(matches!(
+        queue.observe_enqueue_result(&event, uncertain(), deadline),
+        CapturePublication::Queued
+    ));
+    // Another event's row cannot establish publication for this exact ID.
+    let absent = w.event("not this event", false);
+    assert!(matches!(
+        queue.observe_enqueue_result(&absent, uncertain(), deadline),
+        CapturePublication::Unpublished(_)
+    ));
+    assert_eq!(
+        w.storage.ingest_hook_capture(&event).unwrap(),
+        CaptureResult::Committed
+    );
+    queue.acknowledge(&event).unwrap();
+    assert!(queue.next().unwrap().is_none());
+    assert!(matches!(
+        queue.observe_enqueue_result(&event, uncertain(), deadline),
+        CapturePublication::Recorded(CaptureResult::Committed)
+    ));
+    assert_eq!(w.final_count(), 1);
+}
+
+#[test]
+fn unavailable_or_expired_publication_readback_never_claims_absence_or_replays() {
+    for expired in [false, true] {
+        let w = World::new();
+        let queue = HookQueue::open(&w.path, Duration::ZERO).unwrap();
+        let event = w.event("possibly accepted", false);
+        queue.enqueue(&event).unwrap();
+        let deadline = if expired {
+            Instant::now() - Duration::from_secs(1)
+        } else {
+            queue
+                .connection
+                .execute_batch("ALTER TABLE hook_writes RENAME TO retained_hook_writes")
+                .unwrap();
+            Instant::now() + Duration::from_secs(2)
+        };
+        let outcome = queue.observe_enqueue_result(
+            &event,
+            Err(StorageError::new(
+                StorageErrorCode::Unknown,
+                "fixture commit response unavailable",
+            )),
+            deadline,
+        );
+        assert!(
+            matches!(outcome, CapturePublication::Unknown { .. }),
+            "{outcome:?}"
+        );
+        let table = if expired {
+            "hook_writes"
+        } else {
+            "retained_hook_writes"
+        };
+        assert_eq!(
+            queue
+                .connection
+                .query_row(&format!("SELECT COUNT(*) FROM {table}"), [], |row| row
+                    .get::<_, i64>(0))
+                .unwrap(),
+            1
+        );
+        assert_eq!(w.final_count(), 0);
+        assert_eq!(
+            w.storage
+                .connection()
+                .unwrap()
+                .query_row("SELECT COUNT(*) FROM hook_capture_receipts", [], |row| row
+                    .get::<_, i64>(
+                    0
+                ))
+                .unwrap(),
+            0
+        );
+    }
+}
+
+#[test]
+fn an_expired_publication_budget_never_attempts_an_append() {
+    let w = World::new();
+    let queue = HookQueue::open(&w.path, Duration::ZERO).unwrap();
+    let event = w.event("too late", false);
+    let outcome = queue.enqueue_observed(&event, Instant::now() - Duration::from_secs(1));
+    assert!(matches!(outcome, CapturePublication::Unpublished(_)));
+    assert!(queue.next().unwrap().is_none());
+}
+
+#[test]
+fn confirmed_unpublished_events_have_distinct_event_fenced_failures_in_the_recorded_batch() {
+    let mut w = World::new();
+    let queue = HookQueue::open(&w.path, Duration::ZERO).unwrap();
+    queue.connection.execute_batch("CREATE TRIGGER reject_publication BEFORE INSERT ON hook_writes BEGIN SELECT RAISE(ABORT, 'fixture rejection'); END;").unwrap();
+    let first = w.event("first never published", false);
+    let second = w.event("second never published", false);
+    let batch = first.recorded_batch().unwrap().to_owned();
+    let before = BindingRows(w.storage.connection().unwrap())
+        .session_preferences(&w.agent)
+        .unwrap();
+    let deadline = Instant::now() + Duration::from_secs(2);
+    let outcome = queue.enqueue_observed(&first, deadline);
+    outcome.record_failure(&w.path, &first, deadline).unwrap();
+    outcome.record_failure(&w.path, &first, deadline).unwrap();
+    CapturePublication::Unpublished(StorageError::new(
+        StorageErrorCode::Busy,
+        "fixture queue budget",
+    ))
+    .record_failure(&w.path, &second, deadline)
+    .unwrap();
+    let failures = w.visible_failures();
+    assert_eq!(
+        failures.len(),
+        2,
+        "different unpublished events must not collapse by batch"
+    );
+    assert!(
+        failures
+            .iter()
+            .all(|failure| failure["inputBatchId"] == batch)
+    );
+    assert_ne!(failures[0]["entryId"], failures[1]["entryId"]);
+    assert_eq!(failures[0]["failure"]["code"], "storage_error");
+    assert_eq!(failures[1]["failure"]["code"], "budget_timeout");
+    assert_eq!(w.final_count(), 0);
+    assert!(queue.next().unwrap().is_none());
+    assert_eq!(
+        BindingRows(w.storage.connection().unwrap())
+            .session_preferences(&w.agent)
+            .unwrap(),
+        before
+    );
+}
+
+#[test]
+fn accepted_and_unknown_publications_never_consume_a_failure_receipt() {
+    let mut w = World::new();
+    let event = w.event("still recoverable", false);
+    let queue = HookQueue::open(&w.path, Duration::ZERO).unwrap();
+    queue.enqueue(&event).unwrap();
+    for outcome in [
+        CapturePublication::Queued,
+        CapturePublication::Recorded(CaptureResult::Committed),
+        CapturePublication::Unknown {
+            publication: StorageError::new(
+                StorageErrorCode::Unknown,
+                "fixture commit response unavailable",
+            ),
+            readback: StorageError::new(StorageErrorCode::Busy, "fixture readback unavailable"),
+        },
+    ] {
+        outcome
+            .record_failure(&w.path, &event, Instant::now() + Duration::from_secs(2))
+            .unwrap();
+    }
+    assert!(w.visible_failures().is_empty());
+    assert_eq!(
+        w.storage
+            .connection()
+            .unwrap()
+            .query_row("SELECT COUNT(*) FROM hook_capture_receipts", [], |row| row
+                .get::<_, i64>(
+                0
+            ))
+            .unwrap(),
+        0
+    );
+    let queued = queue.next().unwrap().unwrap();
+    assert_eq!(
+        w.storage.ingest_hook_capture(&queued).unwrap(),
+        CaptureResult::Committed
+    );
+    queue.acknowledge(&queued).unwrap();
+    assert_eq!(w.final_count(), 1);
+    assert!(w.visible_failures().is_empty());
+}
+
+#[test]
+fn unpublished_failure_never_moves_to_a_newer_batch_or_another_binding_identity() {
+    for rebound in [false, true] {
+        let mut w = World::new();
+        let event = w.event("belongs to the recorded input", false);
+        let old = event.recorded_batch().unwrap().to_owned();
+        let other = if rebound {
+            let other =
+                tmt_core::identity::create_or_resolve(&mut w.storage, "Other", Lifetime::Saved)
+                    .unwrap()
+                    .identity
+                    .id;
+            w.storage
+                .connection()
+                .unwrap()
+                .execute("UPDATE bindings SET identity_id=?", [&other])
+                .unwrap();
+            Some(other)
+        } else {
+            w.new_prompt();
+            None
+        };
+        let before = BindingRows(w.storage.connection().unwrap())
+            .session_preferences(&w.agent)
+            .unwrap();
+        let current_batch = current(w.storage.connection().unwrap(), &w.agent).unwrap();
+        CapturePublication::Unpublished(StorageError::new(
+            StorageErrorCode::Permission,
+            "fixture publication refusal",
+        ))
+        .record_failure(&w.path, &event, Instant::now() + Duration::from_secs(2))
+        .unwrap();
+        let failures = w.visible_failures();
+        if let Some(other) = other {
+            assert!(failures.is_empty());
+            let page = w
+                .storage
+                .conversation_timeline(&other, 50, None, w.now + 100)
+                .unwrap();
+            assert!(page["entries"].as_array().unwrap().is_empty());
+        } else {
+            assert_eq!(failures.len(), 1);
+            assert_eq!(failures[0]["inputBatchId"], old);
+        }
+        assert_eq!(
+            current(w.storage.connection().unwrap(), &w.agent).unwrap(),
+            current_batch
+        );
+        assert_eq!(
+            BindingRows(w.storage.connection().unwrap())
+                .session_preferences(&w.agent)
+                .unwrap(),
+            before
+        );
+    }
+}
+
+#[test]
+fn unpublished_diagnostics_require_text_a_recorded_batch_and_a_remaining_budget() {
+    for case in ["usage_only", "interrupted", "provisional", "expired"] {
+        let mut w = World::new();
+        if case == "provisional" {
+            w.storage
+                .connection()
+                .unwrap()
+                .execute("DELETE FROM capture_batches", [])
+                .unwrap();
+        }
+        let event = w.event("not a diagnostic authority by itself", false);
+        let event = if case == "usage_only" {
+            event.usage_only()
+        } else if case == "interrupted" {
+            let mut wire = serde_json::to_value(event).unwrap();
+            wire["capture"]["interrupted"] = serde_json::json!(true);
+            serde_json::from_value(wire).unwrap()
+        } else {
+            event
+        };
+        let deadline = if case == "expired" {
+            Instant::now() - Duration::from_secs(1)
+        } else {
+            Instant::now() + Duration::from_secs(2)
+        };
+        let result = CapturePublication::Unpublished(StorageError::new(
+            StorageErrorCode::Busy,
+            "fixture budget",
+        ))
+        .record_failure(&w.path, &event, deadline);
+        if case == "expired" {
+            assert_eq!(result.unwrap_err().code, StorageErrorCode::Busy);
+        } else {
+            result.unwrap();
+        }
+        assert!(w.visible_failures().is_empty(), "{case}");
+        assert_eq!(
+            w.storage
+                .connection()
+                .unwrap()
+                .query_row("SELECT COUNT(*) FROM hook_capture_receipts", [], |row| row
+                    .get::<_, i64>(
+                    0
+                ))
+                .unwrap(),
+            0
+        );
+    }
+}
+
+#[test]
+fn unreadable_main_receipt_evidence_never_proves_publication_absent() {
+    let w = World::new();
+    let queue = HookQueue::open(&w.path, Duration::ZERO).unwrap();
+    let event = w.event("receipt proof unavailable", false);
+    w.storage
+        .connection()
+        .unwrap()
+        .execute("DROP TABLE hook_capture_receipts", [])
+        .unwrap();
+    let outcome = queue.observe_enqueue_result(
+        &event,
+        Err(StorageError::new(
+            StorageErrorCode::Unknown,
+            "fixture commit response unavailable",
+        )),
+        Instant::now() + Duration::from_secs(2),
+    );
+    assert!(
+        matches!(outcome, CapturePublication::Unknown { .. }),
+        "{outcome:?}"
+    );
+    assert!(queue.next().unwrap().is_none());
+    assert_eq!(w.final_count(), 0);
+}
+
+#[test]
+fn a_failed_flusher_start_keeps_the_accepted_event_and_bounded_startup_diagnostics() {
+    let mut w = World::new();
+    let event = w.event("accepted text must remain recoverable", false);
+    let queue = HookQueue::open(&w.path, Duration::ZERO).unwrap();
+    queue.enqueue(&event).unwrap();
+    let directory = w.path.parent().unwrap();
+    let error = super::worker::start_logged(
+        directory,
+        &directory.join("missing-core-executable"),
+        Instant::now() + Duration::from_secs(2),
+    )
+    .unwrap_err();
+    assert_eq!(error.kind(), std::io::ErrorKind::NotFound);
+    let logs: Vec<_> = std::fs::read_dir(directory)
+        .unwrap()
+        .map(|entry| entry.unwrap().path())
+        .filter(|path| {
+            path.file_name()
+                .unwrap()
+                .to_string_lossy()
+                .starts_with("hook-flush-")
+        })
+        .collect();
+    assert_eq!(logs.len(), 1);
+    let diagnostic = std::fs::read_to_string(&logs[0]).unwrap();
+    assert!(
+        diagnostic.contains("hook_flush_start=unconfirmed stage=spawn queue_publication=accepted")
+    );
+    assert!(diagnostic.len() <= 160);
+    assert!(!diagnostic.contains("accepted text"));
+    assert!(!diagnostic.contains(directory.to_str().unwrap()));
+    let pending = queue.next().unwrap().unwrap();
+    assert_eq!(pending.id(), event.id());
+    assert_eq!(w.final_count(), 0);
+    assert!(w.visible_failures().is_empty());
+    assert_eq!(
+        w.storage.ingest_hook_capture(&pending).unwrap(),
+        CaptureResult::Committed
+    );
+    queue.acknowledge(&pending).unwrap();
+    assert_eq!(
+        w.storage.ingest_hook_capture(&pending).unwrap(),
+        CaptureResult::Committed
+    );
+    assert_eq!(
+        w.final_count(),
+        1,
+        "the existing receipt owns recovery exactly once"
+    );
+    assert!(queue.next().unwrap().is_none());
+    assert!(w.visible_failures().is_empty());
+}

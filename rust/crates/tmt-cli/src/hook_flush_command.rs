@@ -9,7 +9,7 @@ use tmt_adapters::{
     process::detached,
     storage::{
         Storage,
-        hook_queue::{CaptureEvent, HookQueue},
+        hook_queue::{CaptureEvent, CapturePublication, HookQueue},
     },
 };
 
@@ -24,20 +24,21 @@ fn is_log_id(id: &str) -> bool {
         })
 }
 
-pub fn enqueue(
-    database: &Path,
-    event: &CaptureEvent,
-    deadline: Instant,
-) -> Result<(), tmt_adapters::storage::StorageError> {
+pub fn enqueue(database: &Path, event: &CaptureEvent, deadline: Instant) -> CapturePublication {
     let wait = deadline
         .saturating_duration_since(Instant::now())
         .min(Duration::from_millis(500));
-    let queue = HookQueue::open(database, wait)?;
-    queue.enqueue(event)?;
-    // The durable append already succeeded. Startup diagnostics must never turn
-    // an accepted final into a capture failure; a later writer can ingest it.
-    let _ = queue.start_flusher(deadline);
-    Ok(())
+    let queue = match HookQueue::open(database, wait) {
+        Ok(queue) => queue,
+        Err(error) => return CapturePublication::Unpublished(error),
+    };
+    let publication = queue.enqueue_observed(event, deadline);
+    if matches!(publication, CapturePublication::Queued) {
+        // Acceptance survives startup failure. Only the finite worker or an
+        // existing explicit drain may consume it; never retry publication.
+        let _ = queue.start_flusher(deadline);
+    }
+    publication
 }
 pub fn execute(log_id: &str) -> io::Result<u8> {
     if !is_log_id(log_id) {

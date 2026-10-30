@@ -242,6 +242,43 @@ fn a_writer_notifies_the_finite_flusher_after_a_stop_worker_could_not_start() {
     );
     assert_eq!(timeline["responses"], serde_json::json!([]));
     assert_eq!(pending(), 1, "a read never impersonates queue completion");
+    assert!(
+        timeline["entries"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|entry| entry["kind"] != "failure"),
+        "{timeline:#}"
+    );
+    let notes: Vec<_> = fs::read_dir(fixture.state())
+        .unwrap()
+        .map(|entry| entry.unwrap().path())
+        .filter(|path| {
+            path.file_name()
+                .unwrap()
+                .to_string_lossy()
+                .starts_with("hook-flush-")
+        })
+        .collect();
+    assert!(
+        !notes.is_empty(),
+        "the refused startup keeps its bounded diagnostic"
+    );
+    for note in notes {
+        let text = fs::read_to_string(&note).unwrap();
+        assert!(
+            text.starts_with("hook_flush_start=unconfirmed stage=claim queue_publication=accepted"),
+            "{text}"
+        );
+        assert_eq!(text.lines().count(), 1);
+        assert!(text.len() <= 160);
+        assert!(!text.contains("flusher_pid="));
+        // Claim failed before any child could start. Delete only this verified
+        // fixture-owned note before the shared successful-worker cleanup check;
+        // unknown logs remain visible to that check.
+        fs::remove_file(note).unwrap();
+    }
+
     fixture.json(&[
         "role",
         "set",

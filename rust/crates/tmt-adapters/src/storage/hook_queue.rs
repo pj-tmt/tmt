@@ -23,6 +23,19 @@ const READ_IDENTITY: &str = "SELECT sequence,CAST(event_id AS BLOB),CAST(identit
 const READ_QUEUE: &str = "SELECT sequence,CAST(event_id AS BLOB),CAST(identity_id AS BLOB),CAST(payload AS BLOB) FROM hook_writes WHERE (?1=0 OR committed=0) AND ?2 IS NULL ORDER BY sequence LIMIT 1";
 const SCHEMA: &str = "CREATE TABLE IF NOT EXISTS hook_writes(sequence INTEGER PRIMARY KEY AUTOINCREMENT,event_id TEXT NOT NULL UNIQUE,identity_id TEXT,provisional_batch TEXT,kind TEXT NOT NULL CHECK(kind='capture'),enqueued_ms INTEGER NOT NULL CHECK(enqueued_ms>=0),committed INTEGER NOT NULL DEFAULT 0 CHECK(committed IN (0,1)),payload TEXT NOT NULL CHECK(length(CAST(payload AS BLOB))<=131072)) STRICT; CREATE INDEX IF NOT EXISTS hook_writes_identity_pending ON hook_writes(identity_id,committed,sequence); CREATE INDEX IF NOT EXISTS hook_writes_provisional_batch ON hook_writes(provisional_batch); CREATE TABLE IF NOT EXISTS invalid_hook_writes(event_id TEXT PRIMARY KEY NOT NULL,quarantined_ms INTEGER NOT NULL) STRICT; CREATE INDEX IF NOT EXISTS invalid_hook_writes_retention ON invalid_hook_writes(quarantined_ms,event_id); CREATE TABLE IF NOT EXISTS provisional_batches(turn_key TEXT PRIMARY KEY NOT NULL,batch_id TEXT NOT NULL,created_ms INTEGER NOT NULL) STRICT; CREATE INDEX IF NOT EXISTS provisional_batches_retention ON provisional_batches(created_ms,turn_key); CREATE TABLE IF NOT EXISTS hook_retention_scan(id INTEGER PRIMARY KEY CHECK(id=1),receipt_ms INTEGER NOT NULL,receipt_id TEXT NOT NULL,batch_ms INTEGER NOT NULL,batch_key TEXT NOT NULL) STRICT; INSERT OR IGNORE INTO hook_retention_scan VALUES(1,-1,'',-1,''); PRAGMA user_version=3;";
 
+/// Publication evidence is separate from whether a finite worker could start.
+/// Unknown never authorizes another append or a terminal failure receipt.
+#[derive(Debug)]
+pub enum CapturePublication {
+    Queued,
+    Recorded(CaptureResult),
+    Unpublished(StorageError),
+    Unknown {
+        publication: StorageError,
+        readback: StorageError,
+    },
+}
+
 pub struct HookQueue {
     database: PathBuf,
     connection: Connection,
@@ -395,6 +408,70 @@ impl HookQueue {
         tx.commit()
             .map_err(|e| classify(e, "Commit hook queue append"))
     }
+    /// Reconcile an append error only after its transaction has finished.
+    pub fn enqueue_observed(
+        &self,
+        event: &CaptureEvent,
+        deadline: std::time::Instant,
+    ) -> CapturePublication {
+        if std::time::Instant::now() >= deadline {
+            return CapturePublication::Unpublished(StorageError::new(
+                StorageErrorCode::Busy,
+                "Hook publication budget expired",
+            ));
+        }
+        self.observe_enqueue_result(event, self.enqueue(event), deadline)
+    }
+
+    fn observe_enqueue_result(
+        &self,
+        event: &CaptureEvent,
+        result: Result<(), StorageError>,
+        deadline: std::time::Instant,
+    ) -> CapturePublication {
+        let Err(publication) = result else {
+            return CapturePublication::Queued;
+        };
+        let readback = (|| {
+            let remaining = deadline
+                .checked_duration_since(std::time::Instant::now())
+                .ok_or_else(|| {
+                    StorageError::new(
+                        StorageErrorCode::Busy,
+                        "Hook publication readback budget expired",
+                    )
+                })?;
+            self.connection
+                .busy_timeout(remaining.min(Duration::from_millis(500)))
+                .map_err(|error| classify(error, "Bound hook publication readback"))?;
+            let queued: bool = self
+                .connection
+                .query_row(
+                    "SELECT EXISTS(SELECT 1 FROM hook_writes WHERE event_id=?)",
+                    [event.id()],
+                    |row| row.get(0),
+                )
+                .map_err(|error| classify(error, "Read back hook publication"))?;
+            if queued {
+                return Ok(Some(CapturePublication::Queued));
+            }
+            // A flusher commits the main receipt before removing its queue row.
+            // Queue absence alone therefore cannot prove non-publication.
+            Ok(
+                capture::read_publication_receipt(&self.database, event.id(), deadline)?
+                    .map(CapturePublication::Recorded),
+            )
+        })();
+        match readback {
+            Ok(Some(outcome)) => outcome,
+            Ok(None) => CapturePublication::Unpublished(publication),
+            Err(readback) => CapturePublication::Unknown {
+                publication,
+                readback,
+            },
+        }
+    }
+
     /// One stable lock inode for all flushers. A contender exits without waiting;
     /// the current drainer owns every committed row until its empty handoff.
     pub fn claim(&self) -> io::Result<Flock<File>> {
@@ -410,7 +487,10 @@ impl HookQueue {
         let guard = match self.claim() {
             Ok(guard) => guard,
             Err(error) if error.kind() == io::ErrorKind::WouldBlock => return Ok(()),
-            Err(error) => return Err(error),
+            Err(error) => {
+                let _ = worker::note_claim_failure(&self.database, &error, deadline);
+                return Err(error);
+            }
         };
         drop(guard);
         worker::start(&self.database, deadline)
