@@ -1370,3 +1370,161 @@ mod named_surface_tests {
         );
     }
 }
+
+mod raw_link_tests {
+    use super::*;
+    use ratatui::{Terminal, backend::TestBackend};
+
+    fn app() -> App {
+        let mut app = crate::board::app::workspace::tests::board();
+        app.focus = 1;
+        app
+    }
+
+    fn hits(app: &App) -> Vec<Hit> {
+        app.member_links.borrow().hits.clone()
+    }
+
+    fn paint_plain(app: &App, terminal: &mut Terminal<TestBackend>, source: &str, displayed: &str) {
+        terminal
+            .draw(|frame| {
+                app.member_links.borrow_mut().begin_frame(frame.area());
+                let area = Rect::new(2, 1, 60, 1);
+                tmt_tui::components::strip::paint_left(
+                    frame.buffer_mut(),
+                    area,
+                    ratatui::text::Line::raw(displayed),
+                );
+                paint_plain_hits(frame, app, area, source, displayed, false);
+            })
+            .unwrap();
+    }
+
+    fn down(column: u16, row: u16) -> MouseEvent {
+        MouseEvent {
+            kind: MouseEventKind::Down(MouseButton::Left),
+            column,
+            row,
+            modifiers: KeyModifiers::NONE,
+        }
+    }
+
+    #[test]
+    fn a_plain_row_links_bare_web_urls_by_the_transcript_rule_only() {
+        let app = app();
+        let mut terminal = Terminal::new(TestBackend::new(70, 4)).unwrap();
+        let source = "see https://example.com/a_b?q=1). or file:///tmp/x httpfoo javascript:x";
+        paint_plain(&app, &mut terminal, source, source);
+        let hits = hits(&app);
+        assert_eq!(hits.len(), 1, "{hits:?}");
+        assert_eq!(
+            hits[0].target,
+            Target::Url("https://example.com/a_b?q=1".into())
+        );
+        assert_eq!(
+            hits[0].area,
+            Rect::new(2 + 4, 1, 27, 1),
+            "no trailing ')' or '.'"
+        );
+        // The same token rule decides the transcript's bare links.
+        for token in ["https://example.com/a_b?q=1", "http://x.dev"] {
+            assert!(is_bare_url(token), "{token}");
+        }
+        for token in ["file:///tmp/x", "httpfoo", "javascript:x"] {
+            assert!(!is_bare_url(token), "{token}");
+        }
+    }
+
+    #[test]
+    fn a_cut_row_keeps_only_the_painted_part_as_the_hit_and_opens_the_whole_address() {
+        let app = app();
+        let mut terminal = Terminal::new(TestBackend::new(70, 4)).unwrap();
+        paint_plain(
+            &app,
+            &mut terminal,
+            "see https://example.com/very/long/path",
+            "see https://example.c…",
+        );
+        let hits = hits(&app);
+        assert_eq!(hits.len(), 1, "{hits:?}");
+        assert_eq!(hits[0].area.width, "https://example.c".len() as u16);
+        assert_eq!(
+            hits[0].target,
+            Target::Url("https://example.com/very/long/path".into())
+        );
+    }
+
+    #[test]
+    fn a_raw_link_in_a_plain_row_highlights_under_the_pointer_and_a_press_opens_its_popover() {
+        let mut app = app();
+        let look = app.look();
+        // The popover needs room beside the link.
+        let mut terminal = Terminal::new(TestBackend::new(70, 20)).unwrap();
+        let source = "notes: https://example.com/x then text";
+        paint_plain(&app, &mut terminal, source, source);
+        let hit = hits(&app)[0].clone();
+        let before = terminal.backend().buffer()[(hit.area.x - 2, hit.area.y)].clone();
+        assert!(
+            app.member_links
+                .borrow_mut()
+                .move_pointer((hit.area.x + 1, hit.area.y).into(), true)
+        );
+        paint_plain(&app, &mut terminal, source, source);
+        for x in hit.area.x..hit.area.right() {
+            let cell = &terminal.backend().buffer()[(x, hit.area.y)];
+            assert_eq!(
+                cell.bg,
+                look.selection().bg.unwrap_or(ratatui::style::Color::Reset)
+            );
+            assert!(cell.modifier.contains(Modifier::UNDERLINED));
+        }
+        assert_eq!(
+            terminal.backend().buffer()[(hit.area.x - 2, hit.area.y)],
+            before,
+            "the text around the link is not highlighted"
+        );
+        assert_eq!(
+            app.member_link_mouse(down(hit.area.x, hit.area.y)),
+            Some(Effect::None)
+        );
+        let menu = app.menu.as_ref().expect("the link popover");
+        assert!(
+            menu.entries
+                .iter()
+                .any(|entry| entry.label.contains("Open")),
+            "{:?}",
+            menu.entries
+                .iter()
+                .map(|entry| &entry.label)
+                .collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn a_raw_transcript_link_and_its_markdown_twin_share_one_link_path_at_every_width() {
+        for width in [60, 160] {
+            let mut app = app();
+            app.view.as_mut().unwrap().replies = vec![serde_json::json!({
+                "recipientId": crate::board::app::workspace::tests::MEMBER,
+                "requestId": "raw-and-markdown",
+                "response": "Raw https://example.com/raw/address/that/is/long/enough/to/wrap/at/sixty here.\n\n- in a list https://example.com/list\n\n> quoted https://example.com/quote\n\nMarkdown [twin](https://example.com/twin).",
+            })];
+            let mut terminal = Terminal::new(TestBackend::new(width, 40)).unwrap();
+            terminal
+                .draw(|frame| crate::board::view::render(frame, &app))
+                .unwrap();
+            let targets: Vec<_> = hits(&app).into_iter().map(|hit| hit.target).collect();
+            for url in [
+                "https://example.com/raw/address/that/is/long/enough/to/wrap/at/sixty",
+                "https://example.com/list",
+                "https://example.com/quote",
+                "https://example.com/twin",
+            ] {
+                assert!(
+                    targets.contains(&Target::Url(url.into())),
+                    "{width}: {url} in {targets:?}"
+                );
+            }
+        }
+    }
+}

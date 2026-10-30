@@ -10,6 +10,32 @@ pub(super) struct Resolved {
     pub name: String,
 }
 
+/// A whitespace-separated word without its trailing spaces and closing punctuation: the
+/// token the transcript and plain rows test for a bare web link.
+pub(super) fn word_token(word: &str) -> &str {
+    word.trim_end_matches(char::is_whitespace)
+        .trim_end_matches(['.', ',', '!', ')', ']', ':', ';'])
+}
+
+/// Whether a token is a bare web link the board opens, as the transcript links one.
+pub(super) fn is_bare_url(token: &str) -> bool {
+    token.starts_with("http") && token.len() <= 4096 && crate::effects::web_link(token).is_ok()
+}
+
+/// The byte ranges of the bare web links in plain text, by the transcript's rule.
+fn bare_urls(text: &str) -> Vec<Range<usize>> {
+    let mut offset = 0;
+    let mut found = Vec::new();
+    for word in text.split_inclusive(char::is_whitespace) {
+        let token = word_token(word);
+        if is_bare_url(token) {
+            found.push(offset..offset + token.len());
+        }
+        offset += word.len();
+    }
+    found
+}
+
 fn word_char(ch: char) -> bool {
     ch.is_alphanumeric() || matches!(ch, '-' | '_')
 }
@@ -149,6 +175,7 @@ struct Cached {
     look: crate::look::Look,
     mapped: Option<std::rc::Rc<super::markdown::Mapped>>,
     resolved: Option<std::rc::Rc<[Resolved]>>,
+    urls: Option<std::rc::Rc<[Range<usize>]>>,
     used: bool,
 }
 
@@ -224,6 +251,7 @@ impl State {
                     look,
                     mapped: None,
                     resolved: None,
+                    urls: None,
                     used: true,
                 });
                 #[cfg(test)]
@@ -262,6 +290,16 @@ impl State {
                 .resolved
                 .get_or_insert_with(|| resolve(text, inventory).into()),
         )
+    }
+    /// The bare web links of a plain row's complete text, cached with its member names.
+    fn plain_urls(
+        &mut self,
+        text: &str,
+        look: crate::look::Look,
+        inventory: &Inventory,
+    ) -> std::rc::Rc<[Range<usize>]> {
+        let entry = self.cached(text, usize::MAX, look, inventory);
+        std::rc::Rc::clone(entry.urls.get_or_insert_with(|| bare_urls(text).into()))
     }
     pub(super) fn move_pointer(&mut self, point: ratatui::layout::Position, active: bool) -> bool {
         let next = active
@@ -899,6 +937,37 @@ pub(super) fn paint_plain_hits(
                 source: None,
             });
         }
+    }
+    // A bare web link opens its complete source address; when the row is cut, only its
+    // painted part is the hit.
+    let urls = app
+        .member_links
+        .borrow_mut()
+        .plain_urls(source, app.look(), &app.references);
+    for (index, range) in urls.iter().enumerate() {
+        let before = &source[..range.start];
+        let Some(start) = displayed.find(before) else {
+            continue;
+        };
+        let url = &source[range.clone()];
+        let shown = displayed[start + before.len()..]
+            .char_indices()
+            .zip(url.chars())
+            .take_while(|((_, painted), wanted)| painted == wanted)
+            .last()
+            .map_or(0, |((at, painted), _)| at + painted.len_utf8());
+        let column = unicode_width::UnicodeWidthStr::width(&displayed[..start + before.len()]);
+        if shown == 0 || column >= usize::from(area.width) {
+            continue;
+        }
+        let tail = &displayed[start + before.len()..];
+        links.push(Link {
+            column,
+            width: unicode_width::UnicodeWidthStr::width(&tail[..shown]),
+            target: Target::Url(url.to_owned()),
+            occurrence: resolved.len() + index,
+            source: None,
+        });
     }
     paint_hits(
         frame,

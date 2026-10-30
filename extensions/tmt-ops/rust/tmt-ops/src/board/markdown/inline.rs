@@ -33,14 +33,10 @@ impl Renderer<'_> {
         let mut emitted = 0;
         let mut offset = 0;
         for word in text.split_inclusive(char::is_whitespace) {
-            let token = word
-                .trim_end_matches(char::is_whitespace)
-                .trim_end_matches(['.', ',', '!', ')', ']', ':', ';']);
+            let token = super::super::member_links::word_token(word);
             let label = issue_label(token);
-            let bare_url = self.link_url.is_none()
-                && token.starts_with("http")
-                && token.len() <= 4096
-                && crate::effects::web_link(token).is_ok();
+            let bare_url =
+                self.link_url.is_none() && super::super::member_links::is_bare_url(token);
             let numbered = token.strip_prefix('#').is_some_and(|number| {
                 !number.is_empty() && number.bytes().all(|byte| byte.is_ascii_digit())
             });

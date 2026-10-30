@@ -33,7 +33,11 @@ Openable links (`effects::openable`: `http`, `https`, `mailto`) are recorded by 
 renderer as `member_links::Target::Url` cells beside the member mentions, for a label,
 an autolink and a bare address outside code. They share the hit table, hover, focus
 and Enter with mentions; a `Url` hit opens the popover of `member_links/popover.rs`
-(a `Menu`: the origin as an inert row, then Open, Copy, Show full). `effects::open_argv`
+(a `Menu`: the origin as an inert row, then Open, Copy, Show full). A bare address is a
+word less its closing punctuation (`member_links::word_token`) that `is_bare_url` admits;
+plain rows (`paint_plain_hits`: notices, key/value fields, workspace rows, the squad
+focus) use the same rule from the row's complete source, cached with its member names,
+and keep only the painted part of a cut address as the hit, opening the whole one. `effects::open_argv`
 fills `{url}` as one argument; `detect_opener` picks the default per `OpenHost`.
 `board/hyperlinks.rs` also lets a supporting terminal click an `http(s)` label: `paint_hits`
 leaves the cells alone and `Hit`s of `Target::Url` become `Span`s (`State::web_spans`),
@@ -272,7 +276,9 @@ claim read and do not cause an automatic retry. Reopening the reader or explicit
 Mark read supplies a new admission. Failed work does not block other conversations.
 
 Every painted `● N unread` (top bar, an Agents row's STATE, the conversation header,
-the composer info line) and the `unread` action (`u`) open the Unread overlay
+the composer info line) records an `unread_hits` area. The one under the pointer
+(`App::unread_hover`, while the board takes input) is restyled after the frame's counts
+with the composer chip's Hot style. A press on one, or the `unread` action (`u`), opens the Unread overlay
 (`board/unread_overlay`): the scope's unread answers, grouped by agent, oldest first,
 read per agent on the selected lane while it is open (`SelectedRead::UnreadBodies`,
 keyed by overlay session; a failed read is asked again only after scrolling away and

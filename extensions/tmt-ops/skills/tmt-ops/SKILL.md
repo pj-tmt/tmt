@@ -483,7 +483,7 @@ count; zero observed unread never invents an unread state. Only answer body rows
 actually visible in the focused conversation are acknowledged in Core. Opening a
 conversation or jumping with `j` does not mark offscreen answers read. Clicking any
 `● N unread` (the top bar's, an Agents row's STATE, the conversation header's or the
-composer's) or pressing `u` opens the Unread overlay: the unread answers of that
+composer's; each highlights under the pointer) or pressing `u` opens the Unread overlay: the unread answers of that
 agent, squad or pool (everyone for the top bar, or for `u` with nothing selected),
 grouped by agent with a count, oldest first, in full with scrolling. An answer turns
 read when its text is painted inside the overlay; answers not scrolled into view stay
@@ -844,8 +844,9 @@ and boxed tables (literal source when the grid is too wide). Links and member
 references use underlined text; GitHub issue URLs shorten to `owner/repo#N`.
 Conversation bodies always render in full; the pane scrolls.
 
-Clicking a link label, a bare `http(s)` address in the text, or pressing Enter on a
-keyboard-focused link opens a small popover under it. It names the address up to its
+Clicking a link label, a bare `http(s)` address in the text (in the conversation, a
+notice, a field or an Agents row, where it also highlights under the pointer), or
+pressing Enter on a keyboard-focused link opens a small popover under it. It names the address up to its
 host first, because a label can differ from its target, then offers Open, Copy and
 Show full (`o`, `y`, `f`). Copy puts the whole address on the clipboard; Show full
 lists every character, wrapped. Only `http`, `https` and `mailto` open; any other

@@ -1095,3 +1095,102 @@ fn a_new_actor_never_inherits_an_open_overlays_caption_or_cursor() {
     assert!(app.unread_overlay_page().is_none());
     assert!(app.unread_overlay_read().is_none());
 }
+
+/// The painted buffer at 160 columns.
+fn buffer(app: &App, height: u16) -> ratatui::buffer::Buffer {
+    let mut terminal = Terminal::new(TestBackend::new(160, height)).unwrap();
+    terminal
+        .draw(|frame| crate::board::view::render(frame, app))
+        .unwrap();
+    terminal.backend().buffer().clone()
+}
+
+fn pointer(app: &mut App, column: u16, row: u16) {
+    app.mouse(
+        MouseEvent {
+            kind: MouseEventKind::Moved,
+            column,
+            row,
+            modifiers: KeyModifiers::NONE,
+        },
+        std::time::Instant::now(),
+    );
+}
+
+#[test]
+fn the_top_bar_and_row_unread_counts_highlight_only_under_the_pointer() {
+    crate::status::with_now_ms(10_000_000, || {
+        let mut app = app_with_two_members();
+        install(
+            &mut app,
+            &[
+                (MEMBER, "w", 8_000_000, "final"),
+                (OTHER, "c", 9_000_000, "final"),
+            ],
+        );
+        app.workspace.expanded.insert(ROOM.into());
+        draw(&app, 51);
+        let look = app.look();
+        let hot = tmt_cli_style::theme::screen::chip(
+            &look.theme,
+            tmt_cli_style::theme::screen::ChipKind::Secondary,
+            tmt_cli_style::theme::screen::ChipState::Hot,
+            look.depth,
+        );
+        let hits: Vec<_> = app
+            .unread_hits
+            .borrow()
+            .iter()
+            .map(|hit| (hit.area, hit.target.clone()))
+            .collect();
+        let top = hits.iter().find(|(_, target)| target.is_none()).unwrap().0;
+        let row = hits
+            .iter()
+            .find(|(_, target)| matches!(target, Some(OpsTarget::Member { .. })))
+            .unwrap()
+            .0;
+        let at_rest = buffer(&app, 51);
+        for area in [top, row] {
+            pointer(&mut app, area.x, area.y);
+            let painted = buffer(&app, 51);
+            for x in area.left()..area.right() {
+                assert_eq!(painted[(x, area.y)].bg, hot.bg.unwrap(), "{area:?}");
+            }
+            for other in [top, row].into_iter().filter(|other| *other != area) {
+                assert_eq!(
+                    painted[(other.x, other.y)],
+                    at_rest[(other.x, other.y)],
+                    "only the count under the pointer: {area:?}"
+                );
+            }
+            if area.x > 0 {
+                assert_eq!(
+                    painted[(area.x - 1, area.y)],
+                    at_rest[(area.x - 1, area.y)],
+                    "nothing outside the count"
+                );
+            }
+        }
+        pointer(&mut app, 0, 50);
+        let left = buffer(&app, 51);
+        assert_eq!(
+            left[(top.x, top.y)],
+            at_rest[(top.x, top.y)],
+            "moving off clears it"
+        );
+        // A press still opens the scope's overlay, and an open overlay turns the hover off.
+        pointer(&mut app, row.x, row.y);
+        app.mouse(
+            MouseEvent {
+                kind: MouseEventKind::Down(MouseButton::Left),
+                column: row.x,
+                row: row.y,
+                modifiers: KeyModifiers::NONE,
+            },
+            std::time::Instant::now(),
+        );
+        assert!(app.unread_overlay.is_some());
+        pointer(&mut app, top.x, top.y);
+        assert_eq!(app.unread_hover.get(), None, "no hover under a modal");
+    });
+}
