@@ -1023,6 +1023,7 @@ fn snapshot_frames(styles: &mut Styles) -> Vec<Value> {
             "snapshots-generations",
             "snapshots-generation-preview",
             "snapshots-save-latest",
+            "snapshots-save-reopened",
         ],
         |_| grid(&[150, 80], &[43]),
         |scene, look, _, _| crate::board::recovery::tests::generation_case(scene, look),

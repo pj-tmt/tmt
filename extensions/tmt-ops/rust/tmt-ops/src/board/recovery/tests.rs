@@ -1539,6 +1539,15 @@ pub(crate) fn generation_case(scene: &str, look: crate::look::Look) -> crate::bo
             "snapshots-save-latest" => {
                 c.choose("save");
             }
+            // A typed name kept by Esc and reopened: Back · Discard · Save.
+            "snapshots-save-reopened" => {
+                c.choose("save");
+                for ch in "night".chars() {
+                    c.input(&key(KeyCode::Char(ch)));
+                }
+                c.input(&key(KeyCode::Esc));
+                assert!(c.open().is_none());
+            }
             _ => panic!("unknown generation capture {scene}"),
         }
     }
