@@ -341,6 +341,10 @@ selection never substitutes for runtime/archive/browser proof.
 hourly Infra lead tick. Run it manually beside the existing tick before changing
 its cron prompt; the lead compares the two reports after the script lands.
 The script does not judge reviews, attribute causes, arm PRs or publish releases.
+Release evidence reads at most the first two 100-record pages and states that older
+releases were not read; it is not the cut allocator's consistent catalogue. A recent-page
+refusal marks the release section `INCOMPLETE`, preserves the cursor and still collects
+the other sections. Missing smoke-tag evidence remains an explicit anomaly.
 Export the same `TMT_CI_WATCH_STATE` directory for watcher and tick: its local heartbeat adds timestamped anomalies for missing/stale (>2 h)/invalid/error evidence or coverage notes younger than 24 h, without API reads or changes to REST `INCOMPLETE` semantics.
 A new output directory establishes a zero-call bootstrap boundary, not a health
 report. Run the command again for evidence after that boundary:
@@ -370,8 +374,8 @@ exact-head statements are anomalies. JSON retains
 exact comment/head/stated lead; statements (including NO-GO) never imply acceptance.
 Guide-index changes are conservatively flagged at file level for lead inspection.
 
-All calls share 80 requests/120 seconds, including failures; the catalogue has its
-stricter inner bound. REST is GET-only, with two fixed read-only GraphQL exceptions:
+All calls share 80 requests/120 seconds, including failures and the bounded release
+view. REST is GET-only, with two fixed read-only GraphQL exceptions:
 queue positions and one <=100-PR review batch. Queue errors/failure/>100 entries print
 `queue coverage unavailable`, never timestamp-derived positions. Review cost is
 logged in `calls.jsonl`; missing/invalid cost, errors or >20 points refuses. The
@@ -412,15 +416,15 @@ members; duplicates, additions, drops or shrinking pages refuse. This checks obs
 membership, not a transactional snapshot. Reserve all hydration calls plus the review
 batch before reading any candidate; insufficient budget refuses without a partial set.
 
-Quiet one-page acquisition costs `19 + P + H` calls (`P` catalogue pages, `H` recently
+Quiet one-page acquisition costs `17 + min(P, 2) + H` calls (`P` release pages, `H` recently
 updated closed PR candidates, including unmerged closures), plus tracked/new failure
 details, extra list pages, one nonempty review query and per-PR REST fallbacks.
 `H` grows with merges/closed-PR updates; split a long window with `--until`.
 The timed fixture (P=7, H=0, one review batch, 0.5 s other calls, 1.8 s per
-single-page failed attempt) supports 53 uncached failed attempts: 80 calls/108.9 s;
-the 54th refuses. Extra pages, hydration, tracked runs or slow calls lower this
-ceiling. Twenty attempts plus the full 60 s log phase cost at most 109.5 s in
-that fixture; 10/30 workers across ten attempts cost at most 91.5 s. The shared
+single-page failed attempt) supports 60 uncached failed attempts: 80 calls/118 s;
+the 61st refuses. Extra pages, hydration, tracked runs or slow calls lower this
+ceiling. Twenty attempts plus the full 60 s log phase cost at most 106 s in
+that fixture; 10/30 workers across ten attempts cost at most 88 s. The shared
 80/120 limits always apply; mandatory exhaustion refuses with the cursor unchanged.
 Bootstrap has no historical detail reads. Explicit `--since` without a cursor opts
 into <=24-hour historical collection; terminal job/log cache can survive refusal,
