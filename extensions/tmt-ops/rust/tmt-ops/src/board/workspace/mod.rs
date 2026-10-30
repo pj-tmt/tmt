@@ -734,15 +734,17 @@ impl OpsWorkspace {
         // The Hidden group closes the list. Unfolded (`reveal_hidden`), its squads sit
         // one level in; search and the Pinned filter keep it only for what matches.
         if !hidden.is_empty() {
-            let unfolded = expand
-                || self.visibility.reveal_hidden
-                || !query.is_empty()
-                || self.filter == AgentsFilter::Pinned;
-            let children: Vec<_> = hidden
-                .iter()
-                .flat_map(|squad| squad_rows(squad, 1))
-                .collect();
-            if !children.is_empty() || (query.is_empty() && self.filter != AgentsFilter::Pinned) {
+            let narrowed = !query.is_empty() || self.filter == AgentsFilter::Pinned;
+            // A folded group builds no rows for what it holds.
+            let children: Vec<_> = if expand || self.visibility.reveal_hidden || narrowed {
+                hidden
+                    .iter()
+                    .flat_map(|squad| squad_rows(squad, 1))
+                    .collect()
+            } else {
+                Vec::new()
+            };
+            if !children.is_empty() || !narrowed {
                 rows.push(OpsTreeRow {
                     target: OpsTarget::Hidden,
                     title: "Hidden".into(),
@@ -755,9 +757,7 @@ impl OpsWorkspace {
                     count: Some(hidden.len()),
                     observation: roster.observation,
                 });
-                if unfolded {
-                    rows.extend(children);
-                }
+                rows.extend(children);
             }
         }
         rows
