@@ -89,6 +89,7 @@ mod tree_row;
 mod unread;
 mod unread_overlay;
 mod versions;
+mod wheel_hint;
 pub(crate) use crate::tabs;
 mod shell;
 mod terminal;
@@ -276,6 +277,8 @@ pub(in crate::board) enum BoardEvent {
     NotesRead(conversation_checklist::Completed),
     /// The running versions, read once at start; they own no user action or progress notice.
     VersionsRead(Option<versions::Versions>),
+    /// Inside tmux, the root `WheelUpPane` binding sends wheel-up to copy-mode (read once at start).
+    WheelUpEscapes,
 }
 
 impl BoardEvent {
@@ -319,6 +322,7 @@ impl BoardEvent {
             Self::AnswersAcknowledged(_) => "AnswersAcknowledged",
             Self::NotesRead(_) => "NotesRead",
             Self::VersionsRead(_) => "VersionsRead",
+            Self::WheelUpEscapes => "WheelUpEscapes",
             Self::Input(Event::Key(_)) => "Input::Key",
             Self::Input(Event::Mouse(_)) => "Input::Mouse",
             Self::Input(Event::Paste(_)) => "Input::Paste",
@@ -1309,6 +1313,11 @@ fn session(
                         dirty = true;
                         Effect::None
                     }
+                    Ok(BoardEvent::WheelUpEscapes) => {
+                        app.wheel_up_escapes();
+                        dirty = true;
+                        Effect::None
+                    }
                     Ok(BoardEvent::AnswersAcknowledged(result)) => {
                         app.finished_unread(result);
                         dirty = true;
@@ -1808,6 +1817,12 @@ pub fn run(
         labels.as_ref().map(crate::labels::Reader::refresher),
         events.clone(),
     );
+    if let Some(socket) = effects::tmux_socket() {
+        let events = events.clone();
+        wheel_hint::spawn(socket, move || {
+            let _ = events.send(BoardEvent::WheelUpEscapes);
+        });
+    }
     spawn_input(events, filter);
     lane.submit(lane::Job::Versions);
     let resumed = std::cell::Cell::new(false);

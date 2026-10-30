@@ -1546,6 +1546,29 @@ full request/identity and exact byte range.
 For terminal-native selection, use the terminal's mouse-capture bypass modifier
 (commonly Shift); the exact modifier belongs to the terminal.
 
+## tmux wheel
+
+If wheel-up over the board scrolls tmux's own scrollback while wheel-down still
+scrolls the board, a root `WheelUpPane` binding in your tmux.conf sends the wheel to
+copy-mode without asking whether the pane wants it. Inside tmux the board reads that
+binding once at start (`tmux list-keys -T root WheelUpPane`, read only) and shows
+`Wheel-up may scroll tmux, not the board` when it tests neither `#{alternate_on}`
+nor `#{mouse_any_flag}`. Keep your own conditions and add those two, as tmux's
+default binding does, for example:
+
+```
+bind-key -T root WheelUpPane if-shell -F "#{||:#{alternate_on},#{pane_in_mode},#{mouse_any_flag}}" { send-keys -M } { copy-mode -e }
+```
+
+A binding that passes the wheel only to some programs keeps its name matches:
+
+```
+bind-key -T root WheelUpPane if-shell -F "#{||:#{||:#{alternate_on},#{mouse_any_flag}},#{||:#{m:*nvim*,#{pane_current_command}},#{m:*lazygit*,#{pane_current_command}}}}" { send-keys -M } { copy-mode -e }
+```
+
+Then run `tmux source-file ~/.tmux.conf`. This is your edit; Ops never changes
+tmux configuration or options.
+
 ## Fold board panes
 
 The new workspace uses squad expansion and Auto/Side/Stack placement. Left/Right
