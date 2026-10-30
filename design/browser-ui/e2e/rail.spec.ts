@@ -35,6 +35,55 @@ for (const renderer of ['native', 'react'])
           );
         const original = await paints();
         expect(original[0]![1]).not.toBe(original[1]![1]);
+        const pillLook = await counts.evaluate((node) => {
+          const total = node.children[0] as HTMLElement;
+          const attention = node.children[1] as HTMLElement;
+          const rail = node.closest('.tmt-ui-rail')!;
+          const row = node.closest('a')!;
+          const canvas = document.createElement('canvas');
+          canvas.width = canvas.height = 1;
+          const context = canvas.getContext('2d')!;
+          const rgb = (color: string) => {
+            context.fillStyle = color;
+            context.fillRect(0, 0, 1, 1);
+            return [...context.getImageData(0, 0, 1, 1).data].slice(0, 3);
+          };
+          const light = (channels: number[]) =>
+            channels
+              .map((n) => n / 255)
+              .map((n) => (n <= 0.04045 ? n / 12.92 : ((n + 0.055) / 1.055) ** 2.4))
+              .reduce((sum, n, i) => sum + n * [0.2126, 0.7152, 0.0722][i]!, 0);
+          const contrast = (a: number[], b: number[]) =>
+            (Math.max(light(a), light(b)) + 0.05) / (Math.min(light(a), light(b)) + 0.05);
+          const css = getComputedStyle(total);
+          const fill = rgb(css.backgroundColor);
+          const metrics = (element: HTMLElement) => {
+            const style = getComputedStyle(element);
+            return {
+              height: element.getBoundingClientRect().height,
+              padding: style.padding,
+              font: style.fontFamily,
+              size: style.fontSize,
+              minimum: style.minWidth,
+            };
+          };
+          return {
+            total: metrics(total),
+            attention: metrics(attention),
+            body: getComputedStyle(rail).fontFamily,
+            railContrast: contrast(fill, rgb(getComputedStyle(rail).backgroundColor)),
+            selectionContrast: contrast(fill, rgb(getComputedStyle(row).backgroundColor)),
+            textContrast: contrast(fill, rgb(css.color)),
+            neutralSpread: Math.max(...fill) - Math.min(...fill),
+          };
+        });
+        expect(pillLook.total).toEqual(pillLook.attention);
+        expect(pillLook.total.font).toBe(pillLook.body);
+        expect(pillLook.railContrast).toBeGreaterThanOrEqual(1.2);
+        expect(pillLook.selectionContrast).toBeGreaterThanOrEqual(1.2);
+        expect(pillLook.textContrast).toBeGreaterThanOrEqual(4.5);
+        expect(pillLook.neutralSpread).toBeLessThanOrEqual(32);
+
         await expect(counts.locator('[data-kind="needs-you"]')).toHaveText('3');
         const allLabel = rail.locator('[data-id="all"] .tmt-ui-module-menu-label');
         const projectLabel = rail.locator('[data-id="project"] .tmt-ui-module-menu-label');
@@ -53,7 +102,12 @@ for (const renderer of ['native', 'react'])
         );
         const settings = rail.locator('.tmt-ui-rail-sub > li:last-child');
         await expect(settings).toHaveClass('tmt-ui-rail-settings');
-        await expect(settings).toHaveCSS('border-top-width', '1px');
+        expect(
+          await settings.evaluate((node) => {
+            const css = getComputedStyle(node, '::before');
+            return { left: css.left, width: css.borderTopWidth };
+          }),
+        ).toEqual({ left: '36px', width: '1px' });
         await testInfo.attach(`rail-${renderer}-${theme}-${width}`, {
           body: await page.screenshot(),
           contentType: 'image/png',

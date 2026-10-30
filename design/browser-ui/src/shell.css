@@ -387,9 +387,15 @@
   cursor: pointer;
 }
 .tmt-ui-rail-settings {
+  position: relative;
   margin-top: var(--tmt-ui-space-s);
   padding-top: var(--tmt-ui-space-xs);
+}
+.tmt-ui-rail-settings::before {
+  position: absolute;
+  inset: 0 0 auto 36px;
   border-top: var(--tmt-ui-rule-width) solid var(--tmt-ui-surface-rule);
+  content: '';
 }
 .tmt-ui-rail-sub-item[aria-current='page'],
 .tmt-ui-rail-sub-item[aria-current='location'] {
@@ -401,11 +407,11 @@
   box-sizing: border-box;
   min-width: 20px;
   margin-left: auto;
-  padding: var(--tmt-ui-rail-count-padding-block) 5px;
+  padding: var(--tmt-ui-rail-count-padding-block) var(--tmt-ui-space-s);
   border-radius: var(--tmt-ui-radius-pill);
-  background: var(--tmt-ui-surface-hover);
-  color: var(--tmt-ui-color-secondary);
-  font: var(--tmt-ui-rail-count-size)/1 var(--tmt-ui-font-mono);
+  background: color-mix(in srgb, var(--tmt-ui-color-secondary) 35%, var(--tmt-ui-surface-sheet));
+  color: var(--tmt-ui-color-text);
+  font: var(--tmt-ui-rail-count-size)/1 var(--tmt-ui-font-body);
   text-align: center;
 }
 .tmt-ui-shell-counts {
@@ -419,8 +425,6 @@
 }
 /* A needs-you count is a small amber pill; with nothing waiting there is no count to draw. */
 .tmt-ui-shell-count[data-kind='needs-you'] {
-  padding: 2px var(--tmt-ui-space-s);
-  border-radius: var(--tmt-ui-radius-pill);
   background: var(--tmt-ui-surface-waiting-soft);
   color: var(--tmt-ui-color-waiting);
 }

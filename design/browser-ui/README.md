@@ -127,14 +127,16 @@ indent. The phone drawer shows this same tree, without a separate module tab str
 Rows truncate to one line and retain their full labels on hover.
 
 A child can carry `total` and `count`: neutral grey and amber rounded pills, respectively,
-separated by `space-xs` (4px). Zero is hidden, values above 99 read `99+`, and selection
+separated by `space-xs` (4px). Both use the body font and identical height, padding and
+minimum width; the neutral total has a visible grey fill and primary ink for contrast.
+Zero is hidden, values above 99 read `99+`, and selection
 never changes the pill colours. Module rows show only nonzero attention counts.
 
 Each `ShellMenuGroup` has `items` and optional `label`, `action` and `add`. `action` is
 one icon button with `icon`, accessible `label` and host-owned `onActivate`. `add` is a
 trailing muted button with the full visible label (for example `+ New project`) and
 `onActivate`; it never navigates or becomes selected. Optional `ShellMenu.settings` is a
-navigation row rendered last after a hairline. Hosts own commands, navigation, current
+navigation row rendered last after a hairline starting at the same 36px child indent. Hosts own commands, navigation, current
 state and data; these presentation additions do not change the composed-shell wire format.
 Callbacks update without rebuilding an otherwise unchanged view or losing keyboard focus.
 
