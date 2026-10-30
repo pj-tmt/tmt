@@ -3,6 +3,7 @@ use super::*;
 pub(in crate::board) const SCENES: &[&str] = &[
     "new-member-loading",
     "new-member-form",
+    "new-member-reopened",
     "new-member-temporary",
     "new-member-list",
     "new-member-list-filtered",
@@ -40,7 +41,7 @@ pub(in crate::board) fn case(scene: &str, look: crate::look::Look) -> App {
     let c = app.new_member.as_mut().unwrap();
     c.draft.fields[2] = Editor::from("gpt-6.1-sol");
     match scene {
-        "new-member-loading"|"new-member-form"=>{},
+        "new-member-loading"|"new-member-form"|"new-member-reopened"=>{},
         "new-member-temporary"=>{c.draft.saved=false;c.at=Focus::Slot(model::Slot::Keep);},
         "new-member-list"=>{c.at=Focus::Slot(model::Slot::Model);c.open_list(model::Slot::Model);},
         "new-member-list-filtered"=>{c.open_list(model::Slot::Model);c.list.as_mut().unwrap().filter=Editor::from("terra");},
@@ -60,6 +61,11 @@ pub(in crate::board) fn case(scene: &str, look: crate::look::Look) -> App {
         "new-member-refused"=>c.notice=Some("That identity already exists; choose a new name.".into()),
         "new-member-load-failed"=>{c.loaded=None;c.notice=Some("Public host templates are unavailable. No launch attempted.".into());},
         _=>panic!("unknown new-member scene {scene}"),
+    }
+    // A kept draft opened again: Cancel · Discard · Create.
+    if scene == "new-member-reopened" {
+        key(&mut app, KeyCode::Esc);
+        app.open_new_member();
     }
     app
 }
