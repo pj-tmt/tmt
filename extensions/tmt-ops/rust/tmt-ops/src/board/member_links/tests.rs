@@ -970,7 +970,6 @@ mod named_surface_tests {
         app.focus = 0;
         paint_row(&app, "night-2 then night-2");
         let key = |code| KeyEvent::new(code, KeyModifiers::NONE);
-        assert!(app.row_names_hint());
         assert_eq!(
             app.member_link_key(key(KeyCode::Left)),
             None,
@@ -1025,20 +1024,18 @@ mod named_surface_tests {
             .get_mut(&OpsKeyScope::Member)
             .unwrap()
             .insert("@".into(), Action::parse("copy {name}").unwrap());
-        assert!(!app.row_names_hint());
         assert_eq!(app.member_link_key(key(KeyCode::Char('@'))), None);
         assert!(
             matches!(app.key(key(KeyCode::Char('@'))), Effect::Act(Request::Copy {text, ..}) if text == "worker")
         );
     }
     #[test]
-    fn single_row_link_opens_directly_and_optional_hint_never_evicts_core_keys() {
+    fn single_row_link_opens_directly_and_the_footer_never_lists_names() {
         let mut app = app();
         app.focus = 0;
         app.shell.tab = crate::board::shell::OpsTab::Agents;
         app.workspace.filter = crate::board::workspace::AgentsFilter::Agents;
         paint_row(&app, "ask night-2");
-        let mut shown = 0;
         for width in 0..=160 {
             let baseline = {
                 let held = std::mem::take(&mut app.member_links.borrow_mut().hits);
@@ -1046,17 +1043,11 @@ mod named_surface_tests {
                 app.member_links.borrow_mut().hits = held;
                 text
             };
+            // `@` is listed in `?` only; the footer keeps the row's keys.
             let actual = crate::board::view::footer::agents_hints(&app, width).unwrap();
-            if actual.contains("@ names") {
-                shown += 1;
-                assert_eq!(actual.replacen("@ names  ", "", 1), baseline);
-                assert!(actual.find("@ names").unwrap() < actual.find("? help").unwrap());
-                assert!(actual.ends_with("q quit"));
-            } else {
-                assert_eq!(actual, baseline);
-            }
+            assert!(!actual.contains("@ names"), "{actual}");
+            assert_eq!(actual, baseline);
         }
-        assert!(shown > 0);
         app.member_link_key(KeyEvent::new(KeyCode::Char('@'), KeyModifiers::NONE));
         assert!(app.menu.is_some());
         assert!(app.member_links.borrow().focused.is_none());

@@ -582,8 +582,11 @@ order, never the selection or a message.
 In Agents, `n` opens New member on any row; `p` pins/unpins a squad. `N`
 creates a squad on a squad row or the Common pool, `C` opens the member's Checklist on a
 member row, `m` manages a squad or assigns a member, and `x` leaves only the
-selected squad membership. On member rows the footer offers `m move`, `R resume`
-and `C checklist`, using effective bindings and dropping whole hints at narrow widths.
+selected squad membership. The Agents footer is one line of the keys the selected
+row needs; on a member row: `↑↓←→ move  ⏎ chat  n new  S switch tool  m move  x leave squad  R resume  C checklist  / search  ? help  q quit`.
+Squad, Common pool and Hidden group rows show their own keys. Narrow widths drop whole row
+keys from the right and keep search, help and quit; every other key still works and is listed in `?`.
+While the reply pane is focused, its selection guidance takes that line.
 Right-click a visible Agents row to select it and open Actions, or open Settings
 (default comma) and choose Actions. With list focus, Rename agent and Remove member are named menu
 entries without default keys. Remove member is a copy-only retirement review: stop the agent first and

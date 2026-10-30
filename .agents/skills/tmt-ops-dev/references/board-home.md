@@ -476,9 +476,11 @@ job tracks and their more hint, `key_value` owns aligned metric values, and
 observations and owns effects. These painters perform no acquisition or
 view-specific projection. Agents focus reuses these same modules.
 `top_bar` and `tab_strip` paint the neutral shared shell from held values.
-The Agents tab reserves a constant two footer rows from 24 terminal rows up, so
-focusing the composer never moves its box; panes end directly above them and
-sparse exchanges still grow down.
+The Agents tab has one footer row at every height, so focusing the composer never
+moves its box; panes end directly above it and sparse exchanges still grow down.
+`footer::agents_legend` builds that row: one ordered key list per row kind, fitted
+by `fit_hints` with search, help and quit kept; the focused reply pane's selection
+guidance replaces it.
 `exchange_view` paints grouped exchange headers and body gutters, `input_field`
 paints the filled editor surface, and `digest_matrix` paints observed metrics
 across identity columns. The host retains data projection, recipient authority,

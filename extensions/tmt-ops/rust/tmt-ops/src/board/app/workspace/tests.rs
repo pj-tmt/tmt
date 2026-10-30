@@ -34,6 +34,15 @@ pub(in crate::board) fn open_usage_controls(app: &mut App) -> Effect {
     app.perform(&crate::action::Action::parse("usage-controls").unwrap())
 }
 
+/// The keys `?` lists, where every key the one-line footer leaves out stays discoverable.
+pub(in crate::board) fn help_lists(app: &App, keys: &str) -> bool {
+    crate::board::help::model(app)
+        .sections
+        .iter()
+        .flat_map(|section| &section.entries)
+        .any(|entry| entry.keys == keys)
+}
+
 pub(in crate::board) fn board() -> App {
     static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
     let mut loaded = crate::board::app::tests::snapshot(crate::board::ALL, json!([]));
@@ -1300,9 +1309,9 @@ fn reader_dispatch_help_and_footer_share_effective_keys_and_preserve_overrides()
         && entry.description == app.bindings()["j"].workspace_description()));
     assert!(bindings.entries.iter().any(|entry| entry.keys == "k"
         && entry.description == app.bindings()["k"].workspace_description()));
-    let rendered = paint(&app, 160, 36).join("\n");
-    assert!(rendered.contains("j copy"), "{rendered}");
-    assert!(rendered.contains("k host"), "{rendered}");
+    // Authored keys are listed in `?` above; the one-line footer keeps the row's keys.
+    let rendered = paint(&app, 160, 36);
+    assert!(!rendered.last().unwrap().contains("j copy"), "{rendered:?}");
     assert!(matches!(
         key(&mut app, KeyCode::Char('j')),
         Effect::Act(Request::Copy { .. })
@@ -2231,7 +2240,7 @@ fn a_composer_with_its_own_key_legend_does_not_advertise_list_shortcuts() {
         assert_eq!(app.focused_pane(), Some(Pane::Rows));
         let lines = paint(&app, width, 36);
         assert!(
-            lines[lines.len() - 2].contains("m move"),
+            lines.last().unwrap().contains("n new"),
             "{width}: {:?}",
             lines.last()
         );
@@ -2377,14 +2386,14 @@ fn selected_tree_rows_keep_uniform_reverse_fallback_and_clipped_hit_bounds() {
 fn passive_composer_preserves_footer_bindings_notice_error_modal_and_reload_precedence() {
     for width in [160, 100, 60] {
         let mut app = board();
-        assert!(paint(&app, width, 18).last().unwrap().contains("j host"));
+        assert!(paint(&app, width, 18).last().unwrap().contains("n new"));
         assert!(app.input_band.get().is_some() && app.input.is_none());
         key(&mut app, KeyCode::Enter);
         assert_eq!(paint(&app, width, 18).last().unwrap().trim(), "");
         app.reload = crate::board::reload::Watch::due();
         let lines = paint(&app, width, 18);
         assert!(lines.last().unwrap().contains("reload waiting"));
-        assert!(!lines.last().unwrap().contains("j host"));
+        assert!(!lines.last().unwrap().contains("n new"));
         key(&mut app, KeyCode::Esc);
         assert!(
             paint(&app, width, 18)
@@ -2405,16 +2414,17 @@ fn passive_composer_preserves_footer_bindings_notice_error_modal_and_reload_prec
         app.help = true;
         assert!(paint(&app, width, 18).last().unwrap().trim().is_empty());
         app.help = false;
-        assert!(paint(&app, width, 18).last().unwrap().contains("j host"));
+        assert!(paint(&app, width, 18).last().unwrap().contains("n new"));
     }
 }
 
 #[test]
-fn member_footer_names_the_default_host_action_without_an_open_alias() {
+fn the_default_host_action_is_listed_in_help_and_left_out_of_the_one_line_footer() {
     let app = board();
     let lines = paint(&app, 160, 36);
-    assert!(lines[lines.len() - 2].contains("j host"));
-    assert!(!lines[lines.len() - 2].contains("j open"));
+    assert!(!lines.last().unwrap().contains("j host"));
+    assert!(!lines.last().unwrap().contains("j open"));
+    assert!(help_lists(&app, "j"));
 }
 
 #[test]
