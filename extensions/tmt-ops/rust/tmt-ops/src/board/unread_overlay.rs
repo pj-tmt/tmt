@@ -98,6 +98,13 @@ struct Built {
     body: Range<usize>,
 }
 
+/// Where Unread was when Esc closed it.
+pub(in crate::board) struct Place {
+    members: Vec<String>,
+    key: (String, String),
+    detail: bool,
+}
+
 pub(in crate::board) struct Overlay {
     /// Which opening this is; a read started for an earlier one is dropped.
     session: u64,
@@ -454,6 +461,29 @@ impl Overlay {
             .and_then(|key| self.items.get(key))
     }
 
+    /// The answer and screen to reopen on.
+    fn place(&self) -> Option<Place> {
+        Some(Place {
+            members: self.members.clone(),
+            key: self.order.get(self.selected_index()?)?.clone(),
+            detail: self.detail_open,
+        })
+    }
+
+    /// Reopens on `place` when the same scope still holds its answer.
+    fn restore(&mut self, place: &Place) {
+        let Some(index) = (place.members == self.members)
+            .then(|| self.order.iter().position(|key| *key == place.key))
+            .flatten()
+        else {
+            return;
+        };
+        self.list.borrow_mut().select(&format!("answer-{index}"));
+        self.detail_open = place.detail;
+        self.detail_focus = place.detail;
+        self.selection_changed();
+    }
+
     fn detail_visible(&self) -> bool {
         !self.narrow.get() || self.detail_open
     }
@@ -695,8 +725,20 @@ impl App {
         };
         overlay.actor = Some(actor.clone());
         overlay.sync_marked(&actor, &self.unread.local, self.home_leads.unread(&actor));
+        if let Some(place) = self.unread_place.take() {
+            overlay.restore(&place);
+        }
         self.unread_overlay = Some(overlay);
         Effect::None
+    }
+
+    /// Esc or an outside press: closes Unread and remembers where it was.
+    pub(in crate::board) fn close_unread(&mut self) {
+        self.unread_place = self
+            .unread_overlay
+            .take()
+            .and_then(|overlay| overlay.place());
+        self.unread.displayed.clear();
     }
 
     /// Selects `member` and shows their conversation, as Enter on their row does.
