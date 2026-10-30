@@ -206,7 +206,7 @@ test('a provider that withdraws an item or its snapshot leaves the open list at 
       label: 'Studio Mac',
       detail: 'Device · 2 live sessions',
       icon: 'monitor-smartphone',
-      href: '/remote/devices',
+      href: '/remote/my-devices',
     },
   ]);
   await expect(dialog(page).getByRole('group', { name: 'Remote' })).toBeVisible();
@@ -216,7 +216,7 @@ test('a provider that withdraws an item or its snapshot leaves the open list at 
   );
   await page.keyboard.press('End');
   await page.keyboard.press('Enter');
-  expect(await proof(page)).toMatchObject({ went: ['/remote/devices'] });
+  expect(await proof(page)).toMatchObject({ went: ['/remote/my-devices'] });
 });
 
 test('the groups stay when the pages cannot be read, and it says so beneath them', async ({
@@ -246,7 +246,7 @@ test('a host that passes a placeholder gets exactly that text, whatever groups a
       label: 'Devices',
       detail: 'Remote',
       icon: 'monitor-smartphone',
-      href: '/remote/devices',
+      href: '/remote/my-devices',
     },
   ]);
   await expect(dialog(page).getByRole('group', { name: 'Remote' })).toBeVisible();
