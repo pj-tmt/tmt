@@ -143,6 +143,8 @@ pub(in crate::board) const SCENES: &[&str] = &[
 pub(in crate::board) fn capture_case(scene: &str, look: crate::look::Look) -> App {
     let now = crate::status::now_ms();
     let mut app = app_with_two_members();
+    // Keep approved clock cells independent of the host's system time zone.
+    app.local_zone = Some(jiff::tz::TimeZone::get("Asia/Tokyo").unwrap());
     let view = app.view.as_mut().unwrap();
     view.look = look;
     // A saved squad look would win over the scene's, and it follows the environment.
