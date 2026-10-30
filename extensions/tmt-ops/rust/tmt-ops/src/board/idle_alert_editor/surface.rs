@@ -231,15 +231,16 @@ impl Controller {
                         complete && available && !invalid,
                     ),
                     ("Cancel", false, self.focus == 2 && self.choice == 1, true),
-                ],
+                    ("Discard", false, self.focus == 2 && self.choice == 2, true),
+                ][..self.buttons()],
             );
             for (i, hit) in &hits {
                 self.hits.borrow_mut().push((
                     *hit,
-                    if *i == 0 {
-                        Control::Save
-                    } else {
-                        Control::Cancel
+                    match i {
+                        0 => Control::Save,
+                        1 => Control::Cancel,
+                        _ => Control::Discard,
                     },
                 ));
             }

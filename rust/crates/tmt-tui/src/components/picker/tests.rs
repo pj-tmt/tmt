@@ -128,10 +128,7 @@ fn focus_routing_keeps_edit_keys_in_query_and_list_keys_in_list() {
         Some(PickerInput::Event(PickerEvent::QueryChanged(_)))
     ));
     let mut stack = crate::app::FocusStack::new(vec![vec!["base".into()]]);
-    stack.open(
-        vec!["picker".into()],
-        vec![vec!["query".into()], vec!["list".into()]],
-    );
+    stack.open(vec!["picker".into()]);
     let ctrl_c = Event::Key(KeyEvent::new(KeyCode::Char('c'), KeyModifiers::CONTROL));
     assert_eq!(
         crate::app::route::<PickerInput>(&mut stack, &ctrl_c, |_, _| panic!(
@@ -185,12 +182,12 @@ fn query_filter_refresh_reports_new_identity_without_application_effects() {
 fn cursor_motion_and_rejected_edits_are_handled_before_the_modal_handler() {
     let mut picker = Picker::new(Some("x".repeat(MAX_QUERY_BYTES))).unwrap();
     let frame = frame(&mut picker);
-    let query = vec!["query".into()];
+    let picker_id = vec!["picker".into()];
     let mut stack = crate::app::FocusStack::new(vec![vec!["base".into()]]);
-    stack.open(vec!["picker".into()], vec![query.clone()]);
+    stack.open(picker_id.clone());
     for code in [KeyCode::Left, KeyCode::Home, KeyCode::Char('j')] {
         let routed = crate::app::route(&mut stack, &key(code), |id, event| {
-            assert_eq!(id, &query, "accepted query input must not reach modal");
+            assert_eq!(id, &picker_id, "the modal receives its own input");
             picker.input_field(event, &frame, PickerField::Query)
         });
         assert_eq!(routed, crate::app::Routed::Handled(PickerInput::Captured));

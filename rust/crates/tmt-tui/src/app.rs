@@ -4,20 +4,15 @@ use ratatui::crossterm::event::{Event, KeyCode, KeyEventKind, KeyModifiers};
 
 pub type ComponentId = Vec<String>;
 
-#[derive(Debug, Clone)]
-struct Layer {
-    id: ComponentId,
-    fields: Vec<ComponentId>,
-    focused: usize,
-}
-
 /// One base focus and one active modal. Replacing the modal preserves the base
 /// return target; item selection and scroll state stay with their component.
+/// A modal is one layer: its own focus (fields, buttons) belongs to the dialog
+/// (`components::DialogState`), and Tab never moves it.
 #[derive(Debug, Default)]
 pub struct FocusStack {
     base: Vec<ComponentId>,
     focused: usize,
-    overlay: Option<Layer>,
+    overlay: Option<ComponentId>,
 }
 
 impl FocusStack {
@@ -29,10 +24,9 @@ impl FocusStack {
     }
 
     pub fn focused(&self) -> Option<&ComponentId> {
-        self.overlay.as_ref().map_or_else(
-            || self.base.get(self.focused),
-            |layer| Some(layer.fields.get(layer.focused).unwrap_or(&layer.id)),
-        )
+        self.overlay
+            .as_ref()
+            .or_else(|| self.base.get(self.focused))
     }
 
     pub fn base_focus(&self) -> Option<&ComponentId> {
@@ -57,33 +51,26 @@ impl FocusStack {
         self.base = base;
     }
 
-    pub fn open(&mut self, id: ComponentId, fields: Vec<ComponentId>) {
-        self.overlay = Some(Layer {
-            id,
-            fields,
-            focused: 0,
-        });
+    pub fn open(&mut self, id: ComponentId) {
+        self.overlay = Some(id);
     }
 
     /// Closing never dispatches the closing event to the restored base.
     pub fn close(&mut self) -> Option<ComponentId> {
-        self.overlay.take().map(|layer| layer.id)
+        self.overlay.take()
     }
 
     pub fn overlay(&self) -> Option<&ComponentId> {
-        self.overlay.as_ref().map(|layer| &layer.id)
+        self.overlay.as_ref()
     }
 
     fn advance(&mut self, backwards: bool) {
-        let (index, count) = match &mut self.overlay {
-            Some(layer) => (&mut layer.focused, layer.fields.len()),
-            None => (&mut self.focused, self.base.len()),
-        };
+        let count = self.base.len();
         if count > 0 {
-            *index = if backwards {
-                (*index + count - 1) % count
+            self.focused = if backwards {
+                (self.focused + count - 1) % count
             } else {
-                (*index + 1) % count
+                (self.focused + 1) % count
             };
         }
     }
@@ -99,9 +86,10 @@ pub enum Routed<E> {
     Quit,
 }
 
-/// A focused field gets the event before its containing modal. An unhandled
-/// modal event, including mouse input outside its box, never reaches the base.
-/// A handler may close/replace layers after this call returns its effect.
+/// The open modal gets every event; an unhandled one, including Tab and mouse
+/// input outside its box, never reaches the base. Without a modal, Tab and
+/// Shift-Tab move between base panes. A handler may close/replace layers after
+/// this call returns its effect.
 pub fn route<E>(
     stack: &mut FocusStack,
     event: &Event,
@@ -124,11 +112,8 @@ pub fn route<E>(
     {
         return Routed::Handled(effect);
     }
-    if let Some(layer) = &stack.overlay
-        && stack.focused() != Some(&layer.id)
-        && let Some(effect) = handler(&layer.id, event)
-    {
-        return Routed::Handled(effect);
+    if stack.overlay.is_some() {
+        return Routed::Captured;
     }
     if let Event::Key(key) = event
         && matches!(key.code, KeyCode::Tab | KeyCode::BackTab)
@@ -139,11 +124,7 @@ pub fn route<E>(
         stack.advance(key.code == KeyCode::BackTab || key.modifiers.contains(KeyModifiers::SHIFT));
         return Routed::Captured;
     }
-    if stack.overlay.is_some() {
-        Routed::Captured
-    } else {
-        Routed::Unhandled
-    }
+    Routed::Unhandled
 }
 
 #[cfg(test)]

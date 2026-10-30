@@ -73,8 +73,9 @@ fn no_tab_arrows_presets_typed_value_cancel_and_invalid_save() {
     paint(&app, 160, 36);
     assert_eq!(key(&mut app, KeyCode::Enter), Effect::None);
     assert!(!app.idle_alert_editor.as_ref().unwrap().pending);
+    // The unsaved change hides with the editor; the same key brings it back.
     key(&mut app, KeyCode::Esc);
-    assert!(app.idle_alert_editor.is_none());
+    assert!(app.idle_alert_editor.as_ref().is_some_and(|c| !c.shown));
 }
 #[test]
 fn unchanged_duration_rules_are_used_even_when_alert_is_off() {
@@ -585,6 +586,32 @@ fn esc_while_loading_closes_without_keeping_anything() {
     let Effect::IdleAlert(_) = app.open_idle_alert(None) else {
         panic!("member must resolve its squad")
     };
+    key(&mut app, KeyCode::Esc);
+    assert!(app.idle_alert_editor.is_none());
+}
+#[test]
+fn an_unsaved_change_survives_esc_and_its_reopen_offers_discard() {
+    let mut app = form();
+    assert!(!paint(&app, 160, 36).contains("Discard"));
+    key(&mut app, KeyCode::Right);
+    let enabled = app.idle_alert_editor.as_ref().unwrap().enabled;
+    key(&mut app, KeyCode::Esc);
+    assert!(!app.idle_alert_shown() && app.idle_alert_editor.is_some());
+
+    assert_eq!(app.open_idle_alert(None), Effect::None);
+    assert!(app.idle_alert_shown());
+    assert_eq!(app.idle_alert_editor.as_ref().unwrap().enabled, enabled);
+    let screen = paint(&app, 160, 36);
+    assert!(screen.contains("Discard"), "{screen}");
+    for code in [KeyCode::Down, KeyCode::Down, KeyCode::Right, KeyCode::Right] {
+        key(&mut app, code);
+    }
+    key(&mut app, KeyCode::Enter);
+    assert!(app.idle_alert_editor.is_none(), "Discard drops the change");
+}
+#[test]
+fn an_editor_with_nothing_unsaved_closes_for_good() {
+    let mut app = form();
     key(&mut app, KeyCode::Esc);
     assert!(app.idle_alert_editor.is_none());
 }
