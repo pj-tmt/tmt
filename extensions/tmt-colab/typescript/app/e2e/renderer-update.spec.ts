@@ -57,7 +57,13 @@ test('a one-line edit of a script-free page keeps the frame, its state and its o
   await doc.locator('#more summary').click();
   await expect(doc.locator('#more')).toHaveAttribute('open', '');
   await expect(doc.locator('#icon svg')).toHaveCount(1);
-  const marker = frame(page).locator('[data-colab-thread]').nth(1);
+  const threadId = await frame(page)
+    .locator('[data-colab-thread]')
+    .nth(1)
+    .getAttribute('data-colab-thread');
+  expect(threadId).not.toBeNull();
+  const marker = frame(page).locator(`[data-colab-thread=${JSON.stringify(threadId)}]`);
+  await expect(marker).toHaveCount(1);
   let before: number | undefined;
   await expect
     .poll(async () => {
@@ -80,6 +86,7 @@ test('a one-line edit of a script-free page keeps the frame, its state and its o
   // The icon the frame drew stays drawn, and the highlights come back, placed below the new line.
   await expect(doc.locator('#icon svg')).toHaveCount(1);
   await expect(frame(page).locator('[data-colab-thread]')).toHaveCount(3);
+  await expect(marker).toHaveCount(1);
   await expect.poll(async () => (await marker.boundingBox())?.y).toBeGreaterThan(before! + 10);
   await expect(page.locator('#ask-page-fixture .status')).toContainText('Live');
 
