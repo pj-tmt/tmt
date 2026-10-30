@@ -14,9 +14,10 @@ for (const theme of ['light', 'dark'] as const)
       await page.setViewportSize({ width, height: 992 });
       await page.emulateMedia({ colorScheme: theme });
       const app = await mount(page);
-      await expect(app.getByRole('heading', { level: 1 })).toHaveText('Colab settings');
-      // The settings page names itself in its content; the bar is the shared one.
+      // The shared bar names the settings in its title slot; the content repeats no heading.
       await expect(app.locator('.tmt-ui-topbar')).toBeVisible();
+      await expect(app.getByRole('heading', { level: 1 })).toHaveCount(1);
+      await expect(app.locator('.tmt-ui-topbar-title-current')).toHaveText('Settings');
       const panel = app.getByRole('region', { name: 'Reference defaults', exact: true });
       await expect(panel).toBeVisible();
       await expect(panel).toContainText('CLI managed');

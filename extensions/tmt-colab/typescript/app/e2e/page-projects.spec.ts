@@ -65,7 +65,7 @@ async function open(
     },
   });
   await expect(page.frameLocator('#ask-page-fixture iframe').locator('#selected')).toBeVisible();
-  return page.locator('.tmt-ui-header:visible');
+  return page.locator('.tmt-ui-topbar:visible');
 }
 const chips = (header: ReturnType<Page['locator']>) =>
   header.getByRole('button', { name: /^Projects for Live shared page: / });
@@ -81,22 +81,16 @@ const capture = async (page: Page, name: string) => {
 const noOverflow = (page: Page) =>
   page.evaluate(() => document.documentElement.scrollWidth <= innerWidth);
 
-for (const width of [1440, 390])
+// A phone (≤900px) hides the chips with the title's prefix; it reaches Projects through More.
+for (const width of [1440])
   for (const theme of ['light', 'dark'] as const) {
     test(`project chips share their picker with the visible + at ${width} ${theme}`, async ({
       page,
     }) => {
       const header = await open(page, width, theme);
-      if (width < 640)
-        await expect(chips(header).locator('.page-project-group-chip').first()).toBeHidden();
-      else {
-        await expect(chips(header).locator('.page-project-group-chip')).toHaveText([
-          'alpha',
-          'beta',
-        ]);
-        await expect(chips(header)).toHaveAttribute('aria-haspopup', 'menu');
-      }
-      // The leaf anchor stays hidden; the admitted + remains visible at either width.
+      await expect(chips(header).locator('.page-project-group-chip')).toHaveText(['alpha', 'beta']);
+      await expect(chips(header)).toHaveAttribute('aria-haspopup', 'menu');
+      // The leaf anchor stays hidden; the admitted + remains visible.
       await expect(header.locator('.page-header-projects-anchor button')).toBeHidden();
       await expect(chips(header)).toBeVisible();
       await expect(header.locator('.page-project-group')).toHaveCount(1);
@@ -188,11 +182,13 @@ for (const theme of ['light', 'dark'] as const)
     await capture(page, `4356-header-pinned-1440-${theme}.png`);
   });
 
-test('a phone header leaves its room to the title and keeps the pin on the Home row', async ({
+test('a phone bar leaves its room to the title: the chips, + and pin are hidden', async ({
   page,
 }) => {
   const header = await open(page, 390);
+  await expect(header.locator('.page-project-group')).toBeHidden();
   await expect(header.getByRole('button', { name: /^Pin Live shared page/ })).toBeHidden();
+  await expect(header.locator('.tmt-ui-topbar-title-current')).toHaveText('Live shared page');
   expect(await noOverflow(page)).toBe(true);
 });
 
@@ -302,7 +298,7 @@ test('a viewer who cannot write projects sees neither chips nor Projects…', as
   await page.goto('/');
   await run(page, 'mount', {});
   await expect(page.frameLocator('#ask-page-fixture iframe').locator('#selected')).toBeVisible();
-  const header = page.locator('.tmt-ui-header:visible');
+  const header = page.locator('.tmt-ui-topbar:visible');
   await expect(chips(header)).toHaveCount(0);
   await expect(header.getByRole('button', { name: 'Add to project', exact: true })).toHaveCount(0);
   await expect(header.locator('.page-project-group-chip')).toHaveCount(0);
@@ -324,12 +320,12 @@ test('at 390px More pins and unpins, hides archived/read-only actions, and keeps
     .poll(async () => (await pins(page)).map((request) => request.pinned))
     .toEqual([true, false]);
 
-  await page.setViewportSize({ width: 640, height: 900 });
+  await page.setViewportSize({ width: 1024, height: 900 });
   await pageAction(host, text.projectsItem);
   await expect(page.getByRole('menuitem', { name: /^(Pin to top|Unpin)$/ })).toHaveCount(0);
   await page.keyboard.press('Escape');
   await expect(
-    page.locator('.tmt-ui-header:visible').getByRole('button', { name: /^Pin Live shared page/ }),
+    page.locator('.tmt-ui-topbar:visible').getByRole('button', { name: /^Pin Live shared page/ }),
   ).toBeVisible();
   await page.setViewportSize({ width: 390, height: 900 });
 
@@ -395,7 +391,7 @@ test('at 390px More pins and unpins, hides archived/read-only actions, and keeps
   await expect(page.getByRole('menuitem', { name: /^(Pin to top|Unpin)$/ })).toHaveCount(0);
 });
 
-for (const width of [1440, 390])
+for (const width of [1440])
   test(`direct Projects entry opens an empty header picker and returns focus at ${width}`, async ({
     page,
   }) => {
@@ -413,7 +409,7 @@ for (const width of [1440, 390])
     expect(await noOverflow(page)).toBe(true);
   });
 
-for (const width of [1440, 390])
+for (const width of [1440])
   for (const theme of ['light', 'dark'] as const)
     for (const current of [['alpha'], ['alpha', 'beta', 'gamma', 'delta']])
       test(`one header project group retains disclosure and keyboard focus: ${current.length} at ${width} ${theme}`, async ({
@@ -435,30 +431,27 @@ for (const width of [1440, 390])
         await expect(pills).toHaveText(
           current.length === 1 ? current : [...current.slice(0, 3), '+1'],
         );
-        if (width === 390) await expect(pills.first()).toBeHidden();
-        else {
-          const metrics = await pills.first().evaluate((node) => {
-            const style = getComputedStyle(node);
-            return {
-              height: node.getBoundingClientRect().height,
-              font: style.fontSize,
-              weight: style.fontWeight,
-              start: style.paddingLeft,
-              end: style.paddingRight,
-            };
-          });
-          expect(metrics).toEqual({
-            height: 22,
-            font: '12px',
-            weight: '500',
-            start: '9px',
-            end: '9px',
-          });
-          const groupBox = (await group.boundingBox())!;
-          const pin = (await header.locator('.page-header-pin').boundingBox())!;
-          expect(pin.x - groupBox.x - groupBox.width).toBeCloseTo(8);
-          expect(pin.height).toBe(28);
-        }
+        const metrics = await pills.first().evaluate((node) => {
+          const style = getComputedStyle(node);
+          return {
+            height: node.getBoundingClientRect().height,
+            font: style.fontSize,
+            weight: style.fontWeight,
+            start: style.paddingLeft,
+            end: style.paddingRight,
+          };
+        });
+        expect(metrics).toEqual({
+          height: 22,
+          font: '12px',
+          weight: '500',
+          start: '9px',
+          end: '9px',
+        });
+        const groupBox = (await group.boundingBox())!;
+        const pin = (await header.locator('.page-header-pin').boundingBox())!;
+        expect(pin.x - groupBox.x - groupBox.width).toBeCloseTo(8);
+        expect(pin.height).toBe(28);
         for (const key of ['Enter', 'Space']) {
           await group.focus();
           await group.press(key);

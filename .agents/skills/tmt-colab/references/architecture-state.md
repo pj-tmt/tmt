@@ -904,14 +904,13 @@ list opens. The default scope is device-local: `readScope`/`writeScope` keep it 
 `localStorage` (a refused access means All pages), the home loader redirects an unscoped `/` to it
 with `replace`, and choosing All pages removes it. A scope the space no longer has (a stale link or
 a remembered project that was deleted) shows All pages and is neither redirected to nor rewritten.
-The home hero names the current scope; `AppHeader` passes `titleVisible=false` through
-`ColabHeader`: in Colab's own shell (the shared top bar, #5237) the list then has no title row, and in the
-hosted mount the shared header keeps its accessible name and tools without another visible heading.
-Other routes keep the default header title. A page
-opened from a scoped list carries the scope in history state only, and its own header shows
-`<project> / <title>` with the project linking back to `/?scope=<project>` (the shell bar draws no
-module crumb); a copied or reloaded page link has no crumb. A heading narrower than 200px (a
-container query on it) leaves the crumb and its divider out so the title keeps its room; the rail's
+The list's `AppHeader` names the current scope (All pages without one) in the bar's title slot as
+`Colab / <scope>`; its hero keeps only the one-line description and the scope's actions. Other routes
+name their section the same way. A page
+opened from a scoped list carries the scope in history state only, and the bar's title shows
+`<project> / <title>` with the project linking back to `/?scope=<project>`; a copied or reloaded page
+link has no crumb. On a phone (≤900px) the bar keeps only the title, and a standalone header narrower
+than 200px (a container query on it) leaves the crumb and its divider out; the rail's
 All pages (or a standalone header's brand link) still returns to the remembered scope.
 `cli_management::selection` adapts public CLI inputs to strict existing DTOs;
 its shared page resolver reuses the short-link helpers to admit unique UUID prefixes

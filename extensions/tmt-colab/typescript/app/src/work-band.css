@@ -1,3 +1,13 @@
+/* The page's second layer: pinned directly under the bar while the page scrolls. Expanded taller than
+   the room under the bar, it scrolls inside itself. On a phone the module tabs above it scroll away first.
+   The reader keeps it in the flow. */
+.page-main .work-band {
+  position: sticky;
+  top: var(--page-bar-size);
+  z-index: 2;
+  max-height: calc(100dvh - var(--page-bar-size));
+  overflow-y: auto;
+}
 .work-band {
   box-sizing: border-box;
   padding: 16px max(16px, env(safe-area-inset-left));

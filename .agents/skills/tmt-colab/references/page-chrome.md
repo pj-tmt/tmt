@@ -131,10 +131,15 @@ page keeps its project crumb before the title). The display-only `local · <back
 root of the shared top bar's common controls: Search opens the route's quick switcher (the bar owns
 the one ⌘K listener), Theme is the bar's menu, and the page's status (needs-you, attention marks) and
 actions, with More (no Theme or Remote entries), go into the bar's action slot through
-`BrowserTopBar`. The bar draws no title: the title row (title, crumb, project menu, caption) is
-content under it, static, on the content background, and a route whose content names itself has none;
-`barRef` hands the page the sticky bar to measure its clearances from, and `rowRef` the title row, which
-the renderer takes as the content between the bar and the frame (`frameLead`). The
+`BrowserTopBar`. The route's title goes into the bar's title slot as its one `h1`: a section route
+reads `Colab / <section>` (All pages or the scope, Settings, Open a page, the error title), a page
+`<scope> / <title>` (the title alone without a scope), then the page's project chips, + and pin and the
+`by <author>` caption; on a phone (≤900px) only the last segment stays, ellipsized. No title row or
+content heading repeats it, and the connection identity is not in the bar. `barRef` hands the page the
+sticky bar to measure its clearances from. On a page the status band is the second layer: sticky
+directly under the bar (on a phone after the module tabs, which scroll away), scrolling inside itself
+when expanded taller than the room left, and the renderer counts it with the bar as the chrome a
+revealed element clears (`viewportInset`). The
 hosted mount still portals the header into the shell's `bar` and `tools` slots (Search and the
 Remote chip) until it adopts the bar. A standalone header (reader, mounted and
 native screens) still starts with the TMT mark and the `Colab` wordmark, then `/`, and names the

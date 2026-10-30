@@ -70,7 +70,7 @@ for (const width of [1440, 1024, 390])
     // No top layer, scrim or inert page: the header and the page stay live beside or under it.
     expect(await page.locator('dialog:modal').count()).toBe(0);
     await expect(page.locator('#ask-page-fixture iframe')).not.toHaveAttribute('inert', /.*/);
-    await expect(page.locator('.tmt-ui-header').first()).not.toHaveAttribute('inert', /.*/);
+    await expect(page.locator('.tmt-ui-topbar').first()).not.toHaveAttribute('inert', /.*/);
     await page.evaluate(() => window.scrollTo(0, 300));
     expect(await page.evaluate(() => window.scrollY)).toBeGreaterThan(0);
     await expect(panel).toBeVisible();

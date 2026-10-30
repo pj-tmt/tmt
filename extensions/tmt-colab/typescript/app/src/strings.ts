@@ -914,7 +914,6 @@ export const text = {
     },
   },
   pageList: {
-    heroTitle: 'A shared place for ideas.',
     heroBody: 'Pages, decisions and conversations with your agents.',
     pinnedPages: 'Pinned pages',
     projectScopes: 'Project scopes',
@@ -1190,6 +1189,8 @@ export const text = {
   questionKey: (digit: number) => `Press ${digit} to pick`,
   colabSettings: {
     title: 'Colab settings',
+    /** The settings route's segment after the module in the bar's title. */
+    section: 'Settings',
     subtitle: 'Reference defaults and a clear path to your terminal.',
     shells: 'Dashboards',
     reference: 'Reference defaults',
@@ -1254,6 +1255,7 @@ export const text = {
   live: 'Live',
   boundary: 'Page content',
   error: 'Page unavailable',
+  openAPage: 'Open a page',
   errorBody: 'This page could not be shown. Try again, or return to the space.',
   errorDetails: 'Details',
   retry: 'Return to space',

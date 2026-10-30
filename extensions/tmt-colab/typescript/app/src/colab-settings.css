@@ -6,14 +6,8 @@
 .colab-settings-hero {
   margin-bottom: 24px;
 }
-.home .colab-settings-hero h1 {
-  margin: 0;
-  font-size: 37px;
-  line-height: 1.2;
-  letter-spacing: -1.35px;
-}
 .colab-settings-hero p {
-  margin: 7px 0 0;
+  margin: 0;
   color: var(--tmt-ui-color-secondary);
 }
 .colab-settings-warning {
@@ -133,9 +127,6 @@
 @media (max-width: 650px) {
   .home.colab-settings {
     padding: 24px 18px;
-  }
-  .home .colab-settings-hero h1 {
-    font-size: 29px;
   }
   .colab-settings-card {
     padding: 18px;
