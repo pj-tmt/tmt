@@ -459,6 +459,21 @@ fn a_distinct_final_survives_a_missing_prompt_after_the_previous_stop() {
         CaptureResult::Committed
     );
     assert_eq!(w.phase(), ActivityPhase::Idle);
+    let batch = current(w.storage.connection().unwrap(), &w.agent)
+        .unwrap()
+        .unwrap();
+    w.now += 10;
+    let sent_at = w.now;
+    let db = w.storage.connection().unwrap();
+    db.execute("INSERT INTO request_attempts(attempt_id,request_id,route_kind,recipient_identity_id,originator_kind,originator_identity_id,wait_active,status,inject_preamble,cadence_reserved,prepared_at_ms,settled_at_ms,expires_at_ms,retention_expires_at_ms,message_text,message_bytes)
+        VALUES('unbound-input','unbound-input','inbox',?1,'explicit',?1,0,'sent',0,0,?2,?2,?3,?3,'a new question',14)", params![w.agent,sent_at as i64,(sent_at+86_400_000) as i64]).unwrap();
+    db.execute(
+        "INSERT INTO request_delivery_policies(request_id,urgent,kind,automatic,mode)
+        VALUES('unbound-input',0,'fyi',0,'passthrough')",
+        [],
+    )
+    .unwrap();
+    super::super::requests::passthrough::start_capture(db, "unbound-input", sent_at, None).unwrap();
     // Reproduce the owner report: no new prompt/batch was admitted, but the
     // same verified provider process supplies a different ordinary final.
     let second = w.event("the next turn's distinct final", false);
@@ -495,6 +510,54 @@ fn a_distinct_final_survives_a_missing_prompt_after_the_previous_stop() {
         finals, 2,
         "each retained answer is visible in the chat timeline"
     );
+    let recorded_batches: Vec<String> = w
+        .storage
+        .connection()
+        .unwrap()
+        .prepare("SELECT batch_id FROM capture_entries WHERE kind='final' ORDER BY sequence")
+        .unwrap()
+        .query_map([], |row| row.get(0))
+        .unwrap()
+        .collect::<Result<_, _>>()
+        .unwrap();
+    assert_eq!(recorded_batches, [batch.clone(), batch.clone()]);
+    let timeline = w
+        .storage
+        .conversation_timeline(&w.agent, 10, None, w.now + 10)
+        .unwrap();
+    let timeline_finals: Vec<_> = timeline["entries"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|entry| entry["kind"] == "final")
+        .collect();
+    assert_eq!(timeline_finals.len(), 2);
+    assert!(
+        timeline_finals
+            .iter()
+            .all(|entry| entry["inputBatchId"] == batch)
+    );
+    assert_eq!(timeline["responses"].as_array().unwrap().len(), 2);
+    // A final cannot guess which unadmitted prompt it answers. The request
+    // instead exposes the existing bounded no-capture outcome, with no sleep
+    // or invented association to the older batch's final.
+    use tmt_core::request::{RequestRepository, delivery, passthrough};
+    let observed_at = sent_at + passthrough::BIND_WINDOW_MS + 1;
+    let view = w
+        .storage
+        .with_request_observation(|records| {
+            let capture = records.passthrough_capture("unbound-input")?.unwrap();
+            assert_eq!(capture.state, passthrough::CaptureState::Pending);
+            assert!(capture.bound_session.is_none());
+            assert!(capture.answer.is_none());
+            let attempt = records.find_request("unbound-input")?.unwrap();
+            let facts = records.delivery_facts(&attempt, observed_at)?;
+            Ok::<_, super::super::StorageError>(delivery::delivery_view(&facts, observed_at))
+        })
+        .unwrap();
+    assert_eq!(view.state, delivery::DeliveryState::Unconfirmed);
+    assert_eq!(view.reason, delivery::DeliveryReason::NoTurnStarted);
+    assert!(view.reason_text.contains("no answer captured"));
 }
 
 #[test]
