@@ -4,7 +4,7 @@ use serde_json::{Value, json};
 
 mod performance;
 #[test]
-fn app_discovery_name_owns_typing_and_tab_to_actions_releases_destination_keys() {
+fn app_discovery_name_owns_typing_and_down_to_actions_releases_destination_keys() {
     use crate::board::{app::Effect, shell::OpsTab};
     use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
     let mut app = crate::board::app::workspace::tests::board();
@@ -21,7 +21,15 @@ fn app_discovery_name_owns_typing_and_tab_to_actions_releases_destination_keys()
     assert_eq!(app.shell.tab, OpsTab::Agents);
     assert_eq!(app.discovery.as_ref().unwrap().editor.as_str(), "q123");
     app.key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
-    assert!(!app.discovery.as_ref().unwrap().owns_typing());
+    assert!(
+        app.discovery.as_ref().unwrap().owns_typing(),
+        "Tab does nothing"
+    );
+    app.key(KeyEvent::new(KeyCode::Down, KeyModifiers::NONE));
+    assert!(
+        !app.discovery.as_ref().unwrap().owns_typing(),
+        "↓ reaches the actions"
+    );
     assert_eq!(
         app.key(KeyEvent::new(KeyCode::Char('2'), KeyModifiers::NONE)),
         Effect::None
@@ -917,4 +925,98 @@ fn the_discovery_window_follows_the_close_rule() {
         &mut open(),
         crate::board::app::Overlay::Discovery,
     );
+}
+#[test]
+fn esc_hides_details_and_reopen_returns_there_with_back_first() {
+    use ratatui::crossterm::event::{Event, KeyCode, KeyEvent, KeyModifiers};
+    let mut c = controller();
+    assert_eq!(c.screen, Screen::Details);
+    assert_eq!(c.rows()[0].id, "back", "Back leads the actions");
+    c.input(&Event::Key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE)));
+    assert!(!c.active && c.screen == Screen::Details);
+    c.open();
+    assert!(c.active && c.screen == Screen::Details);
+}
+#[test]
+fn a_reopened_form_offers_discard_and_the_confirm_cancels_first() {
+    use ratatui::crossterm::event::{Event, KeyCode, KeyEvent, KeyModifiers};
+    let esc = Event::Key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
+    let mut c = controller();
+    assert!(c.choose("bind").is_none());
+    assert!(c.rows().iter().all(|row| row.id != "discard"));
+    assert!(c.input(&Event::Paste("worker".into())).is_none());
+    c.input(&esc);
+    assert!(!c.active);
+    c.open();
+    assert!(c.active && c.screen == Screen::Form && c.reopened);
+    assert_eq!(c.editor.as_str(), "worker");
+    let ids: Vec<_> = c.rows().into_iter().map(|row| row.id).collect();
+    assert_eq!(&ids[..2], ["back", "discard"]);
+
+    assert!(c.review(AgentSelector::NewName("worker".into()), false));
+    assert_eq!(c.screen, Screen::Confirm);
+    c.input(&esc);
+    assert!(
+        c.active && c.screen == Screen::Form,
+        "Esc cancels the confirm first, back on its form"
+    );
+    assert!(c.choose("discard").is_none());
+    assert!(c.screen == Screen::Candidates && c.editor.as_str().is_empty());
+}
+#[test]
+fn a_reopened_stale_confirm_cannot_bind() {
+    let mut c = controller();
+    assert!(c.choose("bind").is_none());
+    assert!(c.review(AgentSelector::NewName("worker".into()), false));
+    assert_eq!(c.screen, Screen::Confirm);
+    c.close();
+    c.open();
+    assert_eq!(
+        c.screen,
+        Screen::Form,
+        "the confirm asks again from its form"
+    );
+    assert!(c.confirmation.is_none());
+    c.readable.set(true);
+    assert!(c.confirm().is_none(), "no bind from an old confirmation");
+    assert!(c.pending.is_none());
+}
+#[test]
+fn reopen_keeps_the_chosen_action_when_discard_joins_the_rows() {
+    use ratatui::crossterm::event::{Event, KeyCode, KeyEvent, KeyModifiers};
+    let mut c = controller();
+    assert!(c.choose("bind").is_none());
+    assert!(c.input(&Event::Paste("worker".into())).is_none());
+    c.form_focus = false;
+    paint(&c, 160, 36);
+    c.ui.borrow_mut().select("review");
+    c.input(&Event::Key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE)));
+    c.open();
+    assert!(c.reopened);
+    paint(&c, 160, 36);
+    assert_eq!(
+        c.ui.borrow().picker.list.selected(),
+        Some("review"),
+        "rows are chosen by id, so Discard does not take the cursor"
+    );
+}
+#[test]
+fn a_cancelled_confirm_returns_to_its_form_with_the_typed_text() {
+    use ratatui::crossterm::event::{Event, KeyCode, KeyEvent, KeyModifiers};
+    for esc in [true, false] {
+        let mut c = controller();
+        assert!(c.choose("bind").is_none());
+        assert!(c.input(&Event::Paste("worker".into())).is_none());
+        assert!(c.review(AgentSelector::NewName("worker".into()), false));
+        assert_eq!(c.screen, Screen::Confirm);
+        if esc {
+            c.input(&Event::Key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE)));
+        } else {
+            assert!(c.choose("cancel").is_none());
+        }
+        assert!(c.active, "esc={esc}");
+        assert_eq!(c.screen, Screen::Form, "esc={esc}: where its reopen lands");
+        assert_eq!(c.editor.as_str(), "worker", "esc={esc}");
+        assert!(c.confirmation.is_none());
+    }
 }

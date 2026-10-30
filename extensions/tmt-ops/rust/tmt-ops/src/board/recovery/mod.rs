@@ -49,6 +49,8 @@ pub(in crate::board) struct Controller {
     unknown: Option<String>,
     notice: String,
     form_focus: bool,
+    /// The Save screen was opened again with a typed name: Discard drops it.
+    reopened: bool,
     readable: Cell<bool>,
     list: RefCell<picker_surface::State>,
     panel: RefCell<picker_surface::State>,
@@ -87,6 +89,7 @@ impl Controller {
             unknown: None,
             notice: String::new(),
             form_focus: true,
+            reopened: false,
             readable: Cell::new(false),
             list: RefCell::new(picker_surface::State::new(None, vec![], None)),
             panel: RefCell::new(picker_surface::State::new(None, vec![], None)),
@@ -113,6 +116,20 @@ impl Controller {
             return None;
         }
         if self.pending.as_ref().is_some_and(|t| t.job.writes()) {
+            return None;
+        }
+        // A reopened inner screen shows where it was; Ctrl-R refreshes it. A confirm lost its
+        // confirmation on close, so it reopens on the screen that asks for it again.
+        self.screen = Self::confirm_source(self.screen);
+        if self.screen != Screen::List && !self.entries.is_empty() {
+            self.reopened = self.screen == Screen::Save
+                && self
+                    .form
+                    .borrow()
+                    .picker
+                    .query()
+                    .is_some_and(|name| !name.is_empty());
+            self.invalidate();
             return None;
         }
         self.refresh()
@@ -201,6 +218,20 @@ impl Controller {
         self.requested_read = None;
         // Keep ownership of the active read until its completion. Reopening
         // coalesces behind it instead of queuing abandoned reads on the lane.
+        self.invalidate();
+    }
+    /// The screen that asks for a confirm: cancel and reopen both land there.
+    fn confirm_source(screen: Screen) -> Screen {
+        match screen {
+            Screen::Confirm => Screen::Preview,
+            Screen::Delete => Screen::List,
+            other => other,
+        }
+    }
+    /// Closes just the confirm layer, back on the screen that asked for it.
+    fn cancel_confirm(&mut self) {
+        self.confirmation = None;
+        self.screen = Self::confirm_source(self.screen);
         self.invalidate();
     }
     pub fn invalidate(&self) {
@@ -393,9 +424,22 @@ impl Controller {
         match id {
             "close" => self.close(),
             "refresh" => return self.refresh(),
+            "cancel" if matches!(self.screen, Screen::Confirm | Screen::Delete) => {
+                self.cancel_confirm()
+            }
             "back" | "cancel" => {
                 self.confirmation = None;
+                self.reopened = false;
                 self.screen = Screen::List;
+            }
+            "discard" if self.screen == Screen::Save => {
+                self.reopened = false;
+                self.screen = Screen::List;
+                self.form = RefCell::new(picker_surface::State::new(
+                    Some(String::new()),
+                    vec![],
+                    None,
+                ));
             }
             "details" if self.previewed() => {
                 self.screen = Screen::Preview;
@@ -450,6 +494,7 @@ impl Controller {
             "save" if self.store.is_some() && self.entries.iter().any(|e| e.name.is_none()) => {
                 self.screen = Screen::Save;
                 self.form_focus = true;
+                self.reopened = false;
                 self.form = RefCell::new(picker_surface::State::new(
                     Some(String::new()),
                     vec![],

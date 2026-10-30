@@ -14,31 +14,52 @@ impl Controller {
             if key.kind != KeyEventKind::Press {
                 return None;
             }
-            if key.code == KeyCode::Esc
-                || key.code == KeyCode::Backspace && self.screen != Screen::Save
-            {
-                if self.screen == Screen::List
-                    || self.pending.as_ref().is_some_and(|t| t.job.writes())
+            // Esc hides the dialog with its screen; a confirm is its own layer and returns to
+            // the screen that asked for it first.
+            if key.code == KeyCode::Esc {
+                if matches!(self.screen, Screen::Confirm | Screen::Delete)
+                    && !self.pending.as_ref().is_some_and(|t| t.job.writes())
                 {
-                    self.close();
+                    self.cancel_confirm();
                 } else {
-                    self.confirmation = None;
-                    self.screen = Screen::List;
-                    self.invalidate();
+                    self.close();
                 }
                 return None;
             }
             if self.pending.as_ref().is_some_and(|t| t.job.writes()) {
                 return None;
             }
-            if self.screen == Screen::Save && matches!(key.code, KeyCode::Tab | KeyCode::BackTab) {
-                self.form_focus = !self.form_focus;
-                return None;
-            }
-            if matches!(self.screen, Screen::Preview | Screen::Results) && key.code == KeyCode::Tab
+            // ↓ from the name field or past the end of the reading reaches the actions; ↑ on the
+            // first action goes back.
+            if matches!(
+                self.screen,
+                Screen::Preview | Screen::Results | Screen::Save
+            ) && key.modifiers.is_empty()
             {
-                self.form_focus = !self.form_focus;
-                return None;
+                let first = self
+                    .rows()
+                    .into_iter()
+                    .find(|row| !row.disabled)
+                    .map(|row| row.id);
+                let panel = if self.screen == Screen::Save {
+                    self.form.borrow()
+                } else {
+                    self.panel.borrow()
+                };
+                let scroll = &panel.picker.list.scroll;
+                let to_actions = self.form_focus
+                    && key.code == KeyCode::Down
+                    && (self.screen == Screen::Save || scroll.offset() >= scroll.limit());
+                let to_reading = !self.form_focus
+                    && key.code == KeyCode::Up
+                    && first.is_some()
+                    && panel.picker.list.selected() == first.as_deref();
+                drop(panel);
+                if to_actions || to_reading {
+                    self.form_focus = to_reading;
+                    self.invalidate();
+                    return None;
+                }
             }
             if key.code == KeyCode::Char('r') && key.modifiers == KeyModifiers::CONTROL {
                 return self.refresh();

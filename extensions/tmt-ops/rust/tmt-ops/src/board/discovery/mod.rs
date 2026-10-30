@@ -162,6 +162,8 @@ pub(in crate::board) struct Controller {
     readable: Cell<bool>,
     ui: RefCell<picker_surface::State>,
     form_focus: bool,
+    /// The Form was opened again with typed text: Discard drops it.
+    reopened: bool,
     existing: bool,
     save: bool,
     known: Vec<model::ExistingAgentEvidence>,
@@ -198,6 +200,7 @@ impl Controller {
             readable: Cell::new(false),
             ui: RefCell::new(picker_surface::State::new(None, vec![], None)),
             form_focus: true,
+            reopened: false,
             existing: false,
             save: false,
             known: vec![],
@@ -207,9 +210,11 @@ impl Controller {
             editor_offset: Cell::new(0),
         }
     }
+    /// Reopens on the screen it was hidden on.
     pub fn open(&mut self) {
         self.active = true;
         self.changed();
+        self.reopened = self.screen == Screen::Form && !self.editor.is_empty();
     }
     pub fn reload_blocked(&self) -> bool {
         self.active
@@ -393,8 +398,18 @@ impl Controller {
         }
         match id {
             "scan" => return self.scan(self.scope.clone()),
+            // A cancelled confirm returns to the Form that asked for it, with the typed text,
+            // where its reopen lands too.
+            "cancel" if self.screen == Screen::Confirm => self.changed(),
             "back" | "cancel" => {
                 self.screen = Screen::Candidates;
+                self.reopened = false;
+                self.changed();
+            }
+            "discard" if self.screen == Screen::Form => {
+                self.editor.clear();
+                self.screen = Screen::Candidates;
+                self.reopened = false;
                 self.changed();
             }
             "bind"
