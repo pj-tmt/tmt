@@ -5289,6 +5289,11 @@ test('landing registry keeps two origins independent and confirms public-only ha
       await expect(
         page.getByRole('link', { name: 'Create a Remote', exact: true }),
       ).toHaveAttribute('data-variant', 'primary');
+      const create = page.getByRole('link', { name: 'Create a Remote', exact: true });
+      await expect(create.locator('svg[aria-hidden="true"] path')).toHaveAttribute(
+        'd',
+        'M12 5v14M5 12h14',
+      );
       await expect(page.getByRole('button', { name: 'Add remote', exact: true })).toHaveCount(0);
       await expect(page.locator('[data-remote="desk"] .tmt-ui-list-state')).toHaveText(
         'Not checked',
