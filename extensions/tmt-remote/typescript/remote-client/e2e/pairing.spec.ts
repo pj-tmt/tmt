@@ -5897,7 +5897,9 @@ test('Home and TMT settings render in the shell and fit both sizes and themes', 
     await rail.getByRole('link', { name: 'TMT settings', exact: true }).click();
     // The settings page is sectioned: the module menu lists the sections and the title names
     // the current one.
-    await expect(page.getByRole('heading', { level: 1 })).toHaveText('General');
+    await expect(page.getByRole('heading', { level: 1 })).toHaveText('Make TMT feel like yours.');
+    await expect(page.locator('.root-title-row')).toHaveCount(0);
+    await expect(page).toHaveTitle('TMT settings · TMT');
     const sections = modulePages(page);
     await expect(sections).toHaveAttribute('aria-label', 'TMT settings');
     for (const label of ['General', 'Identities', 'Modules', 'Drivers & hooks'])
@@ -5971,7 +5973,11 @@ test('an unpaired Digest and Ops say what they wait for and show no invented num
   try {
     await page.goto(`${origin}/digest/`);
     const rail = page.getByRole('navigation', { name: 'TMT', exact: true });
-    await expect(page.getByRole('heading', { level: 1 })).toHaveText('Digest');
+    await expect(page.getByRole('heading', { level: 1 })).toHaveText(
+      'Understand your team’s usage.',
+    );
+    await expect(page.locator('.root-title-row')).toHaveCount(0);
+    await expect(page).toHaveTitle('Digest · TMT');
     await expect(rail.getByRole('link', { name: 'Digest', exact: true })).toHaveAttribute(
       'aria-current',
       'page',
@@ -6001,6 +6007,8 @@ test('an unpaired Digest and Ops say what they wait for and show no invented num
     );
     await rail.getByRole('link', { name: 'Ops', exact: true }).click();
     await expect(page.getByRole('heading', { level: 1 })).toHaveText('Agents');
+    await expect(page.locator('.root-title-row')).toHaveCount(0);
+    await expect(page).toHaveTitle('Ops · TMT');
     // Ops reads the owner's board (x/-/ops), which needs an owner session: this browser is not
     // paired, so the page says so and shows no rows.
     await expect(page.locator('#ops-note')).toHaveText(

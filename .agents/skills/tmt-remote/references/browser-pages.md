@@ -48,9 +48,9 @@ Static markup uses shared class/slot and native accessibility contracts.
 never establish access. Socket tests verify exact shared-plus-host CSS bytes and
 unchanged CSP/types. Browser cases compare computed presentation with current browser
 tokens at 1440/390 light/dark and 320 fit, retaining keyboard focus and disabled/loading
-states. The card heading is the page's `h2`; the original page title remains its only `h1`.
+states. Notice pages retain their identifying `h1` above the state `h2`. Digest, Ops and TMT Settings use the hero as their single `h1`, without a second small shell title; loading and unavailable states keep one identifying heading. Document titles and shell menu/back navigation remain with the shell owner.
 
-The SPA root installs shared top-bar bindings before route adoption. Remote-owned routes move
+The SPA root installs shared top-bar bindings before route adoption. Remote-owned routes without a hero move
 their original title into the content column, using the same title-row type as Colab's own shell,
 and put only module actions in the bar's existing action slot. The GUI-owned leaf controls their
 order. The leaf owns the single trusted Command/Ctrl+K listener; Remote owns the
