@@ -6,7 +6,7 @@ use super::{
 use crate::core::Core;
 use serde_json::{Value, json};
 use std::{
-    collections::{BTreeMap, VecDeque},
+    collections::{BTreeMap, BTreeSet, VecDeque},
     sync::{Arc, Mutex},
 };
 
@@ -183,8 +183,11 @@ impl Writer {
         }
     }
     pub fn mark_member(&self, actor: &str, member: &str, before: Value) {
+        self.mark_scope(actor, BTreeSet::from([member.into()]), before);
+    }
+    pub fn mark_scope(&self, actor: &str, members: BTreeSet<String>, before: Value) {
         self.walk(
-            Walk::new(actor.into(), Goal::Member(member.into())).after(before),
+            Walk::new(actor.into(), Goal::Members(members)).after(before),
             true,
         );
     }

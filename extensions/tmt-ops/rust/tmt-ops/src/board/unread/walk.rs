@@ -2,7 +2,7 @@
 use super::{BodyKind, Page, publish::Completed};
 use crate::{config::Config, core::Core};
 use serde_json::{Value, json};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 /// Immutable provenance of an answer body in a successful frame. A revision is
 /// optional when the body predates the bounded summary page; the lane resolves it.
@@ -20,7 +20,7 @@ pub(in crate::board) struct Body {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(super) enum Goal {
     Legacy(BTreeMap<String, u64>),
-    Member(String),
+    Members(BTreeSet<String>),
     Body(Body),
 }
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -91,7 +91,7 @@ impl Walk {
                     Goal::Legacy(cutoffs) => cutoffs
                         .get(&answer.member)
                         .is_some_and(|cutoff| answer.answered_at_ms <= *cutoff),
-                    Goal::Member(member) => &answer.member == member,
+                    Goal::Members(members) => members.contains(&answer.member),
                     Goal::Body(body) => {
                         if answer.member == body.member && answer.request == body.request {
                             found = true;
@@ -346,7 +346,7 @@ mod tests {
     fn explicit_member_walk_continues_beyond_the_summary_and_no_watermark_is_needed() {
         let fixture = Fixture::new();
         pages(&fixture);
-        let walk = Walk::new(ACTOR.into(), Goal::Member(MEMBER.into()))
+        let walk = Walk::new(ACTOR.into(), Goal::Members(BTreeSet::from([MEMBER.into()])))
             .after(json!({"answeredAtMs":100,"requestId":"equal"}));
         let (result, next) = walk.step(&fixture.core()).unwrap();
         assert!(next.is_none());

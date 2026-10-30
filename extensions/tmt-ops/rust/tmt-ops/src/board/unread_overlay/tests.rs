@@ -81,7 +81,11 @@ fn unavailable_answers(member: &str, reply: &str, turn: &str) -> Observation {
 }
 
 fn draw(app: &App, height: u16) -> String {
-    let mut terminal = Terminal::new(TestBackend::new(160, height)).unwrap();
+    draw_size(app, 160, height)
+}
+
+fn draw_size(app: &App, width: u16, height: u16) -> String {
+    let mut terminal = Terminal::new(TestBackend::new(width, height)).unwrap();
     terminal
         .draw(|frame| crate::board::view::render(frame, app))
         .unwrap();
@@ -128,12 +132,19 @@ pub(in crate::board) const SCENES: &[&str] = &[
     "unread-overlay-failed",
     "unread-overlay-unavailable",
     "unread-overlay-older",
+    "unread-overlay-detail",
+    "unread-overlay-read",
+    "unread-overlay-confirm",
+    "unread-overlay-empty",
+    "unread-overlay-hover",
 ];
 
 /// An opened overlay: two agents' unread answers, the way `scene` names.
 pub(in crate::board) fn capture_case(scene: &str, look: crate::look::Look) -> App {
     let now = crate::status::now_ms();
     let mut app = app_with_two_members();
+    // Keep approved clock cells independent of the host's system time zone.
+    app.local_zone = Some(jiff::tz::TimeZone::get("Asia/Tokyo").unwrap());
     let view = app.view.as_mut().unwrap();
     view.look = look;
     // A saved squad look would win over the scene's, and it follows the environment.
@@ -216,6 +227,33 @@ pub(in crate::board) fn capture_case(scene: &str, look: crate::look::Look) -> Ap
             arrive(&mut app, OTHER, core);
         }
     }
+    match scene {
+        "unread-overlay-detail" => app.unread_overlay.as_mut().unwrap().detail_open = true,
+        "unread-overlay-read" => {
+            let items = app
+                .unread_overlay
+                .as_ref()
+                .unwrap()
+                .items
+                .values()
+                .cloned()
+                .map(|answer| (answer, crate::board::unread::publish::Outcome::Acknowledged))
+                .collect();
+            app.finished_unread(Ok(crate::board::unread::publish::Completed {
+                actor: ACTOR.into(),
+                items,
+            }));
+        }
+        "unread-overlay-confirm" => {
+            press(&mut app, KeyCode::Char('a'));
+        }
+        "unread-overlay-empty" => {
+            install(&mut app, &[]);
+            app.open_unread(&UnreadScope::All);
+        }
+        "unread-overlay-hover" => app.unread_overlay.as_ref().unwrap().hover.set(Some(1)),
+        _ => {}
+    }
     app
 }
 
@@ -261,7 +299,7 @@ fn the_overlay_lists_unread_answers_by_agent_oldest_first_with_a_count_per_group
             "{screen}"
         );
         assert!(at("── core-ops · 1") < at("── worker · 2"), "{screen}");
-        assert!(screen.contains("shown answers are marked read"), "{screen}");
+        assert!(screen.contains("r mark read"), "{screen}");
     });
 }
 
@@ -337,9 +375,19 @@ fn ages_in_the_headers_follow_the_clock_while_the_overlay_stays_open() {
         arrive(&mut app, MEMBER, replies(MEMBER, &[("w", "An answer")]));
     });
     let first = drawn(&app, 10_000_000);
-    assert!(first.contains("in turn · 33m ago"), "{first}");
+    assert!(
+        first
+            .lines()
+            .any(|line| line.contains("worker → you") && line.contains("33m ago")),
+        "{first}"
+    );
     let later = drawn(&app, 10_000_000 + 20 * 60_000);
-    assert!(later.contains("in turn · 53m ago"), "{later}");
+    assert!(
+        later
+            .lines()
+            .any(|line| line.contains("worker → you") && line.contains("53m ago")),
+        "{later}"
+    );
 }
 
 #[test]
@@ -583,7 +631,7 @@ fn a_press_inside_the_overlay_never_reaches_the_board_under_it_and_outside_close
             MouseEvent {
                 kind: MouseEventKind::Down(MouseButton::Left),
                 column: 159,
-                row: 35,
+                row: 0,
                 modifiers: KeyModifiers::NONE,
             },
             std::time::Instant::now(),
@@ -614,12 +662,13 @@ fn older_answers_held_back_by_core_are_said_so() {
 }
 
 #[test]
-fn nothing_unread_opens_nothing_and_says_so() {
+fn nothing_unread_shows_the_empty_overlay_without_acknowledgment() {
     let mut app = board();
     install(&mut app, &[]);
     app.workspace_unread();
-    assert!(app.unread_overlay.is_none());
-    assert_eq!(app.notice.as_deref(), Some("Nothing unread here."));
+    assert!(app.unread_overlay.is_some());
+    assert!(draw(&app, 40).contains("No unread"));
+    assert!(app.unread.writer.offer().is_none());
 }
 
 #[test]
@@ -793,7 +842,7 @@ fn unread_overlay_frame_timing() {
 }
 
 #[test]
-fn painted_unavailable_captions_admit_every_visible_answer_without_a_body() {
+fn every_unavailable_kind_is_admitted_only_when_its_detail_is_selected() {
     crate::status::with_now_ms(10_000_000, || {
         let mut app = app_with_two_members();
         install(
@@ -821,18 +870,22 @@ fn painted_unavailable_captions_admit_every_visible_answer_without_a_body() {
             app.unread.writer.offer().is_none(),
             "paint alone does not write"
         );
-        app.unread_drawn();
-        let requests: Vec<_> = app
-            .unread
-            .displayed
-            .iter()
-            .map(|answer| answer.request.as_str())
-            .collect();
-        assert_eq!(
-            requests,
-            ["missing", "unavailable-reply", "unavailable-turn"],
-            "every painted unavailable caption admits its exact answer, not only the top one"
-        );
+        for request in ["missing", "unavailable-reply", "unavailable-turn"] {
+            draw(&app, 40);
+            app.unread_drawn();
+            let requests: Vec<_> = app
+                .unread
+                .displayed
+                .iter()
+                .map(|answer| answer.request.as_str())
+                .collect();
+            assert_eq!(
+                requests,
+                [request],
+                "only the selected unavailable detail grants evidence"
+            );
+            press(&mut app, KeyCode::Down);
+        }
         assert!(app.unread.writer.offer().is_some());
         assert_eq!(
             app.unread_count(MEMBER).total,
@@ -989,7 +1042,7 @@ fn sixty_unavailable_answers_clear_in_bounded_pages_only_after_their_captions_ar
         {
             break;
         }
-        press(&mut app, KeyCode::PageDown);
+        press(&mut app, KeyCode::Down);
     }
     let acked: Value =
         serde_json::from_str(&fs::read_to_string(fixture.0.join("acknowledged.json")).unwrap())
@@ -1024,7 +1077,7 @@ fn an_unavailable_caption_below_the_viewport_and_a_stale_revision_are_not_admitt
         replies(MEMBER, &[("long", &"paragraph\n\n".repeat(100))]),
     );
     let screen = draw(&app, 20);
-    assert!(!screen.contains("answer not loaded"));
+    assert!(!screen.contains("answer not loaded · open it in chat"));
     app.unread_drawn();
     assert_eq!(
         app.unread
@@ -1094,6 +1147,701 @@ fn a_new_actor_never_inherits_an_open_overlays_caption_or_cursor() {
     assert!(app.unread.writer.offer().is_none());
     assert!(app.unread_overlay_page().is_none());
     assert!(app.unread_overlay_read().is_none());
+}
+
+#[test]
+fn unread_list_detail_uses_the_board_body_instead_of_a_fixed_modal_cap() {
+    let mut app = app_with_two_members();
+    install(&mut app, &[(MEMBER, "first", 8_000_000, "final")]);
+    app.open_unread(&UnreadScope::Member(MEMBER.into()));
+    arrive(
+        &mut app,
+        MEMBER,
+        replies(MEMBER, &[("first", "The full answer.")]),
+    );
+    let screen = draw_size(&app, 160, 50);
+    let outer = app
+        .peek_areas
+        .dialog(crate::board::app::Overlay::Unread)
+        .unwrap();
+    assert_eq!(
+        outer.width, 160,
+        "Unread fills the board body rather than 110 columns"
+    );
+    assert!(
+        outer.height > 32,
+        "Unread uses the available body height: {outer:?}"
+    );
+    assert!(
+        outer.y >= 3,
+        "the top bar and tabs remain outside: {outer:?}"
+    );
+    assert!(screen.contains("Agents"), "{screen}");
+    assert!(screen.contains("Digest"), "{screen}");
+}
+
+#[test]
+fn unread_list_previews_do_not_acknowledge_the_unselected_detail() {
+    let mut app = app_with_two_members();
+    install(
+        &mut app,
+        &[
+            (MEMBER, "first", 8_000_000, "final"),
+            (MEMBER, "second", 9_000_000, "final"),
+        ],
+    );
+    app.open_unread(&UnreadScope::Member(MEMBER.into()));
+    arrive(
+        &mut app,
+        MEMBER,
+        replies(
+            MEMBER,
+            &[
+                ("first", "First preview.\n\nFirst selected body."),
+                ("second", "Second preview.\n\nSecond detail only."),
+            ],
+        ),
+    );
+    let screen = draw_size(&app, 160, 50);
+    app.unread_drawn();
+    assert_eq!(
+        app.unread
+            .displayed
+            .iter()
+            .map(|body| body.request.as_str())
+            .collect::<Vec<_>>(),
+        ["first"],
+        "the list preview is not painted-detail evidence"
+    );
+    assert!(
+        screen.contains("Second preview."),
+        "the other answer has a list row: {screen}"
+    );
+    assert!(
+        !screen.contains("Second detail only."),
+        "the unselected full body stays hidden: {screen}"
+    );
+    press(&mut app, KeyCode::Down);
+    let screen = draw_size(&app, 160, 50);
+    app.unread_drawn();
+    assert!(screen.contains("Second detail only."), "{screen}");
+    assert_eq!(
+        app.unread
+            .displayed
+            .iter()
+            .map(|body| body.request.as_str())
+            .collect::<Vec<_>>(),
+        ["second"]
+    );
+}
+
+#[test]
+fn narrow_unread_stays_unread_until_enter_opens_detail_and_escape_returns_to_list() {
+    let mut app = app_with_two_members();
+    install(&mut app, &[(MEMBER, "first", 8_000_000, "final")]);
+    app.open_unread(&UnreadScope::Member(MEMBER.into()));
+    arrive(
+        &mut app,
+        MEMBER,
+        replies(MEMBER, &[("first", "Preview only.\n\nFull narrow detail.")]),
+    );
+    let list = draw_size(&app, 80, 30);
+    app.unread_drawn();
+    assert!(
+        app.unread.displayed.is_empty(),
+        "a narrow list preview is never read evidence"
+    );
+    assert!(list.contains("Preview only."), "{list}");
+    assert!(!list.contains("Full narrow detail."), "{list}");
+    assert!(app.unread.writer.offer().is_none());
+    press(&mut app, KeyCode::Enter);
+    assert!(
+        app.unread_overlay.is_some(),
+        "narrow Enter opens detail inside the overlay"
+    );
+    let detail = draw_size(&app, 80, 30);
+    app.unread_drawn();
+    assert!(detail.contains("Full narrow detail."), "{detail}");
+    assert_eq!(app.unread.displayed.len(), 1);
+    press(&mut app, KeyCode::Esc);
+    assert!(
+        app.unread_overlay.is_some(),
+        "first Escape returns to the narrow list"
+    );
+    let list = draw_size(&app, 80, 30);
+    app.unread_drawn();
+    assert!(!list.contains("Full narrow detail."), "{list}");
+    assert!(app.unread.displayed.is_empty());
+    press(&mut app, KeyCode::Esc);
+    assert!(
+        app.unread_overlay.is_none(),
+        "second Escape closes the overlay"
+    );
+}
+
+#[test]
+fn unread_r_explicitly_marks_the_selected_revision_without_opening_its_body() {
+    let mut app = app_with_two_members();
+    install(&mut app, &[(MEMBER, "first", 8_000_000, "final")]);
+    app.open_unread(&UnreadScope::Member(MEMBER.into()));
+    draw_size(&app, 80, 30);
+    assert!(app.unread.writer.offer().is_none());
+    press(&mut app, KeyCode::Char('r'));
+    assert!(
+        app.unread.writer.offer().is_some(),
+        "r admits the selected exact revision even without body text"
+    );
+    assert_eq!(
+        app.unread_count(MEMBER).total,
+        1,
+        "admission does not claim Core success"
+    );
+}
+
+#[test]
+fn unread_a_requires_one_confirmation_and_escape_cancels_without_acknowledging() {
+    let mut app = app_with_two_members();
+    install(&mut app, &[(MEMBER, "first", 8_000_000, "final")]);
+    app.open_unread(&UnreadScope::Member(MEMBER.into()));
+    draw_size(&app, 80, 30);
+    press(&mut app, KeyCode::Char('a'));
+    let screen = draw_size(&app, 80, 30);
+    assert!(
+        screen.contains("Mark all read"),
+        "a asks for confirmation: {screen}"
+    );
+    assert!(
+        app.unread.writer.offer().is_none(),
+        "confirmation alone does not acknowledge"
+    );
+    press(&mut app, KeyCode::Esc);
+    assert!(
+        app.unread_overlay.is_some(),
+        "cancel returns to the overlay"
+    );
+    assert!(app.unread.writer.offer().is_none());
+    assert_eq!(app.unread_count(MEMBER).total, 1);
+}
+
+#[test]
+fn confirmed_mark_all_walks_one_frozen_scope_past_fifty_without_touching_another_agent() {
+    use crate::board::unread::test_support::Fixture;
+    use std::fs;
+    let fixture = Fixture::new();
+    let requests: Vec<_> = (1..=60).rev().map(|n| format!("scope-{n:02}")).collect();
+    let rows: Vec<_> = requests
+        .iter()
+        .enumerate()
+        .map(|(n, request)| {
+            (
+                if n % 2 == 0 { MEMBER } else { OTHER },
+                request.as_str(),
+                1000 - n as u64,
+                "final",
+            )
+        })
+        .collect();
+    let mut first = answers(&rows[..20]);
+    first["nextBefore"] = json!({"answeredAtMs":981,"requestId":"scope-41"});
+    let mut older_rows = rows[20..].to_vec();
+    older_rows.push((
+        "77777777-7777-4777-8777-777777777777",
+        "foreign",
+        900,
+        "final",
+    ));
+    fs::write(
+        fixture.0.join("pages.json"),
+        json!({"":first,"scope-41":answers(&older_rows)}).to_string(),
+    )
+    .unwrap();
+    let mut app = app_with_two_members();
+    app.home_leads
+        .test_pages(ACTOR, json!({"items":[],"nextBefore":null}), first);
+    app.open_unread(&UnreadScope::Group(vec![MEMBER.into(), OTHER.into()]));
+    draw_size(&app, 80, 30);
+    press(&mut app, KeyCode::Char('a'));
+    assert!(draw_size(&app, 80, 30).contains("Mark all read"));
+    assert!(
+        app.unread.writer.offer().is_none(),
+        "no write before confirmation"
+    );
+    press(&mut app, KeyCode::Enter);
+    for _ in 0..10 {
+        let Some(writer) = app.unread.writer.offer() else {
+            break;
+        };
+        let completed = writer.publish(&fixture.core()).unwrap();
+        assert!(completed.items.len() <= 50);
+        assert!(
+            completed
+                .items
+                .iter()
+                .all(|(answer, _)| [MEMBER, OTHER].contains(&answer.member.as_str()))
+        );
+        app.finished_unread(Ok(completed));
+    }
+    let acked: Value =
+        serde_json::from_str(&fs::read_to_string(fixture.0.join("acknowledged.json")).unwrap())
+            .unwrap();
+    assert_eq!(acked.as_object().unwrap().len(), 60);
+    assert!(
+        acked.get("foreign").is_none(),
+        "an unrelated agent is outside the confirmed scope"
+    );
+    assert_eq!(
+        app.unread_count(MEMBER).total + app.unread_count(OTHER).total,
+        0
+    );
+    let calls = fs::read_to_string(fixture.0.join("calls")).unwrap();
+    assert_eq!(
+        calls
+            .lines()
+            .filter(|line| line.contains("requests.list"))
+            .count(),
+        1,
+        "one older-page read, not one walk per member"
+    );
+    assert!(!calls.contains("requests.show"));
+    assert!(app.unread.writer.offer().is_none());
+}
+
+#[test]
+fn mark_read_is_a_noop_for_a_read_entry_and_retries_a_failed_detail() {
+    let mut app = app_with_two_members();
+    let mut page = answers(&[(MEMBER, "first", 8_000_000, "final")]);
+    app.home_leads
+        .test_pages(ACTOR, json!({"items":[],"nextBefore":null}), page.clone());
+    app.open_unread(&UnreadScope::Member(MEMBER.into()));
+    page["items"][0]["acknowledged"] = json!(true);
+    app.home_leads
+        .test_pages(ACTOR, json!({"items":[],"nextBefore":null}), page);
+    app.unread_overlay_sync();
+    draw_size(&app, 80, 30);
+    press(&mut app, KeyCode::Char('r'));
+    assert!(
+        app.unread.writer.offer().is_none(),
+        "mark read never toggles back to unread"
+    );
+    arrive(&mut app, MEMBER, Observation::Unavailable);
+    draw_size(&app, 160, 40);
+    press(&mut app, KeyCode::Char('r'));
+    assert_eq!(app.unread_overlay_read().unwrap().1.key.1, MEMBER);
+    assert!(
+        app.unread.writer.offer().is_none(),
+        "retrying detail is a read, not an ack"
+    );
+}
+
+#[test]
+fn detail_re_line_uses_only_the_selected_request_and_viewers_input() {
+    let mut app = app_with_two_members();
+    install(&mut app, &[(MEMBER, "chosen", 8_000_000, "final")]);
+    app.open_unread(&UnreadScope::Member(MEMBER.into()));
+    let mut document = json!({"identityId":MEMBER,"entries":[
+        {"entryId":"wrong","inputBatchId":"same-batch","kind":"input","requestId":"other",
+         "sender":{"identityId":ACTOR},"delivery":"delivered","availability":"retained",
+         "text":"Wrong nearby prompt","truncated":false,"originalBytes":19},
+        {"entryId":"mine","inputBatchId":"same-batch","kind":"input","requestId":"chosen",
+         "sender":{"identityId":ACTOR},"delivery":"delivered","availability":"retained",
+         "text":"Original question","truncated":false,"originalBytes":17},
+        {"entryId":"reply","inputBatchId":"same-batch","kind":"reply","requestId":"chosen",
+         "availability":"retained","text":"Exact answer","truncated":false,"originalBytes":12,
+         "acknowledgements":[],"acknowledgementsTruncated":false}
+    ],"responses":[],"coverage":{"olderDropped":false},"capture":{"enabled":true}});
+    arrive(
+        &mut app,
+        MEMBER,
+        Observation::Observed(Arc::new(Answers {
+            timeline: Some(timeline::parse(MEMBER, &document).unwrap()),
+            ..Default::default()
+        })),
+    );
+    let screen = draw_size(&app, 160, 40);
+    assert!(screen.contains("re: Original question"), "{screen}");
+    assert!(!screen.contains("Wrong nearby prompt"), "{screen}");
+    document["entries"][1]["sender"]["identityId"] = json!(OTHER);
+    arrive(
+        &mut app,
+        MEMBER,
+        Observation::Observed(Arc::new(Answers {
+            timeline: Some(timeline::parse(MEMBER, &document).unwrap()),
+            ..Default::default()
+        })),
+    );
+    let screen = draw_size(&app, 160, 40);
+    assert!(screen.contains("re: request text unavailable"), "{screen}");
+}
+
+#[test]
+fn list_hover_changes_paint_without_selection_or_read_and_stale_hits_are_refused() {
+    let mut app = app_with_two_members();
+    install(
+        &mut app,
+        &[
+            (MEMBER, "first", 8_000_000, "final"),
+            (MEMBER, "second", 9_000_000, "final"),
+        ],
+    );
+    app.open_unread(&UnreadScope::Member(MEMBER.into()));
+    arrive(
+        &mut app,
+        MEMBER,
+        replies(
+            MEMBER,
+            &[("first", "First preview"), ("second", "Second preview")],
+        ),
+    );
+    let mut terminal = Terminal::new(TestBackend::new(160, 40)).unwrap();
+    terminal
+        .draw(|frame| crate::board::view::render(frame, &app))
+        .unwrap();
+    let before = terminal.backend().buffer().clone();
+    let target = app
+        .unread_overlay
+        .as_ref()
+        .unwrap()
+        .list_frame
+        .borrow()
+        .as_ref()
+        .unwrap()
+        .geometry
+        .iter()
+        .find(|row| row.id == "answer-1")
+        .unwrap()
+        .visible;
+    let event = MouseEvent {
+        kind: MouseEventKind::Moved,
+        column: target.x,
+        row: target.y,
+        modifiers: KeyModifiers::NONE,
+    };
+    app.mouse(event, std::time::Instant::now());
+    terminal
+        .draw(|frame| crate::board::view::render(frame, &app))
+        .unwrap();
+    assert_ne!(
+        &before,
+        terminal.backend().buffer(),
+        "hover must paint a highlight"
+    );
+    assert_eq!(
+        app.unread_overlay.as_ref().unwrap().selected_index(),
+        Some(0)
+    );
+    assert!(
+        app.unread.writer.offer().is_none(),
+        "hover and painting alone grant no write"
+    );
+    app.unread_drawn();
+    assert_eq!(
+        app.unread
+            .displayed
+            .iter()
+            .map(|body| body.request.as_str())
+            .collect::<Vec<_>>(),
+        ["first"]
+    );
+    app.invalidate_frame_geometry();
+    app.mouse(
+        MouseEvent {
+            kind: MouseEventKind::Down(MouseButton::Left),
+            ..event
+        },
+        std::time::Instant::now(),
+    );
+    assert_eq!(
+        app.unread_overlay.as_ref().unwrap().selected_index(),
+        Some(0),
+        "stale row geometry cannot select"
+    );
+}
+
+#[test]
+fn a_help_covered_selected_detail_never_grants_read_evidence() {
+    let mut app = app_with_two_members();
+    install(&mut app, &[(MEMBER, "first", 8_000_000, "final")]);
+    app.open_unread(&UnreadScope::Member(MEMBER.into()));
+    arrive(
+        &mut app,
+        MEMBER,
+        replies(MEMBER, &[("first", "Covered answer")]),
+    );
+    app.help = true;
+    draw_size(&app, 160, 40);
+    app.unread_drawn();
+    assert!(app.unread.displayed.is_empty());
+    assert!(app.unread.writer.offer().is_none());
+    app.help = false;
+    draw_size(&app, 160, 40);
+    app.unread_drawn();
+    assert_eq!(app.unread.displayed.len(), 1);
+}
+
+#[test]
+fn the_99_100_column_boundary_changes_only_the_detail_placement_not_the_selected_answer() {
+    let mut app = app_with_two_members();
+    install(&mut app, &[(MEMBER, "first", 8_000_000, "final")]);
+    app.open_unread(&UnreadScope::Member(MEMBER.into()));
+    arrive(
+        &mut app,
+        MEMBER,
+        replies(MEMBER, &[("first", "Preview.\n\nDetail-only body.")]),
+    );
+    let narrow = draw_size(&app, 99, 32);
+    app.unread_drawn();
+    assert!(!narrow.contains("Detail-only body."), "{narrow}");
+    assert!(app.unread.displayed.is_empty());
+    let wide = draw_size(&app, 100, 32);
+    app.unread_drawn();
+    assert!(wide.contains("Detail-only body."), "{wide}");
+    assert_eq!(
+        app.unread
+            .displayed
+            .iter()
+            .map(|body| body.request.as_str())
+            .collect::<Vec<_>>(),
+        ["first"]
+    );
+    draw_size(&app, 100, 7);
+    app.unread_drawn();
+    assert!(
+        app.unread.displayed.is_empty(),
+        "a clipped detail with no body rows grants no evidence"
+    );
+}
+
+#[test]
+fn tab_scrolls_the_detail_without_changing_the_list_selection() {
+    let mut app = app_with_two_members();
+    install(
+        &mut app,
+        &[
+            (MEMBER, "first", 8_000_000, "final"),
+            (MEMBER, "second", 9_000_000, "final"),
+        ],
+    );
+    app.open_unread(&UnreadScope::Member(MEMBER.into()));
+    let text = format!(
+        "Preview.\n\n{}",
+        (0..90)
+            .map(|n| format!("Body paragraph {n}"))
+            .collect::<Vec<_>>()
+            .join("\n\n")
+    );
+    arrive(
+        &mut app,
+        MEMBER,
+        replies(MEMBER, &[("first", &text), ("second", "Second preview")]),
+    );
+    let before = draw_size(&app, 160, 30);
+    press(&mut app, KeyCode::Tab);
+    press(&mut app, KeyCode::PageDown);
+    let after = draw_size(&app, 160, 30);
+    assert_ne!(before, after);
+    assert!(
+        app.unread_overlay
+            .as_ref()
+            .unwrap()
+            .scroll
+            .borrow()
+            .offset()
+            > 0
+    );
+    assert_eq!(
+        app.unread_overlay.as_ref().unwrap().selected_index(),
+        Some(0)
+    );
+    app.unread_drawn();
+    assert_eq!(
+        app.unread
+            .displayed
+            .iter()
+            .map(|body| body.request.as_str())
+            .collect::<Vec<_>>(),
+        ["first"]
+    );
+    press(&mut app, KeyCode::BackTab);
+    press(&mut app, KeyCode::Down);
+    draw_size(&app, 160, 30);
+    assert_eq!(
+        app.unread_overlay.as_ref().unwrap().selected_index(),
+        Some(1)
+    );
+}
+
+#[test]
+fn a_clipped_mark_all_confirmation_cannot_write_blindly() {
+    let mut app = app_with_two_members();
+    install(&mut app, &[(MEMBER, "first", 8_000_000, "final")]);
+    app.open_unread(&UnreadScope::Member(MEMBER.into()));
+    draw_size(&app, 60, 7);
+    press(&mut app, KeyCode::Char('a'));
+    draw_size(&app, 60, 7);
+    press(&mut app, KeyCode::Enter);
+    assert!(app.unread.writer.offer().is_none());
+    assert!(app.unread_overlay.as_ref().unwrap().confirmation.is_some());
+}
+
+#[test]
+fn the_selected_answer_demands_older_timeline_pages_until_its_exact_body_is_found() {
+    let mut app = app_with_two_members();
+    install(&mut app, &[(MEMBER, "older", 8_000_000, "final")]);
+    app.open_unread(&UnreadScope::Member(MEMBER.into()));
+    let Observation::Observed(mut first) = replies(MEMBER, &[]) else {
+        panic!("observed fixture")
+    };
+    Arc::make_mut(&mut first)
+        .timeline
+        .as_mut()
+        .unwrap()
+        .next_before = Some("opaque-older-page".into());
+    arrive(&mut app, MEMBER, Observation::Observed(first));
+    draw_size(&app, 160, 40);
+    let (session, read) = app.unread_overlay_read().unwrap();
+    assert_eq!(
+        read.before,
+        Some(recent_responses::Cursor::Timeline(
+            "opaque-older-page".into()
+        ))
+    );
+    assert!(
+        read.held.is_some(),
+        "reuse the existing cursor-chain read owner"
+    );
+    app.unread_overlay_arrived(
+        session,
+        &read,
+        replies(MEMBER, &[("older", "Exact older answer")]),
+    );
+    let screen = draw_size(&app, 160, 40);
+    assert!(screen.contains("Exact older answer"), "{screen}");
+    assert!(
+        app.unread_overlay_read().is_none(),
+        "the target body stops the older walk"
+    );
+}
+
+#[test]
+fn an_empty_head_with_older_metadata_pending_is_loading_not_definitively_empty() {
+    let mut app = app_with_two_members();
+    let mut page = answers(&[(MEMBER, "settled", 8_000_000, "final")]);
+    page["items"][0]["acknowledged"] = json!(true);
+    page["nextBefore"] = json!({"answeredAtMs":8_000_000,"requestId":"settled"});
+    app.home_leads
+        .test_pages(ACTOR, json!({"items":[],"nextBefore":null}), page);
+    app.open_unread(&UnreadScope::Member(MEMBER.into()));
+    let pending = draw_size(&app, 80, 30);
+    assert!(pending.contains("Loading older answers"), "{pending}");
+    assert!(!pending.contains("No unread"), "{pending}");
+    let (session, read) = app.unread_overlay_page().unwrap();
+    app.unread_overlay_page_arrived(session, &read, Err("fixture failure".into()));
+    let failed = draw_size(&app, 80, 30);
+    assert!(failed.contains("Older answers unavailable"), "{failed}");
+    assert!(!failed.contains("No unread"), "{failed}");
+    press(&mut app, KeyCode::Char('r'));
+    assert!(
+        app.unread_overlay_page().is_some(),
+        "explicit retry re-admits the continuation"
+    );
+    assert!(app.unread.writer.offer().is_none());
+}
+
+#[test]
+fn selection_and_hover_keep_the_theme_unread_foreground() {
+    use tmt_cli_style::Role;
+    let mut app = app_with_two_members();
+    app.view
+        .as_mut()
+        .unwrap()
+        .home
+        .as_mut()
+        .unwrap()
+        .workspace
+        .squad_looks
+        .clear();
+    app.view.as_mut().unwrap().look = crate::look::Look {
+        theme: tmt_cli_style::Theme::new(tmt_cli_style::Base::Tmt),
+        depth: tmt_cli_style::Depth::TrueColor,
+    };
+    install(
+        &mut app,
+        &[
+            (MEMBER, "first", 8_000_000, "final"),
+            (MEMBER, "second", 9_000_000, "final"),
+        ],
+    );
+    app.open_unread(&UnreadScope::Member(MEMBER.into()));
+    let mut terminal = Terminal::new(TestBackend::new(160, 40)).unwrap();
+    terminal
+        .draw(|frame| crate::board::view::render(frame, &app))
+        .unwrap();
+    let rows = app
+        .unread_overlay
+        .as_ref()
+        .unwrap()
+        .list_frame
+        .borrow()
+        .as_ref()
+        .unwrap()
+        .geometry
+        .clone();
+    let expected = app.look().role(Role::Unread).fg.unwrap();
+    for row in &rows {
+        assert_eq!(
+            terminal.backend().buffer()[(row.visible.x + 2, row.visible.y)].fg,
+            expected
+        );
+    }
+    let second = rows[1].visible;
+    app.mouse(
+        MouseEvent {
+            kind: MouseEventKind::Moved,
+            column: second.x,
+            row: second.y,
+            modifiers: KeyModifiers::NONE,
+        },
+        std::time::Instant::now(),
+    );
+    terminal
+        .draw(|frame| crate::board::view::render(frame, &app))
+        .unwrap();
+    assert_eq!(
+        terminal.backend().buffer()[(second.x + 2, second.y)].fg,
+        expected
+    );
+    press(&mut app, KeyCode::Down);
+    assert!(
+        app.unread_overlay.as_ref().unwrap().hover.get().is_none(),
+        "selection clears the old pointer highlight"
+    );
+}
+
+#[test]
+fn unread_detail_inset_gap_preview_ellipsis_and_confirmation_height_are_consistent() {
+    let mut agent = capture_case("unread-overlay-agent", crate::look::Look::default());
+    let mut confirm = capture_case("unread-overlay-confirm", crate::look::Look::default());
+    for app in [&mut agent, &mut confirm] {
+        let text = draw_size(app, 100, 36);
+        assert!(text.contains("│ re: request text unavailable"), "{text}");
+        assert!(text.contains("Opened the pull reques…"), "{text}");
+        let overlay = app.unread_overlay.as_ref().unwrap();
+        let built = overlay.built.borrow();
+        let built = built.as_ref().unwrap();
+        assert_eq!(
+            built.body.start, 3,
+            "one blank row after the two header rows"
+        );
+        assert_eq!(built.lines[2].width(), 0);
+    }
+    let overlay = confirm.unread_overlay.as_ref().unwrap();
+    let (yes, no) = overlay
+        .confirm_hits
+        .get()
+        .expect("both confirmation controls paint");
+    assert_eq!(yes.y, no.y);
+    let text = draw_size(&confirm, 100, 36);
+    assert!(text.contains("Mark all read"), "{text}");
 }
 
 /// The painted buffer at 160 columns.

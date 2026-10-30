@@ -172,7 +172,9 @@ fn commit_turn_end(
         capture.now_ms,
     );
     let batch = super::super::capture_batches::current(db, &binding.identity_id)?;
-    if recorded_batch.is_some_and(|recorded| batch.as_deref() != Some(recorded)) {
+    // Absence is a recorded coordinate too: a direct fallback cannot adopt a
+    // prompt admitted after its preparation, even within the same millisecond.
+    if recorded_batch != batch.as_deref() {
         return Ok(TurnCaptureOutcome::NotApplicable);
     }
     if next.is_none() {
@@ -317,7 +319,7 @@ pub(in crate::storage) fn capture_receipt(
 }
 
 /// Called inside the capture writer on both paths. A receipt fences each event,
-/// while the old recorded batch and exact binding fence where a miss can appear.
+/// while recorded coordinates or current unbatched authority fence its placement.
 pub(in crate::storage) fn finish_capture_disposition(
     db: &Connection,
     capture: &CaptureDisposition<'_>,
@@ -330,17 +332,23 @@ pub(in crate::storage) fn finish_capture_disposition(
         capture.outcome,
         CaptureResult::NoAdmittedStart | CaptureResult::NotApplicable
     ) && !capture.interrupted
-        && let (Some(batch), Some(response)) = (capture.batch, capture.response)
+        && let Some(response) = capture.response
     {
-        let recorded: bool = db.query_row(
-            "SELECT EXISTS(SELECT 1 FROM capture_batches b JOIN identities i ON i.id=b.identity_id AND i.retired_at_ms IS NULL JOIN bindings current ON current.identity_id=i.id AND current.id=b.binding_id
-             WHERE b.id=?1 AND b.identity_id=?2 AND b.binding_id=?3 AND b.driver=?4 AND b.session_id=?5 AND b.runtime_pid=?6 AND b.runtime_start=?7)",
-            params![batch,capture.identity,capture.binding,capture.provider,capture.session,capture.process.pid() as i64,capture.process.start_identity()],
-            |row| row.get(0),
-        ).map_err(|e| super::super::classify(e, "Check capture failure's recorded batch"))?;
-        if recorded && !super::same_final_in_batch(db, Some(batch), response)? {
+        let attributable = match capture.batch {
+            Some(batch) => {
+                let recorded: bool = db.query_row(
+                    "SELECT EXISTS(SELECT 1 FROM capture_batches b JOIN identities i ON i.id=b.identity_id AND i.retired_at_ms IS NULL JOIN bindings current ON current.identity_id=i.id AND current.id=b.binding_id
+                     WHERE b.id=?1 AND b.identity_id=?2 AND b.binding_id=?3 AND b.driver=?4 AND b.session_id=?5 AND b.runtime_pid=?6 AND b.runtime_start=?7)",
+                    params![batch,capture.identity,capture.binding,capture.provider,capture.session,capture.process.pid() as i64,capture.process.start_identity()],
+                    |row| row.get(0),
+                ).map_err(|e| super::super::classify(e, "Check capture failure's recorded batch"))?;
+                recorded && !super::same_final_in_batch(db, Some(batch), response)?
+            }
+            None => unbatched_capture_is_current(db, capture)?,
+        };
+        if attributable {
             db.execute("INSERT INTO capture_entries(identity_id,batch_id,kind,failure,created_ms) VALUES(?1,?2,'failure',?3,?4)",
-                params![capture.identity,batch,failure.as_str(),capture.now_ms as i64])
+                params![capture.identity,capture.batch,failure.as_str(),capture.now_ms as i64])
                 .map_err(|e| super::super::classify(e, "Record uncaptured final"))?;
         }
     }
@@ -348,4 +356,38 @@ pub(in crate::storage) fn finish_capture_disposition(
         params![capture.event_id,capture.identity,capture.batch,capture.outcome.token(),crate::request_runtime::wall_time_ms() as i64])
         .map_err(|e| super::super::classify(e, "Commit capture disposition receipt"))?;
     Ok(())
+}
+
+/// No input association exists to fence an unbatched diagnostic. Only the
+/// still-current runtime authority can place it on the identity's timeline;
+/// neither a nearby prompt nor matching text from another batch is evidence.
+fn unbatched_capture_is_current(
+    db: &Connection,
+    capture: &CaptureDisposition<'_>,
+) -> Result<bool, StorageError> {
+    let rows = BindingRows(db);
+    let Some(binding) = rows
+        .entry_by_id(capture.identity)?
+        .and_then(|entry| entry.binding)
+    else {
+        return Ok(false);
+    };
+    if binding.id != capture.binding
+        || binding.session.state != RuntimeState::Running
+        || !binding.session.key.as_ref().is_some_and(|key| {
+            &key.incarnation == capture.process
+                && key
+                    .provider_session
+                    .as_ref()
+                    .map(|session| session.as_str())
+                    == capture.session
+        })
+    {
+        return Ok(false);
+    }
+    let Some(remembered) = rows.session_preferences(capture.identity)?.remembered else {
+        return Ok(false);
+    };
+    Ok(Some(remembered.harness.as_str()) == capture.provider
+        && Some(remembered.provider_session.as_str()) == capture.session)
 }

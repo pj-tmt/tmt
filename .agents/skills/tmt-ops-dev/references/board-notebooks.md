@@ -280,24 +280,35 @@ Mark read supplies a new admission. Failed work does not block other conversatio
 
 Every painted `● N unread` (top bar, an Agents row's STATE, the conversation header,
 the composer info line) records an `unread_hits` area. The one under the pointer
-(`App::unread_hover`, while the board takes input) is restyled after the frame's counts
-with the composer chip's Hot style. A press on one, or the `unread` action (`u`), opens the Unread overlay
-(`board/unread_overlay`): the scope's unread answers, grouped by agent, oldest first,
-read per agent on the selected lane while it is open (`SelectedRead::UnreadBodies`,
-keyed by overlay session; a failed read is asked again only after scrolling away and
-back). It feeds readable body rows and terminal unavailable-caption rows painted in its
-viewport to the same revision-bound writer. Loading and failed-read captions grant
-no evidence; a newer revision cannot inherit an earlier draw. After the scope's held
-entries settle, `SelectedRead::UnreadPage` follows one `requests.list` answers cursor
-on that same lane, fenced by actor and overlay session. Entries append below the retained
-blocks; HOME head-page refreshes do not reset this continuation. Reading metadata never
-acknowledges it, and a failed continuation waits for reopening rather than looping.
-Catalog action `mark-read` and the member menu still explicitly
-acknowledge the selected conversation's unread answers without showing them or
-focusing the composer. `● 0 unread` is not a target. Counts use one bounded summary page,
-plus older unread metadata already retained by the open overlay (without duplicates);
-explicit Mark read and a visible older body resolve further metadata in bounded public
-pages, yielding between lane steps, without a history cache or per-item show calls.
+(`App::unread_hover`, while the board takes input without an overlay) is restyled after
+the frame's counts with the composer chip's Hot style. A press on one, or the
+`unread` action (`u`), opens `board/unread_overlay` for
+their member scope. The overlay fills the board body, keeping the top bar and tabs.
+At 100 columns and wider, a grouped list (two fifths, capped at 58 columns) sits beside
+the selected answer's markdown, agent/time header and exact-request `re:` line. Below
+100 columns, Enter opens detail from the list and Esc returns before closing. Opening
+order stays fixed; arrivals append and acknowledged rows remain for that opening.
+Read/Unread marks and words accompany ages and previews; hover never selects or reads.
+
+Only successful selected-detail body or terminal unavailable-caption rows grant read
+evidence. List previews, Loading, failures, hidden/clipped detail and failed paints grant
+none. Actor/member/request/revision fences prevent an old draw from reading a newer
+answer. The existing selected lane acquires head pages for previews and follows older
+timeline cursors for the selected answer only; no per-row show calls or paint reads.
+`r` marks the selected exact revision read (already read is a no-op), or explicitly retries
+a failed read. Marking an answer unread again is not offered yet (#5580).
+
+`a` freezes the opening's actor/member scope and held revisions, then asks once before
+marking all read. Cancel writes nothing. Confirmation offers the held keys and continues
+older metadata in 50-item pages on the existing ordered action lane, filtering that frozen
+member set; it never starts a new head scan for later arrivals. One batch is in flight;
+conflicts keep the new revision unread and failures require an explicit retry. Member-menu
+Mark read uses the same walk with one member. No local acknowledgment store exists.
+`SelectedRead::UnreadPage` appends older metadata after held scope entries settle, fenced
+by actor/session. HOME head refreshes do not reset the continuation; metadata reads alone
+never acknowledge. Counts combine the bounded HOME summary and older metadata already
+held by the open overlay without double counting. The body-derived prompt uses only the
+matching viewer/request input; unavailable original text is labeled instead of guessed.
 Paint and hover do no I/O. Shutdown joins the lane before draining admitted writes and
 reporting unresolved failures. Legacy-cutoff consumption belongs to
 [the Config owner](config-and-effects.md), never a second unread authority.

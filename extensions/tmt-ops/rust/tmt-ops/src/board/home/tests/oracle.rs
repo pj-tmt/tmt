@@ -1046,7 +1046,18 @@ fn unread_overlay_frames(styles: &mut Styles) -> Vec<Value> {
     scene_group(
         styles,
         crate::board::unread_overlay::tests::SCENES,
-        |_| grid(&[100, 60], &[36]),
+        |_| {
+            vec![
+                (100, 36),
+                (60, 36),
+                (160, 50),
+                (120, 40),
+                (100, 32),
+                (80, 30),
+                (99, 32),
+                (100, 8),
+            ]
+        },
         |scene, look, _, _| crate::board::unread_overlay::tests::capture_case(scene, look),
         |_, _| {},
     )
