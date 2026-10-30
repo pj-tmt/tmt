@@ -57,17 +57,21 @@ fn a_claude_stop_final_survives_a_concurrent_usage_observation() {
     let activity = lifecycle.decode_activity(payload).unwrap();
     assert_eq!(
         storage
-            .capture_turn_end(crate::storage::TurnCapture {
-                expected: &original,
-                process: &process,
-                activity: &activity,
-                interrupted: false,
-                response: Some(ResponseCapture {
-                    text: turn.final_text.unwrap()
-                }),
-                now_ms: 7000,
-                deadline: Instant::now() + std::time::Duration::from_secs(2),
-            })
+            .capture_turn_end(
+                &uuid::Uuid::new_v4().to_string(),
+                None,
+                crate::storage::TurnCapture {
+                    expected: &original,
+                    process: &process,
+                    activity: &activity,
+                    interrupted: false,
+                    response: Some(ResponseCapture {
+                        text: turn.final_text.unwrap()
+                    }),
+                    now_ms: 7000,
+                    deadline: Instant::now() + std::time::Duration::from_secs(2),
+                }
+            )
             .unwrap(),
         crate::storage::TurnCaptureOutcome::Committed
     );

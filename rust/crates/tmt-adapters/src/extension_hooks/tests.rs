@@ -1,5 +1,5 @@
 use super::*;
-use crate::test_support::TestDirectory;
+use crate::test_support::{TestDirectory, warm};
 use std::os::unix::fs::MetadataExt;
 use std::os::unix::fs::PermissionsExt;
 
@@ -90,20 +90,6 @@ fn fixture_consent(name: &str) -> Consent {
         capabilities: vec![LIFECYCLE_CAPABILITY.into()],
         consented_at_ms: 7,
     }
-}
-
-/// Start a new fixture once before it is probed. On macOS the first start of a
-/// newly written executable can take longer than the probe deadline, and such
-/// first starts run one at a time (#2352); a probe test must not depend on it.
-fn warm(executable: &Path) {
-    let child = std::process::Command::new(executable)
-        .arg("warm")
-        .stdin(std::process::Stdio::null())
-        .stdout(std::process::Stdio::null())
-        .spawn()
-        .unwrap();
-    let status = crate::test_support::TestChild::new(child).wait_for_exit(Duration::from_secs(10));
-    assert!(status.success(), "{status}");
 }
 
 fn fixture_paths(directory: &TestDirectory) -> ConfigPaths {

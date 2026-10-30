@@ -38,8 +38,7 @@ fn main() {
         {
             std::process::exit(channel_mock(&args, index, &mock));
         }
-        let status = Command::new(std::env::var_os("TMT_TEST_CLAUDE_NODE").expect("fixture node"))
-            .arg(mock)
+        let status = mock_command(&mock)
             .args(&args)
             .status()
             .expect("run model-free MCP peer");
@@ -232,6 +231,16 @@ fn main() {
     }
 }
 
+fn mock_command(mock: &std::ffi::OsStr) -> Command {
+    let mut command = Command::new(std::env::var_os("TMT_TEST_CLAUDE_NODE").expect("fixture node"));
+    // The mock's turn Stop waits for this queue version's acknowledgment.
+    command.arg(mock).env(
+        "TMT_TEST_HOOK_QUEUE_SCHEMA",
+        tmt_adapters::storage::hook_queue::QUEUE_SCHEMA_VERSION.to_string(),
+    );
+    command
+}
+
 /// Keep the MCP server a direct child of the admitted native provider. The
 /// delegated JavaScript peer otherwise becomes the channel's recorded owner,
 /// unlike the native process its real lifecycle hooks correctly report.
@@ -261,8 +270,7 @@ fn channel_mock(args: &[std::ffi::OsString], index: usize, mock: &std::ffi::OsSt
         .with_extension("mcp.sock");
     let listener = UnixListener::bind(&socket).expect("bind fixture-owned MCP bridge");
     listener.set_nonblocking(true).unwrap();
-    let mut peer = Command::new(std::env::var_os("TMT_TEST_CLAUDE_NODE").unwrap())
-        .arg(mock)
+    let mut peer = mock_command(mock)
         .args(args)
         .env("TMT_TEST_CLAUDE_MCP_SOCKET", &socket)
         .spawn()

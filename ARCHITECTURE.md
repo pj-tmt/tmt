@@ -209,7 +209,7 @@ check keeps name/pane routing and its existing Digest opportunity.
   `identity` owns canonical UUID spelling and lifetime/create/promote; `identity_metadata`/`identity_status`
   own untrusted descriptions, never authority ([atomic metadata](contracts/extension-api.md#conditional-identity-metadata)).
   `binding` owns [identity and pane coordination](.agents/skills/tmt-core-runtime/references/identity-bindings.md).
-  [Discovery](contracts/discovery-v1.md) owns candidate bounds and native/UUID fences for tmux and admitted host drivers; guarded `add` uses `binding`.
+  [Discovery](contracts/discovery-v1.md) owns candidate bounds and native/UUID fences for tmux and admitted host drivers; guarded `add` uses `binding`, and `tmt ls --detected` embeds the same observation.
 - Unknown or conflicting endpoint evidence is never proof of death. Saved
   identities detach and stay offline; temporary identities retire only on
   conclusive evidence or explicit unbind, and exchanges are kept. Presence is
@@ -272,7 +272,7 @@ have one Core owner each; the [storage and requests reference](.agents/skills/tm
 maps their modules and Stop queue; ordinary writers only notify its finite worker after commit. A [passthrough](contracts/request-response-v1.md#passthrough) is
 a person's typed text, not a request; it settles that agent's oldest open request
 and earns its turn's final. CLI and API share admission. Capture admits the full runtime registry before Digest;
-[batches](contracts/extension-api.md#ordered-captured-conversation) order inputs and finals; distinct finals survive a missed prompt boundary, granting no runtime authority.
+[batches](contracts/extension-api.md#ordered-captured-conversation) order inputs and finals. Distinct finals survive missed prompts; verified refused text leaves a recorded-batch failure, fenced by event receipt, never new runtime authority.
 Adapters admit idle handoff; extensions schedule. Clocks sample at transaction entry;
 no transaction spans transport, and uncertainty never authorizes replay. Finals are
 immutable and terminal text never proves completion. Reads never acknowledge; originator and recipient
@@ -531,14 +531,13 @@ the leaf discovers no roots and interprets no Core state or provider configurati
 
 ## Remote extension
 
-`extensions/tmt-remote` owns the listener, restart/[lifecycle](contracts/remote-channel-v1.md#local-cli-discovery),
-`<dataRoot>/remote/` ([state leaf](#shared-extension-state-layout)), the door and
-[SDK](extensions/tmt-remote/typescript/remote-client/README.md). Owner-installed
+`extensions/tmt-remote` owns listener, restart/[lifecycle](contracts/remote-channel-v1.md#local-cli-discovery),
+`<dataRoot>/remote/` ([state leaf](#shared-extension-state-layout)), door/[SDK](extensions/tmt-remote/typescript/remote-client/README.md). Owner-installed
 [Colab](#colab-extension) mounts at `/r/<prefix>/x/colab/`.
 
 Only public Core JSON; absolute `TMT_EXECUTABLE`/`tmt-invoke`; dispatch pins UUID/name; UUID capture-only.
 Core distrusts Remote. Extensions: public CLI/SDK/`tmt-extension-objects`, never Remote state files.
-Remote: member/channel authority, People, local effect fences, invites, join UI, summary cache/publish/send/delivery (`ops squad ls --json`); UI grants none.
+Remote: member/channel authority, People/row data, local effect fences, invites, join UI, summary cache/publish/send/delivery (`ops squad ls --json`); UI grants none.
 Firestore: only Auth/Rules; read-only auto-pair; no companions/skills/shipped emulation.
 
 `talk --remote` → [message v1](contracts/remote-message-v1.md) → serving owner,

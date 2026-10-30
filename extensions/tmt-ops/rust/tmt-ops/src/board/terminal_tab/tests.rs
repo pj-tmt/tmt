@@ -446,6 +446,14 @@ struct Attached {
 
 impl Attached {
     fn new(snapshot: &[u8]) -> Self {
+        Self::opened(snapshot, |app, address| {
+            app.apply_terminal_located(MEMBER, Located::Stream(address));
+            press_t(app);
+        })
+    }
+
+    /// Attached once `open` has asked for the terminal of the stream at its address.
+    fn opened(snapshot: &[u8], open: impl FnOnce(&mut App, super::discovery::Address)) -> Self {
         let fake = super::stream::tests::Fake::new();
         let (sender, events) = std::sync::mpsc::channel();
         let mut tab = super::tab::Tab::default();
@@ -457,8 +465,7 @@ impl Attached {
         }));
         let mut app = reader();
         app.terminal = tab;
-        app.apply_terminal_located(MEMBER, Located::Stream(fake.address.clone()));
-        press_t(&mut app);
+        open(&mut app, fake.address.clone());
         assert!(app.terminal_sync());
         let mut peer = fake.accept();
         peer.attach(super::stream::tests::size(40, 6), snapshot);
@@ -959,4 +966,140 @@ fn while_typing_the_composer_and_its_key_hints_are_not_offered() {
         text(&app).contains("to message worker"),
         "back after leaving"
     );
+}
+
+#[test]
+fn a_created_member_terminal_takes_the_keys_as_soon_as_its_stream_opens() {
+    // A clean built-in create asks before core has named the stream.
+    let mut attached = Attached::opened(b"hi", |app, address| {
+        app.terminal.show_typing(MEMBER);
+        assert!(!app.terminal_sync(), "nothing to open yet");
+        assert!(!app.terminal.typing());
+        app.apply_terminal_located(MEMBER, Located::Stream(address));
+    });
+    assert!(attached.app.terminal.typing(), "typing as if clicked");
+    let typing = text(&attached.app);
+    for hint in ["to message worker", "⏎ send", "@ mention"] {
+        assert!(!typing.contains(hint), "no composer: {hint}\n{typing}");
+    }
+    attached.app.terminal_sync();
+    assert_eq!(
+        attached.peer.expect(),
+        ClientMessage::Resize(window(&attached.app)),
+        "the window is asked for as with a click"
+    );
+    assert_eq!(
+        attached.typed(KeyCode::Char('a'), KeyModifiers::NONE),
+        b"a",
+        "keys reach the member, not the composer"
+    );
+}
+
+#[test]
+fn a_create_whose_stream_never_opens_leaves_no_typing_behind() {
+    let mut app = reader();
+    app.terminal.show_typing(MEMBER);
+    app.terminal_sync();
+    // The member exited before its stream was found.
+    app.apply_terminal_located(MEMBER, Located::NoStream);
+    app.terminal_sync();
+    assert!(!app.terminal.typing());
+    // Later the member is started again and picked by hand.
+    app.apply_terminal_located(MEMBER, Located::Stream(address("a")));
+    assert!(app.terminal_sync(), "the shown terminal opens");
+    assert!(!app.terminal.typing(), "the old create does not type");
+    assert!(
+        text(&app).contains("to message worker"),
+        "the composer is offered"
+    );
+}
+
+/// Draws as the board loop does and reports the real cursor: shown, and where.
+fn real_cursor(app: &App) -> (bool, ratatui::layout::Position) {
+    let mut terminal = Terminal::new(TestBackend::new(160, 40)).unwrap();
+    terminal
+        .draw(|frame| crate::board::view::render(frame, app))
+        .unwrap();
+    app.park_hidden_caret(&mut terminal).unwrap();
+    let backend = terminal.backend();
+    (backend.cursor_visible(), backend.cursor_position())
+}
+
+fn at(app: &App, column: u16, row: u16) -> ratatui::layout::Position {
+    let area = app.terminal.area().unwrap();
+    ratatui::layout::Position::new(area.x + column, area.y + row)
+}
+
+#[test]
+fn while_typing_the_real_cursor_is_on_the_programs_cursor() {
+    let mut attached = Attached::new(b"hi");
+    attached.start_typing();
+    let (shown, position) = real_cursor(&attached.app);
+    assert!(shown, "the program shows its cursor");
+    assert_eq!(position, at(&attached.app, 2, 0));
+    let cell = buffer_at(&attached.app, position);
+    assert!(
+        !cell.modifier.contains(Modifier::REVERSED),
+        "the real cursor stands in for the reversed cell"
+    );
+}
+
+#[test]
+fn a_hidden_program_cursor_still_moves_the_hidden_real_cursor() {
+    // Claude Code hides its cursor and parks it where it takes text.
+    let mut attached = Attached::new(b"hi\x1b[?25l\x1b[2;4H");
+    attached.start_typing();
+    let (shown, position) = real_cursor(&attached.app);
+    assert!(!shown, "hidden as the program has it");
+    assert_eq!(
+        position,
+        at(&attached.app, 3, 1),
+        "where an input method draws"
+    );
+}
+
+#[test]
+fn leaving_typing_gives_the_caret_back_to_the_board() {
+    let mut attached = Attached::new(b"hi\x1b[?25l\x1b[2;4H");
+    let before = real_cursor(&attached.app);
+    attached.start_typing();
+    assert!(attached.app.terminal.caret().is_some());
+    attached
+        .app
+        .key(key(KeyCode::Char('\\'), KeyModifiers::CONTROL));
+    assert!(!attached.app.terminal.typing());
+    let after = real_cursor(&attached.app);
+    assert_eq!(
+        attached.app.terminal.caret(),
+        None,
+        "no terminal caret is kept"
+    );
+    assert_eq!(after.0, before.0);
+    if after.0 {
+        assert_eq!(after.1, before.1, "the board's caret is back");
+    }
+    // Switching to the chat while the stream runs leaves no caret either.
+    press_t(&mut attached.app);
+    real_cursor(&attached.app);
+    assert_eq!(attached.app.terminal.caret(), None);
+}
+
+#[test]
+fn a_caret_outside_the_drawn_screen_places_nothing() {
+    let mut screen = Screen::new(20, 6);
+    screen.feed(b"\x1b[?25l\x1b[6;16H");
+    let frame = screen.frame();
+    let area = Rect::new(4, 2, 12, 4);
+    assert_eq!(paint::caret(area, &frame), None, "a cut screen hides it");
+    let caret = paint::caret(Rect::new(4, 2, 20, 6), &frame).unwrap();
+    assert_eq!(caret.at, ratatui::layout::Position::new(19, 7));
+    assert!(!caret.shown);
+}
+
+fn buffer_at(app: &App, position: ratatui::layout::Position) -> ratatui::buffer::Cell {
+    let mut terminal = Terminal::new(TestBackend::new(160, 40)).unwrap();
+    terminal
+        .draw(|frame| crate::board::view::render(frame, app))
+        .unwrap();
+    terminal.backend().buffer()[position].clone()
 }

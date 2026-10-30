@@ -322,6 +322,18 @@ function sql<T>(fixture: E2EFixture, run: (database: Database.Database) => T): T
   }
 }
 
+/** Why a Digest Stop printed nothing, as its launch row names it (#4871). Read only. */
+function learning(fixture: E2EFixture): unknown[] {
+  const database = new Database(path.join(fixture.globalDir, 'tmt.db'), { readonly: true });
+  try {
+    return database
+      .prepare('SELECT status,step,reason,detail FROM launch_observations ORDER BY created_at_ms')
+      .all();
+  } finally {
+    database.close();
+  }
+}
+
 function notificationStates(fixture: E2EFixture, requestId: string) {
   return sql(
     fixture,
@@ -846,15 +858,6 @@ describe('Claude channel delivery', { concurrent: false }, () => {
           oracle((db) =>
             db.prepare('SELECT id,state FROM focus_checklists ORDER BY created_at_ms,id').all()
           ) as { id: string; state: string }[];
-        // Why a Digest Stop printed nothing, as its launch row names it (#4871). Read only.
-        const learning = () =>
-          oracle((db) =>
-            db
-              .prepare(
-                'SELECT status,step,reason,detail FROM launch_observations ORDER BY created_at_ms'
-              )
-              .all()
-          );
         const digestStep = async (event: string, extra: Record<string, unknown> = {}) => {
           await publishDigestStep(worker.log, { event, ...extra });
           await waitForEvent(fixture, worker, event);
@@ -871,7 +874,7 @@ describe('Claude channel delivery', { concurrent: false }, () => {
               .filter((value) => value.systemMessage);
           if (quietNotice) {
             await digestStep('quiet-notice-stop');
-            expect(notices(), `Session learning: ${JSON.stringify(learning())}`).toEqual([
+            expect(notices(), `Session learning: ${JSON.stringify(learning(fixture))}`).toEqual([
               { systemMessage: noticeText },
             ]);
           }
@@ -1011,7 +1014,7 @@ describe('Claude channel delivery', { concurrent: false }, () => {
                 )
                 .all()
             ),
-            learning: learning(),
+            learning: learning(fixture),
           }));
           const feedback = named(worker, 'digest-continuation');
           expect(feedback).toHaveLength(1);
@@ -1145,10 +1148,14 @@ describe('Claude channel delivery', { concurrent: false }, () => {
           expect(held.json).toMatchObject({ status: 'queued', digest: true });
         }
         await publishDigestStep(worker.log, { event: 'partial-stop', partialDigestOutput: true });
-        await waitForEvent(fixture, worker, 'partial-stop');
-        expect(named(worker, 'digest-partial-handoff')).toMatchObject([
-          { partialBytes: 4096, code: 0 },
-        ]);
+        await waitForEvent(fixture, worker, 'partial-stop', () => ({
+          learning: learning(fixture),
+        }));
+        // A Digest Stop that refuses publishes nothing; its launch row names why (#5172).
+        expect(
+          named(worker, 'digest-partial-handoff'),
+          `Session learning: ${JSON.stringify(learning(fixture))}`
+        ).toMatchObject([{ partialBytes: 4096, complete: false, code: 0 }]);
         expect(named(worker, 'digest-continuation')).toEqual([]);
         const before = snapshot();
         expect(before).toMatchObject({
@@ -1864,7 +1871,31 @@ describe('Claude channel delivery', { concurrent: false }, () => {
           expect((await fixture.runJsonCli(['rename', name, renamed])).code).toBe(0);
           expect(identityId(fixture, renamed)).toBe(id);
           fs.appendFileSync(transcript, records.slice(1).join('\n') + '\n');
-          fs.writeFileSync(`${worker.log}.stop-turn`, '');
+          // A held main writer keeps the queued Stop unapplied. Keep this short:
+          // the mock's acknowledgment wait gives up after 5 s.
+          const writer = new Database(path.join(fixture.globalDir, 'tmt.db'));
+          try {
+            writer.exec('BEGIN IMMEDIATE');
+            fs.writeFileSync(`${worker.log}.stop-turn`, '');
+            await waitForEvent(fixture, worker, 'stop-hook-exited');
+            const queue = new Database(path.join(fixture.globalDir, 'hook-writes.db'), {
+              readonly: true,
+              fileMustExist: true,
+            });
+            try {
+              const pending = queue.prepare('SELECT count(*) AS n FROM hook_writes').get() as {
+                n: number;
+              };
+              expect(pending.n).toBeGreaterThan(0);
+            } finally {
+              queue.close();
+            }
+            // Hook exit is not application: this fails if the mock stops waiting.
+            expect(named(worker, 'turn-recorded')).toEqual([]);
+          } finally {
+            if (writer.inTransaction) writer.exec('ROLLBACK');
+            writer.close();
+          }
           await waitForEvent(fixture, worker, 'turn-recorded');
           const observed = await listed();
           expect(observed.name).toBe(renamed);

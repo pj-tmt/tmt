@@ -336,3 +336,51 @@ test('member policy and Remote-name results retain strict correlation and origin
     (e) => e instanceof ClientError && e.operationId === id,
   );
 });
+
+test('member summary preserves nullable recorded facts and uses the verified read lane', async () => {
+  const { door, client, session, member } = await ready();
+  const view = { remoteId: member.remoteId, memberCount: 4, lastActiveAtMs: 123 };
+  const original = door.managementReply!;
+  door.managementReply = (operation, value) => {
+    if (operation !== 'remote.members.summary') return original(operation, value);
+    assert.deepEqual(value, {});
+    return view;
+  };
+  const [summary] = await Promise.all([
+    client.summary(),
+    client.list({ cursor: null, limit: 50 }),
+    operations(session).listAgents(),
+  ]);
+  assert.deepEqual(summary, view);
+  assert.deepEqual(
+    door.calls.map((call) => call.envelope.sequence),
+    ['1', '2', '3'],
+  );
+  assert.equal(door.opens, 1);
+  door.managementReply = () => ({ ...view, memberCount: null, lastActiveAtMs: null });
+  assert.deepEqual(await client.summary(), { ...view, memberCount: null, lastActiveAtMs: null });
+});
+
+test('member summary refuses uncorrelated or unsafe facts and unknown fields', async () => {
+  for (const changed of [
+    { remoteId: crypto.randomUUID() },
+    { online: true },
+    { memberCount: -1 },
+    { memberCount: 1.5 },
+    { memberCount: Number.MAX_SAFE_INTEGER + 1 },
+    { memberCount: '1' },
+    { lastActiveAtMs: -1 },
+    { lastActiveAtMs: Number.MAX_SAFE_INTEGER + 1 },
+    { lastActiveAtMs: 'now' },
+  ]) {
+    const { door, client, member } = await ready();
+    const view = { remoteId: member.remoteId, memberCount: 1, lastActiveAtMs: null };
+    door.managementReply = () => ({ ...view, ...changed });
+    await assert.rejects(client.summary(), ClientError);
+    assert.equal(door.opens, 1);
+    assert.deepEqual(
+      door.calls.map((call) => call.envelope.operation),
+      ['remote.members.summary'],
+    );
+  }
+});

@@ -304,6 +304,7 @@ export class Door {
         case 'remote.devices.talk':
         case 'remote.invites.pending':
         case 'remote.invites.confirm':
+        case 'remote.members.summary':
         case 'remote.members.list':
         case 'remote.members.machines':
         case 'remote.members.rename':

@@ -442,6 +442,16 @@ fn stored_binding_reads_rename_and_force_remove_use_the_pty_host_without_tmux() 
         assert!(started.status.success(), "{started:?}");
         let named = world.json(&["ls", "alpha", "--json"]);
         assert_eq!(named["presence"], "active", "{named:#}");
+        // The built-in host reports the member's live directory, as tmux reports a pane's;
+        // the member was started from the world root (#5559).
+        let cwd = named["pane"]["cwd"]
+            .as_str()
+            .expect("a built-in member reports its cwd");
+        assert_eq!(
+            fs::canonicalize(cwd).unwrap(),
+            fs::canonicalize(&world.root).unwrap(),
+            "{named:#}"
+        );
         let id = named["identity"]["id"].as_str().unwrap().to_owned();
         let pane = named["pane"]["id"].as_str().unwrap().to_owned();
         let database = support::state_dir(&world.root).join("tmt.db");

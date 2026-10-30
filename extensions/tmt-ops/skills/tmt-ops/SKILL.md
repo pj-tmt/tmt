@@ -315,8 +315,8 @@ Click any estimate to cycle its unit on every view at once: tokens (default), pe
 (`12% of input`) and cost (`≈ $12.40 at list price`). The saved preference is
 `workspace.savings_unit` (`tokens`, `percent`, `cost`).
 Cost is an estimate at list price for uncached input, never money saved or a bill;
-the Digest tab's Details list the price table, where it came from (fetched, cached or
-built-in) and each member's quote and share.
+the Digest tab's Evidence (a Details tab, and the `Estimate basis…` window) lists the price
+table, where it came from (fetched, cached or built-in) and each member's quote basis.
 A sum of percents needs one shared interval and a sum of costs one price table;
 otherwise it reads `— (intervals differ)` or `— (prices differ)`. The `savings-unit`
 action has no default key: bind one under `[bind]` and its hint appears beside a
@@ -440,7 +440,13 @@ the unit is cost `≈ $ SAVED` (the estimate at list price) steps aside. On `all
 that leaves agents out reads `≥`. Narrow tables drop SHARE and TALKS TO first, then the
 money columns below 94 columns, and the last line names what is left out. Avoided
 estimates remain supplier-owned and show unavailable when their window differs
-from the selected TOK range. Source windows and prices remain in details.
+from the Digest window. Details has three tabs, chosen by their chips or `]`
+(`digest-details`): Impact holds the usage and saved amounts, Delivery each member's mode,
+who set it, held messages and the supplier's clocks (for `all`: the switch, the held total,
+members per mode and the last tick), and Evidence the source windows, observation times, the
+price table with full source addresses and the method. `Estimate basis…` opens the same
+Evidence in a window over the board: `y` copies the price sources, and Esc or a click outside
+closes it.
 Usage and traffic come from bounded background Core reads, even without Digest;
 held and avoided values then show unavailable, with `tmt extension install digest`.
 Missing, partial and failed/stale observations never become measured zeros.

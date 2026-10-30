@@ -214,6 +214,7 @@ fn render(rows: Vec<ListedRow>, terminal: Terminal, all: bool) -> String {
         terminal,
         &rows,
         all,
+        None,
         Some(Path::new("/Users/ada")),
     )
     .unwrap();
@@ -394,6 +395,8 @@ fn json_rows_gain_address_driver_and_activity() {
     let document = document(&Report::Listed {
         rows,
         scope: ListScope::default(),
+        bound: Vec::new(),
+        detected: None,
     });
     for (row, mut original) in document["identities"]
         .as_array()
@@ -453,6 +456,8 @@ fn running_document(mut row: ListedRow, runtime: RuntimeState) -> Value {
             driver_support: None,
         }],
         scope: ListScope::default(),
+        bound: Vec::new(),
+        detected: None,
     });
     row.running_driver = running_driver(
         &row.presence,
@@ -463,6 +468,8 @@ fn running_document(mut row: ListedRow, runtime: RuntimeState) -> Value {
     let projected = document(&Report::Listed {
         rows: vec![row],
         scope: ListScope::default(),
+        bound: Vec::new(),
+        detected: None,
     });
     let mut existing = projected.clone();
     existing["identities"][0]
@@ -723,6 +730,8 @@ fn listed_row(pane: PaneObservation) -> Value {
     document(&Report::Listed {
         rows: vec![row],
         scope: ListScope::default(),
+        bound: Vec::new(),
+        detected: None,
     })["identities"][0]
         .clone()
 }
@@ -770,6 +779,8 @@ fn a_row_without_a_live_observation_has_no_location_key_at_all() {
     let json = document(&Report::Listed {
         rows: vec![offline],
         scope: ListScope::default(),
+        bound: Vec::new(),
+        detected: None,
     })["identities"][0]
         .clone();
     assert!(
@@ -875,11 +886,15 @@ fn support_document(mut row: ListedRow, support: Option<Support>) -> Value {
             driver_support: None,
         }],
         scope: ListScope::default(),
+        bound: Vec::new(),
+        detected: None,
     });
     row.driver_support = support;
     let projected = document(&Report::Listed {
         rows: vec![row],
         scope: ListScope::default(),
+        bound: Vec::new(),
+        detected: None,
     });
     let mut existing = projected.clone();
     existing["identities"][0]
@@ -1018,4 +1033,233 @@ fn a_herdr_agent_name_mismatch_advises_tmt_this() {
             "In worker's pane run: tmt this worker".to_owned(),
         )]
     );
+}
+
+/// A `--detected` scan with one adoptable row and one stale row, as discovery
+/// v1 shapes them. The agent name carries a control character, which the
+/// driver protocol refuses but the renderer must still show inert (#4471).
+fn detected_scan(status: &str, reason: Option<&str>) -> Value {
+    json!({"version": 1, "observedAtMs": 1, "truncated": false,
+    "sources": [{"host": "herdr", "socket": "/tmp/agent host.sock", "status": status, "reason": reason}],
+    "candidates": [
+        {"host": "herdr", "socket": "/tmp/agent host.sock", "pane": "w1:p2", "target": "w1:p2",
+            "identity": null, "state": "unknown", "reason": null, "adoptable": true,
+            "expect": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+            "runtime": {"driver": null},
+            "display": {"agentName": "Ada\u{1b}[31m", "cwd": "/srv/src", "title": "", "command": "sh"}},
+        {"host": "herdr", "socket": null, "pane": "w1:p3", "target": "w1:p3",
+            "identity": null, "state": "stale", "reason": "native_incarnation_unknown",
+            "adoptable": false, "expect": null, "runtime": {"driver": null},
+            "display": {"agentName": "Bob", "cwd": "", "title": "", "command": "sh"}},
+    ]})
+}
+
+fn detected_text(rows: Vec<ListedRow>, document: Value) -> String {
+    let mut output = Vec::new();
+    text(
+        &mut output,
+        Terminal::PLAIN,
+        &Report::Listed {
+            rows,
+            scope: ListScope::default(),
+            bound: Vec::new(),
+            detected: Some(super::super::detected::Detected {
+                document,
+                cleanup_failure: None,
+            }),
+        },
+    )
+    .unwrap();
+    String::from_utf8(output).unwrap()
+}
+
+#[test]
+fn detected_rows_follow_the_members_inert_with_one_add_per_adoptable_row() {
+    let listed = detected_text(vec![running_row("codex", CODEX)], detected_scan("ok", None));
+    let lines: Vec<&str> = listed.lines().collect();
+    let detected = lines.iter().position(|line| *line == "DETECTED 2").unwrap();
+    assert!(
+        lines[..detected]
+            .iter()
+            .any(|line| line.starts_with("SAVED 1")),
+        "{listed}"
+    );
+    // The control character is escaped; the name is never a member name.
+    assert_eq!(
+        lines[detected + 1].split_whitespace().collect::<Vec<_>>(),
+        ["?", "w1:p2", "Ada\\u{1b}[31m", "/srv/src"],
+        "{listed}"
+    );
+    assert_eq!(
+        lines[detected + 2].split_whitespace().collect::<Vec<_>>(),
+        ["?", "w1:p3", "Bob", "native_incarnation_unknown"],
+        "{listed}"
+    );
+    // One add for the adoptable row: the name stays a placeholder, and the
+    // socket is one shell word.
+    let adds: Vec<&&str> = lines
+        .iter()
+        .filter(|line| line.starts_with("hint: tmt add"))
+        .collect();
+    assert_eq!(
+        adds,
+        [
+            &"hint: tmt add 'w1:p2' <name> --expect 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef --socket '/tmp/agent host.sock'"
+        ],
+        "{listed}"
+    );
+    assert_eq!(
+        lines.last(),
+        Some(&"hint: a changed pane refuses with PANE_CHANGED; run: tmt ls --detected"),
+        "{listed}"
+    );
+    // The JSON is the scan document itself, and has no member fields.
+    let report = Report::Listed {
+        rows: Vec::new(),
+        scope: ListScope::default(),
+        bound: Vec::new(),
+        detected: Some(super::super::detected::Detected {
+            document: detected_scan("ok", None),
+            cleanup_failure: None,
+        }),
+    };
+    let json = document(&report);
+    assert_eq!(json["detected"], detected_scan("ok", None));
+    assert_eq!(json["identities"], json!([]));
+    assert_eq!(
+        json["detected"]["candidates"][0]["display"]["agentName"],
+        "Ada\u{1b}[31m"
+    );
+    assert!(json.to_string().contains(r"Ada\u001b[31m"), "{json}");
+}
+
+#[test]
+fn a_source_that_is_not_ok_is_one_note_and_an_empty_member_list_still_shows_the_scan() {
+    let mut document = detected_scan("unknown", Some("timeout"));
+    document["candidates"] = json!([]);
+    let listed = detected_text(Vec::new(), document);
+    assert_eq!(
+        listed,
+        "No identities found.\nhint: tmt name <name>\n\nDETECTED 0\n    herdr: unknown (timeout)\n",
+    );
+}
+
+/// #4471 cases 10 and 11: a scan child that is not reaped, while selecting or
+/// listing panes, gives one partial document. The members stay complete, the
+/// scan offers no row, and the error is the shared envelope.
+#[test]
+fn an_unreaped_scan_child_makes_one_partial_list_with_the_complete_members() {
+    for read in ["caller", "snapshot"] {
+        let scan = crate::discovery_command::tests::unclean_scan(read, Some("fake"));
+        let report = Report::Listed {
+            rows: vec![running_row("codex", CODEX)],
+            scope: ListScope::default(),
+            bound: Vec::new(),
+            detected: Some(super::super::detected::from_scan(scan, &[])),
+        };
+        let json = document(&report);
+        let keys: Vec<&String> = json.as_object().unwrap().keys().collect();
+        let mut sorted = keys.clone();
+        sorted.sort();
+        assert_eq!(
+            sorted,
+            ["detected", "error", "identities", "status"],
+            "{read}: {json:#}"
+        );
+        assert_eq!(json["status"], "partial");
+        assert_eq!(json["error"]["code"], "CLEANUP_ERROR");
+        assert!(
+            json["error"]["message"]
+                .as_str()
+                .unwrap()
+                .contains("cleanup failed")
+        );
+        assert_eq!(json["identities"][0]["name"], "worker", "{read}: {json:#}");
+        assert_eq!(json["detected"]["version"], 1);
+        assert_eq!(json["detected"]["candidates"], json!([]));
+        assert_eq!(json["detected"]["truncated"], true);
+        assert_eq!(json["detected"]["sources"][0]["reason"], "cleanup_failed");
+        // Text: the members, then the failed source under DETECTED.
+        let mut output = Vec::new();
+        text(&mut output, Terminal::PLAIN, &report).unwrap();
+        let listed = String::from_utf8(output).unwrap();
+        assert!(listed.starts_with("SAVED 1\n"), "{listed}");
+        assert!(
+            listed.ends_with("DETECTED 0\n    fake: unknown (cleanup_failed)\n"),
+            "{read}: {listed}"
+        );
+    }
+}
+
+/// Cases 13 and 16: a truncated scan offers no add, and an add's socket with
+/// a space and a quote reads back as one shell word.
+#[test]
+fn a_truncated_row_offers_no_add_and_a_quoted_socket_reads_back_whole() {
+    let mut document = detected_scan("ok", None);
+    let socket = "/tmp/agent host's.sock";
+    document["candidates"][0]["socket"] = socket.into();
+    let listed = detected_text(Vec::new(), document.clone());
+    let add = listed
+        .lines()
+        .filter_map(|line| line.strip_prefix("hint: "))
+        .find(|line| line.starts_with("tmt add "))
+        .unwrap();
+    let argv = tmt_cli_style::help::ShownExample {
+        note: String::new(),
+        command: add.to_owned(),
+    }
+    .argv()
+    .unwrap();
+    assert_eq!(argv.last().map(String::as_str), Some(socket), "{argv:?}");
+    assert_eq!(argv[2], "w1:p2");
+    assert_eq!(argv[3], "<name>");
+    document["truncated"] = true.into();
+    for row in document["candidates"].as_array_mut().unwrap() {
+        row["adoptable"] = false.into();
+        row["expect"] = Value::Null;
+        row["reason"] = "scan_truncated".into();
+    }
+    let listed = detected_text(Vec::new(), document);
+    assert!(!listed.contains("tmt add"), "{listed}");
+    assert!(!listed.contains("PANE_CHANGED"), "{listed}");
+    assert_eq!(listed.matches("scan_truncated").count(), 2, "{listed}");
+}
+
+/// S1 (#4471): the partial list exits 1 and, in text mode, names its error
+/// on stderr; a complete scan, or no scan, exits 0 and writes nothing there.
+#[test]
+fn a_partial_list_exits_one_with_its_error_on_stderr() {
+    use super::super::{status, write_partial};
+    let listed = |detected| Report::Listed {
+        rows: vec![running_row("codex", CODEX)],
+        scope: ListScope::default(),
+        bound: Vec::new(),
+        detected,
+    };
+    let stderr = |report: &Report| {
+        let mut output = Vec::new();
+        write_partial(&mut output, Terminal::PLAIN, report).unwrap();
+        String::from_utf8(output).unwrap()
+    };
+    let scan = crate::discovery_command::tests::unclean_scan("caller", None);
+    let partial = listed(Some(super::super::detected::from_scan(scan, &[])));
+    assert_eq!(status(&partial), 1);
+    let error = stderr(&partial);
+    assert!(error.starts_with("error: "), "{error}");
+    assert!(error.contains("cleanup failed"), "{error}");
+    let mut output = Vec::new();
+    text(&mut output, Terminal::PLAIN, &partial).unwrap();
+    let listed_text = String::from_utf8(output).unwrap();
+    assert!(
+        listed_text.ends_with("DETECTED 0\n    scan: unknown (cleanup_failed)\n"),
+        "{listed_text}"
+    );
+    let complete = listed(Some(super::super::detected::Detected {
+        document: detected_scan("unknown", Some("timeout")),
+        cleanup_failure: None,
+    }));
+    for report in [complete, listed(None)] {
+        assert_eq!(status(&report), 0);
+        assert_eq!(stderr(&report), "");
+    }
 }

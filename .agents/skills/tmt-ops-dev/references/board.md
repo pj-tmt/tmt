@@ -90,7 +90,9 @@ are owned by the verification reference.
 slot preparation and frozen-argv rechecks with `board/switch_tool`; `crate::launch`
 remains the pure validation/quoting owner. `board/tool_choices` projects suggestions
 from observed tools/models; it is not a provider registry. New member also reads
-Core's `drivers.models` once on the worker load (empty on an older Core). Input/paint never reads
+Core's `drivers.models` once on the worker load (empty on an older Core). Host starts on `templates`'
+`callerHost` when eligible (only `null` means the built-in host), else the first eligible host;
+without the key (an older Core, or ambiguous locators) it keeps the first eligible host. Input/paint never reads
 Core or locks Config. New member observes a new bound UUID before joining the frozen
 room; a failed join reports/selects that Pool member with a repair command.
 
@@ -621,10 +623,16 @@ Actions menu otherwise. `paint` lays the cells on the pane with the program's ow
 (`foreign::style`): a bigger screen is cut at the edge (a wide character that would straddle it is
 left out), a smaller one leaves the rest blank, and the screen is dimmed while the stream is not
 live. The program's cursor shows as one reversed cell (not the terminal cursor) in the live state only,
-hidden when the program hides it.
+hidden when the program hides it. While typing, the terminal's real cursor goes to the program's
+cursor cell instead (`Frame::caret`, recorded as `tab::Caret` by `paint`): `view::render` shows it
+there, and when the program hides its cursor `App::park_hidden_caret` moves it there after the draw,
+still hidden, so an input method draws uncommitted text at the program's input. A cell outside the
+drawn screen places nothing; leaving typing gives the caret back to the board.
 
 Typing: `⏎` (the `talk` action while the terminal shows) starts it; after the stream ended it attaches
-again instead. While typing `App::terminal_key`, `terminal_mouse` and `terminal_paste` run before
+again instead. A clean built-in New member create calls `Tab::show_typing`, so that member's stream
+starts typing when it opens, as if clicked; another stream opening, another selection, a toggle, a
+reattach or Core finding no stream drops that wish. While typing `App::terminal_key`, `terminal_mouse` and `terminal_paste` run before
 every other handler, so each key (Esc, PageUp and Ctrl-C included), a paste and the wheel over the
 screen go to the program through `tmt-tui`'s encoders; only Ctrl-\ (or Ctrl-4) leaves, calls
 `Stream::stop_typing` and is never sent, and a press outside the screen leaves too. The window is

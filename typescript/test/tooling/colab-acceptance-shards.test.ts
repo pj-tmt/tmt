@@ -61,7 +61,7 @@ describe('Colab acceptance shards', () => {
       expect(Math.max(...seconds) / Math.min(...seconds), `count ${count}`).toBeLessThan(bound);
     }
     // The heaviest spec (a 2 MiB page) bounds what any shard count can reach. The split CI runs
-    // leaves each shard well inside its spec deadline (1,560 seconds from job start on shard 1).
+    // leaves each shard well inside its spec deadline (1,380 seconds from job start on shard 1).
     const heaviest = Math.max(...Object.values<number>(weights.files));
     const split = splitAcceptanceFiles(files, ACCEPTANCE_SHARDS, weights);
     expect(Math.max(...split.map((shard) => shard.seconds))).toBeLessThan(1200);

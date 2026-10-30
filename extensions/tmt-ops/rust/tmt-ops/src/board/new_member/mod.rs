@@ -253,7 +253,7 @@ impl App {
                 Ok(Outcome::Loaded(loaded)) => {
                     if matches!(completed.task.work, Work::Load)
                         && c.draft.text(model::Slot::Host).is_empty()
-                        && let Some(host) = loaded.hosts.iter().find(|h| h.eligible())
+                        && let Some(host) = model::default_host(&loaded)
                     {
                         c.draft.set(model::Slot::Host, &host.name);
                     }
@@ -299,11 +299,18 @@ impl App {
             if let OpsTarget::Member { identity_id, .. } = &target {
                 self.discovered_uuid = Some(identity_id.clone());
             }
+            let typing_into = match &target {
+                OpsTarget::Member { identity_id, .. } => Some(identity_id.clone()),
+                _ => None,
+            };
             self.workspace.selected = Some(target);
             if let Some(message) = attach {
                 self.new_member = None;
                 self.right_tab = super::shell::RightTab::Talk;
-                self.terminal.show();
+                match typing_into {
+                    Some(identity) => self.terminal.show_typing(&identity),
+                    None => self.terminal.show(),
+                }
                 self.say(message);
             }
             return Effect::Refresh;

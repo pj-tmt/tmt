@@ -11,6 +11,7 @@ pub enum OpsUiAction {
     CycleTokRange,
     Inspect,
     MonitorDetails,
+    DigestDetails,
     MemberSession,
     SwitchTool,
     MemberNotes,
@@ -159,6 +160,13 @@ const SPECS: &[OpsUiSpec] = &[
         "monitor-details",
         "details",
         "read the selected agent's full monitor values",
+        12
+    ),
+    spec!(
+        DigestDetails,
+        "digest-details",
+        "details tab",
+        "show the next Digest Details tab: Impact, Delivery, Evidence",
         12
     ),
     spec!(

@@ -7,6 +7,9 @@ use serde_json::{Value, json};
 use tmt_core::responses::{FinalText, MAX_KEPT, MAX_PAGE, RETENTION_MS, response_id};
 
 mod capture;
+pub(in crate::storage) use capture::{
+    CaptureDisposition, capture_receipt, finish_capture_disposition,
+};
 pub use capture::{CaptureFailure, TurnCapture, TurnCaptureOutcome};
 
 pub struct ResponseCapture {

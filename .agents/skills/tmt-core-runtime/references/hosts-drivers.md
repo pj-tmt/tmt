@@ -233,7 +233,9 @@ channels and the driver protocol. The owner map is in
   template is the constant in `tmt-adapters::tmux::launch`; `host::launch::launch_templates`
   composes it with the built-in host's (`host::pty::launch_template`, which starts a background
   member through `tmt run --host pty` and opens no pane) and each approved driver's (an `ok`
-  driver only) for `tmt host templates`.
+  driver only) for `tmt host templates`. Its advisory `callerHost` is
+  `CallerEnvironment::advisory_host` (`host::launch`), mapped from `named_host` into
+  `AdvisoryHost` (a name, `null` for no locator, or no key when ambiguous).
   The mark a template leaves is `openedByTmt` evidence; `tmt stop --close` is its reader. It
   runs the verified stop first (`verified_stop`, shared with `resume --move`), then asks the
   host to close that one pane (`HostDriver::{close_preflight, opened_by_tmt, close_pane}`,
@@ -276,8 +278,13 @@ stream through the public `terminal.stream` API rather than deriving socket path
 - **Ownership.** `tmt-pty-protocol` is a dependency-free leaf for the frames
   (`kind: u8`, `length: u32`, payload of at most 64 KiB; strict decode; the version is in
   `Hello`/`Welcome`). `tmt-adapters::pty` owns the effects (`Supervisor`, `Connection`);
-  `tmt-sys` owns only the terminal system calls (`spawn_on_terminal`, `set_window_size`,
-  `peer_uid`). Core-internal controls use kinds `0x20–0x2f` and `0xa0–0xaf` on the same socket at version 1; these are separate from the attach stream.
+  `tmt-sys` owns only the system calls (`spawn_on_terminal`, `set_window_size`,
+  `peer_uid`, `process_cwd`). Core-internal controls use kinds `0x20–0x2f` and `0xa0–0xaf` on the same socket at version 1; these are separate from the attach stream.
+- **Current directory.** A snapshot reports the member process's live directory as the pane
+  `cwd` (`tmt_sys::process_cwd`, read by the observer; no frame or supervisor change). It is
+  kept only when the process still has the start identity just verified, and it is `None` on
+  any doubt or for a path that is not UTF-8. Like tmux's `pane_current_path`, it is for
+  display and skill roots only, never authority or a binding fence.
 - **Access.** The directory must be owner-only (`private_file::ensure_private_directory`,
   shared with the Claude channel), the socket is 0600, a peer whose user differs from the
   supervisor's is refused, at most 16 clients attach, and a client that does not say hello

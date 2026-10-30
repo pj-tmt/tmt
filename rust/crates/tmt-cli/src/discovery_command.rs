@@ -125,29 +125,90 @@ fn select<R: CommandRunner + Clone>(
     })
 }
 
+/// One finished scan, printed by nobody: the discovery v1 document, where
+/// each of its rows was observed, and a child that could not be cleaned up.
+/// `tmt discover` prints it; `tmt ls --detected` embeds it (#4471).
+pub(super) struct Scan {
+    pub(super) document: Value,
+    /// The (host, socket, pane ID) each candidate row was observed at, in row
+    /// order. A row without a fence has `socket: null` in the document, so
+    /// only this observation context can match it to a stored binding.
+    pub(super) observed: Vec<(HostKind, String, String)>,
+    /// A selection or inventory read whose child was not reaped. The document
+    /// then names that source `unknown` (`cleanup_failed`) and offers no row.
+    pub(super) cleanup_failure: Option<String>,
+}
+
 pub fn execute(
     selected_host: Option<&str>,
     socket: Option<&str>,
     mode: OutputMode,
 ) -> io::Result<u8> {
-    let deadline = Instant::now() + Duration::from_millis(SCAN_BUDGET_MS);
-    let mut document = json!({"version":1,"observedAtMs":tmt_adapters::request_runtime::wall_time_ms(),"sources":[],"candidates":[],"truncated":false});
-    let mut source = json!({"host":selected_host.unwrap_or(HostKind::Tmux.as_str()),"socket":socket,"status":"unknown","reason":null});
     // One read of the approvals; discovery never adopts or rewrites one.
     let admitted = tmt_adapters::host::external::admitted();
     tmt_adapters::host::external::register(&admitted.records);
-    let caller = CallerEnvironment::admitted(&admitted);
-    let selected = select(
-        UnixCommandRunner,
-        selected_host,
-        socket,
-        &admitted,
-        &caller,
-        deadline,
-    );
+    match discovered(observe(&admitted, selected_host, socket)) {
+        Ok(document) => print(document, mode),
+        Err(failure) => failure.publish(mode),
+    }
+}
+
+/// What `tmt discover` prints: the scan document, or only its cleanup
+/// failure, never both.
+fn discovered(scan: Scan) -> Result<Value, Failure> {
+    match scan.cleanup_failure {
+        Some(message) => Err(Failure::new("CLEANUP_ERROR", message, 1)),
+        None => Ok(scan.document),
+    }
+}
+
+/// The scan of the host that `selected_host` and `socket` select, within one
+/// [`SCAN_BUDGET_MS`] observation allowance. `admitted` is the caller's one
+/// read of the approvals, whose hosts are already registered.
+pub(super) fn observe(
+    admitted: &Admitted,
+    selected_host: Option<&str>,
+    socket: Option<&str>,
+) -> Scan {
+    let caller = CallerEnvironment::admitted(admitted);
+    observe_with(UnixCommandRunner, admitted, &caller, selected_host, socket)
+}
+
+fn observe_with<R: CommandRunner + Clone>(
+    runner: R,
+    admitted: &Admitted,
+    caller: &CallerEnvironment,
+    selected_host: Option<&str>,
+    socket: Option<&str>,
+) -> Scan {
+    let deadline = Instant::now() + Duration::from_millis(SCAN_BUDGET_MS);
+    let mut document = json!({"version":1,"observedAtMs":tmt_adapters::request_runtime::wall_time_ms(),"sources":[],"candidates":[],"truncated":false});
+    let mut source = json!({"host":selected_host.unwrap_or(HostKind::Tmux.as_str()),"socket":socket,"status":"unknown","reason":null});
+    let scan = |document: Value, observed, cleanup_failure| Scan {
+        document,
+        observed,
+        cleanup_failure,
+    };
+    // A child that was not reaped: no row of this scan is offered.
+    let unclean = |mut document: Value, mut source: Value, error: HostError| {
+        source["status"] = "unknown".into();
+        source["reason"] = "cleanup_failed".into();
+        document["sources"] = json!([source]);
+        document["truncated"] = true.into();
+        (document, error.to_string())
+    };
+    let selected = select(runner, selected_host, socket, admitted, caller, deadline);
     let mut selected = match selected {
         Ok(selected) => selected,
-        Err(error) => return Failure::new("CLEANUP_ERROR", error.to_string(), 1).publish(mode),
+        Err(error) => {
+            // An implicit selection failed before it chose a host: the
+            // source names none rather than a guess (#4471).
+            if selected_host.is_none() && socket.is_none() {
+                source["host"] = Value::Null;
+            }
+            let (document, message) = unclean(document, source, error);
+            return scan(document, Vec::new(), Some(message));
+        }
     };
     // A gap host beside the scan is reported as the scan would have been
     // before it observed anything: implicit, so with no socket.
@@ -155,12 +216,13 @@ pub fn execute(
         Selected::Host(_, gap) => gap.take().map(|gap| refused_sources(&source, &gap)),
         Selected::Refused(_) => None,
     };
+    let mut observed = Vec::new();
     match selected {
         Selected::Refused(refusal) => {
             // An unknown source never claims a complete scan.
             document["truncated"] = (refusal.status == "unknown").into();
             document["sources"] = refused_sources(&source, &refusal).into();
-            return print(document, mode);
+            return scan(document, observed, None);
         }
         Selected::Host(host, _) => match host.discover(socket, None, deadline) {
             Ok(mut observation) => {
@@ -206,6 +268,7 @@ pub fn execute(
                     }
                     bytes += size;
                     rows.push(row);
+                    observed.push((observation.host, observation.socket.clone(), c.pane.clone()));
                 }
                 if observation.truncated {
                     source["reason"] = "scan_limit".into();
@@ -219,10 +282,15 @@ pub fn execute(
                 document["truncated"] = observation.truncated.into();
             }
             Err(error) => {
-                if error.cleanup_failed() {
-                    return Failure::new("CLEANUP_ERROR", error.to_string(), 1).publish(mode);
-                }
                 source["host"] = host.kind().as_str().into();
+                if error.cleanup_failed() {
+                    let (mut document, message) = unclean(document, source, error);
+                    if let Some(gap) = gap {
+                        let sources = document["sources"].as_array_mut().expect("source array");
+                        sources.extend(gap);
+                    }
+                    return scan(document, observed, Some(message));
+                }
                 // A driver failure is never evidence that its server is gone.
                 source["status"] = match host.kind() {
                     HostKind::Tmux => tmt_adapters::discovery::tmux_source_status(&error, socket),
@@ -238,7 +306,7 @@ pub fn execute(
     let mut sources = vec![source];
     sources.extend(gap.into_iter().flatten());
     document["sources"] = sources.into();
-    print(document, mode)
+    scan(document, observed, None)
 }
 
 /// One source per refused host, each with the refusal's status and reason.
@@ -284,7 +352,7 @@ fn print(document: Value, mode: OutputMode) -> io::Result<u8> {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
     use tmt_core::endpoint::ProcessIncarnation;
 
@@ -338,13 +406,14 @@ cat > /dev/null
 case "$3" in
   capabilities) printf '%s' '{"ok":{"protocols":[1],"kind":"host","name":"fake","version":"0.0.0-test","ops":["caller","server","snapshot"],"paneId":{"prefix":"fake-"},"target":"f{n}","callerEnv":["FAKE_PANE_ID"]}}' ;;
   caller) printf '{"ok":{"pane":{"id":"fake-1","socket":"/tmp/fake.sock","shellPid":%s}}}' "$(cat "$d/pid")" ;;
+  server) printf '{"ok":{"server":{"socket":"/tmp/fake.sock","pid":%s,"startTime":"x"}}}' "$(cat "$d/pid")" ;;
   *) printf '{"error":{"code":"unsupported","message":"no %s"}}' "$3" ;;
 esac
 "#;
 
     /// The production runner, except that one read reports its child as not
-    /// cleaned up: the driver's `caller` call (`"caller"`), or any ancestry
-    /// `ps` read (`"ps"`). It never runs tmux, and logs every program.
+    /// cleaned up: the driver's `caller` or `snapshot` call (`"caller"`,
+    /// `"snapshot"`), or any ancestry `ps` read (`"ps"`). It never runs tmux, and logs every program.
     #[derive(Clone)]
     struct Unclean {
         read: &'static str,
@@ -383,7 +452,7 @@ esac
             }
             let ps = program == "ps" || args.iter().any(|arg| arg.ends_with("/ps"));
             let hit = match self.read {
-                "caller" => args.iter().any(|arg| arg == "caller"),
+                "caller" | "snapshot" => args.iter().any(|arg| arg == self.read),
                 _ => ps,
             };
             if !hit {
@@ -475,5 +544,77 @@ esac
             }
         }
         let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// A scan of the fake host whose `read` child is not cleaned up: the
+    /// driver's `caller` call while selecting the caller's own server, or its
+    /// `snapshot` call on an explicit socket. `host` is the explicit host, or
+    /// `None` for implicit selection from the fake pane. Nothing runs tmux.
+    pub(crate) fn unclean_scan(read: &'static str, host: Option<&str>) -> Scan {
+        // Tests run in parallel in this process: one private root per call.
+        static CALLS: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+        let call = CALLS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let root =
+            std::env::temp_dir().join(format!("tmt-unclean-{read}-{}-{call}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(root.join("driver")).unwrap();
+        let driver = root.join("driver/tmt-driver-fake");
+        tmt_test_support::write_executable(&driver, DRIVER.as_bytes(), 0o755).unwrap();
+        std::fs::write(root.join("driver/pid"), std::process::id().to_string()).unwrap();
+        let record = tmt_adapters::driver_protocol::registry::approve(
+            &root.join("global"),
+            &driver,
+            &UnixCommandRunner,
+        )
+        .unwrap();
+        let admitted = Admitted {
+            records: vec![record],
+            ..Admitted::default()
+        };
+        let caller = CallerEnvironment {
+            tmux: None,
+            pane: None,
+            process_id: u64::from(std::process::id()),
+            driver_env: [("FAKE_PANE_ID".to_owned(), "f1".into())].into(),
+        };
+        let socket = (read == "snapshot").then_some("/tmp/fake.sock");
+        let runner = Unclean {
+            read,
+            programs: Default::default(),
+        };
+        let scan = observe_with(runner, &admitted, &caller, host, socket);
+        let _ = std::fs::remove_dir_all(&root);
+        scan
+    }
+
+    /// #4471 cases 10, 11 and 19: a selection or inventory child that is not
+    /// reaped leaves a scan with no row and its source `cleanup_failed`;
+    /// `tmt discover` publishes only the `CLEANUP_ERROR`, exit 1, as before
+    /// the split.
+    #[test]
+    fn an_unreaped_scan_child_offers_no_row_and_discover_prints_only_its_error() {
+        // An implicit selection names no host it did not choose.
+        for (read, host, named) in [
+            ("caller", Some("fake"), json!("fake")),
+            ("caller", None, Value::Null),
+            ("snapshot", Some("fake"), json!("fake")),
+        ] {
+            let scan = unclean_scan(read, host);
+            let message = scan.cleanup_failure.clone().expect(read);
+            assert!(message.contains("cleanup failed"), "{read}: {message}");
+            assert_eq!(
+                scan.document["sources"],
+                json!([{"host": named, "socket": (read == "snapshot").then_some("/tmp/fake.sock"),
+                    "status": "unknown", "reason": "cleanup_failed"}]),
+                "{read} {host:?}"
+            );
+            assert_eq!(scan.document["candidates"], json!([]), "{read}");
+            assert_eq!(scan.document["truncated"], true, "{read}");
+            assert!(scan.observed.is_empty(), "{read}");
+            let failure = discovered(scan).unwrap_err();
+            assert_eq!(failure.code, "CLEANUP_ERROR", "{read}");
+            assert_eq!(failure.status, 1, "{read}");
+            assert_eq!(failure.document()["error"]["message"], message.as_str());
+        }
     }
 }

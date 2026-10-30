@@ -11,18 +11,21 @@ use tmt_adapters::{
     config::ConfigPaths,
     driver_protocol::registry,
     host::{
-        launch::{HostLaunch, HostSource, LaunchTemplate},
+        CallerEnvironment,
+        launch::{AdvisoryHost, HostLaunch, HostSource, LaunchTemplate},
         launch_templates,
     },
     process::UnixCommandRunner,
 };
 use tmt_cli_style::{detail, palette::Terminal};
 
-fn read() -> Result<Vec<HostLaunch>, Failure> {
+/// Every host's template, and the host the caller's locators name (advisory).
+fn read() -> Result<(Vec<HostLaunch>, AdvisoryHost), Failure> {
     let paths = ConfigPaths::discover()?;
     let tmt = running_tmt()?;
     let records = registry::read(&paths.global_dir)
         .map_err(|error| Failure::new(error.code(), error.to_string(), 1))?;
+    let caller_host = CallerEnvironment::approved(&records).advisory_host(&records);
     let drivers: Vec<_> = records
         .into_iter()
         .map(|record| {
@@ -30,11 +33,11 @@ fn read() -> Result<Vec<HostLaunch>, Failure> {
             (record, state)
         })
         .collect();
-    Ok(launch_templates(&drivers))
+    Ok((launch_templates(&drivers), caller_host))
 }
 
-fn document(hosts: &[HostLaunch]) -> serde_json::Value {
-    json!({
+fn document(hosts: &[HostLaunch], caller_host: &AdvisoryHost) -> serde_json::Value {
+    let mut document = json!({
         "version": 1,
         "hosts": hosts.iter().map(|host| json!({
             "host": host.host,
@@ -47,7 +50,14 @@ fn document(hosts: &[HostLaunch]) -> serde_json::Value {
                 "placeholders": LaunchTemplate::PLACEHOLDERS,
             })),
         })).collect::<Vec<_>>(),
-    })
+    });
+    // Ambiguous locators give no advice: the key is left out, as from an older Core.
+    match caller_host {
+        AdvisoryHost::Named(host) => document["callerHost"] = json!(host),
+        AdvisoryHost::Unnamed => document["callerHost"] = serde_json::Value::Null,
+        AdvisoryHost::Ambiguous => {}
+    }
+    document
 }
 
 fn source_text(source: HostSource) -> String {
@@ -102,11 +112,11 @@ fn write_hosts(
 pub fn execute(request: HostRequest, mode: OutputMode) -> io::Result<u8> {
     let HostRequest::Templates = request;
     match read() {
-        Ok(hosts) => {
+        Ok((hosts, caller_host)) => {
             let mut output = tmt_cli_style::stream::stdout(mode.json);
             let terminal = output.terminal();
             if mode.json {
-                writeln!(output, "{}", document(&hosts))?;
+                writeln!(output, "{}", document(&hosts, &caller_host))?;
             } else {
                 write_hosts(&mut output, terminal, &hosts)?;
             }

@@ -123,6 +123,8 @@ mod tests {
             0o700,
         )
         .unwrap();
+        // The fixture is new: its first start must not spend the completion deadline.
+        crate::test_support::warm(&program);
         let inherited = std::env::var_os("TMT_EXECUTABLE");
         let tmt = directory.path.join("Core path with spaces");
         assert!(tmt.is_absolute());

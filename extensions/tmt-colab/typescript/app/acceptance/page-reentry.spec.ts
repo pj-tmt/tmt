@@ -19,10 +19,11 @@ test('a page entered again in the same tab is live and writable, also on a slow 
       agent.pane,
     );
     const page = await openPage(door, author, created);
-    // A slow machine: the window in which the page just left is still on screen is wide.
+    await expectLive(page);
+    // A slow machine from here on: the window in which the page just left is still on screen is
+    // wide. The first load is not what this covers, so it runs unthrottled.
     const cdp = await author.context.newCDPSession(page);
     await cdp.send('Emulation.setCPUThrottlingRate', { rate: 6 });
-    await expectLive(page);
     // Leave the page inside the app and come back to it.
     await backToPageList(page);
     await showAllPages(page);

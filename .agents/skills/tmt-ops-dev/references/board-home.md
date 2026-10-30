@@ -273,10 +273,15 @@ amounts onto one line. The window is `App::digest_window` (1d/7d), a view-state 
 (`controls.digestWindow`), not Config: it selects the supplier window and, on this tab,
 the usage report range (`App::digest_range`), independently of the Agents TOK range. A
 choice takes effect at once with no write. A money field that cannot fit whole stays in
-Details; it is never clipped into a partial amount. Details keeps impact amounts once in
-its Impact block; Estimate basis carries model/rate/price-table and window/coverage
-evidence without repeating the amounts. Basis opens the existing Details evidence section
-(and reveals hidden Details through its existing preference CAS). Configure is deferred
+Details; it is never clipped into a partial amount. `digest_dashboard::details` builds Details as three tabs (`App::digest_details`, session
+state): Impact (usage and saved amounts), Delivery (supplier mode, setter, held, clocks;
+for `all` the switch, held total, members per mode and tick) and Evidence (source windows,
+observation times, price table with full sources, method). Each line has one tab. Chips
+are `Choice::DigestDetails` hits and `digest-details` (`]`) steps through them; the shown
+chip reads `▸ <tab>`, since some looks tell a selected chip apart only by a nearby shade.
+`Estimate basis…` (status row and Impact) opens `Overlay::EstimateBasis`, a light-dismiss
+peek modal over the same Evidence lines; `y` copies the distinct price sources through
+`Request::Copy`. Configure is deferred
 to the delivery-settings panel; no placeholder control is painted. These figures do not
 change `savings_unit`. Missing/stale evidence, confirmed zero and incompatible price
 versions remain distinct.

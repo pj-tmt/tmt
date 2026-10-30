@@ -435,6 +435,7 @@ impl Operations {
                     "remote.devices.talk",
                     "remote.management.operation",
                     "remote.members.list",
+                    "remote.members.summary",
                     "remote.members.machines",
                     "remote.members.rename",
                     "remote.members.sending",

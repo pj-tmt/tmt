@@ -32,6 +32,7 @@ pub fn fit(text: &str, width: usize) -> String {
 
 pub fn render(frame: &mut Frame, app: &App) {
     let _rows = app.workspace_frame_rows();
+    app.terminal.place_caret(None);
     app.home_counters.borrow_mut().begin();
     // Overview owns its Subscriptions panel; do not build or register the former strip too.
     let global = app.workspace_snapshot().is_none();
@@ -48,6 +49,11 @@ pub fn render(frame: &mut Frame, app: &App) {
         super::home::limits_of(app, frame.area().width, app.look())
     };
     render_frame(frame, app, home_usage, home_limits);
+    // While typing into a terminal, its program has the caret; a hidden one is moved after the
+    // draw by the board loop.
+    if let Some(caret) = app.terminal.caret().filter(|caret| caret.shown) {
+        frame.set_cursor_position(caret.at);
+    }
     app.home_counters.borrow_mut().finish(
         app.input_band.get(),
         app.help

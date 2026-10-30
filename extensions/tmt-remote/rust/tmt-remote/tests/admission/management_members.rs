@@ -480,3 +480,114 @@ fn signed_member_sending_and_revoke_keep_policy_and_original_outcomes_in_one_jou
     );
     assert_eq!(core.sends(), 0);
 }
+
+#[test]
+fn member_summary_is_signed_browser_only_null_without_designation_and_never_a_mutation() {
+    let owner = OwnerDoor::browser();
+    assert!(owner._root.0.is_absolute());
+    assert!(owner._root.0.to_string_lossy().starts_with("/tmp/t1055-"));
+    let database = owner._serving.layout().directory.join("remote.db");
+    let private_root = owner._root.0.canonicalize().unwrap();
+    assert!(private_root.starts_with(std::fs::canonicalize("/tmp").unwrap()));
+    assert!(database.canonicalize().unwrap().starts_with(&private_root));
+    let observer =
+        rusqlite::Connection::open_with_flags(database, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY)
+            .unwrap();
+    let core = core_fixture::Core::new();
+    let app = app(&owner, &core);
+    let _other = other(&owner);
+    let session = owner.open();
+    let unknown = request(
+        &owner,
+        app.clone(),
+        &session,
+        1,
+        "remote.members.summary",
+        json!({}),
+    );
+    assert_eq!(
+        unknown,
+        json!({"remoteId":owner.machine,"memberCount":null,"lastActiveAtMs":null})
+    );
+    owner
+        .store
+        .lock()
+        .unwrap()
+        .designate(
+            &owner.grant.client_id,
+            &owner.grant.origin,
+            now_ms().unwrap(),
+        )
+        .unwrap();
+    let view = request(
+        &owner,
+        app.clone(),
+        &session,
+        2,
+        "remote.members.summary",
+        json!({}),
+    );
+    assert_eq!(view.as_object().unwrap().len(), 3);
+    assert_eq!(view["remoteId"], owner.machine);
+    assert_eq!(view["memberCount"], 2);
+    assert!(view["lastActiveAtMs"].as_u64().unwrap() > 0);
+    let replay = request(
+        &owner,
+        app.clone(),
+        &session,
+        2,
+        "remote.members.summary",
+        json!({}),
+    );
+    assert_eq!(replay["error"]["code"], "REMOTE_REPLAY");
+    let invalid = request(
+        &owner,
+        app.clone(),
+        &session,
+        3,
+        "remote.members.summary",
+        json!({"remoteId":uuid_v4().unwrap()}),
+    );
+    assert_eq!(invalid["error"]["code"], "REMOTE_INPUT_INVALID");
+    owner.store.lock().unwrap().undesignate().unwrap();
+    let private = request(
+        &owner,
+        app,
+        &session,
+        4,
+        "remote.members.summary",
+        json!({}),
+    );
+    assert_eq!(private, unknown);
+    let devices = Devices::new(owner.store.clone(), Some(owner.sessions.clone()));
+    assert!(
+        tmt_remote::members::reads::local(
+            &devices,
+            &tmt_remote::members::observations::NoMemberObservations,
+            "remote.members.summary",
+            &json!({})
+        )
+        .is_err()
+    );
+    for table in ["operations", "management_receipts"] {
+        assert_eq!(
+            observer
+                .query_row(&format!("SELECT COUNT(*) FROM {table}"), [], |row| row
+                    .get::<_, i64>(0))
+                .unwrap(),
+            0
+        );
+    }
+    assert!(core.calls().is_empty());
+    let cli = OwnerDoor::new();
+    let session = cli.open();
+    let denied = request(
+        &cli,
+        super::app(&cli, &core),
+        &session,
+        1,
+        "remote.members.summary",
+        json!({}),
+    );
+    assert_eq!(denied["error"]["code"], "REMOTE_INPUT_INVALID");
+}

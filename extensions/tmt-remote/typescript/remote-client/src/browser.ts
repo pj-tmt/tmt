@@ -107,6 +107,7 @@ export type {
   RemoteMembers,
   RemoteMember,
   MemberRoster,
+  MemberSummary,
   MemberMachines,
   MemberMachine,
   MemberPage,

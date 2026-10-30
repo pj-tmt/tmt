@@ -6012,12 +6012,16 @@ describe('large board responsiveness', () => {
           timeout: 5_000,
           interval: 25,
         });
-        // A short viewport puts the evidence below the fold, proving the click navigates;
-        // the Details heading is the label without the control's ellipsis.
-        const evidence = /Estimate basis(?!…)/;
-        expect(screen()).not.toMatch(evidence);
+        // The control opens the Evidence window over the board; Esc closes it again.
+        const evidence = 'Estimate basis · Evidence';
+        expect(screen()).not.toContain(evidence);
         click('Estimate basis…');
-        await vi.waitFor(() => expect(screen()).toMatch(evidence), {
+        await vi.waitFor(() => expect(screen()).toContain(evidence), {
+          timeout: 5_000,
+          interval: 25,
+        });
+        tmux(['send-keys', '-t', pane, 'Escape']);
+        await vi.waitFor(() => expect(screen()).not.toContain(evidence), {
           timeout: 5_000,
           interval: 25,
         });

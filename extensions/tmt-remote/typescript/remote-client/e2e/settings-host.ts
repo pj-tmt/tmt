@@ -32,10 +32,17 @@ export async function buildSettingsHost(entry: string, prefix: string): Promise<
       rollupOptions: { output: { inlineDynamicImports: true } },
     },
   });
-  const html = (await readFile(new URL('tmt-settings.html', assets), 'utf8')).replace(
-    '<script type="module" src="/sdk/shell.js"></script>',
-    '<script type="module" src="/harness.js"></script>',
-  );
+  // The app root normally supplies the common bar. This direct-page harness mounts the shared
+  // shell itself, so give it the same empty slot without reintroducing a page title.
+  const html = (await readFile(new URL('tmt-settings.html', assets), 'utf8'))
+    .replace(
+      '<div class="tmt-ui-shell-content">',
+      '<div class="tmt-ui-shell-content"><div class="tmt-ui-shell-bar"></div>',
+    )
+    .replace(
+      '<script type="module" src="/sdk/shell.js"></script>',
+      '<script type="module" src="/harness.js"></script>',
+    );
   const css =
     (await readFile(
       new URL('../../../../../design/browser-ui/generated/static.css', import.meta.url),

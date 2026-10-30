@@ -3,6 +3,7 @@
 
 #[cfg(test)]
 mod caller_host_tests;
+mod detected;
 #[cfg(test)]
 mod guarded_tests;
 mod presentation;
@@ -84,9 +85,14 @@ enum Report {
         pane: Option<(String, PaneRefresh)>,
     },
     /// The rows `tmt ls` shows, after its filters, in storage order.
+    /// `bound` holds every stored binding's pane, before the filters, and is
+    /// read only for `--detected`; `detected` is that scan, made after
+    /// storage closed.
     Listed {
         rows: Vec<ListedRow>,
         scope: ListScope,
+        bound: Vec<detected::BoundPane>,
+        detected: Option<detected::Detected>,
     },
     Named {
         target: String,
@@ -584,6 +590,12 @@ fn operation(
                 .transpose()?;
             let mut rows = binding::list_presence(storage, endpoint, current_server)
                 .map_err(binding_failure)?;
+            // From storage, not the rows: an Unknown row keeps its durable
+            // binding but shows none, and the filters below drop rows.
+            let bound = match scope.detected {
+                Some(_) => bound_panes(storage)?,
+                None => Vec::new(),
+            };
             if let Some(room) = room {
                 rows.retain(|row| room.member_ids.contains(&row.identity.id));
             }
@@ -696,7 +708,12 @@ fn operation(
                     })
                 })
                 .collect::<Result<Vec<_>, Failure>>()?;
-            Ok(Report::Listed { rows, scope })
+            Ok(Report::Listed {
+                rows,
+                scope,
+                bound,
+                detected: None,
+            })
         }
         Invocation::List {
             target: Some(target),
@@ -753,11 +770,46 @@ fn operation(
     }
 }
 
+/// The pane of every retained binding of a non-retired identity.
+fn bound_panes(storage: &mut Storage) -> Result<Vec<detected::BoundPane>, Failure> {
+    use tmt_core::binding::BindingRepository;
+    let entries = storage
+        .with_binding_transaction(|records| records.binding_entries())
+        .map_err(|error| {
+            Failure::new("IDENTITY_ERROR", "Could not read identity bindings.", 1).caused_by(error)
+        })?;
+    Ok(entries
+        .into_iter()
+        .filter_map(|entry| entry.binding)
+        .map(|binding| {
+            (
+                binding.server.host,
+                binding.server.socket_path,
+                binding.pane_id,
+            )
+        })
+        .collect())
+}
+
 pub fn execute(request: Invocation, mode: OutputMode) -> io::Result<u8> {
-    let (report, agent_name) = match run(request) {
+    let (mut report, agent_name) = match run(request) {
         Ok(ran) => ran,
         Err(error) => return error.publish(mode),
     };
+    // Only a listing that succeeded and closed storage scans; the scan's
+    // doubt is data, and only an unreaped child fails the command.
+    if let Report::Listed {
+        scope: ListScope {
+            detected: Some(scope),
+            ..
+        },
+        bound,
+        detected,
+        ..
+    } = &mut report
+    {
+        *detected = Some(detected::scan(scope, bound));
+    }
     let completion = match &report {
         Report::Bound(result) => Some(session::complete(result)),
         _ => None,
@@ -791,6 +843,8 @@ pub fn execute(request: Invocation, mode: OutputMode) -> io::Result<u8> {
     drop(stdout);
     if !mode.json {
         let mut stderr = tmt_cli_style::stream::stderr();
+        let terminal = stderr.terminal();
+        write_partial(&mut stderr, terminal, &report)?;
         presentation::warnings(&mut stderr, &report)?;
         if let Some(warning) = completion.as_ref().and_then(|value| value.warning.as_ref()) {
             let terminal = stderr.terminal();
@@ -834,7 +888,36 @@ pub fn execute(request: Invocation, mode: OutputMode) -> io::Result<u8> {
         let host = Host::for_server(&binding.server);
         tmt_adapters::workspace::refresh_server(&paths, &host, &binding.server);
     }
-    Ok(0)
+    Ok(status(&report))
+}
+
+/// The one error of a partial list, whose scan child was not reaped.
+fn partial(report: &Report) -> Option<Failure> {
+    match report {
+        Report::Listed {
+            detected: Some(detected),
+            ..
+        } => detected.failure(),
+        _ => None,
+    }
+}
+
+/// The exit status after the output: the partial list's, else 0.
+fn status(report: &Report) -> u8 {
+    partial(report).map_or(0, |failure| failure.status)
+}
+
+/// In text mode, a partial list's error on stderr; the JSON document
+/// carries it instead.
+fn write_partial(
+    output: &mut impl Write,
+    terminal: tmt_cli_style::Terminal,
+    report: &Report,
+) -> io::Result<()> {
+    match partial(report) {
+        Some(failure) => failure.write_human(output, terminal),
+        None => Ok(()),
+    }
 }
 
 // Source-checked command samples for the printed-command guard.

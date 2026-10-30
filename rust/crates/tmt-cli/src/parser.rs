@@ -443,6 +443,10 @@ fn translate(path: &[&str], m: &ArgMatches) -> Result<Invocation, String> {
                 },
                 here: flag(m, "here"),
                 all: flag(m, "all"),
+                detected: flag(m, "detected").then(|| crate::invocation::DetectedScope {
+                    host: text(m, "host"),
+                    socket: text(m, "socket"),
+                }),
             },
         },
         ["orch"] => Invocation::Orch(OrchOperation::Overview {

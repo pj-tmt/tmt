@@ -16,6 +16,22 @@ use std::time::Duration;
 use tmt_tui::components::terminal::{is_leave, key_bytes, paste_bytes, wheel_bytes};
 
 impl App {
+    /// After a draw: a program that hides its cursor while typing still has the real cursor
+    /// moved to where it parked its own, kept hidden, so an input method draws there.
+    pub(in crate::board) fn park_hidden_caret<B: ratatui::backend::Backend>(
+        &self,
+        screen: &mut ratatui::Terminal<B>,
+    ) -> Result<(), B::Error> {
+        match self.terminal.caret() {
+            Some(caret) if !caret.shown => {
+                let backend = screen.backend_mut();
+                backend.set_cursor_position(caret.at)?;
+                backend.flush()
+            }
+            _ => Ok(()),
+        }
+    }
+
     /// The member the Terminal tab is about: the selected agent while the Agents tab shows Talk.
     fn terminal_identity(&self) -> Option<String> {
         if self.shell.tab != OpsTab::Agents || self.right_tab != RightTab::Talk {
@@ -87,8 +103,11 @@ impl App {
 
     /// Opens, replaces or drops the one stream so it matches what is shown. True when it changed.
     pub(in crate::board) fn terminal_sync(&mut self) -> bool {
-        let wanted = self
-            .terminal_identity()
+        let selected = self.terminal_identity();
+        if let Some(id) = &selected {
+            self.terminal.selected(id);
+        }
+        let wanted = selected
             .filter(|id| self.terminal.showing(id))
             .and_then(|id| {
                 let address = self.terminal.address(&id)?.clone();

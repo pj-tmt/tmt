@@ -114,6 +114,9 @@ async function openShell(page: Page, size: { width: number; height: number }, qu
   page.on('pageerror', (error) => errors.push(String(error)));
   await page.goto(`${origin}/digest/${query}`);
   await expect(page.locator('#digest-sections .digest-card').first()).toBeVisible();
+  await expect(page.getByRole('heading', { level: 1 })).toHaveText('Understand your team’s usage.');
+  await expect(page.locator('.root-title-row')).toHaveCount(0);
+  await expect(page).toHaveTitle('Digest · TMT');
   return errors;
 }
 
@@ -123,9 +126,13 @@ for (const [name, size] of [
 ] as const) {
   test(`in the app shell at ${name}px the page has the rail, the header and the shell's width`, async ({
     page,
-  }) => {
+  }, testInfo) => {
     const errors = await openShell(page, size);
-    await expect(page.getByRole('heading', { level: 1 })).toHaveText('Digest');
+    await expect(page.getByRole('heading', { level: 1 })).toHaveText(
+      'Understand your team’s usage.',
+    );
+    await expect(page.locator('.root-title-row')).toHaveCount(0);
+    await expect(page).toHaveTitle('Digest · TMT');
     // The rail is a drawer on a phone; it is part of the page from tablet width up.
     if (name === '1440')
       await expect(page.getByRole('navigation', { name: 'TMT', exact: true })).toBeVisible();
@@ -173,13 +180,23 @@ for (const [name, size] of [
       await expect(page.locator('#digest-tokens .digest-total-label')).toContainText('24h');
       await expect(page.locator('#digest-activity')).toHaveCount(0);
     }
-    const dir = process.env.DIGEST_CAPTURE_DIR;
-    if (dir) {
-      await page.waitForTimeout(300);
-      await page.screenshot({
-        path: path.join(dir, `digest-shell-${name}-light.png`),
-        fullPage: true,
-      });
+    // Keep the heading proof in the existing CI test-results artifact without an opt-in run.
+    for (const colorScheme of ['light', 'dark'] as const) {
+      await page.emulateMedia({ colorScheme });
+      await page.evaluate(() =>
+        Promise.all(
+          document
+            .getAnimations()
+            .filter((animation) => animation instanceof CSSTransition)
+            .map((animation) => animation.finished.catch(() => undefined)),
+        ),
+      );
+      const file = `digest-shell-${name}-${colorScheme}.png`;
+      const capture = process.env.DIGEST_CAPTURE_DIR
+        ? path.join(process.env.DIGEST_CAPTURE_DIR, file)
+        : testInfo.outputPath(file);
+      await page.screenshot({ path: capture, fullPage: true });
+      await testInfo.attach(file, { path: capture, contentType: 'image/png' });
     }
     expect(errors).toEqual([]);
   });

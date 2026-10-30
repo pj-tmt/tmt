@@ -1,5 +1,5 @@
-use super::{metrics, model, table};
-use crate::board::{app::App, exchange_matrix, usage_report::View};
+use super::{metrics, table};
+use crate::board::{app::App, exchange_matrix};
 use crate::config::Pane;
 use ratatui::{
     Frame,
@@ -184,7 +184,44 @@ fn matrix(frame: &mut Frame, app: &App, area: Rect, chrome: bool) {
     }
 }
 fn detail(frame: &mut Frame, app: &App, area: Rect) {
-    let inside = crate::board::pane_chrome::paint(frame, app, area, Pane::Replies, "Details");
+    let mut inside = crate::board::pane_chrome::paint(
+        frame,
+        app,
+        area,
+        Pane::Replies,
+        &super::details::title(app),
+    );
+    if inside.is_empty() {
+        return;
+    }
+    tabs(
+        frame,
+        app,
+        Rect {
+            height: 1,
+            ..inside
+        },
+    );
+    inside.y += 1;
+    inside.height -= 1;
+    // Impact ends with the way to its basis, kept in view below the scrolled amounts.
+    if app.digest_details == super::details::Tab::Impact && inside.height > 2 {
+        let row = Rect::new(inside.x, inside.bottom() - 1, inside.width, 1);
+        if let Some(rect) = crate::board::buttons::paint(
+            app,
+            frame.buffer_mut(),
+            row,
+            &[crate::board::buttons::Button::secondary(BASIS)],
+            tmt_cli_style::grid::Align::Left,
+            None,
+        )[0]
+        {
+            app.workspace_strip_hits
+                .borrow_mut()
+                .push((rect, crate::board::app::Choice::DigestBasis));
+        }
+        inside.height -= 1;
+    }
     let lines = detail_lines(
         app,
         inside.width,
@@ -205,196 +242,53 @@ fn detail(frame: &mut Frame, app: &App, area: Rect) {
             });
     }
 }
+
+const BASIS: &str = "Estimate basis…";
+
+/// One chip per Details tab; the shown one is selected and marked `▸`, since
+/// some looks tell a selected chip apart only by a nearby background shade.
+fn tabs(frame: &mut Frame, app: &App, area: Rect) {
+    use crate::board::{app::Choice, buttons::Button, digest_dashboard::details::Tab};
+    let labels: Vec<String> = Tab::ALL
+        .iter()
+        .map(|tab| match *tab == app.digest_details {
+            true => format!("▸ {}", tab.label()),
+            false => tab.label().to_owned(),
+        })
+        .collect();
+    let buttons: Vec<_> = Tab::ALL
+        .iter()
+        .zip(&labels)
+        .map(|(tab, label)| Button::secondary(label).selected(*tab == app.digest_details))
+        .collect();
+    let painted = crate::board::buttons::paint(
+        app,
+        frame.buffer_mut(),
+        area,
+        &buttons,
+        tmt_cli_style::grid::Align::Left,
+        None,
+    );
+    for (tab, rect) in Tab::ALL.into_iter().zip(painted) {
+        if let Some(rect) = rect {
+            app.workspace_strip_hits
+                .borrow_mut()
+                .push((rect, Choice::DigestDetails(tab)));
+        }
+    }
+}
+
 pub(super) fn detail_lines(
     app: &App,
     width: u16,
     now_ms: u64,
     row: Option<&serde_json::Value>,
 ) -> Vec<Line<'static>> {
-    let rows = app.workspace_rows();
-    let selected = rows
-        .iter()
-        .find(|row| Some(&row.target) == app.workspace.selected.as_ref());
-    let ids = selected.map_or_else(Vec::new, |row| metrics::identities(row, &rows));
-    let report = metrics::report(app);
-    let mut text = vec![
-        selected.map_or("Select a visible agent or all".into(), |row| {
-            row.title.clone()
-        }),
-        format!(
-            "{} · TOK {}",
-            app.digest_range().argument(),
-            metrics::token_text(metrics::tokens(report, &ids))
-        ),
-    ];
-    let statistics_available = app.labels.digest().is_some();
-    let selected_id = row.and_then(|row| row["id"].as_str());
-    if !statistics_available {
-        // Valid supplier labels keep their existing priority and chooser even without typed stats.
-        if let Some(id) = selected_id {
-            text.extend(model::details(
-                &app.labels,
-                id,
-                now_ms,
-                app.local_zone.as_ref().unwrap_or(&jiff::tz::TimeZone::UTC),
-            ));
-        }
-        if selected_id.is_none_or(|id| model::labels(&app.labels, id).is_empty()) {
-            text.push("Digest not available".into());
-            text.push("Install: tmt extension install digest".into());
-        }
-    }
-    text.push(format!("Impact · {}", app.digest_window().label()));
-    // The all row reads the sum its tiles and table row share; a member reads its own.
-    let summary = if selected.is_some_and(|row| metrics::id(row).is_none()) {
-        super::savings(app)
-    } else {
-        std::rc::Rc::new(metrics::savings(app, &ids))
-    };
-    text.extend(super::summary::fields(
-        &summary,
-        ["Est. ctx avoided", "List-price equivalent:"],
-    ));
-    if let Some(points) = summary.percent.value {
-        text.push(format!(
-            "Estimated input reduction: {} ({}/{} agents)",
-            model::detail_percent(points),
-            summary.percent.included,
-            summary.total
-        ));
-    } else if summary.percent.conflict {
-        text.push("Estimated input reduction: — · intervals differ".into());
-    }
-    let price_column_shown = table::price_column_shown(app);
-    if let Some(cost) = metrics::input_price(app, report, &ids) {
-        text.push(format!(
-            "Observed input quote: {}",
-            crate::board::savings::usd_text(cost)
-        ));
-    } else if !price_column_shown {
-        text.push("Observed input quote: —".into());
-    }
-    if !price_column_shown {
-        text.push("Input tokens at list price; not a bill.".into());
-    }
-    text.push(super::summary::DEFINITION.into());
-    text.push("Estimate basis".into());
-    if let Some(id) = row.and_then(|row| row["id"].as_str()) {
-        if statistics_available {
-            text.extend(model::details(
-                &app.labels,
-                id,
-                now_ms,
-                app.local_zone.as_ref().unwrap_or(&jiff::tz::TimeZone::UTC),
-            ));
-        }
-        text.push(super::talks(app).busiest(id).map_or(
-            "Talks to: unavailable".into(),
-            |(id, count)| {
-                format!(
-                    "Talks to: {} · {} messages",
-                    metrics::name(app, id),
-                    crate::source::tokens(u128::from(count))
-                )
-            },
-        ));
-        if let Some(seat) = report.and_then(|report| report.seat(id)) {
-            text.push(format!(
-                "Usage coverage: {}% of {}{}",
-                seat.covered_ms.saturating_mul(100) / seat.window_ms.max(1),
-                app.digest_range().argument(),
-                if seat.complete {
-                    " · complete"
-                } else {
-                    " · partial"
-                }
-            ));
-            let zone = app.local_zone.clone().unwrap_or(jiff::tz::TimeZone::UTC);
-            let timestamp = |ms| {
-                i64::try_from(ms)
-                    .ok()
-                    .and_then(|ms| jiff::Timestamp::from_millisecond(ms).ok())
-                    .map_or("unknown".into(), |at| {
-                        at.to_zoned(zone.clone())
-                            .strftime("%m-%d %H:%M")
-                            .to_string()
-                    })
-            };
-            text.push(format!(
-                "Usage window: {}–{}",
-                timestamp(seat.from_ms),
-                timestamp(seat.to_ms)
-            ));
-            text.push(format!(
-                "Usage observed: {}",
-                model::observation_time(Some(seat.observed_at_ms), now_ms, &zone)
-            ));
-            if seat.series.iter().any(|point| !point.complete) {
-                text.push("Hourly activity is partial; fills show observed lower bounds".into());
-            }
-        } else if let Some(unavailable) = report.and_then(|report| {
-            report
-                .unavailable
-                .iter()
-                .find(|row| row.who.id.as_deref() == Some(id))
-        }) {
-            text.push(format!("Usage unavailable: {}", unavailable.reason));
-        }
-        if let Some(point) = report.and_then(|report| metrics::busiest(report, id)) {
-            let zone = app.local_zone.clone().unwrap_or(jiff::tz::TimeZone::UTC);
-            let clock = |ms| {
-                i64::try_from(ms)
-                    .ok()
-                    .and_then(|ms| jiff::Timestamp::from_millisecond(ms).ok())
-                    .map_or("unknown".into(), |at| {
-                        at.to_zoned(zone.clone()).strftime("%H:%M").to_string()
-                    })
-            };
-            text.push(format!(
-                "Busiest hour: {}–{} · {}{} TOK",
-                clock(point.from_ms),
-                clock(point.to_ms),
-                if point.complete { "" } else { "≥" },
-                crate::source::tokens(u128::from(point.tokens))
-            ));
-        }
-    }
-    match app.usage_report.view_for(app.digest_range()) {
-        View::Loading => text.push("Usage loading…".into()),
-        View::Failed(error) => text.push(format!("Usage unavailable: {error}")),
-        View::Report(report) => {
-            if row.and_then(|row| row["id"].as_str()).is_none() {
-                text.push(format!(
-                    "Latest usage observed: {}",
-                    model::observation_time(
-                        Some(report.observed_at_ms),
-                        now_ms,
-                        app.local_zone.as_ref().unwrap_or(&jiff::tz::TimeZone::UTC)
-                    )
-                ));
-                text.push("Totals combine matching source windows only".into());
-            }
-            text.extend(
-                report
-                    .warnings
-                    .iter()
-                    .map(|warning| format!("{}: {}", warning.section, warning.message)),
-            );
-        }
-    }
-    if let Some(error) = app.usage_report.refresh_error(app.digest_range()) {
-        text.push(format!("Stale usage retained · refresh failed: {error}"));
-    }
-    let narrow_activity = app.conversation.borrow().area.width.saturating_sub(2) < 70;
-    if narrow_activity {
-        text.push(if width >= 28 {
-            "24 cells, 1h each · observed counts · ? unknown · · zero".into()
-        } else {
-            "Widen to 28 columns for 24 hourly cells".into()
-        });
-    }
-    if let Some((status, _)) = app.labels.digest() {
-        text.extend(model::pricing_details(status));
+    let impact = app.digest_details == super::details::Tab::Impact;
+    let narrow_activity = !table::activity_shown(app);
+    let mut text = super::details::lines(app, now_ms, row);
+    if impact && narrow_activity && width < 28 {
+        text.push("Widen to 28 columns for 24 hourly cells".into());
     }
     let mut lines: Vec<_> = text
         .into_iter()
@@ -403,10 +297,20 @@ pub(super) fn detail_lines(
         })
         .map(|text| Line::styled(text, app.look().role(Role::Text)))
         .collect();
-    if narrow_activity && width >= 28 {
+    // A table too narrow for the hourly strip shows it under the usage heading.
+    if impact && narrow_activity && width >= 28 {
+        let rows = app.workspace_rows();
+        let ids = rows
+            .iter()
+            .find(|row| Some(&row.target) == app.workspace.selected.as_ref())
+            .map_or_else(Vec::new, |row| metrics::identities(row, &rows));
         let mut spans = vec![Span::styled("1d ", app.look().role(Role::Muted))];
-        spans.extend(table::hourly(app, &metrics::activity(report, &ids), false));
-        lines.insert(1, Line::from(spans));
+        spans.extend(table::hourly(
+            app,
+            &metrics::activity(metrics::report(app), &ids),
+            false,
+        ));
+        lines.insert(1.min(lines.len()), Line::from(spans));
     }
     lines
 }
@@ -434,28 +338,7 @@ pub(in crate::board) fn details_clock_mark(
         .join("\n")
 }
 
-/// Open the already-held Details evidence at its wrapped line, not a guessed offset.
+/// The status-row and Impact `Estimate basis…` buttons open the Evidence modal over the board.
 pub(in crate::board) fn open_basis(app: &mut App) -> crate::board::app::Effect {
-    let width = app
-        .conversation
-        .borrow()
-        .pane
-        .map(crate::board::pane_chrome::content_area)
-        .map_or(1, |area| area.width);
-    let lines = detail_lines(app, width, crate::status::now_ms(), app.selected_row());
-    let offset = lines
-        .iter()
-        .position(|line| line.to_string() == "Estimate basis")
-        .unwrap_or(0);
-    app.focus = 0;
-    app.scrolls.restore([(Pane::Replies, offset)]);
-    app.invalidate_frame_geometry();
-    if app.digest_panels().side_shown() {
-        crate::board::app::Effect::None
-    } else {
-        // The existing Details toggle owns revealing a saved hidden pane, including CAS refusal.
-        app.perform(
-            &crate::action::Action::parse("monitor-details").expect("existing Details action"),
-        )
-    }
+    app.open_estimate_basis()
 }
