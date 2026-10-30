@@ -180,7 +180,8 @@ fn the_agent_details_and_subscription_windows_close_on_an_outside_press() {
 #[test]
 fn every_peek_follows_the_close_rule() {
     use crate::board::app::Overlay;
-    let opens: [(Overlay, fn(&mut App)); 6] = [
+    type Open = fn(&mut App);
+    let opens: [(Overlay, Open); 6] = [
         (Overlay::Help, |app| app.help = true),
         (Overlay::CronList, open_timers),
         (Overlay::MonitorDetails, |app| {
