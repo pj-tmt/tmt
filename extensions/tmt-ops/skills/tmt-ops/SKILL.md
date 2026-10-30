@@ -1035,7 +1035,8 @@ Apply, ↑↓ and the page keys read, and Tab does nothing. Clipped or stale App
 cannot submit. Pending prevents repeated applies.
 Esc, Cancel or a click outside hides a management form and keeps what you typed or
 reviewed; the same key reopens it, titled with its target, with Discard beside Cancel to
-drop it. Member actions reopen only from the Agents list.
+drop it. ↓ past a field's last line reaches those buttons, ←→ move between them and ↑
+goes back. Member actions reopen only from the Agents list.
 Results retain per-item success/failure and explicit repair guidance, with no
 automatic retry; Enter or Esc closes a result. `x` removes membership, not an identity, process, draft or history.
 Source timers pause before leave; re-add/reassign never resumes them. Explicit
