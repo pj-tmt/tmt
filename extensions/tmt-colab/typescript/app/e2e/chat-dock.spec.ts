@@ -169,3 +169,47 @@ for (const width of [1440, 390])
       });
     });
   }
+
+// #5651: every dock action shares one above-dock help position, independent of the hit target.
+for (const width of [1440, 390])
+  for (const theme of ['light', 'dark'] as const)
+    for (const name of ['Selection mode', 'Chat', 'Comments'] as const)
+      test(`dock tooltip ${name} centered with token gap ${width} ${theme}`, async ({
+        page,
+      }, info) => {
+        await page.setViewportSize({ width, height: 900 });
+        await page.emulateMedia({ colorScheme: theme, reducedMotion: 'reduce' });
+        await mount(page);
+        const action = dock(page).getByRole('button', {
+          name: new RegExp(`^${name}(?: \\(| ·|$)`),
+        });
+        const accessibleName = await action.getAttribute('aria-label');
+        for (const input of ['hover', 'keyboard'] as const) {
+          await page.mouse.move(0, 0);
+          if (input === 'hover') await action.hover();
+          else {
+            await page.keyboard.press('Tab');
+            await action.focus();
+            await expect(action).toBeFocused();
+          }
+          const tooltip = dock(page).locator('.tmt-ui-icon-action-tooltip:popover-open');
+          await expect(tooltip).toHaveCount(1);
+          const label = tooltip.locator('.tmt-ui-icon-action-tooltip-label');
+          await expect(label).toBeVisible();
+          const [group, help] = await Promise.all([dock(page).boundingBox(), label.boundingBox()]);
+          expect(help!.x + help!.width / 2).toBeCloseTo(group!.x + group!.width / 2, 0);
+          const offset = await tooltip.evaluate((node) =>
+            parseFloat(getComputedStyle(node).getPropertyValue('--tmt-ui-toggle-gap')),
+          );
+          expect(offset).toBeGreaterThan(0);
+          expect(group!.y - help!.y - help!.height).toBeGreaterThanOrEqual(offset - 0.5);
+          await expect(action).toHaveAccessibleName(accessibleName!);
+          await page.screenshot({
+            path: info.outputPath(
+              `dock-${name.replaceAll(' ', '-')}-${input}-${width}-${theme}.png`,
+            ),
+          });
+          await page.keyboard.press('Escape');
+          await expect(tooltip).toHaveCount(0);
+        }
+      });

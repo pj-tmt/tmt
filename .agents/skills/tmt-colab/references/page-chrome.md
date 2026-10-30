@@ -94,7 +94,10 @@ Each moved action keeps its accessible name and handler. Icons are centralized i
 labels supply hover and keyboard-focus tooltips. Counts come from the existing page projection.
 The selection control, the Chat action and the Comments action are one capsule, the dock, in the page's
 corner (one border, radius and the design system's overlay shadow, a hairline between the actions), in
-that order. Chat opens the retained drawer in one press, out of the dock and back into it on close
+that order. Each button's hover and keyboard tooltip is centered above the whole capsule,
+with at least the shared tooltip's `--tmt-ui-toggle-gap` spacing outside the painted label;
+`BrowserIconAction.tooltipPlacement` owns that geometry without changing names or activation.
+Chat opens the retained drawer in one press, out of the dock and back into it on close
 (`dock-motion.ts`: the dialog clipped to the dock's rectangle, no animation under reduced motion), and
 Comments and Chat hide during selection mode or an annotation. The dock sits unseen under the drawer while
 Chat is open. Comments shows the open-thread count (`.dock-count`, its slot held while the threads are

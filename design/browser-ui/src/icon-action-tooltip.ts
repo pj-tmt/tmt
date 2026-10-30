@@ -1,3 +1,9 @@
+/** Optional host-owned grouping; the shared placer retains viewport and lifetime ownership. */
+export interface IconActionTooltipPlacement {
+  anchor(): HTMLElement | null;
+  side: 'above';
+}
+
 const activeTooltips = new WeakMap<Document, () => void>();
 
 /** Help has one ephemeral owner per document, independent of menu/dialog state. */
@@ -22,16 +28,21 @@ export function iconActionTooltipPosition(
   tooltipHeight: number,
   viewport: TooltipViewport,
   gutter: number,
+  side?: 'above',
 ): { left: number; top: number; maxWidth: number; maxHeight: number } {
   const maxWidth = Math.max(0, viewport.width - gutter * 2);
   const width = Math.min(tooltipWidth, maxWidth);
   const leftEdge = viewport.left + gutter;
   const belowTop = Math.max(viewport.top, anchor.bottom);
   const below = Math.max(0, viewport.top + viewport.height - gutter - belowTop);
-  const above = Math.max(0, anchor.top - viewport.top - gutter);
-  const flipped = tooltipHeight > below && above > below;
+  // The default below tooltip already carries its token gap as top padding. A dock's
+  // explicit above placement needs that same gap outside the bottom of the painted label.
+  const offset = side === 'above' ? gutter : 0;
+  const above = Math.max(0, anchor.top - viewport.top - gutter - offset);
+  const flipped = side === 'above' || (tooltipHeight > below && above > below);
   const maxHeight = flipped ? above : below;
-  const top = flipped ? anchor.top - Math.min(tooltipHeight, maxHeight) : belowTop;
+  const placedTop = flipped ? anchor.top - offset - Math.min(tooltipHeight, maxHeight) : belowTop;
+  const top = side === 'above' ? Math.max(viewport.top + gutter, placedTop) : placedTop;
   return {
     left: Math.max(
       leftEdge,
@@ -47,7 +58,11 @@ export function iconActionTooltipPosition(
 }
 
 // Placement lasts only as long as the caller's visible manual popover.
-export function placeIconActionTooltip(anchor: HTMLElement, tooltip: HTMLElement): () => void {
+export function placeIconActionTooltip(
+  anchor: HTMLElement,
+  tooltip: HTMLElement,
+  side?: 'above',
+): () => void {
   const view = anchor.ownerDocument.defaultView;
   if (!view) return () => {};
   const viewport = view.visualViewport;
@@ -73,6 +88,7 @@ export function placeIconActionTooltip(anchor: HTMLElement, tooltip: HTMLElement
       Math.max(tooltipBox.height, tooltip.scrollHeight),
       bounds,
       gutter,
+      side,
     );
     tooltip.style.left = `${next.left}px`;
     tooltip.style.top = `${next.top}px`;
@@ -114,6 +130,7 @@ export function bindIconActionTooltip(
   wrapper: HTMLElement,
   button: HTMLElement,
   tooltip: HTMLElement,
+  placement?: IconActionTooltipPlacement,
 ) {
   const document = button.ownerDocument;
   const view = document.defaultView!;
@@ -156,9 +173,11 @@ export function bindIconActionTooltip(
       return;
     }
     if (tooltip.matches(':popover-open')) return;
+    const anchor = placement ? placement.anchor() : button;
+    if (!anchor?.isConnected) return;
     release = claimIconActionTooltip(document, dismiss);
     tooltip.showPopover();
-    position = placeIconActionTooltip(button, tooltip);
+    position = placeIconActionTooltip(anchor, tooltip, placement?.side);
     document.addEventListener('keydown', escape, true);
   };
   const clearReturnGuard = () => {
