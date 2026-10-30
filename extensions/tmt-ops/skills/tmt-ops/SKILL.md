@@ -583,7 +583,8 @@ line is `○` and the whole title; the second is `↗` and the whole link (a Git
 `owner/repo#N`, any other address in full without its scheme), then who added the item and how long
 ago (`you`, the member's name, or nothing for an item stored before the board recorded it). A todo's
 second line has only who and when. Long titles and links wrap; nothing is cut. The pointer over a
-link highlights it, as does the chosen row, and a click on it opens it. `↑↓`/`jk` choose,
+link highlights it, as does the chosen row, and a click on it opens it; a web address
+written in a title highlights and opens the same way. `↑↓`/`jk` choose,
 Enter opens a link or ticks a todo (global `board.checklist_enter`, `open` by default: `tick` makes
 Enter tick a link row too; edit **checklist enter** in Ops Config or run
 `tmt ops sq config set board.checklist_enter tick`), Space always ticks and `o` always opens the link, `a` adds (a web address becomes a link; `Tab` moves

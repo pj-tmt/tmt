@@ -18,6 +18,8 @@ use serde_json::json;
 const FILE: &str = "ops.conversation-checklist.xml";
 /// The hit id of a row's second line.
 pub(super) const LINK_HIT: &str = "link";
+/// The hit id of a row's title, which may hold bare web links of its own.
+const TITLE_HIT: &str = "title";
 /// What parts the link from `who · age` on the second line.
 const META_GAP: &str = "   ";
 
@@ -30,7 +32,7 @@ fn markup(title: &str, width: u16, form_only: bool) -> String {
         String::new()
     } else {
         format!(
-            r#"<tmt-list id="choices" bind="$.rows" empty="No items yet · a adds one"><tmt-row class="flex-col shrink-0"><tmt-row class="{lines}"><tmt-text bind="row.cursor"/><tmt-text bind="row.mark" token-bind="row.role"/><tmt-text bind="row.title" token="text" wrap="true"/></tmt-row><tmt-row class="{lines}"><tmt-text/><tmt-text/><tmt-text id="{LINK_HIT}" bind="row.link" token-bind="row.link_role" wrap="true"/></tmt-row></tmt-row></tmt-list>"#
+            r#"<tmt-list id="choices" bind="$.rows" empty="No items yet · a adds one"><tmt-row class="flex-col shrink-0"><tmt-row class="{lines}"><tmt-text bind="row.cursor"/><tmt-text bind="row.mark" token-bind="row.role"/><tmt-text id="{TITLE_HIT}" bind="row.title" token="text" wrap="true"/></tmt-row><tmt-row class="{lines}"><tmt-text/><tmt-text/><tmt-text id="{LINK_HIT}" bind="row.link" token-bind="row.link_role" wrap="true"/></tmt-row></tmt-row></tmt-list>"#
         )
     };
     format!(
@@ -53,6 +55,21 @@ fn schema() -> tmt_tui::binding::Schema {
 
 fn safe(text: &str) -> String {
     crate::board::notes::single_line(text)
+}
+
+/// The glyphs a text paints, which wrapping keeps in order: every character but spaces.
+fn glyph_count(text: &str) -> usize {
+    text.chars().filter(|glyph| !glyph.is_whitespace()).count()
+}
+
+/// One painted cell of a link: its row, which of the row's links it is (0 for the item's
+/// own link, then the title's bare links in order) and the address it opens.
+#[derive(Clone, Debug)]
+pub(super) struct LinkHit {
+    pub area: Rect,
+    pub row: String,
+    pub link: usize,
+    pub url: String,
 }
 
 /// A link row's `↗` and whole address, the part of its second line that opens the link.
@@ -278,10 +295,11 @@ impl Controller {
         }
     }
 
-    /// Find the link on each link row's painted second line: its first glyphs, in reading
-    /// order, are `↗` and the address, the rest is the byline, which takes the `dim` colour.
-    /// The cursor row's link and the link under the pointer are highlighted as other board
-    /// links are: the selection colour, underlined.
+    /// Find the links each row painted. On a link row's second line the first glyphs, in
+    /// reading order, are `↗` and the address; the rest is the byline, which takes the `dim`
+    /// colour. A title's bare web links, by the transcript's rule, are links too. The cursor
+    /// row's own link and the link under the pointer are highlighted as other board links
+    /// are: the selection colour, underlined.
     fn paint_links(
         &self,
         frame: &mut Frame,
@@ -290,44 +308,64 @@ impl Controller {
         selected: Option<&str>,
         ui: &picker_surface::State,
     ) {
-        let hovered = self.hovered.borrow();
+        let hovered = self.hovered.borrow().clone();
+        let dim = look.role(tmt_cli_style::Role::Dim);
+        let lit = look.selection().add_modifier(Modifier::UNDERLINED);
         let mut hits = Vec::new();
         for hit in ui.frame.iter().flat_map(|map| &map.hits) {
-            let Some(row) = hit
-                .row_id
-                .as_deref()
-                .filter(|_| hit.id.last().is_some_and(|id| id == LINK_HIT))
-            else {
+            let (Some(row), Some(part)) = (hit.row_id.as_deref(), hit.id.last()) else {
                 continue;
             };
-            let Some(item) = items
-                .iter()
-                .find(|item| item.id.as_str() == row && item.kind == Kind::Link)
-            else {
+            let Some(item) = items.iter().find(|item| item.id.as_str() == row) else {
                 continue;
             };
-            let glyphs = link_text(item)
-                .chars()
-                .filter(|glyph| !glyph.is_whitespace())
-                .count();
-            let lit = selected == Some(row) || hovered.as_deref() == Some(row);
-            let dim = look.role(tmt_cli_style::Role::Dim);
             let buffer = frame.buffer_mut();
+            // The painted glyphs in reading order; wrapping drops only spaces.
             let painted = (hit.rect.top()..hit.rect.bottom())
                 .flat_map(|y| (hit.rect.left()..hit.rect.right()).map(move |x| (x, y)))
                 .filter(|at| !buffer[*at].symbol().trim().is_empty())
                 .collect::<Vec<_>>();
-            for (index, (x, y)) in painted.into_iter().enumerate() {
-                let cell = &mut buffer[(x, y)];
-                if index >= glyphs {
-                    if let Some(fg) = dim.fg {
-                        cell.set_fg(fg);
-                    }
+            // Each link: which of the row's links it is, its address and its glyph range.
+            let links: Vec<(usize, String, std::ops::Range<usize>)> = if part == LINK_HIT {
+                if item.kind != Kind::Link {
                     continue;
                 }
-                hits.push((Rect::new(x, y, 1, 1), row.to_owned()));
-                if lit {
-                    cell.set_style(look.selection().add_modifier(Modifier::UNDERLINED));
+                let glyphs = glyph_count(&link_text(item));
+                for at in painted.iter().skip(glyphs) {
+                    if let Some(fg) = dim.fg {
+                        buffer[*at].set_fg(fg);
+                    }
+                }
+                let reference = item.reference.clone().unwrap_or_default();
+                vec![(0, reference, 0..glyphs)]
+            } else if part == TITLE_HIT {
+                let title = safe(&item.title);
+                crate::board::member_links::bare_urls(&title)
+                    .into_iter()
+                    .enumerate()
+                    .map(|(index, range)| {
+                        let start = glyph_count(&title[..range.start]);
+                        let url = title[range].to_owned();
+                        let end = start + glyph_count(&url);
+                        (index + 1, url, start..end)
+                    })
+                    .collect()
+            } else {
+                continue;
+            };
+            for (link, url, glyphs) in links {
+                let shine = (link == 0 && selected == Some(row))
+                    || hovered.as_ref() == Some(&(row.to_owned(), link));
+                for &(x, y) in painted.get(glyphs).into_iter().flatten() {
+                    hits.push(LinkHit {
+                        area: Rect::new(x, y, 1, 1),
+                        row: row.to_owned(),
+                        link,
+                        url: url.clone(),
+                    });
+                    if shine {
+                        buffer[(x, y)].set_style(lit);
+                    }
                 }
             }
         }

@@ -23,7 +23,7 @@ pub(super) fn is_bare_url(token: &str) -> bool {
 }
 
 /// The byte ranges of the bare web links in plain text, by the transcript's rule.
-fn bare_urls(text: &str) -> Vec<Range<usize>> {
+pub(super) fn bare_urls(text: &str) -> Vec<Range<usize>> {
     let mut offset = 0;
     let mut found = Vec::new();
     for word in text.split_inclusive(char::is_whitespace) {

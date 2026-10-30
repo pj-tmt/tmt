@@ -397,7 +397,10 @@ title, is `LINK_MARK` (`↗`) and `address()` in the `link` role, then the bylin
 without its scheme. A todo's line 2 is only the byline. The link text carries the `link` hit id; the
 controller keeps its painted areas (`link_hits`) and the item under the pointer (`hovered`, from
 `App::move_pointer` while Notes is the top overlay). A press on a link selects its row and opens it;
-the cursor row's link and the hovered link paint in the selection colour, underlined. Shift+↑↓ swaps
+the cursor row's link and the hovered link paint in the selection colour, underlined.
+The title text carries the `title` hit id; its bare web links (`member_links::bare_urls`,
+the transcript's rule) map onto its painted glyphs the same way and become links 1.. of
+the row (`LinkHit::link`; 0 is the item's own link), each hovered on its own. Shift+↑↓ swaps
 with the neighbouring row of the same list. Captions
 resolve held preview/roster data by the frozen room/member UUID, falling back to
 `member <short UUID>` when no name is held. Rendering never reads Core or borrows
