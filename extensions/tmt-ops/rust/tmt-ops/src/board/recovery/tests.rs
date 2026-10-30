@@ -77,7 +77,7 @@ fn inventory_value() -> Value {
 }
 fn controller() -> Controller {
     let mut c = Controller::new(7, jiff::tz::TimeZone::UTC);
-    c.socket = Some(SOCKET.into());
+    c.store = Some(Store::Socket(SOCKET.into()));
     c.entries = model::Inventory::decode(&inventory_value())
         .unwrap()
         .snapshots;
@@ -270,10 +270,11 @@ fn confirmation_pins_all_fields_and_submits_only_once() {
     assert_eq!(
         task.job,
         Job::Restore(Selection {
-            socket: SOCKET.into(),
+            store: Store::Socket(SOCKET.into()),
             name: Some("saved".into()),
             digest: DIGEST.into(),
-            layout_only: false
+            layout_only: false,
+            fresh: false,
         })
     );
     assert_eq!(
@@ -405,7 +406,7 @@ fn lost_restore_stays_unknown_after_close_reopen_and_is_never_replayed() {
 fn duplicate_name_and_cap_do_not_hide_errors_or_evict_saves() {
     let mut c = controller();
     let task = c.issue(Job::Save {
-        socket: SOCKET.into(),
+        store: Store::Socket(SOCKET.into()),
         name: "saved".into(),
     });
     finish(
@@ -450,7 +451,7 @@ fn unnamed_generations_are_a_valid_inventory_and_only_real_names_must_be_unique(
     let valid = |v: &Value| {
         model::Inventory::decode(v)
             .unwrap()
-            .validate(Some(SOCKET))
+            .validate(Some(&Store::Socket(SOCKET.into())))
             .is_ok()
     };
     // Ben's list: five unnamed generations beside named saves.
@@ -488,7 +489,9 @@ fn generation_inventory_value() -> Value {
 fn a_published_generation_inventory_loads_renders_and_navigates_without_panicking() {
     let value = generation_inventory_value();
     let inventory = Inventory::decode(&value).unwrap();
-    inventory.validate(Some(SOCKET)).unwrap();
+    inventory
+        .validate(Some(&Store::Socket(SOCKET.into())))
+        .unwrap();
     let mut c = Controller::new(7, jiff::tz::TimeZone::UTC);
     let task = c.open().unwrap();
     let show = finish(&mut c, task, Ok(Outcome::List(inventory))).unwrap();
@@ -586,7 +589,7 @@ fn generation_selectors_are_unique_validated_and_save_latest_does_not_save_the_s
         assert!(
             Inventory::decode(&value)
                 .unwrap()
-                .validate(Some(SOCKET))
+                .validate(Some(&Store::Socket(SOCKET.into())))
                 .is_err()
         );
     }
@@ -596,7 +599,7 @@ fn generation_selectors_are_unique_validated_and_save_latest_does_not_save_the_s
     assert!(
         Inventory::decode(&value)
             .unwrap()
-            .validate(Some(SOCKET))
+            .validate(Some(&Store::Socket(SOCKET.into())))
             .is_err()
     );
 }
@@ -714,10 +717,11 @@ fn public_client_preserves_partial_nonzero_report_and_exact_layout_guard() {
         owner: 1,
         serial: 1,
         job: Job::Restore(Selection {
-            socket: SOCKET.into(),
+            store: Store::Socket(SOCKET.into()),
             name: Some("saved".into()),
             digest: DIGEST.into(),
             layout_only: true,
+            fresh: false,
         }),
     };
     let result = load::complete(&core, task);
@@ -757,10 +761,11 @@ fn full_restore_retains_live_skip_needs_you_and_uncertain_startup_per_item() {
         owner: 1,
         serial: 1,
         job: Job::Restore(Selection {
-            socket: SOCKET.into(),
+            store: Store::Socket(SOCKET.into()),
             name: Some("saved".into()),
             digest: DIGEST.into(),
             layout_only: false,
+            fresh: false,
         }),
     };
     let result = load::complete(&core, task);
@@ -815,10 +820,11 @@ fn restore_matching_positive_control_rejects_substituted_digest_and_exit_status(
             owner: 1,
             serial: 1,
             job: Job::Restore(Selection {
-                socket: SOCKET.into(),
+                store: Store::Socket(SOCKET.into()),
                 name: Some("saved".into()),
                 digest: DIGEST.into(),
                 layout_only: true,
+                fresh: false,
             }),
         };
         assert_eq!(load::complete(&core, task).result.is_ok(), accepted);
@@ -870,7 +876,7 @@ fn repeated_navigation_and_refresh_keep_only_one_active_and_one_latest_read() {
         Err(SquadError::new("OLD_READ", "superseded")),
     )
     .unwrap();
-    assert_eq!(next.job, Job::List(Some(SOCKET.into())));
+    assert_eq!(next.job, Job::List(Some(Store::Socket(SOCKET.into()))));
     assert!(c.failure.is_none());
     assert!(c.requested_read.is_none());
 }
@@ -985,7 +991,7 @@ fn missing_latest_or_ambiguous_restore_failure_inspects_once_and_retains_unknown
     assert_eq!(
         fresh.job,
         Job::Show {
-            socket: SOCKET.into(),
+            store: Store::Socket(SOCKET.into()),
             name: None
         }
     );
@@ -1008,18 +1014,19 @@ fn missing_latest_or_ambiguous_restore_failure_inspects_once_and_retains_unknown
 fn mouse_choice_close_retains_the_submitted_write_on_every_pending_screen() {
     for job in [
         Job::Save {
-            socket: SOCKET.into(),
+            store: Store::Socket(SOCKET.into()),
             name: "new".into(),
         },
         Job::Remove {
-            socket: SOCKET.into(),
+            store: Store::Socket(SOCKET.into()),
             name: "saved".into(),
         },
         Job::Restore(Selection {
-            socket: SOCKET.into(),
+            store: Store::Socket(SOCKET.into()),
             name: Some("saved".into()),
             digest: DIGEST.into(),
             layout_only: true,
+            fresh: false,
         }),
     ] {
         let mut c = controller();
@@ -1128,7 +1135,7 @@ fn rapid_close_reopen_retains_one_active_read_and_coalesces_one_refresh() {
         ))),
     )
     .unwrap();
-    assert_eq!(refresh.job, Job::List(Some(SOCKET.into())));
+    assert_eq!(refresh.job, Job::List(Some(Store::Socket(SOCKET.into()))));
     c.close();
     assert!(
         finish(
@@ -1218,7 +1225,7 @@ fn production_lane_reads_public_snapshot_and_routes_typed_completion_to_the_moda
     assert_eq!(
         show.job,
         Job::Show {
-            socket: SOCKET.into(),
+            store: Store::Socket(SOCKET.into()),
             name: None
         }
     );
@@ -1572,4 +1579,241 @@ fn an_outside_press_closes_the_recovery_window() {
         &mut app,
         crate::board::app::Overlay::Recovery,
     );
+}
+
+fn member_inventory(socket_stores: &[&str]) -> Value {
+    let mut value = json!({"version":1,"host":"pty","snapshots":[
+        {"name":null,"generation":format!("g:{DIGEST}"),"digest":DIGEST,"capturedAtMs":1000}]});
+    if !socket_stores.is_empty() {
+        value["snapshots"] = json!([]);
+        value["socketStores"] = json!(socket_stores);
+    }
+    value
+}
+fn member_preview_value() -> Value {
+    json!({"version":1,"host":"pty","name":format!("g:{DIGEST}"),"digest":DIGEST,"capturedAtMs":1000,"generation":format!("g:{DIGEST}"),"protected":true,
+        "members":[
+            {"identityId":"u-alpha","name":"alpha","cwd":"/work/alpha","harness":"codex","action":"resumable"},
+            {"identityId":"u-beta","name":"beta","cwd":"/work/beta","harness":"codex","action":"live"},
+            {"identityId":"u-gamma","name":"gamma","cwd":null,"harness":null,"action":"no_remembered_session"}]})
+}
+fn member_restore_value(status: &str, fresh: bool) -> Value {
+    json!({"version":1,"host":"pty","name":null,"generation":format!("g:{DIGEST}"),"digest":DIGEST,"fresh":fresh,"status":status,
+        "members":[
+            {"identityId":"u-alpha","name":"alpha","cwd":"/work/alpha","status":"started","reason":"resume_requested","message":"started (resume requested)","retry":null,"tail":null},
+            {"identityId":"u-beta","name":"beta","cwd":"/work/beta","status":"skipped","reason":"live","message":"skipped (already running)","retry":null,"tail":null},
+            {"identityId":"u-gamma","name":"gamma","cwd":null,"status":"needs_you","reason":"budget","message":"needs you (the restore ran out of time; tmt resume --host pty -- gamma)","retry":"tmt resume --host pty -- gamma","tail":null}],
+        "failures":[],"report":"/private/restore-last-pty.json"})
+}
+
+#[test]
+fn core_decides_the_built_in_store_and_every_later_job_names_it() {
+    let f = Fixture::new();
+    let core = f.core(&member_inventory(&[]), true);
+    let task = Task {
+        owner: 1,
+        serial: 1,
+        job: Job::List(None),
+    };
+    let mut c = Controller::new(1, jiff::tz::TimeZone::UTC);
+    c.pending = Some(task.clone());
+    let show = c
+        .loaded(load::complete(&core, task))
+        .expect("first entry previews");
+    assert_eq!(c.store, Some(Store::Builtin));
+    assert_eq!(
+        show.job,
+        Job::Show {
+            store: Store::Builtin,
+            name: Some(format!("g:{DIGEST}"))
+        }
+    );
+    assert_eq!(
+        show.job.argv(),
+        ["workspace", "show", "--host", "pty", &format!("g:{DIGEST}")]
+    );
+    // A tmux answer to a built-in request, or a socket on a pty answer, is refused.
+    let mut mixed = member_inventory(&[]);
+    mixed["socket"] = json!(SOCKET);
+    assert!(
+        Inventory::decode(&mixed)
+            .unwrap()
+            .validate(Some(&Store::Builtin))
+            .is_err()
+    );
+    assert!(
+        Inventory::decode(&inventory_value())
+            .unwrap()
+            .validate(Some(&Store::Builtin))
+            .is_err()
+    );
+    let mut tmux_hint = inventory_value();
+    tmux_hint["socketStores"] = json!([SOCKET]);
+    assert!(
+        Inventory::decode(&tmux_hint)
+            .unwrap()
+            .validate(None)
+            .is_err()
+    );
+}
+
+#[test]
+fn an_empty_built_in_store_names_tmux_stores_without_switching_to_them() {
+    let f = Fixture::new();
+    let core = f.core(&member_inventory(&["/tmp/ended tmux.sock"]), true);
+    let task = Task {
+        owner: 1,
+        serial: 1,
+        job: Job::List(None),
+    };
+    let mut c = Controller::new(1, jiff::tz::TimeZone::UTC);
+    c.pending = Some(task.clone());
+    assert!(c.loaded(load::complete(&core, task)).is_none());
+    assert_eq!(c.store, Some(Store::Builtin));
+    assert!(c.entries.is_empty());
+    assert!(
+        c.notice
+            .contains("tmt workspace ls --socket '/tmp/ended tmux.sock'"),
+        "{}",
+        c.notice
+    );
+    // A refresh still asks Core about the built-in store only.
+    assert_eq!(c.refresh().unwrap().job, Job::List(Some(Store::Builtin)));
+}
+
+#[test]
+fn a_built_in_preview_lists_members_and_restore_toggles_a_new_conversation() {
+    let mut c = Controller::new(1, jiff::tz::TimeZone::UTC);
+    c.store = Some(Store::Builtin);
+    c.entries = Inventory::decode(&member_inventory(&[])).unwrap().snapshots;
+    c.selected = Some(format!("snapshot:g:{DIGEST}"));
+    let preview = model::MemberPreview::decode(&member_preview_value()).unwrap();
+    preview.validate(Some(&format!("g:{DIGEST}"))).unwrap();
+    assert_eq!(
+        preview.counts(),
+        "3 members · 1 to resume · 1 running · 1 need you"
+    );
+    let task = c.issue(Job::Show {
+        store: Store::Builtin,
+        name: Some(format!("g:{DIGEST}")),
+    });
+    finish(&mut c, task, Ok(Outcome::Members(preview)));
+    assert!(c.preview.is_none() && c.members.is_some());
+    assert!(c.details.iter().any(|line| line
+        == &format!(
+            "Member alpha · {} Will resume · /work/alpha",
+            tmt_cli_style::mark::Mark::Resumable.symbol()
+        )));
+    assert!(c.details.iter().any(|line| {
+        line.contains("gamma · ◆ Action needed: no remembered conversation · folder unknown")
+    }));
+    c.screen = Screen::Preview;
+    assert!(
+        c.rows()
+            .iter()
+            .any(|row| row.label.starts_with("Restore mode: Resume"))
+    );
+    c.choose("mode");
+    assert!(
+        c.rows()
+            .iter()
+            .any(|row| row.label.starts_with("Restore mode: New conversation"))
+    );
+    let selection = c.selection().expect("the shown preview is selectable");
+    assert_eq!(
+        selection,
+        Selection {
+            store: Store::Builtin,
+            name: Some(format!("g:{DIGEST}")),
+            digest: DIGEST.into(),
+            layout_only: false,
+            fresh: true,
+        }
+    );
+    assert_eq!(
+        Job::Restore(selection).argv(),
+        [
+            "workspace",
+            "restore",
+            "--host",
+            "pty",
+            "--expect",
+            DIGEST,
+            "--fresh",
+            &format!("g:{DIGEST}")
+        ]
+    );
+}
+
+#[test]
+fn a_built_in_restore_report_keeps_each_member_and_matches_its_exit() {
+    let selection = Selection {
+        store: Store::Builtin,
+        name: None,
+        digest: DIGEST.into(),
+        layout_only: false,
+        fresh: false,
+    };
+    // A member that needs you is not a failure: exit 0 with a partial report.
+    for (status, success, accepted) in [
+        ("partial", true, true),
+        ("partial", false, false),
+        ("completed", true, false),
+    ] {
+        let f = Fixture::new();
+        let core = f.core(&member_restore_value(status, false), success);
+        let task = Task {
+            owner: 1,
+            serial: 1,
+            job: Job::Restore(selection.clone()),
+        };
+        let result = load::complete(&core, task).result;
+        assert_eq!(result.is_ok(), accepted, "{status} {success}");
+        if let Ok(Outcome::MembersRestored(report)) = result {
+            let lines = surface::member_results(&report);
+            assert!(lines.iter().any(|l| l.contains("Applied · member alpha")));
+            assert!(
+                lines
+                    .iter()
+                    .any(|l| l.contains("Not applied · member beta"))
+            );
+            assert!(
+                lines
+                    .iter()
+                    .any(|l| l.contains("Action needed · member gamma"))
+            );
+            assert!(lines.contains(&"  retry: tmt resume --host pty -- gamma".to_owned()));
+            assert_eq!(
+                std::fs::read_to_string(f.0.join("argv")).unwrap(),
+                format!("workspace\nrestore\n--host\npty\n--expect\n{DIGEST}\n--json\n")
+            );
+        }
+    }
+    // A failed start exits 1 and shows its output.
+    let mut failed = member_restore_value("partial", false);
+    failed["members"][0]["status"] = json!("failed");
+    failed["members"][0]["message"] = json!("failed (start refused)");
+    failed["members"][0]["tail"] = json!("no remembered driver");
+    let f = Fixture::new();
+    let core = f.core(&failed, false);
+    let task = Task {
+        owner: 1,
+        serial: 1,
+        job: Job::Restore(selection.clone()),
+    };
+    let Ok(Outcome::MembersRestored(report)) = load::complete(&core, task).result else {
+        panic!("a failed start keeps its report");
+    };
+    let lines = surface::member_results(&report);
+    assert!(lines.iter().any(|l| l.contains("Failed · member alpha")));
+    assert!(lines.contains(&"  output: no remembered driver".to_owned()));
+    // A different mode or digest than the one confirmed is refused.
+    let f = Fixture::new();
+    let core = f.core(&member_restore_value("partial", true), true);
+    let task = Task {
+        owner: 1,
+        serial: 1,
+        job: Job::Restore(selection),
+    };
+    assert!(load::complete(&core, task).result.is_err());
 }
