@@ -18,6 +18,15 @@ fn press(column: u16, row: u16) -> MouseEvent {
     }
 }
 
+fn look(theme: &Theme, depth: Depth, hovered: Option<Rect>) -> DialogLook<'_> {
+    DialogLook {
+        theme,
+        depth,
+        active: true,
+        hovered,
+    }
+}
+
 fn confirm_buttons() -> [Button<'static>; 2] {
     [Button::secondary("Cancel"), Button::primary("Delete")]
 }
@@ -328,7 +337,7 @@ fn paint_frames_the_title_and_left_aligns_buttons_with_the_cursor_focused_at_eve
         let mut buffer = Buffer::empty(area);
         let areas = dialog.areas(area, [40, 7], false);
         let state = DialogState::new(&[], &dialog.buttons);
-        let hits = dialog.paint(areas, &state, &mut buffer, &theme, depth, None);
+        let hits = dialog.paint(areas, &state, &mut buffer, look(&theme, depth, None));
         assert_eq!(hits.outer, areas.outer);
         let row: String = (areas.footer.x..areas.footer.right())
             .map(|x| buffer[(x, areas.footer.y)].symbol())
@@ -354,7 +363,12 @@ fn paint_frames_the_title_and_left_aligns_buttons_with_the_cursor_focused_at_eve
             idle.add_modifier,
             "{depth:?} idle"
         );
-        let hovered = dialog.paint(areas, &state, &mut buffer, &theme, depth, Some(cancel));
+        let hovered = dialog.paint(
+            areas,
+            &state,
+            &mut buffer,
+            look(&theme, depth, Some(cancel)),
+        );
         assert_eq!(hovered.buttons, hits.buttons, "hover never moves a button");
         assert_eq!(
             buffer[(cancel.x, cancel.y)].modifier,

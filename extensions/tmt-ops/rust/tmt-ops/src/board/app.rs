@@ -3830,9 +3830,6 @@ impl App {
                 Overlay::Panels => vec![vec!["panels-picker".into(), "choices".into()]],
                 Overlay::Settings => vec![vec!["settings".into(), "content".into()]],
                 Overlay::CronList => vec![vec!["cron-list".into(), "choices".into()]],
-                Overlay::CronReview => ["cancel", "read", "apply"]
-                    .map(|s| vec!["cron-review".into(), s.into()])
-                    .into(),
                 _ => vec![],
             };
             focus.open(id, fields);
@@ -4041,7 +4038,7 @@ impl App {
                 }
             }),
             Overlay::CronList => self.cron_list_event(event),
-            Overlay::CronReview => self.cron_review_event(field, event),
+            Overlay::CronReview => self.cron_review_event(event),
             Overlay::MonitorDetails => self.monitor_details_event(event),
         }
     }

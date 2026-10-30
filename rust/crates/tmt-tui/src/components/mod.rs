@@ -7,7 +7,9 @@ mod completion;
 pub use completion::{Candidate, Completion};
 
 mod dialog;
-pub use dialog::{Dialog, DialogHits, DialogInput, DialogKind, DialogState, FieldKind, Focus};
+pub use dialog::{
+    Dialog, DialogHits, DialogInput, DialogKind, DialogLook, DialogState, FieldKind, Focus,
+};
 
 mod editor;
 mod key_help;
