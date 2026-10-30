@@ -320,7 +320,7 @@ fn schema_twelve_peer_and_original_receipt_survive_the_token_migration_without_n
     let grant = store.grant(&candidate.candidate.peer).unwrap().unwrap();
     let machine = store.machine().unwrap();
     // Reconstruct the real schema-twelve boundary, including an enrolled peer.
-    store.connection.execute_batch("DROP TABLE squad_cache; DROP TABLE squad_publications; ALTER TABLE cloud_transport DROP COLUMN summary_metadata; ALTER TABLE operations DROP COLUMN member_id; DROP TABLE member_machines; DROP TABLE members; ALTER TABLE cloud_peers DROP COLUMN reroute_hash; DELETE FROM _migrations WHERE version>=13;").unwrap();
+    store.connection.execute_batch("DROP TABLE issued_invitations; DROP TABLE squad_cache; DROP TABLE squad_publications; ALTER TABLE cloud_transport DROP COLUMN summary_metadata; ALTER TABLE operations DROP COLUMN member_id; DROP TABLE member_machines; DROP TABLE members; ALTER TABLE cloud_peers DROP COLUMN reroute_hash; DELETE FROM _migrations WHERE version>=13;").unwrap();
     drop(store);
     let mut store = Store::open(&serving).unwrap();
     assert_eq!(store.machine().unwrap(), machine);
@@ -718,7 +718,7 @@ fn additive_migration_preserves_schema_nine_identity_key_and_sending_policy() {
         .unwrap()
         .public();
     // Simulated schema-nine boundary, not an assertion about a released build.
-    store.connection.execute_batch("DROP TABLE squad_cache; DROP TABLE squad_publications; ALTER TABLE operations DROP COLUMN member_id; DROP TABLE member_machines; DROP TABLE members; DROP TABLE cloud_remotes; DROP TABLE cloud_owner_projects; DROP TABLE cloud_reroute_counters; DROP TABLE cloud_peer_routes; DROP TABLE cloud_pair_receipts; DROP TABLE cloud_peers; DROP TABLE cloud_transport; DELETE FROM _migrations WHERE version>=10;").unwrap();
+    store.connection.execute_batch("DROP TABLE issued_invitations; DROP TABLE squad_cache; DROP TABLE squad_publications; ALTER TABLE operations DROP COLUMN member_id; DROP TABLE member_machines; DROP TABLE members; DROP TABLE cloud_remotes; DROP TABLE cloud_owner_projects; DROP TABLE cloud_reroute_counters; DROP TABLE cloud_peer_routes; DROP TABLE cloud_pair_receipts; DROP TABLE cloud_peers; DROP TABLE cloud_transport; DELETE FROM _migrations WHERE version>=10;").unwrap();
     drop(store);
     let mut store = Store::open(&serving).unwrap();
     assert_eq!(store.machine().unwrap(), machine);
