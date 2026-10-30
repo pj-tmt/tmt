@@ -420,5 +420,12 @@ export async function remoteApp(
     },
     { signal: shell.signal },
   );
+  shell.signal.addEventListener(
+    'abort',
+    () => {
+      delete main.dataset.remoteView;
+    },
+    { once: true },
+  );
   await show();
 }

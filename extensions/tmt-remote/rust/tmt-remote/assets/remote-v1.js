@@ -9820,6 +9820,9 @@ async function remoteApp(shell, main, bar, settingsStyles, pages) {
 		const target = main.querySelector("#remote-join-guide");
 		if (target) disposeJoin = joinPage(target, secret, () => shell.navigate(new URL("/remote/", location.href).href));
 	}, { signal: shell.signal });
+	shell.signal.addEventListener("abort", () => {
+		delete main.dataset.remoteView;
+	}, { once: true });
 	await show();
 }
 //#endregion
