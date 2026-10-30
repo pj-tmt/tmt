@@ -45,11 +45,14 @@ describe('browser-ui CSS tokens', () => {
         (match) => match[1],
       ),
     );
+    // ListTable writes this one layout value from its column tracks on the table root.
+    const hostValues = new Set(['--tmt-ui-list-tracks']);
     const undefinedTokens = new Map<string, string[]>();
     for (const file of readdirSync(new URL('src/', root)).filter((name) => name.endsWith('.css'))) {
       for (const [, token] of read(`src/${file}`).matchAll(/var\((--tmt-ui-[a-z0-9-]+)/g)) {
         // `--tmt-ui-host-*` is the host's contract (the README names them); the rest is shared.
-        if (token.startsWith('--tmt-ui-host-') || defined.has(token)) continue;
+        if (token.startsWith('--tmt-ui-host-') || hostValues.has(token) || defined.has(token))
+          continue;
         undefinedTokens.set(token, [...(undefinedTokens.get(token) ?? []), file]);
       }
     }
