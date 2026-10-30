@@ -1223,8 +1223,8 @@ fn a_built_in_launch_records_its_members_and_only_an_explicit_removal_leaves_the
             ("beta".into(), "live".into())
         ]
     );
-    // beta's program ends without an explicit stop, as at logout; the next launch's
-    // capture loses it, which is a shrink that keeps the full baseline.
+    // beta's program ends without an explicit stop (an exit, a crash or logout). The next
+    // launch's capture lost beta but started gamma: gamma joins and beta stays.
     let beta: i32 = fs::read_to_string(world.root.join("beta.pid"))
         .unwrap()
         .parse()
@@ -1238,19 +1238,23 @@ fn a_built_in_launch_records_its_members_and_only_an_explicit_removal_leaves_the
     member(&mut world, "gamma");
     let listed = world.json(&["workspace", "ls", "--host", "pty", "--json"]);
     let snapshots = listed["snapshots"].as_array().unwrap();
-    assert_eq!(snapshots[0]["shrink"], true, "{listed:#}");
-    assert_eq!(snapshots[0]["agents"], 2, "{listed:#}");
+    assert_eq!(snapshots[0]["shrink"], false, "{listed:#}");
+    assert_eq!(snapshots[0]["agents"], 3, "{listed:#}");
     let baseline = built_in_members(&mut world);
-    assert_eq!(baseline.len(), 2, "{baseline:?}");
+    assert_eq!(baseline.len(), 3, "{baseline:?}");
     assert_eq!(baseline[0], ("alpha".into(), "live".into()));
     assert_eq!(baseline[1].0, "beta");
     assert_ne!(baseline[1].1, "live");
+    assert_eq!(baseline[2], ("gamma".into(), "live".into()));
     // Removing beta on purpose takes it out of the default restore.
     let removed = world.run(&["rm", "beta", "--force", "--json"]);
     assert!(removed.status.success(), "{removed:?}");
     assert_eq!(
         built_in_members(&mut world),
-        [("alpha".into(), "live".into())]
+        [
+            ("alpha".into(), "live".into()),
+            ("gamma".into(), "live".into())
+        ]
     );
     // A tmux-only reader never admits the built-in store.
     let refused = world.run(&["workspace", "restore", "--host", "pty", "--json"]);

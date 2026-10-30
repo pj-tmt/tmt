@@ -44,6 +44,41 @@ impl BuiltinSnapshot {
             .all(|member| held.contains(&member.identity.id))
     }
 
+    /// What to publish for this capture against the protected baseline. A capture that holds
+    /// the baseline is published as is. One that lost members but started others publishes the
+    /// baseline plus the new members, so a member started after an unexplained end (an exit
+    /// or a crash) is protected at once, while the lost ones stay until [`Self::without`]
+    /// removes them. A capture that only lost members is published as is, as a shrink.
+    pub fn against(self, baseline: &Self) -> Self {
+        if self.covers(baseline) {
+            return self;
+        }
+        let kept = baseline
+            .members
+            .iter()
+            .map(|member| &member.identity.id)
+            .collect::<HashSet<_>>();
+        let added = self
+            .members
+            .iter()
+            .filter(|member| !kept.contains(&member.identity.id))
+            .cloned()
+            .collect::<Vec<_>>();
+        if added.is_empty() {
+            return self;
+        }
+        let mut members = baseline.members.clone();
+        members.extend(added);
+        members.sort_by(|left, right| {
+            (&left.identity.id, &left.identity.binding)
+                .cmp(&(&right.identity.id, &right.identity.binding))
+        });
+        Self {
+            captured_at_ms: self.captured_at_ms,
+            members,
+        }
+    }
+
     /// This recovery input without one identity, for a member stopped or removed on purpose.
     /// `None` when the identity is not here, so nothing needs publishing.
     pub fn without(&self, identity: &str, captured_at_ms: u64) -> Option<Self> {
@@ -189,6 +224,33 @@ mod tests {
         assert!(snapshot(4, &["a", "b", "c"]).covers(&stopped));
         assert!(snapshot(4, &["a", "b", "c", "e"]).covers(&stopped));
         assert!(stopped.without("d", 5).is_none());
+    }
+
+    #[test]
+    fn a_member_started_after_an_unexplained_end_joins_the_baseline() {
+        let ids = |snapshot: &BuiltinSnapshot| {
+            snapshot
+                .members
+                .iter()
+                .map(|member| member.identity.id.clone())
+                .collect::<Vec<_>>()
+        };
+        let baseline = snapshot(1, &["a", "b", "c"]);
+        // c exits on its own: a pure loss is published as the capture, a shrink.
+        let lost = snapshot(2, &["a", "b"]).against(&baseline);
+        assert_eq!(ids(&lost), ["a", "b"]);
+        assert!(!lost.covers(&baseline));
+        // d starts: the baseline plus d, which covers the old baseline and advances it.
+        let merged = snapshot(3, &["a", "b", "d"]).against(&baseline);
+        assert_eq!(ids(&merged), ["a", "b", "c", "d"]);
+        assert_eq!(merged.captured_at_ms, 3);
+        assert_eq!(merged.members[2].cwd, baseline.members[2].cwd);
+        assert!(merged.covers(&baseline));
+        // A capture that holds the baseline is unchanged.
+        assert_eq!(
+            snapshot(4, &["a", "b", "c", "e"]).against(&baseline),
+            snapshot(4, &["a", "b", "c", "e"])
+        );
     }
 
     #[test]

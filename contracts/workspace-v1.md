@@ -182,10 +182,12 @@ marker is ready, which creates the store; binding changes and admitted provider 
 hooks coalescing to one attempt per 30 seconds for the whole store. `workspace.capture` examines
 the built-in store only when it already exists and reports it in the same counts and `reasons`.
 
-Members end one by one at logout or reboot, so a built-in capture is a shrink unless it holds every
-identity of the protected baseline; the baseline therefore keeps the last full set. A member stopped
-(`tmt stop`) or removed (`tmt rm`) on purpose first leaves the baseline: a derived document without it
-becomes the protected generation, so the default restore never brings it back.
+Members end one by one at logout or reboot, so a built-in capture that only lost members is a
+shrink and the baseline keeps the last full set. A capture that lost members but started others
+publishes the baseline plus the new members instead, so a member started after an unexplained end
+(an exit or a crash) is protected at once. Only a member stopped (`tmt stop`) or removed (`tmt rm`)
+on purpose leaves the baseline: a derived document without it becomes the protected generation,
+so the default restore never brings it back.
 
 `tmt workspace ls|show|save|rm --host pty` select this store, exclusive with `--socket`; implicit
 selection is unchanged. List and save add `host` (`"tmux"` or `"pty"`) to their documents; a built-in

@@ -662,6 +662,32 @@ fn an_explicit_stop_leaves_the_baseline_and_a_new_member_then_advances_it() {
 }
 
 #[test]
+fn a_member_started_after_an_unexplained_end_is_protected_at_once() {
+    let directory = crate::test_support::TestDirectory::new();
+    let paths = paths(&directory.path);
+    // 1. The baseline is {a, b, c}.
+    assert!(publish_builtin(&paths, members(1, &["a", "b", "c"])));
+    // 2. c exits on its own (no tmt stop): a shrink that keeps c.
+    assert!(publish_builtin(&paths, members(2, &["a", "b"])));
+    assert_eq!(protected_members(&paths), ["a", "b", "c"]);
+    // 3. d starts; 4. the capture {a, b, d} merges into the baseline at once.
+    assert!(publish_builtin(&paths, members(3, &["a", "b", "d"])));
+    assert_eq!(protected_members(&paths), ["a", "b", "c", "d"]);
+    // The same live set again settles: one more shrink record, then nothing to write.
+    assert!(publish_builtin(&paths, members(4, &["a", "b", "d"])));
+    assert!(!publish_builtin(&paths, members(5, &["a", "b", "d"])));
+    // 5. After a reboot the default restore has d; c stays until it is stopped or removed.
+    assert_eq!(protected_members(&paths), ["a", "b", "c", "d"]);
+    assert!(forget_builtin_member(&paths, "c").unwrap());
+    assert_eq!(protected_members(&paths), ["a", "b", "d"]);
+    // Logout afterwards still keeps everyone.
+    for (at, ids) in [(6, &["a", "b"][..]), (7, &["a"]), (8, &[])] {
+        assert!(publish_builtin(&paths, members(at, ids)));
+    }
+    assert_eq!(protected_members(&paths), ["a", "b", "d"]);
+}
+
+#[test]
 fn built_in_named_saves_list_and_remove_beside_the_generations() {
     let directory = crate::test_support::TestDirectory::new();
     let paths = paths(&directory.path);

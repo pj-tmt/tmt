@@ -29,7 +29,8 @@ document kind its codec, counts and shrink judgment, so publication, the index, 
 named saves and selection stay one implementation; the tmux store's bytes are pinned by a test.
 Built-in capture reads the bound built-in identities through the same read-only projection and
 checks each member through `Host::observe_snapshot` and `identity_for_pane`. The pure
-`builtin::BuiltinSnapshot::covers` and `without` own its shrink rule and explicit-stop removal;
+`builtin::BuiltinSnapshot::covers`, `against` and `without` own its shrink rule, the merge of
+newly started members into the baseline and explicit-stop removal;
 `stop_command` and `rm` call `workspace::forget_builtin_member` after their own effect.
 
 Publication keeps immutable generation bytes ahead of the atomic catalogue,

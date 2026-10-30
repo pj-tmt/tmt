@@ -220,6 +220,19 @@ fn publish_with<D: Recovery>(
         .or_else(|| catalogue.latest())
         .map(|entry| D::decode(&acquire::<D>(directory, entry)?))
         .transpose()?;
+    // The document kind may publish a capture merged with its baseline instead (built-in
+    // members started after an unexplained end); tmux always publishes the capture.
+    let merged = match &baseline {
+        Some(baseline) => snapshot.clone().against(baseline),
+        None => snapshot.clone(),
+    };
+    let merged_bytes;
+    let (snapshot, bytes) = if merged == *snapshot {
+        (snapshot, bytes)
+    } else {
+        merged_bytes = merged.encode()?;
+        (&merged, merged_bytes.as_slice())
+    };
     let entry = retain_bytes(directory, snapshot, bytes)?;
     catalogue.append_judged(entry, |next, previous| {
         baseline

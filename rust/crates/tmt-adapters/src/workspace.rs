@@ -53,7 +53,7 @@ impl Store<'_> {
 
 /// One kind of recovery document. The store's publication, retention and selection are
 /// shared; only the codec, the counts and the shrink rule differ.
-pub trait Recovery: PartialEq + Sized {
+pub trait Recovery: Clone + PartialEq + Sized {
     /// Whether this capture (`entry`) is a shrink against the baseline generation and its
     /// document. A shrink never moves the protected baseline.
     fn shrinks(
@@ -70,6 +70,10 @@ pub trait Recovery: PartialEq + Sized {
     fn counts(&self) -> (usize, usize);
     /// Whether these bytes belong to the store they were read from.
     fn belongs_to(&self, store: Store<'_>) -> bool;
+    /// The document to publish for this capture against the baseline document.
+    fn against(self, _baseline: &Self) -> Self {
+        self
+    }
 }
 
 impl Recovery for WorkspaceSnapshot {
@@ -122,6 +126,9 @@ impl Recovery for BuiltinSnapshot {
     }
     fn belongs_to(&self, store: Store<'_>) -> bool {
         store == Store::Builtin
+    }
+    fn against(self, baseline: &Self) -> Self {
+        BuiltinSnapshot::against(self, baseline)
     }
 }
 pub const CAPTURE_BUDGET: Duration = Duration::from_millis(200);
