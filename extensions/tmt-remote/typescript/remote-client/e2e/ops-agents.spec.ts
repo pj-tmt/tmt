@@ -60,7 +60,10 @@ async function open(page: Page): Promise<void> {
   );
   await page.goto(`${origin}/`);
   await page.waitForFunction(() => typeof window.opsUpdate === 'function');
-  await expect(page.getByRole('heading', { level: 1 })).toHaveText('Your team, in sync.');
+  await expect(page.locator('.tmt-ui-page-subtitle')).toHaveText(
+    'A clear view of every squad and agent.',
+  );
+  await expect(page.locator('h1')).toHaveCount(0);
 }
 const update = (page: Page, next: OpsBoard) =>
   page.evaluate((value) => window.opsUpdate(value), next);

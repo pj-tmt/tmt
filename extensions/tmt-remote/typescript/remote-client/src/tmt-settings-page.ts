@@ -162,10 +162,7 @@ function themePreview(theme: ThemeChoice): HTMLElement {
 }
 
 function generalView(settings: TmtSettings): HTMLElement[] {
-  const head = settingsHead(
-    'Make TMT feel like yours.',
-    'A familiar space, with just the right amount of you.',
-  );
+  const head = settingsHead('A familiar space, with just the right amount of you.');
   const appearance = settingsCard('Appearance', 'tmt-settings-appearance-title');
   appearance.append(
     element('p', 'tmt-settings-intro', 'Choose how TMT looks in this browser.'),
@@ -270,6 +267,11 @@ export function tmtSettingsPage(shell: RemoteShell, source: SettingsSource = set
   const paint = () => {
     if (!live()) return;
     const section = current();
+    shell.setTitle(
+      SECTIONS.find((item) => item.id === section)!.label,
+      ['TMT settings'],
+      'TMT settings',
+    );
     if (settings) {
       note.replaceChildren();
       // Only General keeps the page-level sample note; the other sections label their own records.
@@ -299,9 +301,7 @@ export function tmtSettingsPage(shell: RemoteShell, source: SettingsSource = set
       ],
     });
     main.replaceChildren(
-      ...(settings
-        ? settingsSection(section, settings, links)
-        : [settingsHead(SECTIONS.find((item) => item.id === section)!.label, ''), pageLoading()]),
+      ...(settings ? settingsSection(section, settings, links) : [pageLoading()]),
     );
   };
   window.addEventListener('hashchange', paint, { signal: shell.signal });
@@ -318,7 +318,7 @@ export function tmtSettingsPage(shell: RemoteShell, source: SettingsSource = set
     },
     () => {
       if (!live()) return;
-      main.replaceChildren(settingsHead(SECTIONS.find((item) => item.id === current())!.label, ''));
+      main.replaceChildren();
       note.textContent = 'Settings could not be read.';
       note.hidden = false;
     },

@@ -8,7 +8,8 @@ import {
 } from './settings-host.js';
 import { longIdentity } from './settings-identities-source.js';
 
-const origin = 'http://identities.test';
+// Common controls require the same secure WebCrypto context as the real loopback door.
+const origin = 'https://identities.test';
 let host: SettingsHost;
 test.beforeAll(async () => {
   host = await buildSettingsHost('./settings-identities-harness.ts', 'settings-identities-');
@@ -112,9 +113,9 @@ for (const state of ['unavailable', 'empty', 'refused', 'failed', 'observed'])
     await open(page, state);
     if (state === 'failed') {
       await expect(page.locator('#tmt-settings-note')).toHaveText('Settings could not be read.');
-      await expect(page.locator('#tmt-settings-section')).toHaveText('Identities');
+      await expect(page.locator('#tmt-settings-section')).toBeEmpty();
       await expect(
-        page.getByRole('heading', { level: 1, name: 'Identities', exact: true }),
+        page.getByRole('heading', { level: 1, name: 'TMT settings / Identities', exact: true }),
       ).toBeVisible();
       await expect(page.locator('.tmt-page-loading')).toHaveCount(0);
     } else if (state === 'observed') {

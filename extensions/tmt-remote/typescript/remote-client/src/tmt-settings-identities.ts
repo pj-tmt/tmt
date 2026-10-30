@@ -160,7 +160,7 @@ export function identitiesView(settings: TmtSettings): HTMLElement[] {
   const grid = element('div', 'tmt-settings-grid');
   grid.append(inventory, detail);
   return [
-    settingsHead('Identity management', 'The names behind your terminal team.'),
+    settingsHead('The names behind your terminal team.'),
     notice,
     grid,
     element(

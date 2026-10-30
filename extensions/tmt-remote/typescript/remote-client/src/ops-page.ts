@@ -1,7 +1,6 @@
 /** The Ops web view, read-only: Agents, Squads, Timers and Ops settings, one section at a time from
  * the module menu. Every state is a mark and a word; what the reader sets on a section stays across
  * the board's refreshes. */
-import { pageHead } from './ops-parts.js';
 import { pageLoading } from './page-loading.js';
 import type { RemoteShell } from './remote-shell.js';
 import { notAvailable } from './not-available.js';
@@ -66,8 +65,9 @@ export function opsPage(shell: RemoteShell, source: OpsSource = opsSource): void
       ],
     });
     const label = SECTIONS.find((item) => item.id === section)!.label;
-    if (!board) main.replaceChildren(pageHead(label, ''), pageLoading());
-    else if (board.unavailable) main.replaceChildren(pageHead(label, ''));
+    shell.setTitle(label, ['Ops'], 'Ops');
+    if (!board) main.replaceChildren(pageLoading());
+    else if (board.unavailable) main.replaceChildren();
     else if (section === 'settings') {
       // The board's settings have no browser read: the page says where they are.
       settings ??= settingsView(href);

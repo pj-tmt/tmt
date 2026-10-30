@@ -1490,7 +1490,9 @@ test('browser pages consume shared presentation in both schemes and fit desktop 
               JSON.stringify(iconEvidence, null, 2),
             );
           }
-          await expect(page.locator('.header-title')).toHaveText(
+          await expect(
+            page.locator(state === 'landing' ? '.tmt-ui-topbar-title-current' : '.header-title'),
+          ).toHaveText(
             state === 'error'
               ? 'Page unavailable'
               : state === 'landing'
@@ -1534,11 +1536,8 @@ test('browser pages consume shared presentation in both schemes and fit desktop 
                   background: getComputedStyle(header).backgroundColor,
                   mark: part('.header-mark'),
                   wordmark: part('.header-wordmark'),
-                  title: part('.header-title')!,
-                  titleBelowBar: document.querySelector('.root-title-row')
-                    ? document.querySelector('.root-title-row')!.getBoundingClientRect().top >=
-                      box.bottom
-                    : false,
+                  title: part('.tmt-ui-topbar-title h1,.header-title')!,
+                  titleInBar: header.querySelector('.tmt-ui-topbar-navigation h1') !== null,
                   markViewBox:
                     document.querySelector('.header-mark')?.getAttribute('viewBox') ?? null,
                   markPaths: document.querySelectorAll('.header-mark path').length,
@@ -1594,7 +1593,7 @@ test('browser pages consume shared presentation in both schemes and fit desktop 
           // The landing page states connection in words only, in the neutral tone.
           if (state !== 'landing')
             await expectStateColor(page, colorScheme, state === 'error' ? 'blocked' : 'waiting');
-          // The shared bar keeps the same token geometry; adopted titles now scroll as content.
+          // The shared bar keeps its geometry and owns the route heading on the left.
           const header = look.header;
           // The brand heads the rail now, so the shell's header runs from the rail's edge.
           const beside =
@@ -1611,7 +1610,7 @@ test('browser pages consume shared presentation in both schemes and fit desktop 
             headings: 1,
           });
           if (state === 'landing') {
-            expect(header.titleBelowBar).toBe(true);
+            expect(header.titleInBar).toBe(true);
             const mixed = await page.evaluate(
               ({ paper, sheet }) => {
                 const probe = document.createElement('span');
@@ -1633,7 +1632,7 @@ test('browser pages consume shared presentation in both schemes and fit desktop 
             );
           expect(header.title).toMatchObject({
             size: headerTokens['title-size'],
-            weight: headerTokens['title-weight'],
+            weight: state === 'landing' ? '600' : headerTokens['title-weight'],
           });
           if (state === 'error') {
             // The refusal page's standalone header keeps the brand: the mark first, then the
@@ -2546,7 +2545,7 @@ test('settings draft preserves authority, exact values, drafts and unknown self-
     await gotoSettings(page, { waitUntil: 'commit' });
     await loading.reached;
     await expect(page.locator('header')).toHaveClass('tmt-ui-topbar');
-    await expect(page.locator('.root-title-row .header-title')).toHaveText('Settings');
+    await expect(page.locator('.tmt-ui-topbar-title-current')).toHaveText('Settings');
     await captureState(
       page,
       'settings-loading',
@@ -4928,7 +4927,7 @@ test('Create guide keeps prerequisites and completion unchecked and copies only 
     await page.goto(`${origin}/remote/create`);
     const guide = page.locator('#remote-create');
     await expect(guide).toBeVisible();
-    await expect(page.getByRole('heading', { level: 1 })).toHaveText('Create a Remote');
+    await expect(page.getByRole('heading', { level: 1 })).toHaveText('Remote / Create a Remote');
     await expect(page.locator('#remote-context')).toBeHidden();
     await expect(guide.getByRole('radio', { name: /Cloudflare/ })).toBeDisabled();
     await guide.getByRole('button', { name: 'Continue', exact: true }).click();
@@ -5845,7 +5844,7 @@ test('the root prefetches one confined search entry and owns one shortcut across
   await captureState(
     page,
     'root-shared-bar',
-    'Root-owned common controls, original content heading',
+    'Root-owned common controls and left-group route heading',
     [390, 1440],
     ['light', 'dark'],
     undefined,
@@ -5897,7 +5896,7 @@ test('Home and TMT settings render in the shell and fit both sizes and themes', 
     await rail.getByRole('link', { name: 'TMT settings', exact: true }).click();
     // The settings page is sectioned: the module menu lists the sections and the title names
     // the current one.
-    await expect(page.getByRole('heading', { level: 1 })).toHaveText('Make TMT feel like yours.');
+    await expect(page.getByRole('heading', { level: 1 })).toHaveText('TMT settings / General');
     await expect(page.locator('.root-title-row')).toHaveCount(0);
     await expect(page).toHaveTitle('TMT settings · TMT');
     const sections = modulePages(page);
@@ -5973,9 +5972,7 @@ test('an unpaired Digest and Ops say what they wait for and show no invented num
   try {
     await page.goto(`${origin}/digest/`);
     const rail = page.getByRole('navigation', { name: 'TMT', exact: true });
-    await expect(page.getByRole('heading', { level: 1 })).toHaveText(
-      'Understand your team’s usage.',
-    );
+    await expect(page.getByRole('heading', { level: 1 })).toHaveText('Digest');
     await expect(page.locator('.root-title-row')).toHaveCount(0);
     await expect(page).toHaveTitle('Digest · TMT');
     await expect(rail.getByRole('link', { name: 'Digest', exact: true })).toHaveAttribute(
@@ -6006,7 +6003,7 @@ test('an unpaired Digest and Ops say what they wait for and show no invented num
       ['light', 'dark'],
     );
     await rail.getByRole('link', { name: 'Ops', exact: true }).click();
-    await expect(page.getByRole('heading', { level: 1 })).toHaveText('Agents');
+    await expect(page.getByRole('heading', { level: 1 })).toHaveText('Ops / Agents');
     await expect(page.locator('.root-title-row')).toHaveCount(0);
     await expect(page).toHaveTitle('Ops · TMT');
     // Ops reads the owner's board (x/-/ops), which needs an owner session: this browser is not
@@ -6018,7 +6015,7 @@ test('an unpaired Digest and Ops say what they wait for and show no invented num
     // The sections stay in the module menu; each is empty the same way.
     const menu = modulePages(page);
     await menu.getByRole('link', { name: 'Squads', exact: true }).click();
-    await expect(page.getByRole('heading', { level: 1 })).toHaveText('Squads');
+    await expect(page.getByRole('heading', { level: 1 })).toHaveText('Ops / Squads');
     await expect(page.locator('#ops-section .tmt-ui-list-row')).toHaveCount(0);
     await expect(page.locator('body')).not.toContainText('Sample data');
     await captureState(

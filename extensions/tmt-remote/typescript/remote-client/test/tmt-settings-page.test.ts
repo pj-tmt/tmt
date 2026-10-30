@@ -74,11 +74,14 @@ let hashchange: (() => void) | undefined;
 let removed = 0;
 let stored = new Map<string, string>();
 let menus: ShellMenu[] = [];
+let titles: string[][] = [];
 let described: ((answer: ShellAnswer | undefined) => void) | undefined;
 
 let route: AbortController;
 const shell = () =>
   ({
+    setTitle: (title: string, ancestors: readonly string[] = []) =>
+      titles.push([...ancestors, title]),
     setMenu: (menu: ShellMenu) => void menus.push(menu),
     describe: () => {},
     described: (listener: (answer: ShellAnswer | undefined) => void) => {
@@ -91,6 +94,7 @@ beforeEach(() => {
   route = new AbortController();
   ids.clear();
   menus = [];
+  titles = [];
   described = undefined;
   hash = '';
   removed = 0;
@@ -186,11 +190,8 @@ it('lists modules as records and links an installed one to the page the shell de
   hash = '#modules';
   tmtSettingsPage(shell(), { read: async () => sample });
   await settle();
-  expect(
-    section()
-      .all((node) => node.tag === 'h1')
-      .map((node) => node.textContent),
-  ).toEqual(['Modules, in one place.']);
+  expect(section().all((node) => node.tag === 'h1')).toEqual([]);
+  expect(titles.at(-1)).toEqual(['TMT settings', 'Modules']);
   expect(records().map(recordText)).toEqual(['Colab', 'Office']);
   const [colab, office] = records();
   // Product copy for a module the product ships; another name has none.
@@ -280,11 +281,8 @@ it('lists drivers and hooks as records, naming a driver that no longer runs as a
   };
   tmtSettingsPage(shell(), { read: async () => read });
   await settle();
-  expect(
-    section()
-      .all((node) => node.tag === 'h1')
-      .map((node) => node.textContent),
-  ).toEqual(['Drivers & hooks']);
+  expect(section().all((node) => node.tag === 'h1')).toEqual([]);
+  expect(titles.at(-1)).toEqual(['TMT settings', 'Drivers & hooks']);
   expect(records().map(recordText)).toEqual(['Herdr', 'Custom', 'Claude', 'Codex', 'Other']);
   const [herdr, custom, claude, codex, other] = records();
   // The reason replaces Approved, beside the version, and the product's line is for its own driver.
@@ -337,11 +335,8 @@ it('labels sample driver records as sample data, and a real read as read only', 
 it('renders General with the theme choice, stores a pick and applies it to the root', async () => {
   tmtSettingsPage(shell(), { read: async () => sample });
   await settle();
-  expect(
-    section()
-      .all((node) => node.tag === 'h1')
-      .map((node) => node.textContent),
-  ).toEqual(['Make TMT feel like yours.']);
+  expect(section().all((node) => node.tag === 'h1')).toEqual([]);
+  expect(titles.at(-1)).toEqual(['TMT settings', 'General']);
   const tabs = section().all((node) => node.attributes.get('role') === 'tab');
   expect(tabs.map((tab) => tab.textContent)).toEqual(['System', 'Light', 'Dark']);
   // `data-theme` scopes the design tokens, so a tab must not carry one.
@@ -389,11 +384,8 @@ it('offers the four sections as the module menu and follows the hash', async () 
   ]);
   hash = '#identities';
   hashchange!();
-  expect(
-    section()
-      .all((node) => node.tag === 'h1')
-      .map((node) => node.textContent),
-  ).toEqual(['Identity management']);
+  expect(section().all((node) => node.tag === 'h1')).toEqual([]);
+  expect(titles.at(-1)).toEqual(['TMT settings', 'Identities']);
   expect(rowTitles()).toEqual(['alpha', 'beta', 'zed']);
   // The composed shell answers later: the module rows then link.
   hash = '#modules';
@@ -435,18 +427,15 @@ it('reports a failed read and stops painting once cleaned up', async () => {
   let release!: (settings: TmtSettings) => void;
   tmtSettingsPage(shell(), { read: () => new Promise((resolve) => (release = resolve)) });
   const waiting = [...section().children];
-  expect(waiting.map((child) => child.className)).toEqual(['tmt-ui-page-head', 'tmt-page-loading']);
-  expect(
-    section()
-      .all((node) => node.tag === 'h1')
-      .map((node) => node.textContent),
-  ).toEqual(['General']);
+  expect(waiting.map((child) => child.className)).toEqual(['tmt-page-loading']);
+  expect(section().all((node) => node.tag === 'h1')).toEqual([]);
+  expect(titles.at(-1)).toEqual(['TMT settings', 'General']);
   // Leaving the route ends the page on its signal.
   route.abort();
   expect(removed).toBe(1);
   release(sample);
   await settle();
-  // The same heading and wait remain; the late read cannot replace either node.
+  // The title stays with the shell and the late read cannot replace the waiting node.
   expect(section().children).toHaveLength(waiting.length);
   for (const [index, node] of waiting.entries()) expect(section().children[index]).toBe(node);
   route = new AbortController();
@@ -454,13 +443,10 @@ it('reports a failed read and stops painting once cleaned up', async () => {
   await settle();
   expect(note().textContent).toBe('Settings could not be read.');
   expect(note().hidden).toBe(false);
-  // A failed read ends the wait but keeps one identifying page heading.
-  expect(section().children.map((child) => child.className)).toEqual(['tmt-ui-page-head']);
-  expect(
-    section()
-      .all((node) => node.tag === 'h1')
-      .map((node) => node.textContent),
-  ).toEqual(['General']);
+  // A failed read ends the wait; the shell retains the identifying route title.
+  expect(section().children.map((child) => child.className)).toEqual([]);
+  expect(section().all((node) => node.tag === 'h1')).toEqual([]);
+  expect(titles.at(-1)).toEqual(['TMT settings', 'General']);
 });
 
 it('leaves a page without its markup alone', () => {
@@ -527,7 +513,7 @@ it('renders Identities with the approved inventory and local selected detail', a
   const read = vi.fn(async () => sample);
   tmtSettingsPage(shell(), { read });
   await settle();
-  expect(section().textContent).toContain('Identity management');
+  expect(titles.at(-1)).toEqual(['TMT settings', 'Identities']);
   expect(section().textContent).toContain('Lifetime');
   expect(section().textContent).toContain('Presence');
   const names = section().all((node) =>

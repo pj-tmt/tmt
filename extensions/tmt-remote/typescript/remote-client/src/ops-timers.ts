@@ -23,10 +23,7 @@ export function timersView(): { node: HTMLElement; update(board: OpsBoard): void
     }),
   );
   page.append(
-    pageHead(
-      'Keep the rhythm visible.',
-      'A simple view of the schedules that keep your team moving.',
-    ),
+    pageHead('A simple view of the schedules that keep your team moving.'),
     grid,
     pageFoot(),
   );
