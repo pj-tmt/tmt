@@ -23,8 +23,6 @@ import {
   projectFailureText,
 } from './project-dialogs.js';
 import { PageRowProjects } from './page-projects.js';
-import { PROJECT_PINS } from './bootstrap.js';
-import { menuProjects, withPin } from './project-pins.js';
 import { pinFailureText } from './pins.js';
 import {
   applyProjectChanges,
@@ -47,7 +45,7 @@ import {
   type PageStage,
   type HomeStage,
 } from './list-stage.js';
-import { ProjectMenuActionsSlot } from './project-menu-actions.js';
+import { ShortcutMenuRequestSlot } from './shortcut-menu-request.js';
 import { inScope, knownScope, writeScope } from './project-scope.js';
 import { ManagePage } from './manage-page.js';
 import { PageOperationDialog } from './page-operation-dialog.js';
@@ -240,7 +238,7 @@ function StageEmpty({
 export function Home() {
   const space = homeRoute.useLoaderData();
   const { transport, space: spaceId } = rootRoute.useRouteContext();
-  const offerProjectActions = useContext(ProjectMenuActionsSlot);
+  const shortcutRequest = useContext(ShortcutMenuRequestSlot);
   const search = homeRoute.useSearch();
   const navigate = homeRoute.useNavigate();
   const router = useRouter();
@@ -427,15 +425,23 @@ export function Home() {
     void navigate({ search: (previous) => ({ ...previous, ...patch }), replace: true });
   }
   /** The choice is the default the next visit opens on; All pages removes it. */
-  // The shell's module menu offers the project dialogs while this list can manage them.
+  // The side menu lists shortcuts, not projects: the owner's explicit pinned projects become
+  // project shortcuts once, in order. A failed write leaves the migration for the next load.
   useEffect(() => {
-    if (!offerProjectActions || !port) return;
-    offerProjectActions({
-      newProject: () => setDialog({ kind: 'new', initial: [] }),
-      manage: () => setDialog({ kind: 'manage' }),
-    });
-    return () => offerProjectActions(undefined);
-  }, [offerProjectActions, port]);
+    if (!port || !shortcuts.store) return;
+    try {
+      shortcuts.store.migrate(space.projectPins);
+    } catch {
+      // Unreadable or unwritable storage: the shortcut hook reports a read failure.
+    }
+  }, [port, shortcuts.store, space.projectPins]);
+  // The shell's Shortcuts commands open this list's own dialogs.
+  useEffect(() => {
+    const held = shortcutRequest?.request;
+    if (!held) return;
+    shortcutRequest.done(held.id);
+    if (port && shortcuts.store) setShortcutDialog(held.kind);
+  }, [shortcutRequest, port, shortcuts.store]);
   // The route search holds what is applied; the editor holds the draft until Enter applies it.
   const applied = JSON.stringify([filter.projects, filter.authors, filter.text]);
   const lastApplied = useRef(applied);
@@ -614,22 +620,6 @@ export function Home() {
         : { text: writing.failureText(outcome.failure), failed: true },
     );
   }
-  // The side menu's pin for the project the list is in (owner-written, one request for the list).
-  const [pinningProject, setPinningProject] = useState(false);
-  async function togglePinnedProject(name: string, pin: boolean) {
-    if (pinningProject) return;
-    const next = withPin(menuProjects(projectNames, space.projectPins).names, name, pin);
-    if (next.length > PROJECT_PINS)
-      return setStatus({ text: t.projectPinsFull(PROJECT_PINS), failed: true });
-    setPinningProject(true);
-    const outcome = await writing.manage({ action: 'pins', names: next });
-    setPinningProject(false);
-    setStatus(
-      outcome.failure === undefined
-        ? { text: pin ? t.projectPinned(name) : t.projectUnpinned(name), failed: false }
-        : { text: writing.failureText(outcome.failure), failed: true },
-    );
-  }
   const [pinning, setPinning] = useState<string>();
   async function togglePin(page: PageSummary) {
     if (pinning) return;
@@ -683,6 +673,18 @@ export function Home() {
               </span>
             </button>
           ))}
+          {port && (
+            <BrowserMenu
+              label={t.projectActions}
+              items={[
+                { key: 'manage', label: t.allProjectsItem },
+                { key: 'new', label: `${t.newProject}…` },
+              ]}
+              onSelect={(key) =>
+                setDialog(key === 'new' ? { kind: 'new', initial: [] } : { kind: 'manage' })
+              }
+            />
+          )}
         </div>
         <div className="page-list-search">
           <Search className="page-list-search-mark" size={14} aria-hidden="true" />
@@ -963,7 +965,7 @@ export function Home() {
       ref={section}
     >
       <AppHeader
-        title={scope ?? text.pageList.allPages}
+        title={currentShortcut?.name ?? scope ?? text.pageList.allPages}
         remote={{ deviceName: transport.backendName }}
       />
       <header className="page-list-hero">
@@ -990,28 +992,6 @@ export function Home() {
             </div>
           )}
           {shortcuts.error && <p role="alert">{shortcuts.error}</p>}
-          {port && scope !== undefined && space.projectPins && (
-            <span className="page-list-hero-pin">
-              <BrowserAction
-                type="button"
-                variant="ghost"
-                presentation="compact"
-                label={
-                  menuProjects(projectNames, space.projectPins).names.includes(scope)
-                    ? t.unpinFromSidebar
-                    : t.pinToSidebar
-                }
-                leadingIcon={<Pin size={14} />}
-                disabled={pinningProject}
-                onActivate={() =>
-                  void togglePinnedProject(
-                    scope,
-                    !menuProjects(projectNames, space.projectPins).names.includes(scope),
-                  )
-                }
-              />
-            </span>
-          )}
         </div>
         <span className="page-list-hero-create" inert={compact}>
           {newPageAction}
@@ -1104,7 +1084,6 @@ export function Home() {
             open={dialog?.kind === 'manage'}
             pages={space.pages}
             projects={projectCounts(space.pages, space.projects)}
-            pins={space.projectPins}
             onNewProject={() => setDialog({ kind: 'new', initial: [] })}
             writing={writing}
             onClose={() => setDialog(undefined)}

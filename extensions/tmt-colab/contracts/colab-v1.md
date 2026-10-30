@@ -5854,8 +5854,9 @@ with none, and `ls --project <name>` lists only the pages in it.
 
 #### Pinned projects (#5073)
 
-The owner chooses which projects the Colab side menu lists. The choice is an ordered list of
-existing project names, at most 20 (`SPACE_PROJECT_PINS`), kept in the owner store with the other
+The owner keeps an ordered list of pinned projects. The browser side menu no longer lists projects
+(#5662): it reads the explicit list once, as the source of the shortcut migration below; the CLI
+still reads and writes it. The list holds existing project names, at most 20 (`SPACE_PROJECT_PINS`), kept in the owner store with the other
 project metadata (`project_pins`, one row per name with its place, and `project_pin_choice`, one row
 once the owner has written the list; schema 18). Like projects it is display-only: **not signed**,
 never an owner-log statement, never in a page's content or any stream. It belongs to the owner, not
@@ -5907,12 +5908,15 @@ Corrupt or newer records are reported and left unchanged. Same-page changes and 
 events refresh the local view without polling. Names contain 1–80 characters without control
 characters; filters retain the list's existing bounds.
 
-The pinned-project sidebar and Pin controls remain active, so this stage does not trigger
-migration. The store retains a migration operation for the shared sidebar integration, which
-must invoke it together with the sidebar swap and removal of the old Pin controls. That operation
-migrates explicit pins (`automatic:false`) once, in order, into project-only shortcuts; automatic
-recent-project suggestions do not migrate. The marker and records commit together, failed
-persistence leaves migration retryable, and legacy owner pins are not written or removed.
+The Colab side menu is a fixed list (#5662): All pages, a Shortcuts group of the saved shortcuts
+in their order (with Manage and **+ New shortcut**), Dashboards (the space's shell pages, when it
+has any), then Colab settings. Exactly one row is selected, and a list showing a shortcut is titled
+with the shortcut's name. It lists no project and
+the browser has no Pin to sidebar or pin-order controls; All projects… and New project… sit in a ⋯
+beside the list's project filter. When a managing list loads, it migrates the owner's explicit pins
+(`automatic:false`) once, in order, into project-only shortcuts; automatic recent-project
+suggestions do not migrate. The marker and records commit together, failed persistence leaves
+migration retryable, and legacy owner pins are not written or removed.
 
 ### Pins (#4356)
 

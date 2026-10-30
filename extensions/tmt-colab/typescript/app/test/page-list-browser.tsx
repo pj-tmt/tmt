@@ -97,7 +97,7 @@ export async function mountPageList(
     | 'work'
     /** No page has reported its tasks yet, as after a cold start. */
     | 'cold'
-    /** A dashboard (shell page), which the module menu lists under Dashboards. */
+    /** A dashboard (shell page). */
     | 'shells'
     /** Twenty-two projects of one page each; page n is n hours old, so Project 01 is the newest. */
     | 'projects' = 'few',

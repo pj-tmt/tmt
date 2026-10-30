@@ -300,13 +300,7 @@ export function PageProjects({
       try {
         const next = await latest.current.spaceHome(signal);
         if (signal?.aborted) return;
-        rememberPages(
-          latest.current,
-          spaceRef.current,
-          next.pages,
-          next.projects,
-          next.projectPins,
-        );
+        rememberPages(latest.current, spaceRef.current, next.pages);
         setHome(next);
       } catch {
         // The picker keeps what it showed: the page itself is unaffected.

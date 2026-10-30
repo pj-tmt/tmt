@@ -19,32 +19,45 @@ import {
   shellRail,
   type ShellAnswer,
   type ShellMenu,
+  type ShellMenuItem,
   type ShellView,
 } from '@tmt/browser-ui/shell';
-import { knownScope, scopeRows, writeScope } from './project-scope.js';
-import { ProjectMenuActionsSlot, type ProjectMenuActions } from './project-menu-actions.js';
-import { menuProjects } from './project-pins.js';
+import { scopeRows, writeScope } from './project-scope.js';
+import { ShortcutMenuRequestSlot, type ShortcutMenuRequest } from './shortcut-menu-request.js';
+import type { Shortcut } from './shortcuts.js';
 import { useQuickSwitcher } from './quick-switcher-context.js';
 import { useShellRemoteStatus } from './remote-header.js';
 import { SharedTopBar } from './shared-top-bar.js';
-import {
-  onRememberedPages,
-  rememberedPages,
-  rememberedProjectPins,
-  rememberedProjects,
-} from './quick-switcher-source.js';
+import { onRememberedPages, rememberedPages } from './quick-switcher-source.js';
 import { text } from './strings.js';
 import type { PageSummary, PageTransport } from './transport.js';
+import { useShortcuts } from './use-shortcuts.js';
 
 /** The TMT app's slot when Colab runs as its `/colab/` route; the app owns the rail then. */
 export const ShellHostSlot = createContext<ShellSlot | null>(null);
 const NO_PAGES: readonly PageSummary[] = [];
 const NO_PROJECTS: readonly string[] = [];
 
+/** The Shortcuts group's rows: each saved shortcut, opening the list with its filters. */
+export function shortcutRows(
+  items: readonly Shortcut[],
+  current: string | undefined,
+  link: (item: Shortcut) => string,
+): ShellMenuItem[] {
+  return items.map((item) => ({
+    id: `shortcut:${item.id}`,
+    label: item.name,
+    href: link(item),
+    current: item.id === current,
+  }));
+}
+
 /**
  * Colab inside the one TMT web shell. The rail comes from Remote's composed descriptions; the
- * module menu is Colab's own: All pages, then each project with its page and needs-you counts,
- * replacing the header's project dropdown, the shell pages, and Colab settings.
+ * module menu is Colab's own fixed list: All pages, the Shortcuts group, Dashboards (the shell
+ * pages, when there are any), then Colab settings. Exactly one row is selected: settings or a
+ * dashboard on its route, else the shortcut the list shows (or the list a page was opened from),
+ * else All pages.
  */
 export function ColabShell({
   transport,
@@ -60,14 +73,24 @@ export function ColabShell({
   const location = useRouterState({ select: (state) => state.location });
   // The rail this browser read last paints first, so it matches every other TMT page.
   const [answer, setAnswer] = useState<ShellAnswer | undefined>(rememberedShellAnswer);
-  const [actions, setActions] = useState<ProjectMenuActions>();
+  const shortcuts = useShortcuts(space);
+  const manageable = transport.management !== undefined && shortcuts.store !== undefined;
+  // The rail's Shortcuts commands open the list's own dialogs, opening the list first if needed.
+  const [request, setRequest] = useState<ShortcutMenuRequest>();
+  const shortcutRequest = useMemo(
+    () => ({
+      request,
+      done: (id: number) => setRequest((held) => (held?.id === id ? undefined : held)),
+    }),
+    [request],
+  );
+  const openShortcuts = (kind: ShortcutMenuRequest['kind']) => {
+    setRequest({ kind, id: Date.now() });
+    if (router.state.location.pathname !== '/') void router.navigate({ to: '/' });
+  };
   // The menu reads nothing itself: it shows the list the routes already read (the space home, a
   // link-opened page's chip read, the quick switcher), so it never adds a list request.
   const listed = useSyncExternalStore(onRememberedPages, () => rememberedPages(transport, space));
-  const named = useSyncExternalStore(onRememberedPages, () => rememberedProjects(transport, space));
-  const pins = useSyncExternalStore(onRememberedPages, () =>
-    rememberedProjectPins(transport, space),
-  );
   useEffect(() => {
     if (hostSlot) return;
     void shellAddress().then(async (address) => {
@@ -76,110 +99,74 @@ export function ColabShell({
     });
   }, [hostSlot]);
 
-  const scope =
-    location.pathname === '/' ? (location.search as { scope?: string }).scope : undefined;
+  const listSearch =
+    location.pathname === '/' ? (location.search as { shortcut?: string }) : undefined;
+  // A page selects the shortcut its list was showing; a link-opened page selects All pages.
+  const lastShortcut = useRef<string | undefined>(undefined);
+  if (listSearch) lastShortcut.current = listSearch.shortcut;
+  const shortcutId = location.pathname.startsWith('/pages/')
+    ? lastShortcut.current
+    : listSearch?.shortcut;
   const href = (to: string, search?: Record<string, unknown>) =>
     router.history.createHref(router.buildLocation({ to, search }).publicHref);
   const view = useMemo(() => {
     const shown = (listed ?? NO_PAGES).filter((page) => !page.archived);
-    const rows = scopeRows(shown, named ?? NO_PROJECTS);
-    // A scope the space no longer has shows All pages, as the list itself does.
-    const shownScope = knownScope(
-      scope,
-      rows.slice(1).map((row) => row.name!),
+    const settings = location.pathname === '/settings';
+    // A dashboard selects its own row, ahead of the shortcut its list showed.
+    const shells = shown
+      .filter((page) => page.pageType === 'shell')
+      .map((page) => ({
+        id: `shell:${page.id}`,
+        label: page.title,
+        href: router.history.createHref(
+          router.buildLocation({ to: '/pages/$pageId', params: { pageId: page.id } }).publicHref,
+        ),
+        current: location.pathname === `/pages/${page.id}`,
+      }));
+    const dashboard = shells.some((row) => row.current);
+    const rows = shortcutRows(
+      shortcuts.items,
+      settings || dashboard ? undefined : shortcutId,
+      (item) => href('/', { ...item.search, shortcut: item.id }),
     );
-    const item = (name: string | undefined, count: number, waiting: number) => ({
-      id: name === undefined ? 'all' : `project:${name}`,
-      label: name ?? text.pageList.allPages,
-      href: href('/', name === undefined ? {} : { scope: name }),
-      total: count,
-      count: waiting ? shellCount(waiting) : undefined,
-      current: location.pathname === '/' && shownScope === name,
-    });
-    const [all, ...projects] = rows;
-    // The menu lists the projects the owner pins, in the owner's order; the scope the list is in
-    // stays as a temporary row when it is not pinned, so the current place is always shown.
-    const byName = new Map(projects.map((row) => [row.name!, row]));
-    const menuNames = menuProjects(
-      projects.map((row) => row.name!),
-      pins,
-    );
-    const pinnedRows = menuNames.names.map((name) => byName.get(name)!);
-    const temporary =
-      shownScope !== undefined && !menuNames.names.includes(shownScope)
-        ? byName.get(shownScope)
-        : undefined;
-    const shells = shown.filter((page) => page.pageType === 'shell');
-    const pagePath = (id: string) =>
-      router.history.createHref(
-        router.buildLocation({ to: '/pages/$pageId', params: { pageId: id } }).publicHref,
-      );
+    const [all] = scopeRows(shown, NO_PROJECTS);
     const menu: ShellMenu = {
       title: text.product,
       groups: [
-        { items: [item(undefined, all!.count, all!.waiting)] },
-        ...(pinnedRows.length || temporary
-          ? [
-              {
-                label: menuNames.automatic ? text.pageList.recentProjects : text.pageList.projects,
-                items: [
-                  ...pinnedRows.map((row) => item(row.name, row.count, row.waiting)),
-                  ...(temporary
-                    ? [
-                        {
-                          ...item(temporary.name, temporary.count, temporary.waiting),
-                          note: text.pageList.scopeNotPinned,
-                        },
-                      ]
-                    : []),
-                ],
-              },
-            ]
-          : []),
-        ...(shells.length
-          ? [
-              {
-                label: text.colabSettings.shells,
-                items: shells.map((page) => ({
-                  id: `shell:${page.id}`,
-                  label: page.title,
-                  href: pagePath(page.id),
-                  current: location.pathname === `/pages/${page.id}`,
-                })),
-              },
-            ]
-          : []),
-        ...(actions
-          ? [
-              {
-                items: [
-                  {
-                    id: 'manage-projects',
-                    label: text.pageList.allProjectsItem,
-                    href: '#',
-                    current: false,
-                  },
-                  {
-                    id: 'new-project',
-                    label: `${text.pageList.newProject}…`,
-                    href: '#',
-                    current: false,
-                  },
-                ],
-              },
-            ]
-          : []),
         {
           items: [
             {
-              id: 'colab-settings',
-              label: text.colabSettings.title,
-              href: href('/settings'),
-              current: location.pathname === '/settings',
+              id: 'all',
+              label: text.pageList.allPages,
+              href: href('/'),
+              total: all!.count,
+              count: all!.waiting ? shellCount(all!.waiting) : undefined,
+              current: !settings && !dashboard && !rows.some((row) => row.current),
             },
           ],
         },
+        {
+          label: text.shortcuts.group,
+          ...(manageable
+            ? {
+                action: {
+                  label: text.shortcuts.manage,
+                  icon: 'settings' as const,
+                  onActivate: () => openShortcuts('manage'),
+                },
+                add: { label: text.shortcuts.addRow, onActivate: () => openShortcuts('save') },
+              }
+            : {}),
+          items: rows,
+        },
+        ...(shells.length ? [{ label: text.colabSettings.shells, items: shells }] : []),
       ],
+      settings: {
+        id: 'colab-settings',
+        label: text.colabSettings.title,
+        href: href('/settings'),
+        current: settings,
+      },
     };
     const origin = window.location.origin;
     // Until the door answers (or with no door, as in the preview), Colab still names itself.
@@ -195,34 +182,31 @@ export function ColabShell({
     };
     // `href` reads the router, which is stable for this shell.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [answer, listed, named, pins, actions, location.pathname, scope]);
+  }, [answer, listed, shortcuts.items, manageable, location.pathname, shortcutId]);
   const select = (id: string) => {
-    if (id === 'new-project' && actions) return (actions.newProject(), true);
-    if (id === 'manage-projects' && actions) return (actions.manage(), true);
     if (id === 'colab-settings') return (void router.navigate({ to: '/settings' }), true);
     if (id.startsWith('shell:')) {
       const pageId = id.slice('shell:'.length);
       void router.navigate({ to: '/pages/$pageId', params: { pageId } });
       return true;
     }
-    if (id === 'colab' || id === 'all' || id.startsWith('project:')) {
-      // The same remembered scope the list's own project choice writes.
-      const name = id.startsWith('project:') ? id.slice('project:'.length) : undefined;
-      if (id !== 'colab') writeScope(space, name);
-      // On the list a scope changes only the scope, as the list's own choice does: its tab and
-      // filters stay, in the same history entry. From elsewhere it opens the list fresh.
-      if (location.pathname === '/' && id !== 'colab')
-        void router.navigate({
-          to: '/',
-          search: (previous: Record<string, unknown>) => ({ ...previous, scope: name }),
-          replace: true,
-        });
-      else void router.navigate({ to: '/', search: name === undefined ? {} : { scope: name } });
+    const shortcut = id.startsWith('shortcut:')
+      ? shortcuts.items.find((item) => `shortcut:${item.id}` === id)
+      : undefined;
+    if (id === 'colab' || id === 'all' || shortcut) {
+      // A fixed destination opens the list fresh; the remembered project would otherwise narrow it.
+      if (id !== 'colab') writeScope(space, undefined);
+      void router.navigate({
+        to: '/',
+        search: shortcut ? { ...shortcut.search, shortcut: shortcut.id } : {},
+      });
       return true;
     }
     return false;
   };
-  const content = <ProjectMenuActionsSlot value={setActions}>{children}</ProjectMenuActionsSlot>;
+  const content = (
+    <ShortcutMenuRequestSlot value={shortcutRequest}>{children}</ShortcutMenuRequestSlot>
+  );
   return hostSlot ? (
     <HostedShell slot={hostSlot} menu={view.menu} select={select}>
       <SharedTopBar value={hostSlot.topBarReady()}>{content}</SharedTopBar>
