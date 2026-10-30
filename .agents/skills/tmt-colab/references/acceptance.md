@@ -52,12 +52,14 @@ without private error values, traces or profiles. An unexpected outcome also pri
 bounded summary even if the list reporter's detailed failure is absent from the job log;
 selection and concurrency are owned by the [CI reference](../../tmt-release/references/ci-selection.md#advisory-browser-selection).
 The acceptance job records its start timestamp before checkout. The ordinary suite is interrupted
-at +1,560 seconds on shard 1 or +1,740 seconds on shards 2 and 3, including setup/build time. The runner
+at +1,380 seconds on shard 1 or +1,740 seconds on shards 2 and 3, including setup/build time. The runner
 owns a new process group: SIGINT allows up to 30 seconds for final JSON and cleanup, then SIGKILL
 bounds that group only. Deadline and job-signal interruption remain nonzero even if the child
-exits zero. Shard 1 reserves a further 180 seconds for the hosted-reader proof; every shard reserves
-30 seconds for public reporting/upload before the unchanged 30-minute job ceiling. A forced group
-kill does not reach harness-detached browser/tmux groups and is not proof of clean world teardown;
+exits zero. Shard 1 reserves 360 seconds for the hosted-reader step, covering Firebase setup, native
+builds, the browser proof and cleanup. Its budget is 1,380 seconds for setup and the suite, 30 seconds
+of grace, 360 seconds for the proof and 30 seconds for public reporting/upload: 1,800 seconds, fitting
+the unchanged 30-minute job ceiling. Shards 2 and 3 use 1,740 + 30 + 30 seconds without the proof.
+A forced group kill does not reach harness-detached browser/tmux groups and is not proof of clean world teardown;
 the hosted runner's job lifetime bounds those groups. These are CI budgets, not spec timeouts.
 
 The public `outcomes.json` includes a closed `run` status (`passed`, `failed` or `incomplete`)
