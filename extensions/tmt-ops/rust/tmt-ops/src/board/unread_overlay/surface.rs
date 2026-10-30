@@ -150,7 +150,7 @@ impl Overlay {
                 Text::Missing => "○ answer not loaded".into(),
                 Text::Unavailable => "○ reply text unavailable".into(),
             };
-            let read = answer.acknowledged;
+            let read = !app.answer_unread(actor, answer);
             let mark = if read { "○ Read" } else { "● Unread" };
             let age = crate::requests::age(now, answer.answered_at_ms);
             let chosen = selected == Some(index);
@@ -413,7 +413,7 @@ impl Overlay {
         let unread = self
             .items
             .values()
-            .filter(|answer| !answer.acknowledged)
+            .filter(|answer| app.answer_unread(actor, answer))
             .count();
         strip::paint_left(
             frame.buffer_mut(),
@@ -443,11 +443,11 @@ impl Overlay {
             );
         }
         let footer = if narrow && !self.detail_open {
-            "↑↓ choose · Enter read · r mark read · a all read · Esc close"
+            "↑↓ choose · Enter read · r toggle read · a all read · Esc close"
         } else if narrow {
-            "↑↓ PgUp PgDn scroll · Enter chat · r mark read · a all read · Esc list"
+            "↑↓ PgUp PgDn scroll · Enter chat · r toggle read · a all read · Esc list"
         } else {
-            "↑↓ choose · Enter chat · r mark read · a all read · Tab scroll detail · Esc close"
+            "↑↓ choose · Enter chat · r toggle read · a all read · Tab scroll detail · Esc close"
         };
         strip::paint_left(
             frame.buffer_mut(),

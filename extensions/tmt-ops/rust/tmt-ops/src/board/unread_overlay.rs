@@ -174,20 +174,12 @@ impl Overlay {
         self.version.set(self.version.get() + 1);
     }
 
-    /// Adds the scope's unread answers that the overlay has not shown yet.
-    pub fn sync(&mut self, page: &Page) {
-        if self
-            .actor
-            .as_deref()
-            .is_some_and(|actor| actor != page.actor)
-        {
-            return;
-        }
-        self.actor = Some(page.actor.clone());
-        self.merge(page, self.before.is_none());
-    }
-
-    fn merge(&mut self, page: &Page, continuation: bool) {
+    fn merge(
+        &mut self,
+        page: &Page,
+        continuation: bool,
+        local: Option<&super::unread::local::State>,
+    ) {
         let opening = self.order.is_empty();
         let mut arrived = Vec::new();
         let mut revised = false;
@@ -208,7 +200,9 @@ impl Overlay {
                     } else if answer.revision == held.revision && answer.acknowledged {
                         held.acknowledged = true;
                     }
-                } else if !answer.acknowledged {
+                } else if !answer.acknowledged
+                    || local.is_some_and(|local| local.contains(&page.actor, answer))
+                {
                     self.items.insert(key.clone(), answer.clone());
                     arrived.push(key);
                 }
@@ -256,6 +250,51 @@ impl Overlay {
             self.more = more;
             self.bump();
         }
+    }
+
+    pub(in crate::board) fn answers<'a>(
+        &'a self,
+        actor: &str,
+        member: &'a str,
+    ) -> impl Iterator<Item = &'a Answer> {
+        let same_actor = self.actor.as_deref() == Some(actor);
+        self.items
+            .values()
+            .filter(move |answer| same_actor && answer.member == member)
+    }
+
+    fn sync_marked(
+        &mut self,
+        actor: &str,
+        local: &super::unread::local::State,
+        head: Option<&Page>,
+    ) {
+        if self.actor.as_deref() != Some(actor) {
+            return;
+        }
+        // One initial merge keeps old manual marks in the same grouping/time order
+        // as HOME entries, instead of appending them as if they had just arrived.
+        let mut answers = BTreeMap::new();
+        for member in &self.members {
+            for answer in local.answers(actor, member) {
+                answers.insert((member.clone(), answer.request.clone()), answer);
+            }
+            if let Some(head) = head {
+                for answer in head.answers(member) {
+                    let key = (member.clone(), answer.request.clone());
+                    if answers.get(&key).is_none_or(|marked| {
+                        answer.revision > marked.revision
+                            || answer.revision == marked.revision
+                                && (answer.kind.is_some() || marked.kind.is_none())
+                    }) {
+                        answers.insert(key, answer.clone());
+                    }
+                }
+            }
+        }
+        let mut page = Page::retained(actor, answers.into_values());
+        page.next_before = head.and_then(|head| head.next_before.clone());
+        self.merge(&page, head.is_some() && self.before.is_none(), Some(local));
     }
 
     /// The active overlay already owns these retained entries. Include older unread
@@ -307,7 +346,7 @@ impl Overlay {
             }
         };
         self.before = Some(read.before.clone());
-        self.merge(&page, true);
+        self.merge(&page, true, None);
         Ok(())
     }
 
@@ -640,10 +679,8 @@ impl App {
         let Some(actor) = self.view.as_ref().and_then(|view| view.me_id.clone()) else {
             return self.say("Nothing unread here.");
         };
-        if let Some(page) = self.home_leads.unread(&actor) {
-            overlay.sync(page);
-        }
-        overlay.actor = Some(actor);
+        overlay.actor = Some(actor.clone());
+        overlay.sync_marked(&actor, &self.unread.local, self.home_leads.unread(&actor));
         self.unread_overlay = Some(overlay);
         Effect::None
     }
@@ -792,10 +829,9 @@ impl App {
         let Some(actor) = self.view.as_ref().and_then(|view| view.me_id.clone()) else {
             return;
         };
-        if let (Some(overlay), Some(page)) =
-            (&mut self.unread_overlay, self.home_leads.unread(&actor))
-        {
-            overlay.sync(page);
+        if let Some(overlay) = &mut self.unread_overlay {
+            let page = self.home_leads.unread(&actor);
+            overlay.sync_marked(&actor, &self.unread.local, page);
         }
     }
 }

@@ -42,6 +42,7 @@ pub(super) enum Job {
     /// Save the header's token-rate window with no settings overlay open.
     TokenWindow(String),
     ViewState(super::view_state::Writer),
+    LocalUnread(super::unread::local::Task),
     AcknowledgeAnswers(super::unread::publish::Writer),
     /// Read the checklist summary of the conversation on screen.
     Notes(super::conversation_checklist::Task),
@@ -58,6 +59,7 @@ impl Job {
             Self::Recovery(_)
                 | Self::TokenWindow(_)
                 | Self::ViewState(_)
+                | Self::LocalUnread(_)
                 | Self::AcknowledgeAnswers(_)
                 | Self::Notes(_)
                 | Self::Versions
@@ -84,6 +86,7 @@ impl Job {
             Self::Open(Opening::ThemePicker(_)) => "Loading themes…",
             Self::TokenWindow(_) => "Saving the token window…",
             Self::ViewState(_) => "Saving the board view…",
+            Self::LocalUnread(_) => "Saving manual unread marks…",
         }
     }
 }
@@ -91,6 +94,13 @@ impl Job {
 /// The result of one job.
 pub(super) fn run(core: &Core, labels: Option<&Refresh>, job: Job) -> BoardEvent {
     match job {
+        Job::LocalUnread(task) => {
+            let actor = task.actor().to_owned();
+            BoardEvent::LocalUnreadPublished {
+                actor,
+                result: task.publish(),
+            }
+        }
         Job::AcknowledgeAnswers(writer) => BoardEvent::AnswersAcknowledged(writer.publish(core)),
         Job::Notes(task) => {
             BoardEvent::NotesRead(super::conversation_checklist::complete(core, task))

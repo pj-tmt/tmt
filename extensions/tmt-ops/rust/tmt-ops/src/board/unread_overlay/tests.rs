@@ -137,6 +137,9 @@ pub(in crate::board) const SCENES: &[&str] = &[
     "unread-overlay-confirm",
     "unread-overlay-empty",
     "unread-overlay-hover",
+    "unread-overlay-local-marked",
+    "unread-overlay-local-reopened",
+    "unread-overlay-local-cap",
 ];
 
 /// An opened overlay: two agents' unread answers, the way `scene` names.
@@ -166,7 +169,7 @@ pub(in crate::board) fn capture_case(scene: &str, look: crate::look::Look) -> Ap
             (OTHER, "c-one", now - 900_000, "final"),
         ],
     );
-    let scope = if scene == "unread-overlay-agent" {
+    let scope = if scene == "unread-overlay-agent" || scene.starts_with("unread-overlay-local-") {
         UnreadScope::Member(MEMBER.into())
     } else {
         UnreadScope::All
@@ -252,6 +255,45 @@ pub(in crate::board) fn capture_case(scene: &str, look: crate::look::Look) -> Ap
             app.open_unread(&UnreadScope::All);
         }
         "unread-overlay-hover" => app.unread_overlay.as_ref().unwrap().hover.set(Some(1)),
+        "unread-overlay-local-marked"
+        | "unread-overlay-local-reopened"
+        | "unread-overlay-local-cap" => {
+            settle_selected(&mut app);
+            if scene == "unread-overlay-local-cap" {
+                for index in 0..super::super::unread::local::MAX_MARKS {
+                    app.unread
+                        .local
+                        .mark(
+                            ACTOR,
+                            &Answer {
+                                request: format!("manual-cap-{index}"),
+                                member: OTHER.into(),
+                                answered_at_ms: now - 4_000_000,
+                                kind: Some(BodyKind::Final),
+                                revision: 1,
+                                acknowledged: true,
+                            },
+                        )
+                        .unwrap();
+                }
+            }
+            press(&mut app, KeyCode::Char('r'));
+            if scene == "unread-overlay-local-reopened" {
+                press(&mut app, KeyCode::Esc);
+                app.open_unread(&UnreadScope::Member(MEMBER.into()));
+                arrive(
+                    &mut app,
+                    MEMBER,
+                    replies(
+                        MEMBER,
+                        &[
+                            ("w-old", "Rebased the branch.\n\nThe checks are green."),
+                            ("w-new", "Opened the pull request."),
+                        ],
+                    ),
+                );
+            }
+        }
         _ => {}
     }
     app
@@ -299,7 +341,7 @@ fn the_overlay_lists_unread_answers_by_agent_oldest_first_with_a_count_per_group
             "{screen}"
         );
         assert!(at("── core-ops · 1") < at("── worker · 2"), "{screen}");
-        assert!(screen.contains("r mark read"), "{screen}");
+        assert!(screen.contains("r toggle read"), "{screen}");
     });
 }
 
@@ -1958,4 +2000,376 @@ fn the_top_bar_and_row_unread_counts_highlight_only_under_the_pointer() {
         pointer(&mut app, top.x, top.y);
         assert_eq!(app.unread_hover.get(), None, "no hover under a modal");
     });
+}
+
+/// Settle the selected revision through the same result the Core writer returns.
+fn settle_selected(app: &mut App) {
+    let answer = app
+        .unread_overlay
+        .as_ref()
+        .unwrap()
+        .selected_answer()
+        .unwrap()
+        .clone();
+    let completed = crate::board::unread::publish::Completed {
+        actor: ACTOR.into(),
+        items: vec![(answer, crate::board::unread::publish::Outcome::Acknowledged)],
+    };
+    // This injected event follows the writer's settlement before UI adoption.
+    app.unread.local.completed(&completed).unwrap();
+    app.finished_unread(Ok(completed));
+}
+
+#[test]
+fn r_marks_a_read_answer_unread_without_reversing_core_acknowledgment() {
+    let mut app = app_with_two_members();
+    install(&mut app, &[(MEMBER, "manual-mark", 8_000_000, "final")]);
+    app.open_unread(&UnreadScope::Member(MEMBER.into()));
+    arrive(
+        &mut app,
+        MEMBER,
+        replies(MEMBER, &[("manual-mark", "Keep this answer.")]),
+    );
+    draw(&app, 40);
+    settle_selected(&mut app);
+    assert_eq!(app.unread_count(MEMBER).total, 0);
+
+    press(&mut app, KeyCode::Char('r'));
+    assert_eq!(
+        app.unread_count(MEMBER).total,
+        1,
+        "r restores effective unread"
+    );
+    assert!(
+        app.unread_overlay
+            .as_ref()
+            .unwrap()
+            .selected_answer()
+            .unwrap()
+            .acknowledged,
+        "Core acknowledgment remains monotone"
+    );
+    assert!(
+        app.unread.writer.offer().is_none(),
+        "mark unread never calls Core"
+    );
+    let text = draw(&app, 40);
+    assert!(text.contains("● Unread"), "{text}");
+}
+
+#[test]
+fn a_manual_unread_survives_detail_draw_reopen_and_a_late_core_ack() {
+    let mut app = app_with_two_members();
+    install(&mut app, &[(MEMBER, "sticky-mark", 8_000_000, "final")]);
+    app.open_unread(&UnreadScope::Member(MEMBER.into()));
+    arrive(
+        &mut app,
+        MEMBER,
+        replies(MEMBER, &[("sticky-mark", "Keep it unread.")]),
+    );
+    draw(&app, 40);
+    settle_selected(&mut app);
+    press(&mut app, KeyCode::Char('r'));
+    assert_eq!(
+        app.unread_count(MEMBER).total,
+        1,
+        "manual mark is effective unread"
+    );
+    draw(&app, 40);
+    app.unread_drawn();
+    settle_selected(&mut app);
+    assert_eq!(
+        app.unread_count(MEMBER).total,
+        1,
+        "draw and late ack never clear a manual mark"
+    );
+    press(&mut app, KeyCode::Esc);
+    app.open_unread(&UnreadScope::Member(MEMBER.into()));
+    let text = draw(&app, 40);
+    assert!(
+        text.contains("● Unread"),
+        "reopen retains the marked answer: {text}"
+    );
+    assert_eq!(app.unread_count(MEMBER).total, 1);
+    press(&mut app, KeyCode::Char('r'));
+    assert!(
+        app.unread.writer.offer().is_some(),
+        "explicit read uses the Core writer"
+    );
+    settle_selected(&mut app);
+    assert_eq!(
+        app.unread_count(MEMBER).total,
+        0,
+        "exact explicit ack clears the manual mark"
+    );
+}
+
+#[test]
+fn a_local_mark_outside_the_home_page_counts_and_reopens_without_a_core_read() {
+    let mut app = app_with_two_members();
+    install(&mut app, &[]);
+    let older = Answer {
+        request: "older-manual".into(),
+        member: MEMBER.into(),
+        answered_at_ms: 7_000_000,
+        kind: Some(BodyKind::Final),
+        revision: 1,
+        acknowledged: true,
+    };
+    app.unread.local.mark(ACTOR, &older).unwrap();
+    let _no_commands = crate::runner::forbid_commands();
+    assert_eq!(app.unread_count(MEMBER).total, 1);
+    assert_eq!(app.unread_target(&OpsTarget::Squad(ROOM.into())).total, 1);
+    assert_eq!(app.unread_global().total, 1);
+    app.open_unread(&UnreadScope::Member(MEMBER.into()));
+    assert_eq!(
+        app.unread_overlay
+            .as_ref()
+            .unwrap()
+            .selected_answer()
+            .unwrap()
+            .request,
+        "older-manual"
+    );
+    let screen = draw(&app, 40);
+    assert!(screen.contains("● Unread"), "{screen}");
+}
+
+#[test]
+fn local_and_core_unread_for_one_request_count_once_and_member_read_clears_the_mark() {
+    let mut app = app_with_two_members();
+    install(&mut app, &[(MEMBER, "both-unread", 8_000_000, "final")]);
+    let answer = Answer {
+        request: "both-unread".into(),
+        member: MEMBER.into(),
+        answered_at_ms: 8_000_000,
+        kind: Some(BodyKind::Final),
+        revision: 1,
+        acknowledged: false,
+    };
+    app.unread.local.mark(ACTOR, &answer).unwrap();
+    assert_eq!(app.unread_count(MEMBER).total, 1);
+    assert!(app.mark_read(MEMBER));
+    assert!(
+        app.unread.local.contains(ACTOR, &answer),
+        "Core-unread mark waits for exact ack"
+    );
+    let completed = crate::board::unread::publish::Completed {
+        actor: ACTOR.into(),
+        items: vec![(
+            answer.clone(),
+            crate::board::unread::publish::Outcome::Acknowledged,
+        )],
+    };
+    app.unread.local.completed(&completed).unwrap();
+    app.finished_unread(Ok(completed));
+    assert!(!app.unread.local.contains(ACTOR, &answer));
+    assert_eq!(app.unread_count(MEMBER).total, 0);
+}
+
+#[test]
+fn mark_all_cancel_preserves_manual_marks_and_confirm_clears_the_frozen_keys() {
+    let mut app = app_with_two_members();
+    install(&mut app, &[(MEMBER, "all-local", 8_000_000, "final")]);
+    app.open_unread(&UnreadScope::Member(MEMBER.into()));
+    draw(&app, 40);
+    settle_selected(&mut app);
+    press(&mut app, KeyCode::Char('r'));
+    press(&mut app, KeyCode::Char('a'));
+    draw(&app, 40);
+    press(&mut app, KeyCode::Esc);
+    assert_eq!(
+        app.unread_count(MEMBER).total,
+        1,
+        "cancel never clears the mark"
+    );
+    press(&mut app, KeyCode::Char('a'));
+    draw(&app, 40);
+    // A later manual mark must not enter the already-confirmed answer inventory.
+    let later = Answer {
+        request: "later-local".into(),
+        member: MEMBER.into(),
+        answered_at_ms: 9_000_000,
+        kind: Some(BodyKind::Final),
+        revision: 1,
+        acknowledged: true,
+    };
+    app.unread.local.mark(ACTOR, &later).unwrap();
+    press(&mut app, KeyCode::Enter);
+    settle_selected(&mut app);
+    assert_eq!(app.unread_count(MEMBER).total, 1);
+    assert!(app.unread.local.contains(ACTOR, &later));
+}
+
+#[test]
+fn older_manual_marks_join_the_initial_grouped_order_before_newer_home_answers() {
+    let mut app = app_with_two_members();
+    install(
+        &mut app,
+        &[
+            (MEMBER, "newer-core", 8_000_000, "final"),
+            (OTHER, "other-core", 9_000_000, "final"),
+        ],
+    );
+    let older = Answer {
+        request: "older-manual".into(),
+        member: MEMBER.into(),
+        answered_at_ms: 7_000_000,
+        kind: Some(BodyKind::Final),
+        revision: 1,
+        acknowledged: true,
+    };
+    app.unread.local.mark(ACTOR, &older).unwrap();
+    app.open_unread(&UnreadScope::All);
+    let overlay = app.unread_overlay.as_ref().unwrap();
+    let ids: Vec<_> = overlay
+        .ordered()
+        .iter()
+        .map(|answer| answer.request.as_str())
+        .collect();
+    // The existing tree orders core-ops before worker; each group remains oldest first.
+    assert_eq!(ids, ["other-core", "older-manual", "newer-core"]);
+    app.open_unread(&UnreadScope::Member(MEMBER.into()));
+    assert_eq!(
+        app.unread_overlay
+            .as_ref()
+            .unwrap()
+            .selected_answer()
+            .unwrap()
+            .request,
+        "older-manual"
+    );
+}
+
+#[test]
+fn member_mark_read_uses_newer_retained_metadata_instead_of_a_stale_home_revision() {
+    let fixture = crate::board::unread::test_support::Fixture::new();
+    let mut app = app_with_two_members();
+    install(&mut app, &[(MEMBER, "newer-local", 8_000_000, "final")]);
+    let fresh = Answer {
+        request: "newer-local".into(),
+        member: MEMBER.into(),
+        answered_at_ms: 8_000_000,
+        kind: Some(BodyKind::Final),
+        revision: 2,
+        acknowledged: true,
+    };
+    app.unread.local.mark(ACTOR, &fresh).unwrap();
+    assert!(app.mark_read(MEMBER));
+    let completed = app
+        .unread
+        .writer
+        .offer()
+        .unwrap()
+        .publish(&fixture.core())
+        .unwrap();
+    assert_eq!(completed.items.len(), 1);
+    assert_eq!(
+        completed.items[0].0.revision, 2,
+        "stale HOME cannot replace newer mark metadata"
+    );
+    let durable: Value =
+        serde_json::from_slice(&std::fs::read(fixture.0.join("acknowledged.json")).unwrap())
+            .unwrap();
+    assert_eq!(durable["newer-local"], 2);
+}
+
+#[test]
+fn a_failed_explicit_read_preserves_a_manual_mark_until_its_retry_succeeds() {
+    let fixture = crate::board::unread::test_support::Fixture::new();
+    let mut app = app_with_two_members();
+    install(
+        &mut app,
+        &[(MEMBER, "failed-local-read", 8_000_000, "final")],
+    );
+    app.open_unread(&UnreadScope::Member(MEMBER.into()));
+    draw(&app, 40);
+    settle_selected(&mut app);
+    press(&mut app, KeyCode::Char('r'));
+    std::fs::write(fixture.0.join("fail"), b"").unwrap();
+    press(&mut app, KeyCode::Char('r'));
+    let result = app.unread.writer.offer().unwrap().publish(&fixture.core());
+    assert!(result.is_err());
+    app.finished_unread(result);
+    assert_eq!(
+        app.unread_count(MEMBER).total,
+        1,
+        "failed read never clears a manual mark"
+    );
+    assert!(
+        app.unread.writer.offer().is_none(),
+        "failure has no automatic retry"
+    );
+    std::fs::remove_file(fixture.0.join("fail")).unwrap();
+    press(&mut app, KeyCode::Char('r'));
+    let result = app.unread.writer.offer().unwrap().publish(&fixture.core());
+    assert!(result.is_ok());
+    app.finished_unread(result);
+    assert_eq!(app.unread_count(MEMBER).total, 0);
+}
+
+#[test]
+fn writer_settles_a_manual_read_even_when_the_ui_never_consumes_its_event() {
+    let fixture = crate::board::unread::test_support::Fixture::new();
+    let mut app = app_with_two_members();
+    install(
+        &mut app,
+        &[(MEMBER, "close-before-event", 8_000_000, "final")],
+    );
+    app.open_unread(&UnreadScope::Member(MEMBER.into()));
+    draw(&app, 40);
+    settle_selected(&mut app);
+    press(&mut app, KeyCode::Char('r'));
+    let answer = app
+        .unread_overlay
+        .as_ref()
+        .unwrap()
+        .selected_answer()
+        .unwrap()
+        .clone();
+    press(&mut app, KeyCode::Char('r'));
+    let completed = app
+        .unread
+        .writer
+        .offer()
+        .unwrap()
+        .publish(&fixture.core())
+        .unwrap();
+    assert_eq!(completed.items.len(), 1);
+    // Deliberately do not call App::finished_unread: q may already have ended the loop.
+    assert!(!app.unread.local.contains(ACTOR, &answer));
+    assert!(
+        app.unread.local.pending(),
+        "the admitted removal remains for the quiet lane/exit flush"
+    );
+    let durable: Value =
+        serde_json::from_slice(&std::fs::read(fixture.0.join("acknowledged.json")).unwrap())
+            .unwrap();
+    assert_eq!(durable["close-before-event"], 1);
+}
+
+#[test]
+fn older_core_only_metadata_does_not_change_the_existing_attention_sort() {
+    let app = capture_case("unread-overlay-older", crate::look::Look::default());
+    assert_eq!(
+        app.unread_count(MEMBER).total,
+        1,
+        "the overlay still counts its retained older answer"
+    );
+    assert!(
+        app.unread_identities().is_empty(),
+        "Core-only attention remains the bounded HOME summary"
+    );
+    let marked = app
+        .unread_overlay
+        .as_ref()
+        .unwrap()
+        .selected_answer()
+        .unwrap()
+        .clone();
+    app.unread.local.mark(ACTOR, &marked).unwrap();
+    assert!(
+        app.unread_identities().contains(marked.member.as_str()),
+        "an explicit manual mark joins attention"
+    );
 }

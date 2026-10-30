@@ -25,6 +25,7 @@ enum Input {
     Close,
     Chat(String),
     Mark(Seen),
+    Unread(Seen),
     All(Confirmation),
 }
 
@@ -93,7 +94,7 @@ impl Overlay {
         }
     }
 
-    fn input(&mut self, event: &Event) -> Input {
+    fn input(&mut self, event: &Event, local: &crate::board::unread::local::State) -> Input {
         if self.confirmation.is_some() {
             return self.confirmation_input(event);
         }
@@ -148,12 +149,21 @@ impl Overlay {
                         self.bump();
                         return Input::None;
                     }
-                    return match (&self.actor, answer.acknowledged) {
-                        (Some(actor), false) => Input::Mark(Seen {
-                            actor: actor.clone(),
-                            answer,
-                        }),
-                        _ => Input::None,
+                    return match &self.actor {
+                        Some(actor) => {
+                            let marked = local.contains(actor, &answer);
+                            let read = answer.acknowledged && !marked;
+                            let seen = Seen {
+                                actor: actor.clone(),
+                                answer,
+                            };
+                            if read {
+                                Input::Unread(seen)
+                            } else {
+                                Input::Mark(seen)
+                            }
+                        }
+                        None => Input::None,
                     };
                 }
                 KeyCode::Char('a') => {
@@ -164,7 +174,9 @@ impl Overlay {
                             answers: self
                                 .items
                                 .values()
-                                .filter(|answer| !answer.acknowledged)
+                                .filter(|answer| {
+                                    !answer.acknowledged || local.contains(actor, answer)
+                                })
                                 .cloned()
                                 .collect(),
                             before: self.next_before.clone(),
@@ -219,7 +231,7 @@ impl App {
         if overlay.actor.as_deref() != actor {
             return Some(Effect::None);
         }
-        Some(match overlay.input(event) {
+        Some(match overlay.input(event, &self.unread.local) {
             Input::None => Effect::None,
             Input::Close => {
                 self.unread_overlay = None;
@@ -232,21 +244,23 @@ impl App {
                 self.open_member_conversation(&member)
             }
             Input::Mark(seen) => {
-                self.unread.writer.seen(&seen);
+                self.explicit_answers_read(&seen.actor, vec![seen.answer]);
                 Effect::None
             }
+            Input::Unread(seen) => match self.unread.local.mark(&seen.actor, &seen.answer) {
+                Ok(()) => {
+                    self.local_unread_changed();
+                    Effect::None
+                }
+                Err(error) => self.say(error),
+            },
             Input::All(confirmation) => {
                 if self.view.as_ref().and_then(|view| view.me_id.as_deref())
                     != Some(&confirmation.actor)
                 {
                     return Some(Effect::None);
                 }
-                for answer in confirmation.answers {
-                    self.unread.writer.seen(&Seen {
-                        actor: confirmation.actor.clone(),
-                        answer,
-                    });
-                }
+                self.explicit_answers_read(&confirmation.actor, confirmation.answers);
                 if let Some(before) = confirmation.before {
                     self.unread.writer.mark_scope(
                         &confirmation.actor,
