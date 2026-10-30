@@ -845,9 +845,46 @@ fn esc_hides_a_screen_and_closes_a_menu_or_confirm_first() {
     assert_eq!(c.screen, Screen::Confirm);
     c.input(&key(KeyCode::Esc), None);
     assert!(
-        c.active && c.screen == Screen::List && c.submit.is_none(),
-        "the confirm cancels"
+        c.active && c.screen == Screen::Details(id(ITEM)) && c.submit.is_none(),
+        "the confirm cancels, back on the item that asked for it"
     );
+}
+#[test]
+fn a_cancelled_confirm_returns_to_the_screen_that_asked_for_it() {
+    let f = Fixture::new();
+    seed(&f, ITEM, InventoryExpectation::Absent);
+    seed(&f, OTHER, InventoryExpectation::Revision(1));
+    for esc in [true, false] {
+        let cancel = |c: &mut Controller| {
+            if esc {
+                c.input(&key(KeyCode::Esc), None);
+            } else {
+                pick(c, "cancel");
+            }
+        };
+        // Details: the item mutation confirm returns to the item.
+        let mut c = controller(&f);
+        c.screen = Screen::Details(id(ITEM));
+        pick(&mut c, "delete");
+        assert_eq!(c.screen, Screen::Confirm);
+        cancel(&mut c);
+        assert!(
+            c.screen == Screen::Details(id(ITEM)) && c.submit.is_none(),
+            "esc={esc}"
+        );
+        // Reorder: the confirm returns to Reorder with the moved order kept.
+        let mut c = controller(&f);
+        c.screen = Screen::Actions;
+        pick(&mut c, "reorder");
+        pick(&mut c, OTHER);
+        pick(&mut c, "up");
+        let moved = c.submit.clone();
+        pick(&mut c, "apply");
+        assert_eq!(c.screen, Screen::Confirm);
+        cancel(&mut c);
+        assert_eq!(c.screen, Screen::Reorder, "esc={esc}");
+        assert_eq!(c.submit, moved, "esc={esc}: the moved order is kept");
+    }
 }
 #[test]
 fn form_back_keeps_the_draft_and_only_discard_drops_it() {
