@@ -31,6 +31,19 @@ This private module implements the device side of
   exposes `pairingPage(link)` for the fragment-erasing bootstrap inlined from `assets/pair.js` and gives mounted extension pages `reopenSession`,
   `operations`, `ClientError`, `RefusalError` and `certifyKey`, whose extension comes from `/sdk/mount`, and the `budget` namespace of `src/budget.ts`.
 
+`invitations(session)` shares the verified Session lane and opens nothing. Its
+`create({operationId})`, `list({cursor})` and `cancel({operationId,offerId})` methods use
+only the signed owner-browser management path; `pending()` and `decide()` retain the
+existing comparison/confirmation ceremony. `operation(originalId)` reads the immutable
+original after a lost answer and never resends creation or cancellation. Keep the first
+creating response's optional `secret:{code,link}` in the current interaction only;
+recovery/history cannot return it. The SDK validates the existing native carrier through
+`invite-page.ts`, binds its owner/offer/deadline to the signed result, and rejects a
+secret in any recovered original. The [invitation contract](../../../../contracts/remote-channel-v1.md#backend-neutral-invitation-lifecycle)
+owns exact shapes, no-store handling, cancellation codes and bounded metadata retention.
+History is neither presence nor proof of enrollment; a restart-interrupted offer never
+resumes. No SDK method executes a terminal command or adds another provider transport.
+
 The standalone `/join` entry uses `invitePage(code)` from `src/invite-page.ts`, also
 exported by the public SDK. Its Remote-owned bootstrap clears the URL fragment before
 loading resources; the renderer only presents native join instructions and an explicit

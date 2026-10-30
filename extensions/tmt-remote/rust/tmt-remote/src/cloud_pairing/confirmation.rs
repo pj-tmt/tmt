@@ -87,6 +87,24 @@ impl FirestoreConfirmation {
     }
 }
 impl ConfirmationSink for FirestoreConfirmation {
+    fn begin_status(
+        &self,
+        context: &Context,
+        status: &crate::invitations::service::Status,
+        actor: &OwnerActor,
+        now: u64,
+    ) -> Result<(), RemoteError> {
+        self.authorize(context, actor)?;
+        self.common.begin_status(context, status, actor, now)
+    }
+    fn record_status(
+        &self,
+        context: &Context,
+        status: &crate::invitations::service::Status,
+        now: u64,
+    ) -> Result<(), RemoteError> {
+        self.common.record_status(context, status, now)
+    }
     fn authorize(&self, context: &Context, actor: &OwnerActor) -> Result<(), RemoteError> {
         wire::v2::validate_context(context)?;
         if context.binding.owner_principal != self.uid.as_bytes()

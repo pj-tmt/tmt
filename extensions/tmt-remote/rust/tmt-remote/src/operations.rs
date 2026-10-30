@@ -441,6 +441,9 @@ impl Operations {
                     "remote.members.sending",
                     "remote.members.revoke",
                     "remote.name.set",
+                    "remote.invites.create",
+                    "remote.invites.list",
+                    "remote.invites.cancel",
                     "remote.invites.pending",
                     "remote.invites.confirm",
                 ]);

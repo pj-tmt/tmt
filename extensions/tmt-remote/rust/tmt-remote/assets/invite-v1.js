@@ -40,7 +40,7 @@ function hasControl(value) {
 }
 var utf8 = new TextDecoder("utf-8", { fatal: true });
 /** Reads the native v2 carrier unchanged, with no network or authority inference. */
-function decodeExpiry(token, now) {
+function decodeDetails(token, now) {
 	valid(token.length > 0 && token.length <= Math.ceil(MAX_BYTES * 4 / 3));
 	valid(/^[A-Za-z0-9_-]+$/.test(token));
 	const encoded = token.replace(/-/g, "+").replace(/_/g, "/");
@@ -92,11 +92,23 @@ function decodeExpiry(token, now) {
 	valid(typeof config.apiKey === "string" && /^[A-Za-z0-9_-]{1,256}$/.test(config.apiKey));
 	valid(typeof config.appId === "string" && /^1:[0-9]{1,32}:web:.+$/.test(config.appId));
 	valid(config.authDomain === void 0 || config.authDomain === `${project}.firebaseapp.com`);
-	return expiry;
+	return {
+		owner: context.owner,
+		offer: context.offer,
+		expiry
+	};
+}
+/** Public carrier facts only; these do not authenticate the inviter or grant access. */
+function invitationDetails(token, now = Date.now()) {
+	try {
+		return decodeDetails(token, now);
+	} catch {
+		throw new Error("This invitation cannot be read. Ask its owner for a new code.");
+	}
 }
 function invitationExpiry(token, now = Date.now()) {
 	try {
-		return decodeExpiry(token, now);
+		return invitationDetails(token, now).expiry;
 	} catch {
 		throw new Error("This invitation cannot be read. Ask its owner for a new code.");
 	}
@@ -167,4 +179,4 @@ function invitePage(initialToken) {
 	return clear;
 }
 //#endregion
-export { MAX_INVITATION_INPUT, copyInvitation, invitationExpiry, invitationFromInput, invitePage };
+export { MAX_INVITATION_INPUT, copyInvitation, invitationDetails, invitationExpiry, invitationFromInput, invitePage };

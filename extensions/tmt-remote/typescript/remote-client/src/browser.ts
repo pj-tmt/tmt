@@ -102,6 +102,11 @@ export type {
   InvitationCandidate,
   InvitationDecision,
   InvitationOutcome,
+  InvitationIssueOutcome,
+  InvitationCreationOutcome,
+  InvitationOriginalOutcome,
+  IssuedInvitation,
+  IssuedInvitationPage,
 } from './invitations.js';
 export type {
   RemoteMembers,

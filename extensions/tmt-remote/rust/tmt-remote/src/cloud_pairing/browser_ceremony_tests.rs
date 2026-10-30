@@ -13,14 +13,14 @@ impl Drop for StopOnPanic {
         }
     }
 }
-struct Browser {
-    grant: Grant,
+pub(super) struct Browser {
+    pub(super) grant: Grant,
     key: SigningKey,
     session: String,
     sequence: u64,
 }
 impl Browser {
-    fn new(owner: &Service) -> Self {
+    pub(super) fn new(owner: &Service) -> Self {
         let key = SigningKey::from_bytes(&[24; 32]);
         let now = crate::pairing::now_ms().unwrap();
         let grant = Grant {
@@ -60,7 +60,12 @@ impl Browser {
         browser.session = opened.1;
         browser
     }
-    fn request(&mut self, owner: &Service, operation: &str, input: Value) -> (Value, String) {
+    pub(super) fn request(
+        &mut self,
+        owner: &Service,
+        operation: &str,
+        input: Value,
+    ) -> (Value, String) {
         let id = input["operationId"]
             .as_str()
             .filter(|_| operation != "remote.management.operation")

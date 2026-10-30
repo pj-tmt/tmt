@@ -3,7 +3,7 @@ import {
   invitations,
   type InvitationCandidate,
   type InvitationDecision,
-  type InvitationOutcome,
+  type InvitationOriginalOutcome,
   type RemoteInvitations,
 } from './invitations.js';
 import { RefusalError } from './operations.js';
@@ -62,7 +62,7 @@ export function invitationPage(
     originalId.textContent = unresolved!.operationId;
     controls();
   };
-  const showOutcome = (outcome: InvitationOutcome) => {
+  const showOutcome = (outcome: InvitationOriginalOutcome) => {
     if (outcome.state === 'unknown') {
       uncertain();
       return;
@@ -76,6 +76,7 @@ export function invitationPage(
       const result = outcome.result.invitation;
       if (
         !unresolved ||
+        !('clientId' in result) ||
         result.offerId !== unresolved.offerId ||
         result.clientId !== unresolved.clientId ||
         result.state !== (unresolved.matched ? 'confirmed' : 'refused') ||

@@ -210,6 +210,8 @@ impl<B: Backend, S: ConfirmationSink> Coordinator<B, S> {
         let mut state = self.lock()?;
         if let Some(previous) = state.as_mut() {
             previous.expire(now_ms);
+            self.sink
+                .record_status(&previous.context, &previous.status(), now_ms)?;
         }
         if state
             .as_ref()
@@ -249,6 +251,10 @@ impl<B: Backend, S: ConfirmationSink> Coordinator<B, S> {
             decided_by: None,
         };
         drop(code);
+        // Reserve metadata before the first provider effect. The code is never
+        // part of this call or any durable outcome.
+        self.sink
+            .begin_status(&offer.context, &offer.status(), actor, now_ms)?;
         *state = Some(offer);
         drop(state);
         self.observe(now_ms, io)
@@ -259,7 +265,9 @@ impl<B: Backend, S: ConfirmationSink> Coordinator<B, S> {
         Ok(match state.as_mut() {
             Some(offer) => {
                 offer.expire(now_ms);
-                offer.status()
+                let status = offer.status();
+                self.sink.record_status(&offer.context, &status, now_ms)?;
+                status
             }
             None => Status {
                 offer: None,
@@ -300,6 +308,8 @@ impl<B: Backend, S: ConfirmationSink> Coordinator<B, S> {
         };
         offer.expire(now_ms);
         self.sink.authorize(&offer.context, actor)?;
+        self.sink
+            .record_status(&offer.context, &offer.status(), now_ms)?;
         Ok(Some(OwnerOfferObservation {
             status: offer.status(),
             decided_by: offer.decided_by,
@@ -327,6 +337,19 @@ impl<B: Backend, S: ConfirmationSink> Coordinator<B, S> {
     }
 
     pub fn observe(&self, now_ms: u64, io: &IoBudget<'_>) -> Result<Status, RemoteError> {
+        let result = self.observe_inner(now_ms, io);
+        // Even an uncertain provider answer preserves only its metadata. A read
+        // never replays a publication or resumes a secret after restart.
+        let saved = self.status(now_ms);
+        match result {
+            Ok(_) => saved,
+            Err(error) => {
+                saved?;
+                Err(error)
+            }
+        }
+    }
+    fn observe_inner(&self, now_ms: u64, io: &IoBudget<'_>) -> Result<Status, RemoteError> {
         check(io)?;
         let next = {
             let mut state = self.lock()?;
@@ -756,6 +779,11 @@ impl<B: Backend, S: ConfirmationSink> Coordinator<B, S> {
         if let Some(offer) = state.as_mut().filter(|offer| offer.context == *context) {
             offer.cleanup = result.cleanup;
         }
+        drop(state);
+        // The physical answer belongs to this captured offer, even when a new
+        // offer replaced it during I/O. Never observe or expire the replacement.
+        self.sink
+            .record_status(context, &result, crate::pairing::now_ms()?)?;
         Ok(result)
     }
 

@@ -10,7 +10,7 @@ Module owners (put a change in the existing owner; `canonical`, `crypto`, `wire`
 | `wire`, `canonical`, `crypto`                    | Strict JSON admission with exact payload bytes, framing/fingerprint codecs, signature and HMAC verification                                                                                                                                         |
 | `cloud_hpke`, `cloud_keys`                       | Fixed native HPKE descriptors/carriers and consuming response contexts; private Document keyring renewed at serve startup and existing Site maintenance; no transport, peer authority or replay ledger                                              |
 | `cloud_pairing`                                  | Native invite/join, proofs, mailbox and uid routing; Store confirmation/receipts under the serve lease; shared project Auth/runtime/budget                                                                                                          |
-| `invitations`                                    | Backend-neutral proof/context, memory-only offer coordinator and exact-original recovery; bounded exchange and confirmation ports                                                                                                                   |
+| `invitations`                                    | Backend-neutral proofs, memory-only offer coordinator, metadata-only issued history and exact-original recovery; bounded exchange and confirmation ports                                                                                            |
 | `session`, `admission`                           | `session.open`, one normal message in flight per session, durable sequence consumption and admitted permits                                                                                                                                         |
 | `message`                                        | Common signed-message receive service: session admission, operation/journal hand-off and signed refusal/audit responses; foreground composition owns the service, not a backend                                                                     |
 | `transport`                                      | Pure envelope/result driver port (`append`, finite `subscribe`, explicit `ack`); loopback `routes` forwards to the injected common service, never owns admission/effects                                                                            |
@@ -546,6 +546,14 @@ frozen offer/candidate and sending choice. The Store writer checks the existing
 management row's actor member and immutable deadline, then settles it with the
 invitation receipt and grant in that same transaction. A failed settlement rolls
 all effects back; a terminal winner cannot be claimed by a new browser operation.
+Browser issuance reuses the CLI preparation and private presenter. The coordinator's
+initial Store sink reserves the metadata-only history row and settles the adopted
+creation original atomically, before publishing; only the first response adds the
+private code/link. Replay and recovery never store or redeliver it. The existing
+reconciliation worker observes browser-created offers; no presenter poller or transport
+is added. History owns the 7-day/200-row bound and 50-row pages, preserves active offers,
+and marks unfinished offers interrupted under the serving lease on reopen. Cancellation
+of terminal/unknown offers is a bounded idempotent no-op and cannot undo a member.
 The coordinator distinguishes a proven no-effect refusal, commit uncertainty and a
 recorded decision whose publication failed. The adapter settles only the first as
 refused in an IMMEDIATE transaction over the adopted actor/intent/deadline; the other

@@ -10,9 +10,189 @@ var __exportAll = (all, no_symbols) => {
 	return target;
 };
 //#endregion
+//#region src/service-commands.ts
+/** Copy-only terminal references. Native grammar tests admit the same product catalog. */
+var serviceCommands = Object.freeze({
+	status: "tmt remote status --layers",
+	preview: "tmt remote deploy firestore --project='<project-id>' --region='<region>' --defaults --json",
+	deploy: "tmt remote deploy firestore --project='<project-id>' --region='<region>' --defaults",
+	nodeVersion: "node --version",
+	firebaseVersion: "firebase --version",
+	firebaseInstall: "npm install -g firebase-tools@15.29.0",
+	firebaseLogin: "firebase login",
+	join: "tmt remote join <code>"
+});
+//#endregion
+//#region src/invite-page.ts
+/** Instructions only. Parsing is not authentication; native join owns admission. */
+var MAX_BYTES = 12288;
+var MAX_INVITATION_INPUT = Math.ceil(MAX_BYTES * 4 / 3) + 2048;
+var UUID$5 = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
+function valid$7(condition) {
+	if (!condition) throw new Error("This invitation cannot be read. Ask its owner for a new code.");
+}
+function object$3(value, keys) {
+	valid$7(value !== null && typeof value === "object" && !Array.isArray(value));
+	const row = value;
+	valid$7(Object.keys(row).length === keys.length && keys.every((key) => Object.hasOwn(row, key)));
+	return row;
+}
+function bytes(value, length) {
+	valid$7(Array.isArray(value) && value.length > 0 && value.length <= MAX_BYTES);
+	valid$7(length === void 0 || value.length === length);
+	valid$7(value.every((byte) => Number.isInteger(byte) && byte >= 0 && byte <= 255));
+	return new Uint8Array(value);
+}
+function hasControl(value) {
+	return Array.from(value).some((char) => {
+		const point = char.codePointAt(0);
+		return point < 32 || point >= 127 && point <= 159;
+	});
+}
+var utf8$2 = new TextDecoder("utf-8", { fatal: true });
+/** Reads the native v2 carrier unchanged, with no network or authority inference. */
+function decodeDetails(token, now) {
+	valid$7(token.length > 0 && token.length <= Math.ceil(MAX_BYTES * 4 / 3));
+	valid$7(/^[A-Za-z0-9_-]+$/.test(token));
+	const encoded = token.replace(/-/g, "+").replace(/_/g, "/");
+	const raw = atob(encoded);
+	valid$7(raw.length <= MAX_BYTES && btoa(raw).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "") === token);
+	const text = utf8$2.decode(Uint8Array.from(raw, (char) => char.charCodeAt(0)));
+	const value = JSON.parse(text);
+	valid$7(JSON.stringify(value) === text);
+	const invite = object$3(value, [
+		"version",
+		"context",
+		"publicConfig",
+		"machineName",
+		"code"
+	]);
+	valid$7(invite.version === 2);
+	bytes(invite.code, 16);
+	valid$7(typeof invite.machineName === "string" && invite.machineName.length > 0 && new TextEncoder().encode(invite.machineName).length <= 64 && !hasControl(invite.machineName) && invite.machineName.replace(/\uFEFF/g, "").trim().length > 0);
+	const context = object$3(invite.context, [
+		"binding",
+		"owner",
+		"owner_key",
+		"offer",
+		"nonce",
+		"issued_at_ms",
+		"expires_at_ms"
+	]);
+	valid$7(typeof context.owner === "string" && UUID$5.test(context.owner));
+	valid$7(typeof context.offer === "string" && UUID$5.test(context.offer));
+	bytes(context.owner_key, 32);
+	bytes(context.nonce, 16);
+	const issued = context.issued_at_ms;
+	const expiry = context.expires_at_ms;
+	valid$7(typeof issued === "number" && Number.isSafeInteger(issued) && issued >= 0);
+	valid$7(typeof expiry === "number" && Number.isSafeInteger(expiry) && expiry > issued && expiry - issued <= 6e5);
+	valid$7(issued <= now + 6e4 && now < expiry);
+	const binding = object$3(context.binding, [
+		"backend",
+		"reference",
+		"owner_principal"
+	]);
+	valid$7(binding.backend === "firestore");
+	const project = utf8$2.decode(bytes(binding.reference));
+	const principal = utf8$2.decode(bytes(binding.owner_principal));
+	valid$7(principal.length > 0 && new TextEncoder().encode(principal).length <= 128 && principal !== "." && principal !== ".." && !hasControl(principal) && !principal.includes("/"));
+	const config = invite.publicConfig;
+	valid$7(config !== null && typeof config === "object" && !Array.isArray(config));
+	valid$7(typeof project === "string" && /^[a-z][a-z0-9-]{4,28}[a-z0-9]$/.test(project) && config.projectId === project);
+	valid$7(typeof config.apiKey === "string" && /^[A-Za-z0-9_-]{1,256}$/.test(config.apiKey));
+	valid$7(typeof config.appId === "string" && /^1:[0-9]{1,32}:web:.+$/.test(config.appId));
+	valid$7(config.authDomain === void 0 || config.authDomain === `${project}.firebaseapp.com`);
+	return {
+		owner: context.owner,
+		offer: context.offer,
+		expiry
+	};
+}
+/** Public carrier facts only; these do not authenticate the inviter or grant access. */
+function invitationDetails(token, now = Date.now()) {
+	try {
+		return decodeDetails(token, now);
+	} catch {
+		throw new Error("This invitation cannot be read. Ask its owner for a new code.");
+	}
+}
+function invitationExpiry(token, now = Date.now()) {
+	try {
+		return invitationDetails(token, now).expiry;
+	} catch {
+		throw new Error("This invitation cannot be read. Ask its owner for a new code.");
+	}
+}
+/** Accept a native code or its hosted /join link without fetching or trusting the origin. */
+function invitationFromInput(input, now = Date.now()) {
+	try {
+		valid$7(input.length <= MAX_INVITATION_INPUT);
+		const value = input.trim();
+		let token = value;
+		if (value.includes("://")) {
+			const url = new URL(value);
+			valid$7((url.protocol === "https:" || url.protocol === "http:") && !url.username && !url.password && url.pathname === "/join" && !url.search && url.hash.length > 1);
+			token = url.hash.slice(1);
+		}
+		return {
+			token,
+			expiry: invitationExpiry(token, now)
+		};
+	} catch {
+		throw new Error("This invitation cannot be read. Ask its owner for a new code.");
+	}
+}
+/** Copy the validated native command; this never runs a command or reads the provider. */
+async function copyInvitation(token) {
+	invitationExpiry(token);
+	await navigator.clipboard.writeText(serviceCommands.join.replace("<code>", token));
+}
+/** Owns one memory-only interaction; the bootstrap erases the fragment first. */
+function invitePage(initialToken) {
+	const button = document.getElementById("invite-copy");
+	const status = document.getElementById("invite-status");
+	const feedback = document.getElementById("invite-feedback");
+	let token = initialToken;
+	initialToken = "";
+	let disposed = false;
+	let timer;
+	const clear = () => {
+		disposed = true;
+		token = "";
+		button.disabled = true;
+		feedback.textContent = "";
+		if (timer !== void 0) clearTimeout(timer);
+		button.removeEventListener("click", copy);
+	};
+	const copy = async () => {
+		if (disposed) return;
+		try {
+			await copyInvitation(token);
+			if (!disposed) feedback.textContent = "Command copied. Run it in your terminal.";
+		} catch {
+			if (!disposed) feedback.textContent = "Could not copy. Use the original code in your terminal, or ask your inviter for a new one.";
+		}
+	};
+	try {
+		const expiry = invitationExpiry(token);
+		status.textContent = "Copy the command to continue in your terminal. This page has not checked whether the invitation is still available.";
+		button.disabled = false;
+		button.addEventListener("click", copy);
+		timer = setTimeout(() => {
+			clear();
+			status.textContent = "This invitation has reached its expiry. Ask your inviter for a new one. This page cannot confirm cloud cleanup.";
+		}, Math.max(0, expiry - Date.now()));
+	} catch {
+		clear();
+		status.textContent = "This invitation is missing, invalid or expired. Use the original code in your terminal, or ask your inviter for a new one.";
+	}
+	return clear;
+}
+//#endregion
 //#region src/canonical-bytes.ts
 var encoder$2 = new TextEncoder();
-var UUID$5 = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
+var UUID$4 = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 var ADDON_ORIGIN = /^chrome-extension:\/\/[a-p]{32}$/;
 var DOOR_ORIGIN = /^http:\/\/127\.0\.0\.1:([1-9][0-9]{0,4})$/;
 var BASE32 = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
@@ -52,7 +232,7 @@ function lp(value) {
 }
 var lpText = (value) => lp(text$1(value));
 function uuid(value) {
-	requireValue$1(value.length === 36 && UUID$5.test(value), "UUIDv4");
+	requireValue$1(value.length === 36 && UUID$4.test(value), "UUIDv4");
 }
 function binary(value, length) {
 	requireValue$1(value instanceof Uint8Array && value.length === length, `binary length ${length}`);
@@ -392,33 +572,33 @@ var MANAGEMENT_PRE_EFFECT = /* @__PURE__ */ new Set([
 	"REMOTE_MEMBER_OWNER_REQUIRED",
 	"REMOTE_MEMBER_CONFLICT"
 ]);
-var UUID$4 = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+var UUID$3 = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 var V4$1 = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
-var coreId = (value) => typeof value === "string" && UUID$4.test(value) && value !== "00000000-0000-0000-0000-000000000000";
+var coreId = (value) => typeof value === "string" && UUID$3.test(value) && value !== "00000000-0000-0000-0000-000000000000";
 var requestId = (value) => typeof value === "string" && value.startsWith("req_") && coreId(value.slice(4));
-var utf8$2 = new TextEncoder();
+var utf8$1 = new TextEncoder();
 var strictUtf8$1 = new TextDecoder("utf-8", { fatal: true });
 var MAX_SEQUENCE = 18446744073709551615n;
-function valid$7(condition) {
+function valid$6(condition) {
 	if (!condition) throw new Error("Invalid operation response.");
 }
 function input$1(condition) {
 	if (!condition) throw new TypeError("Invalid Remote operation input.");
 }
 function record(value) {
-	valid$7(typeof value === "object" && value !== null && !Array.isArray(value));
+	valid$6(typeof value === "object" && value !== null && !Array.isArray(value));
 	return value;
 }
 function reason(value) {
 	if (value.reason === void 0) return {};
-	valid$7(typeof value.reason === "string" && utf8$2.encode(value.reason).length <= 256);
+	valid$6(typeof value.reason === "string" && utf8$1.encode(value.reason).length <= 256);
 	return { reason: value.reason };
 }
 /** One plain line of at most 256 bytes, sent with a `reason`: Core's sentence for its code. */
 function reasonText(value) {
 	if (value.reasonText === void 0) return {};
 	const text = value.reasonText;
-	valid$7(typeof text === "string" && value.reason !== void 0 && text.length > 0 && utf8$2.encode(text).length <= 256 && !/\p{Cc}/u.test(text));
+	valid$6(typeof text === "string" && value.reason !== void 0 && text.length > 0 && utf8$1.encode(text).length <= 256 && !/\p{Cc}/u.test(text));
 	return { reasonText: text };
 }
 var MESSAGE_STATES = [
@@ -438,9 +618,9 @@ function messageState(value) {
 	if (value.messageState === void 0) return {};
 	const state = record(value.messageState);
 	if (typeof state.state === "string" && !MESSAGE_STATES.includes(state.state)) return {};
-	valid$7(Object.keys(state).sort().join() === "canSendNow,latestMs,reason,remainingMs,state" && MESSAGE_STATES.includes(state.state) && typeof state.canSendNow === "boolean" && timestamp$1(state.latestMs) && timestamp$1(state.remainingMs));
+	valid$6(Object.keys(state).sort().join() === "canSendNow,latestMs,reason,remainingMs,state" && MESSAGE_STATES.includes(state.state) && typeof state.canSendNow === "boolean" && timestamp$1(state.latestMs) && timestamp$1(state.remainingMs));
 	const why = record(state.reason);
-	valid$7(Object.keys(why).sort().join() === "code,text" && typeof why.code === "string" && /^[a-z][a-z0-9_]{0,63}$/.test(why.code) && typeof why.text === "string" && utf8$2.encode(why.text).length <= 256);
+	valid$6(Object.keys(why).sort().join() === "code,text" && typeof why.code === "string" && /^[a-z][a-z0-9_]{0,63}$/.test(why.code) && typeof why.text === "string" && utf8$1.encode(why.text).length <= 256);
 	return { messageState: {
 		state: state.state,
 		reason: {
@@ -458,7 +638,7 @@ var USER_NAME_REASONS = [
 	"USER_NAME_TAKEN"
 ];
 function text(value) {
-	return typeof value === "string" && value.length > 0 && utf8$2.encode(value).length <= 512;
+	return typeof value === "string" && value.length > 0 && utf8$1.encode(value).length <= 512;
 }
 /** Optional, and exact when present: a notice that does not parse makes the whole reply unverifiable. */
 function identity$1(value) {
@@ -466,16 +646,16 @@ function identity$1(value) {
 	const notice = record(value.identity);
 	const keys = Object.keys(notice).sort().join();
 	if (notice.state === "anonymous") {
-		valid$7(keys === "message,reason,state" && USER_NAME_REASONS.includes(notice.reason));
-		valid$7(text(notice.message));
+		valid$6(keys === "message,reason,state" && USER_NAME_REASONS.includes(notice.reason));
+		valid$6(text(notice.message));
 		return { identity: {
 			state: "anonymous",
 			reason: notice.reason,
 			message: notice.message
 		} };
 	}
-	valid$7(notice.state === "person" && keys === "name,renamedFrom,state");
-	valid$7(text(notice.name) && text(notice.renamedFrom));
+	valid$6(notice.state === "person" && keys === "name,renamedFrom,state");
+	valid$6(text(notice.name) && text(notice.renamedFrom));
 	return { identity: {
 		state: "person",
 		name: notice.name,
@@ -490,21 +670,21 @@ function sendState(value, id) {
 }
 function sendStateBase(value, id) {
 	const state = record(value);
-	valid$7(state.operationId === id);
+	valid$6(state.operationId === id);
 	switch (state.state) {
 		case "held": return {
 			state: "held",
 			operationId: id
 		};
 		case "accepted":
-			valid$7(requestId(state.requestId));
+			valid$6(requestId(state.requestId));
 			return {
 				state: "accepted",
 				operationId: id,
 				requestId: state.requestId
 			};
 		case "uncertain":
-			valid$7(state.requestId === void 0 || requestId(state.requestId));
+			valid$6(state.requestId === void 0 || requestId(state.requestId));
 			return {
 				state: "uncertain",
 				operationId: id,
@@ -521,7 +701,7 @@ function sendStateBase(value, id) {
 }
 function resultState(value, id) {
 	const state = record(value);
-	valid$7(state.requestId === id);
+	valid$6(state.requestId === id);
 	switch (state.state) {
 		case "pending": return {
 			state: "pending",
@@ -529,7 +709,7 @@ function resultState(value, id) {
 			...messageState(state)
 		};
 		case "replied":
-			valid$7(typeof state.message === "string");
+			valid$6(typeof state.message === "string");
 			return {
 				state: "replied",
 				requestId: id,
@@ -554,7 +734,7 @@ var SEND_NOW_STATES = [
 * `unconfirmed`, so a future state can never read as `sent`. */
 function sendNowState(value, id) {
 	const state = record(value);
-	valid$7(state.requestId === id);
+	valid$6(state.requestId === id);
 	return {
 		state: SEND_NOW_STATES.includes(state.state) ? state.state : "unconfirmed",
 		requestId: id,
@@ -565,10 +745,10 @@ function sendNowState(value, id) {
 }
 function agents(value) {
 	const rows = record(value).identities;
-	valid$7(Array.isArray(rows));
+	valid$6(Array.isArray(rows));
 	return rows.map((value) => {
 		const row = record(value);
-		valid$7(coreId(row.id) && typeof row.name === "string" && (row.presence === "active" || row.presence === "offline" || row.presence === "unknown"));
+		valid$6(coreId(row.id) && typeof row.name === "string" && (row.presence === "active" || row.presence === "offline" || row.presence === "unknown"));
 		const activity = row.activity;
 		const observedAtMs = row.observedAtMs;
 		return {
@@ -588,24 +768,24 @@ function agents(value) {
 function remoteError(value, address) {
 	if (!Object.hasOwn(value, "error")) return void 0;
 	const error = record(value.error);
-	valid$7(typeof error.code === "string" && /^[A-Z][A-Z0-9_]{0,63}$/.test(error.code) && typeof error.message === "string");
+	valid$6(typeof error.code === "string" && /^[A-Z][A-Z0-9_]{0,63}$/.test(error.code) && typeof error.message === "string");
 	const scope = error.scope;
-	valid$7(scope === void 0 || error.code === "REMOTE_SCOPE_DENIED" && scope === "talk");
+	valid$6(scope === void 0 || error.code === "REMOTE_SCOPE_DENIED" && scope === "talk");
 	const limit = error.limit;
-	valid$7(limit === void 0 || typeof limit === "number" && Number.isSafeInteger(limit) && limit > 0);
-	valid$7(!["REMOTE_SESSION_EVICTED", "REMOTE_SESSION_LIMIT"].includes(error.code) || limit !== void 0);
+	valid$6(limit === void 0 || typeof limit === "number" && Number.isSafeInteger(limit) && limit > 0);
+	valid$6(!["REMOTE_SESSION_EVICTED", "REMOTE_SESSION_LIMIT"].includes(error.code) || limit !== void 0);
 	let settingsUrl;
 	if (error.settingsUrl !== void 0 && error.settingsUrl !== null) {
-		valid$7(typeof error.settingsUrl === "string" && error.settingsUrl.length > 0 && error.settingsUrl.length <= 2048);
+		valid$6(typeof error.settingsUrl === "string" && error.settingsUrl.length > 0 && error.settingsUrl.length <= 2048);
 		const url = new URL(error.settingsUrl, address);
 		const door = new URL(address);
-		valid$7(url.origin === door.origin && !url.username && !url.password && ["http:", "https:"].includes(url.protocol));
+		valid$6(url.origin === door.origin && !url.username && !url.password && ["http:", "https:"].includes(url.protocol));
 		settingsUrl = url.href;
 	}
 	const retry = error.retryAfterMs;
-	valid$7(retry === void 0 || typeof retry === "number" && Number.isSafeInteger(retry) && retry >= 0 && retry <= 6e4);
+	valid$6(retry === void 0 || typeof retry === "number" && Number.isSafeInteger(retry) && retry >= 0 && retry <= 6e4);
 	if (error.code === "REMOTE_REPLAY") return new SequenceMismatch();
-	valid$7(PRE_EFFECT.has(error.code) || [
+	valid$6(PRE_EFFECT.has(error.code) || [
 		"REMOTE_GRANT_CHANGED",
 		"REMOTE_SERVE_STOPPED",
 		"REMOTE_SESSION_LIMIT",
@@ -614,6 +794,8 @@ function remoteError(value, address) {
 		"REMOTE_CORE_UNAVAILABLE",
 		"REMOTE_MANAGEMENT_READ_ONLY",
 		"REMOTE_MANAGEMENT_UNAVAILABLE",
+		"REMOTE_INVITATION_BUSY",
+		"REMOTE_INVITATION_CAPACITY",
 		"REMOTE_INVITATION_UNAVAILABLE",
 		"REMOTE_INVITATION_INVALID",
 		"REMOTE_INVITATION_STOPPED",
@@ -736,8 +918,8 @@ async function attempt(channel, timeoutMs, operation, id, payload, sequence, par
 }
 function parseCapabilities(value) {
 	const reply = record(value);
-	valid$7(reply.version === 1 && reply.profile === "local-v1" && reply.binding === "loopback-http");
-	valid$7(Array.isArray(reply.operations) && reply.operations.every((value) => typeof value === "string"));
+	valid$6(reply.version === 1 && reply.profile === "local-v1" && reply.binding === "loopback-http");
+	valid$6(Array.isArray(reply.operations) && reply.operations.every((value) => typeof value === "string"));
 	record(reply.limits);
 }
 /** Scope-free reads synchronize the lane; the caller's operation is never a probe. */
@@ -747,7 +929,7 @@ async function synchronize(channel, timeoutMs) {
 	const unavailable = () => new ClientError("sequence_unavailable", "Remote sequence recovery failed; reopen before observing the original operation.");
 	if (unresolved === "unavailable") throw unavailable();
 	const id = crypto.randomUUID();
-	const payload = utf8$2.encode("{}");
+	const payload = utf8$1.encode("{}");
 	try {
 		try {
 			await attempt(channel, timeoutMs, "capabilities", id, payload, channel.clientSequence, parseCapabilities);
@@ -788,7 +970,7 @@ function verifiedSessionRequest(session, options = {}) {
 	const timeoutMs = options.timeoutMs ?? 4e4;
 	input$1(Number.isSafeInteger(timeoutMs) && timeoutMs > 0 && timeoutMs <= 2147483647);
 	return function call(operation, id, value, parse, mutationOutcome = false) {
-		const payload = utf8$2.encode(JSON.stringify(value));
+		const payload = utf8$1.encode(JSON.stringify(value));
 		return enqueue(channel, () => invoke(channel, timeoutMs, operation, id, payload, parse, mutationOutcome));
 	};
 }
@@ -802,7 +984,7 @@ function operations(session, options = {}) {
 	return {
 		listAgents: () => call("agents.list", crypto.randomUUID(), {}, agents),
 		async send(value) {
-			input$1(typeof value.operationId === "string" && V4$1.test(value.operationId) && coreId(value.agentId) && typeof value.message === "string" && strictUtf8$1.decode(utf8$2.encode(value.message)) === value.message);
+			input$1(typeof value.operationId === "string" && V4$1.test(value.operationId) && coreId(value.agentId) && typeof value.message === "string" && strictUtf8$1.decode(utf8$1.encode(value.message)) === value.message);
 			const { operationId, agentId, message } = value;
 			try {
 				return await call("dispatch.create", operationId, {
@@ -879,37 +1061,24 @@ async function managementMutation(call, operation, value, decode) {
 }
 //#endregion
 //#region src/management-codec.ts
-function valid$6(condition) {
+function valid$5(condition) {
 	if (!condition) throw new Error("Invalid management response.");
 }
 function input(condition) {
 	if (!condition) throw new TypeError("Invalid management input.");
 }
-function object$3(value) {
-	valid$6(typeof value === "object" && value !== null && !Array.isArray(value));
+function object$2(value) {
+	valid$5(typeof value === "object" && value !== null && !Array.isArray(value));
 	return value;
 }
 function exact(value, keys) {
-	valid$6(Object.keys(value).length === keys.length && keys.every((key) => Object.hasOwn(value, key)));
+	valid$5(Object.keys(value).length === keys.length && keys.every((key) => Object.hasOwn(value, key)));
 }
 var integer = (value) => Number.isSafeInteger(value) && value >= 0;
 /** The signed member service accepts nonblank names of at most 64 UTF-8 bytes. */
 function memberName(value) {
 	return typeof value === "string" && value.trim().length > 0 && new TextEncoder().encode(value).length <= 64 && ![...value].some((character) => character.charCodeAt(0) < 32 || character.charCodeAt(0) === 127);
 }
-//#endregion
-//#region src/service-commands.ts
-/** Copy-only terminal references. Native grammar tests admit the same product catalog. */
-var serviceCommands = Object.freeze({
-	status: "tmt remote status --layers",
-	preview: "tmt remote deploy firestore --project='<project-id>' --region='<region>' --defaults --json",
-	deploy: "tmt remote deploy firestore --project='<project-id>' --region='<region>' --defaults",
-	nodeVersion: "node --version",
-	firebaseVersion: "firebase --version",
-	firebaseInstall: "npm install -g firebase-tools@15.29.0",
-	firebaseLogin: "firebase login",
-	join: "tmt remote join <code>"
-});
 //#endregion
 //#region src/firestore.ts
 var deploy = "tmt remote deploy firestore";
@@ -978,7 +1147,7 @@ var firestoreSpecs = [
 function requireValid(condition) {
 	if (!condition) throw new Error("Invalid Firestore readiness response.");
 }
-function object$2(value) {
+function object$1(value) {
 	requireValid(typeof value === "object" && value !== null && !Array.isArray(value));
 	return value;
 }
@@ -990,7 +1159,7 @@ function parseFirestoreLayers(value) {
 	if (!value.length) return [];
 	requireValid(value.length === firestoreSpecs.length);
 	for (const [index, [layer, items]] of firestoreSpecs.entries()) {
-		const row = object$2(value[index]);
+		const row = object$1(value[index]);
 		keys(row, [
 			"layer",
 			"state",
@@ -999,7 +1168,7 @@ function parseFirestoreLayers(value) {
 		requireValid(row.layer === layer && Array.isArray(row.prerequisites) && row.prerequisites.length === items.length);
 		const states = [];
 		for (const [i, item] of items.entries()) {
-			const entry = object$2(row.prerequisites[i]);
+			const entry = object$1(row.prerequisites[i]);
 			requireValid(entry.item === item && [
 				"enabled",
 				"not-enabled",
@@ -1314,10 +1483,10 @@ function parsePublishedLimits(value) {
 }
 //#endregion
 //#region src/management.ts
-var UUID$3 = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
+var UUID$2 = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 var decimal = (value) => typeof value === "string" && /^[1-9][0-9]{0,19}$/.test(value);
 function settings(value) {
-	const row = object$3(value);
+	const row = object$2(value);
 	exact(row, [
 		"open",
 		"source",
@@ -1325,14 +1494,14 @@ function settings(value) {
 		"sessionsPerDeviceSource",
 		"warning"
 	]);
-	valid$6(typeof row.open === "boolean" && ["default", "settings.json"].includes(row.source));
-	valid$6(row.sessionsPerDevice === null || decimal(row.sessionsPerDevice));
-	valid$6(["default", "settings.json"].includes(row.sessionsPerDeviceSource));
-	valid$6(row.warning === null || row.warning === "settings.json could not be read; defaults apply");
+	valid$5(typeof row.open === "boolean" && ["default", "settings.json"].includes(row.source));
+	valid$5(row.sessionsPerDevice === null || decimal(row.sessionsPerDevice));
+	valid$5(["default", "settings.json"].includes(row.sessionsPerDeviceSource));
+	valid$5(row.warning === null || row.warning === "settings.json could not be read; defaults apply");
 	return row;
 }
 function device(value, activity = false) {
-	const row = object$3(value);
+	const row = object$2(value);
 	exact(row, [
 		"clientId",
 		"name",
@@ -1349,19 +1518,21 @@ function device(value, activity = false) {
 			"lastUsedAtMs"
 		] : []
 	]);
-	valid$6(typeof row.clientId === "string" && UUID$3.test(row.clientId));
-	valid$6(typeof row.name === "string" && new TextEncoder().encode(row.name).length <= 64 && row.name.trim().length > 0 && ![...row.name].some((char) => char.charCodeAt(0) < 32 || char.charCodeAt(0) === 127));
-	valid$6([
+	valid$5(typeof row.clientId === "string" && UUID$2.test(row.clientId));
+	valid$5(typeof row.name === "string" && new TextEncoder().encode(row.name).length <= 64 && row.name.trim().length > 0 && ![...row.name].some((char) => char.charCodeAt(0) < 32 || char.charCodeAt(0) === 127));
+	valid$5([
 		"browser",
 		"addon",
 		"cli"
 	].includes(row.kind) && integer(row.issuedAtMs));
-	valid$6(row.expiresAtMs === null || integer(row.expiresAtMs));
-	valid$6(integer(row.revision) && row.revision > 0 && typeof row.revoked === "boolean" && typeof row.talkEnabled === "boolean");
-	if (activity) valid$6(typeof row.thisBrowser === "boolean" && integer(row.liveSessionCount) && (row.lastActivityAtMs === null || integer(row.lastActivityAtMs)) && (row.lastUsedAtMs === null || integer(row.lastUsedAtMs)));
+	valid$5(row.expiresAtMs === null || integer(row.expiresAtMs));
+	valid$5(integer(row.revision) && row.revision > 0 && typeof row.revoked === "boolean" && typeof row.talkEnabled === "boolean");
+	if (activity) valid$5(typeof row.thisBrowser === "boolean" && integer(row.liveSessionCount) && (row.lastActivityAtMs === null || integer(row.lastActivityAtMs)) && (row.lastUsedAtMs === null || integer(row.lastUsedAtMs)));
 	return row;
 }
 var refusalCodes = /* @__PURE__ */ new Set([
+	"REMOTE_INVITATION_BUSY",
+	"REMOTE_INVITATION_CAPACITY",
 	"REMOTE_INVITATION_UNAVAILABLE",
 	"REMOTE_INVITATION_INVALID",
 	"REMOTE_INVITATION_STOPPED",
@@ -1388,8 +1559,8 @@ var refusalCodes = /* @__PURE__ */ new Set([
 	"REMOTE_MEMBER_CONFLICT"
 ]);
 function parseManagementOutcome(value, operationId) {
-	const row = object$3(value);
-	valid$6(row.operationId === operationId);
+	const row = object$2(value);
+	valid$5(row.operationId === operationId);
 	if (row.state === "committed") {
 		exact(row, [
 			"operationId",
@@ -1397,11 +1568,11 @@ function parseManagementOutcome(value, operationId) {
 			"result",
 			"sessionEnded"
 		]);
-		valid$6(typeof row.sessionEnded === "boolean");
-		const result = object$3(row.result);
-		valid$6(Object.keys(result).length === 1);
+		valid$5(typeof row.sessionEnded === "boolean");
+		const result = object$2(row.result);
+		valid$5(Object.keys(result).length === 1);
 		if (Object.hasOwn(result, "settings")) settings(result.settings);
-		else if (Object.hasOwn(result, "removed")) valid$6(integer(result.removed) && result.removed <= 1e3 && row.sessionEnded === false);
+		else if (Object.hasOwn(result, "removed")) valid$5(integer(result.removed) && result.removed <= 1e3 && row.sessionEnded === false);
 		else device(result.device);
 	} else {
 		exact(row, [
@@ -1409,8 +1580,8 @@ function parseManagementOutcome(value, operationId) {
 			"state",
 			"reason"
 		]);
-		if (row.state === "unknown") valid$6(row.reason === "effect_outcome_unconfirmed");
-		else valid$6(row.state === "refused" && typeof row.reason === "string" && refusalCodes.has(row.reason));
+		if (row.state === "unknown") valid$5(row.reason === "effect_outcome_unconfirmed");
+		else valid$5(row.state === "refused" && typeof row.reason === "string" && refusalCodes.has(row.reason));
 	}
 	return row;
 }
@@ -1423,17 +1594,17 @@ function management(session, options = {}) {
 	const clientId = channelFor(session).paired.clientId;
 	async function mutate(operation, value) {
 		const { operationId } = value;
-		input(UUID$3.test(operationId));
+		input(UUID$2.test(operationId));
 		return managementMutation(call, operation, value, (reply) => {
 			const parsed = parseManagementOutcome(reply, operationId);
 			if (parsed.state === "committed") {
-				if (operation === "remote.settings.set") valid$6("settings" in parsed.result);
-				else if (operation === "remote.devices.remove-others") valid$6("removed" in parsed.result && parsed.sessionEnded === false);
+				if (operation === "remote.settings.set") valid$5("settings" in parsed.result);
+				else if (operation === "remote.devices.remove-others") valid$5("removed" in parsed.result && parsed.sessionEnded === false);
 				else {
-					valid$6("device" in parsed.result && parsed.result.device.clientId === value.clientId);
-					if (operation === "remote.devices.rename") valid$6(parsed.result.device.name === value.name);
-					if (operation === "remote.devices.revoke") valid$6(parsed.result.device.revoked);
-					if (operation === "remote.devices.talk") valid$6(parsed.result.device.talkEnabled === value.enabled);
+					valid$5("device" in parsed.result && parsed.result.device.clientId === value.clientId);
+					if (operation === "remote.devices.rename") valid$5(parsed.result.device.name === value.name);
+					if (operation === "remote.devices.revoke") valid$5(parsed.result.device.revoked);
+					if (operation === "remote.devices.talk") valid$5(parsed.result.device.talkEnabled === value.enabled);
 				}
 			}
 			return parsed;
@@ -1442,9 +1613,9 @@ function management(session, options = {}) {
 	return {
 		clientId,
 		previewRemoveOthers: () => call("remote.devices.remove-others.preview", crypto.randomUUID(), {}, (value) => {
-			const row = object$3(value);
+			const row = object$2(value);
 			exact(row, ["count", "fingerprint"]);
-			valid$6(integer(row.count) && row.count <= 1e3 && typeof row.fingerprint === "string" && /^[0-9a-f]{64}$/.test(row.fingerprint));
+			valid$5(integer(row.count) && row.count <= 1e3 && typeof row.fingerprint === "string" && /^[0-9a-f]{64}$/.test(row.fingerprint));
 			return row;
 		}),
 		removeOthers: (change) => {
@@ -1452,7 +1623,7 @@ function management(session, options = {}) {
 			return mutate("remote.devices.remove-others", { ...change });
 		},
 		settings: ((options) => call("remote.settings.show", crypto.randomUUID(), options ?? {}, (value) => {
-			const row = object$3(value);
+			const row = object$2(value);
 			exact(row, [
 				"settings",
 				"capabilities",
@@ -1464,26 +1635,26 @@ function management(session, options = {}) {
 				parsePublishedLimits(row.firestoreBudget);
 			}
 			settings(row.settings);
-			const capabilities = object$3(row.capabilities);
+			const capabilities = object$2(row.capabilities);
 			exact(capabilities, ["settingsWrite", "devicesWrite"]);
-			valid$6(typeof capabilities.settingsWrite === "boolean" && typeof capabilities.devicesWrite === "boolean");
-			valid$6(row.readOnlyReason === null || row.readOnlyReason === "local_cli_required");
-			valid$6(capabilities.settingsWrite === capabilities.devicesWrite && capabilities.settingsWrite === (row.readOnlyReason === null));
+			valid$5(typeof capabilities.settingsWrite === "boolean" && typeof capabilities.devicesWrite === "boolean");
+			valid$5(row.readOnlyReason === null || row.readOnlyReason === "local_cli_required");
+			valid$5(capabilities.settingsWrite === capabilities.devicesWrite && capabilities.settingsWrite === (row.readOnlyReason === null));
 			return row;
 		})),
 		devices: (page) => {
 			input(Number.isInteger(page.limit) && page.limit >= 1 && page.limit <= 50 && (page.cursor === null || typeof page.cursor === "string" && /^[A-Za-z0-9_-]{98}$/.test(page.cursor)));
 			return call("remote.devices.list", crypto.randomUUID(), page, (value) => {
-				const row = object$3(value);
+				const row = object$2(value);
 				exact(row, ["devices", "nextCursor"]);
-				valid$6(Array.isArray(row.devices) && row.devices.length <= page.limit);
+				valid$5(Array.isArray(row.devices) && row.devices.length <= page.limit);
 				const ids = /* @__PURE__ */ new Set();
 				for (const entry of row.devices) {
 					const item = device(entry, true);
-					valid$6(!item.revoked && !ids.has(item.clientId));
+					valid$5(!item.revoked && !ids.has(item.clientId));
 					ids.add(item.clientId);
 				}
-				valid$6(row.nextCursor === null || typeof row.nextCursor === "string" && /^[A-Za-z0-9_-]{98}$/.test(row.nextCursor));
+				valid$5(row.nextCursor === null || typeof row.nextCursor === "string" && /^[A-Za-z0-9_-]{98}$/.test(row.nextCursor));
 				return row;
 			});
 		},
@@ -1492,27 +1663,27 @@ function management(session, options = {}) {
 			return mutate("remote.settings.set", { ...change });
 		},
 		rename: (change) => {
-			input(UUID$3.test(change.clientId) && typeof change.name === "string" && change.name.trim().length > 0 && new TextEncoder().encode(change.name).length <= 64 && ![...change.name].some((char) => char.charCodeAt(0) < 32 || char.charCodeAt(0) === 127));
+			input(UUID$2.test(change.clientId) && typeof change.name === "string" && change.name.trim().length > 0 && new TextEncoder().encode(change.name).length <= 64 && ![...change.name].some((char) => char.charCodeAt(0) < 32 || char.charCodeAt(0) === 127));
 			return mutate("remote.devices.rename", { ...change });
 		},
 		talk: (change) => {
-			input(UUID$3.test(change.clientId) && typeof change.enabled === "boolean");
+			input(UUID$2.test(change.clientId) && typeof change.enabled === "boolean");
 			return mutate("remote.devices.talk", { ...change });
 		},
 		revoke: (change) => {
-			input(UUID$3.test(change.clientId));
+			input(UUID$2.test(change.clientId));
 			return mutate("remote.devices.revoke", { ...change });
 		},
 		operation: (operationId) => {
-			input(UUID$3.test(operationId));
+			input(UUID$2.test(operationId));
 			return call("remote.management.operation", crypto.randomUUID(), { operationId }, (value) => parseManagementOutcome(value, operationId));
 		}
 	};
 }
 //#endregion
 //#region src/invitations.ts
-var UUID$2 = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
-var id$1 = (value) => typeof value === "string" && UUID$2.test(value);
+var UUID$1 = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
+var id$1 = (value) => typeof value === "string" && UUID$1.test(value);
 var snapshot$1 = (value) => {
 	if (typeof value !== "string") return false;
 	try {
@@ -1523,7 +1694,7 @@ var snapshot$1 = (value) => {
 	}
 };
 function parsePendingInvitation(value) {
-	const row = object$3(value);
+	const row = object$2(value);
 	if (row.state === "none") exact(row, ["state"]);
 	else {
 		exact(row, [
@@ -1535,8 +1706,8 @@ function parsePendingInvitation(value) {
 			"cleanup",
 			"candidate"
 		]);
-		valid$6(row.state === "current" && id$1(row.offerId) && integer(row.expiresAtMs) && typeof row.localConfirmationKnown === "boolean");
-		valid$6([
+		valid$5(row.state === "current" && id$1(row.offerId) && integer(row.expiresAtMs) && typeof row.localConfirmationKnown === "boolean");
+		valid$5([
 			"open",
 			"awaiting-owner",
 			"confirmed",
@@ -1545,28 +1716,28 @@ function parsePendingInvitation(value) {
 			"expired",
 			"unconfirmed"
 		].includes(row.phase));
-		valid$6([
+		valid$5([
 			"not-requested",
 			"acknowledged",
 			"unconfirmed"
 		].includes(row.cleanup));
 		if (row.candidate !== null) {
-			const candidate = object$3(row.candidate);
+			const candidate = object$2(row.candidate);
 			exact(candidate, [
 				"clientId",
 				"name",
 				"words",
 				"snapshot"
 			]);
-			valid$6(row.phase === "awaiting-owner" && id$1(candidate.clientId) && snapshot$1(candidate.snapshot));
-			valid$6(typeof candidate.name === "string" && candidate.name.length > 0 && candidate.name.length <= 256 && Array.from(candidate.name).every((character) => character.charCodeAt(0) >= 32 && character.charCodeAt(0) !== 127));
-			valid$6(Array.isArray(candidate.words) && candidate.words.length === 4 && candidate.words.every((word) => typeof word === "string" && /^[a-z]+$/.test(word) && word.length <= 64));
+			valid$5(row.phase === "awaiting-owner" && id$1(candidate.clientId) && snapshot$1(candidate.snapshot));
+			valid$5(typeof candidate.name === "string" && candidate.name.length > 0 && candidate.name.length <= 256 && Array.from(candidate.name).every((character) => character.charCodeAt(0) >= 32 && character.charCodeAt(0) !== 127));
+			valid$5(Array.isArray(candidate.words) && candidate.words.length === 4 && candidate.words.every((word) => typeof word === "string" && /^[a-z]+$/.test(word) && word.length <= 64));
 		}
 	}
 	return row;
 }
 function parseInvitationOutcome(value, operationId) {
-	const row = object$3(value);
+	const row = object$2(value);
 	if (row.state !== "committed") return parseManagementOutcome(value, operationId);
 	exact(row, [
 		"operationId",
@@ -1574,11 +1745,11 @@ function parseInvitationOutcome(value, operationId) {
 		"sessionEnded",
 		"result"
 	]);
-	valid$6(row.operationId === operationId && row.sessionEnded === false);
-	const result = object$3(row.result);
+	valid$5(row.operationId === operationId && row.sessionEnded === false);
+	const result = object$2(row.result);
 	exact(result, ["invitation"]);
-	const invitation = object$3(result.invitation);
-	valid$6(id$1(invitation.offerId) && id$1(invitation.clientId));
+	const invitation = object$2(result.invitation);
+	valid$5(id$1(invitation.offerId) && id$1(invitation.clientId));
 	if (invitation.state === "refused") exact(invitation, [
 		"offerId",
 		"clientId",
@@ -1592,14 +1763,127 @@ function parseInvitationOutcome(value, operationId) {
 			"state",
 			"sendingEnabled"
 		]);
-		valid$6(invitation.state === "confirmed" && typeof invitation.memberId === "string" && invitation.memberId.length > 0 && invitation.memberId.length <= 128 && typeof invitation.sendingEnabled === "boolean");
+		valid$5(invitation.state === "confirmed" && typeof invitation.memberId === "string" && invitation.memberId.length > 0 && invitation.memberId.length <= 128 && typeof invitation.sendingEnabled === "boolean");
 	}
 	return row;
+}
+function parseIssuedInvitationPage(value, remoteId) {
+	const page = object$2(value);
+	exact(page, [
+		"remoteId",
+		"invitations",
+		"nextCursor"
+	]);
+	valid$5(page.remoteId === remoteId && Array.isArray(page.invitations) && page.invitations.length <= 50);
+	valid$5(page.nextCursor === null || typeof page.nextCursor === "string" && /^[A-Za-z0-9_-]{1,128}$/.test(page.nextCursor));
+	const ids = /* @__PURE__ */ new Set();
+	for (const value of page.invitations) {
+		const row = object$2(value);
+		exact(row, [
+			"offerId",
+			"issuedAtMs",
+			"expiresAtMs",
+			"state",
+			"localConfirmationKnown",
+			"cleanup"
+		]);
+		valid$5(id$1(row.offerId) && !ids.has(row.offerId));
+		ids.add(row.offerId);
+		valid$5(integer(row.issuedAtMs) && integer(row.expiresAtMs) && row.expiresAtMs > row.issuedAtMs && row.expiresAtMs - row.issuedAtMs <= 6e5);
+		valid$5([
+			"open",
+			"awaiting-owner",
+			"confirmed",
+			"refused",
+			"cancelled",
+			"expired",
+			"unconfirmed",
+			"interrupted"
+		].includes(row.state));
+		valid$5(typeof row.localConfirmationKnown === "boolean" && [
+			"not-requested",
+			"acknowledged",
+			"unconfirmed"
+		].includes(row.cleanup));
+	}
+	return page;
+}
+function parseInvitationIssueOutcome(value, operationId, creatingRemote) {
+	const row = object$2(value);
+	if (row.state !== "committed") return parseManagementOutcome(value, operationId);
+	const secret = Object.hasOwn(row, "secret");
+	exact(row, [
+		"operationId",
+		"state",
+		"sessionEnded",
+		"result",
+		...secret ? ["secret"] : []
+	]);
+	valid$5(row.operationId === operationId && row.sessionEnded === false);
+	const result = object$2(row.result);
+	exact(result, ["invitation"]);
+	const invite = object$2(result.invitation);
+	valid$5(id$1(invite.offerId));
+	if (creatingRemote !== void 0) valid$5(invite.state === "created");
+	if (invite.state === "created") {
+		exact(invite, [
+			"offerId",
+			"state",
+			"expiresAtMs"
+		]);
+		valid$5(invite.offerId !== operationId && integer(invite.expiresAtMs));
+	} else {
+		exact(invite, [
+			"offerId",
+			"state",
+			"code"
+		]);
+		valid$5(invite.state === "cancelled" && invite.code === "REMOTE_INVITATION_CANCELLED" || invite.state === "not-active" && invite.code === "REMOTE_INVITATION_NOT_ACTIVE");
+	}
+	if (secret) {
+		valid$5(creatingRemote !== void 0 && invite.state === "created");
+		const part = object$2(row.secret);
+		exact(part, ["code", "link"]);
+		valid$5(typeof part.code === "string" && (part.link === null || typeof part.link === "string"));
+		const details = invitationDetails(part.code);
+		valid$5(details.owner === creatingRemote && details.offer === invite.offerId && details.expiry === invite.expiresAtMs);
+		if (part.link !== null) valid$5(invitationFromInput(part.link).token === part.code);
+	}
+	return row;
+}
+function parseOriginal(value, id) {
+	const row = object$2(value);
+	if (row.state === "committed" && [
+		"created",
+		"cancelled",
+		"not-active"
+	].includes(object$2(object$2(row.result).invitation).state)) return parseInvitationIssueOutcome(value, id);
+	return parseInvitationOutcome(value, id);
 }
 /** A presenter over the current offer. No admission, provider call or retry is created here. */
 function invitations(session, options = {}) {
 	const call = verifiedSessionRequest(session, options);
+	const remoteId = channelFor(session)?.paired.machineId;
+	valid$5(typeof remoteId === "string");
 	return {
+		create: (value) => {
+			input(Object.keys(value).length === 1 && Object.hasOwn(value, "operationId") && id$1(value.operationId));
+			const frozen = { ...value };
+			return managementMutation(call, "remote.invites.create", frozen, (reply) => parseInvitationIssueOutcome(reply, frozen.operationId, remoteId));
+		},
+		list: (value) => {
+			input(Object.keys(value).length === 1 && Object.hasOwn(value, "cursor") && (value.cursor === null || typeof value.cursor === "string" && /^[A-Za-z0-9_-]{1,128}$/.test(value.cursor)));
+			return call("remote.invites.list", crypto.randomUUID(), { ...value }, (reply) => parseIssuedInvitationPage(reply, remoteId));
+		},
+		cancel: (value) => {
+			input(Object.keys(value).length === 2 && Object.hasOwn(value, "operationId") && Object.hasOwn(value, "offerId") && id$1(value.operationId) && id$1(value.offerId));
+			const frozen = { ...value };
+			return managementMutation(call, "remote.invites.cancel", frozen, (reply) => {
+				const outcome = parseInvitationIssueOutcome(reply, frozen.operationId);
+				if (outcome.state === "committed") valid$5(outcome.result.invitation.offerId === frozen.offerId && outcome.result.invitation.state !== "created");
+				return outcome;
+			});
+		},
 		pending: () => call("remote.invites.pending", crypto.randomUUID(), {}, parsePendingInvitation),
 		decide: (value) => {
 			input(Object.keys(value).every((key) => [
@@ -1619,15 +1903,15 @@ function invitations(session, options = {}) {
 				const outcome = parseInvitationOutcome(value, frozen.operationId);
 				if (outcome.state === "committed") {
 					const invitation = outcome.result.invitation;
-					valid$6(invitation.offerId === frozen.offerId && invitation.state === (frozen.matched ? "confirmed" : "refused"));
-					if (invitation.state === "confirmed") valid$6(invitation.sendingEnabled === frozen.sending);
+					valid$5(invitation.offerId === frozen.offerId && invitation.state === (frozen.matched ? "confirmed" : "refused"));
+					if (invitation.state === "confirmed") valid$5(invitation.sendingEnabled === frozen.sending);
 				}
 				return outcome;
 			});
 		},
 		operation: (operationId) => {
 			input(id$1(operationId));
-			return call("remote.management.operation", crypto.randomUUID(), { operationId }, (value) => parseInvitationOutcome(value, operationId));
+			return call("remote.management.operation", crypto.randomUUID(), { operationId }, (value) => parseOriginal(value, operationId));
 		}
 	};
 }
@@ -1688,7 +1972,7 @@ function invitationPage(root, lifetime, clientForSession = invitations, heldElse
 		if (outcome.state === "refused") status.textContent = outcome.reason === "REMOTE_INVITATION_DECIDED" ? "This invitation was already decided. Choose Check invitation to read the current outcome." : "This decision was refused. Choose Check invitation before deciding again.";
 		else {
 			const result = outcome.result.invitation;
-			if (!unresolved || result.offerId !== unresolved.offerId || result.clientId !== unresolved.clientId || result.state !== (unresolved.matched ? "confirmed" : "refused") || result.state === "confirmed" && result.sendingEnabled !== unresolved.sending) throw new Error("Mismatched invitation outcome.");
+			if (!unresolved || !("clientId" in result) || result.offerId !== unresolved.offerId || result.clientId !== unresolved.clientId || result.state !== (unresolved.matched ? "confirmed" : "refused") || result.state === "confirmed" && result.sendingEnabled !== unresolved.sending) throw new Error("Mismatched invitation outcome.");
 			status.textContent = result.state === "confirmed" ? `Confirmed; sending ${result.sendingEnabled ? "on" : "off"}. The terminal will show this decision.` : "Invitation declined. No member was created by this decision.";
 		}
 		unresolved = void 0;
@@ -1933,161 +2217,6 @@ function pairingGuidance(state, authorityEnded) {
 		members: state === "refused" && authorityEnded,
 		status: state === "unconfirmed"
 	};
-}
-//#endregion
-//#region src/invite-page.ts
-/** Instructions only. Parsing is not authentication; native join owns admission. */
-var MAX_BYTES = 12288;
-var MAX_INVITATION_INPUT = Math.ceil(MAX_BYTES * 4 / 3) + 2048;
-var UUID$1 = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
-function valid$5(condition) {
-	if (!condition) throw new Error("This invitation cannot be read. Ask its owner for a new code.");
-}
-function object$1(value, keys) {
-	valid$5(value !== null && typeof value === "object" && !Array.isArray(value));
-	const row = value;
-	valid$5(Object.keys(row).length === keys.length && keys.every((key) => Object.hasOwn(row, key)));
-	return row;
-}
-function bytes(value, length) {
-	valid$5(Array.isArray(value) && value.length > 0 && value.length <= MAX_BYTES);
-	valid$5(length === void 0 || value.length === length);
-	valid$5(value.every((byte) => Number.isInteger(byte) && byte >= 0 && byte <= 255));
-	return new Uint8Array(value);
-}
-function hasControl(value) {
-	return Array.from(value).some((char) => {
-		const point = char.codePointAt(0);
-		return point < 32 || point >= 127 && point <= 159;
-	});
-}
-var utf8$1 = new TextDecoder("utf-8", { fatal: true });
-/** Reads the native v2 carrier unchanged, with no network or authority inference. */
-function decodeExpiry(token, now) {
-	valid$5(token.length > 0 && token.length <= Math.ceil(MAX_BYTES * 4 / 3));
-	valid$5(/^[A-Za-z0-9_-]+$/.test(token));
-	const encoded = token.replace(/-/g, "+").replace(/_/g, "/");
-	const raw = atob(encoded);
-	valid$5(raw.length <= MAX_BYTES && btoa(raw).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "") === token);
-	const text = utf8$1.decode(Uint8Array.from(raw, (char) => char.charCodeAt(0)));
-	const value = JSON.parse(text);
-	valid$5(JSON.stringify(value) === text);
-	const invite = object$1(value, [
-		"version",
-		"context",
-		"publicConfig",
-		"machineName",
-		"code"
-	]);
-	valid$5(invite.version === 2);
-	bytes(invite.code, 16);
-	valid$5(typeof invite.machineName === "string" && invite.machineName.length > 0 && new TextEncoder().encode(invite.machineName).length <= 64 && !hasControl(invite.machineName) && invite.machineName.replace(/\uFEFF/g, "").trim().length > 0);
-	const context = object$1(invite.context, [
-		"binding",
-		"owner",
-		"owner_key",
-		"offer",
-		"nonce",
-		"issued_at_ms",
-		"expires_at_ms"
-	]);
-	valid$5(typeof context.owner === "string" && UUID$1.test(context.owner));
-	valid$5(typeof context.offer === "string" && UUID$1.test(context.offer));
-	bytes(context.owner_key, 32);
-	bytes(context.nonce, 16);
-	const issued = context.issued_at_ms;
-	const expiry = context.expires_at_ms;
-	valid$5(typeof issued === "number" && Number.isSafeInteger(issued) && issued >= 0);
-	valid$5(typeof expiry === "number" && Number.isSafeInteger(expiry) && expiry > issued && expiry - issued <= 6e5);
-	valid$5(issued <= now + 6e4 && now < expiry);
-	const binding = object$1(context.binding, [
-		"backend",
-		"reference",
-		"owner_principal"
-	]);
-	valid$5(binding.backend === "firestore");
-	const project = utf8$1.decode(bytes(binding.reference));
-	const principal = utf8$1.decode(bytes(binding.owner_principal));
-	valid$5(principal.length > 0 && new TextEncoder().encode(principal).length <= 128 && principal !== "." && principal !== ".." && !hasControl(principal) && !principal.includes("/"));
-	const config = invite.publicConfig;
-	valid$5(config !== null && typeof config === "object" && !Array.isArray(config));
-	valid$5(typeof project === "string" && /^[a-z][a-z0-9-]{4,28}[a-z0-9]$/.test(project) && config.projectId === project);
-	valid$5(typeof config.apiKey === "string" && /^[A-Za-z0-9_-]{1,256}$/.test(config.apiKey));
-	valid$5(typeof config.appId === "string" && /^1:[0-9]{1,32}:web:.+$/.test(config.appId));
-	valid$5(config.authDomain === void 0 || config.authDomain === `${project}.firebaseapp.com`);
-	return expiry;
-}
-function invitationExpiry(token, now = Date.now()) {
-	try {
-		return decodeExpiry(token, now);
-	} catch {
-		throw new Error("This invitation cannot be read. Ask its owner for a new code.");
-	}
-}
-/** Accept a native code or its hosted /join link without fetching or trusting the origin. */
-function invitationFromInput(input, now = Date.now()) {
-	try {
-		valid$5(input.length <= MAX_INVITATION_INPUT);
-		const value = input.trim();
-		let token = value;
-		if (value.includes("://")) {
-			const url = new URL(value);
-			valid$5((url.protocol === "https:" || url.protocol === "http:") && !url.username && !url.password && url.pathname === "/join" && !url.search && url.hash.length > 1);
-			token = url.hash.slice(1);
-		}
-		return {
-			token,
-			expiry: invitationExpiry(token, now)
-		};
-	} catch {
-		throw new Error("This invitation cannot be read. Ask its owner for a new code.");
-	}
-}
-/** Copy the validated native command; this never runs a command or reads the provider. */
-async function copyInvitation(token) {
-	invitationExpiry(token);
-	await navigator.clipboard.writeText(serviceCommands.join.replace("<code>", token));
-}
-/** Owns one memory-only interaction; the bootstrap erases the fragment first. */
-function invitePage(initialToken) {
-	const button = document.getElementById("invite-copy");
-	const status = document.getElementById("invite-status");
-	const feedback = document.getElementById("invite-feedback");
-	let token = initialToken;
-	initialToken = "";
-	let disposed = false;
-	let timer;
-	const clear = () => {
-		disposed = true;
-		token = "";
-		button.disabled = true;
-		feedback.textContent = "";
-		if (timer !== void 0) clearTimeout(timer);
-		button.removeEventListener("click", copy);
-	};
-	const copy = async () => {
-		if (disposed) return;
-		try {
-			await copyInvitation(token);
-			if (!disposed) feedback.textContent = "Command copied. Run it in your terminal.";
-		} catch {
-			if (!disposed) feedback.textContent = "Could not copy. Use the original code in your terminal, or ask your inviter for a new one.";
-		}
-	};
-	try {
-		const expiry = invitationExpiry(token);
-		status.textContent = "Copy the command to continue in your terminal. This page has not checked whether the invitation is still available.";
-		button.disabled = false;
-		button.addEventListener("click", copy);
-		timer = setTimeout(() => {
-			clear();
-			status.textContent = "This invitation has reached its expiry. Ask your inviter for a new one. This page cannot confirm cloud cleanup.";
-		}, Math.max(0, expiry - Date.now()));
-	} catch {
-		clear();
-		status.textContent = "This invitation is missing, invalid or expired. Use the original code in your terminal, or ask your inviter for a new one.";
-	}
-	return clear;
 }
 //#endregion
 //#region src/firebase-bootstrap.ts
@@ -11079,7 +11208,7 @@ function page(value) {
 	input(cursor(value.cursor) && integer(value.limit) && value.limit >= 1 && value.limit <= 50);
 }
 function person(value) {
-	const row = object$3(value);
+	const row = object$2(value);
 	exact(row, [
 		"remoteId",
 		"memberId",
@@ -11090,11 +11219,11 @@ function person(value) {
 		"createdAtMs",
 		"revokedAtMs"
 	]);
-	valid$6(typeof row.remoteId === "string" && V4.test(row.remoteId) && id(row.memberId) && ["owner", "user"].includes(row.role) && memberName(row.displayName) && typeof row.sendingEnabled === "boolean" && revision(row.revision) && integer(row.createdAtMs) && time(row.revokedAtMs));
+	valid$5(typeof row.remoteId === "string" && V4.test(row.remoteId) && id(row.memberId) && ["owner", "user"].includes(row.role) && memberName(row.displayName) && typeof row.sendingEnabled === "boolean" && revision(row.revision) && integer(row.createdAtMs) && time(row.revokedAtMs));
 	return row;
 }
 function invitation(value) {
-	const row = object$3(value);
+	const row = object$2(value);
 	if (row.state === "unavailable" || row.state === "no-current-offer") exact(row, ["state"]);
 	else {
 		exact(row, [
@@ -11104,7 +11233,7 @@ function invitation(value) {
 			"localConfirmationKnown",
 			"cleanup"
 		]);
-		valid$6(row.state === "current" && time(row.expiresAtMs) && [
+		valid$5(row.state === "current" && time(row.expiresAtMs) && [
 			"open",
 			"awaiting-owner",
 			"confirmed",
@@ -11121,7 +11250,7 @@ function invitation(value) {
 	return row;
 }
 function routes(value) {
-	const row = object$3(value);
+	const row = object$2(value);
 	if (row.state === "unavailable" || row.state === "not-recorded") exact(row, ["state"]);
 	else {
 		exact(row, [
@@ -11129,12 +11258,12 @@ function routes(value) {
 			"publicationPending",
 			"removalPending"
 		]);
-		valid$6(row.state === "recorded" && typeof row.publicationPending === "boolean" && typeof row.removalPending === "boolean");
+		valid$5(row.state === "recorded" && typeof row.publicationPending === "boolean" && typeof row.removalPending === "boolean");
 	}
 	return row;
 }
 function machine(value, caller) {
-	const row = object$3(value);
+	const row = object$2(value);
 	exact(row, [
 		"clientId",
 		"name",
@@ -11151,19 +11280,19 @@ function machine(value, caller) {
 		"liveSessionCount",
 		"lastActivityAtMs"
 	]);
-	valid$6(id(row.clientId) && memberName(row.name) && [
+	valid$5(id(row.clientId) && memberName(row.name) && [
 		"browser",
 		"addon",
 		"cli"
 	].includes(row.kind) && revision(row.revision) && typeof row.revoked === "boolean" && time(row.expiresAtMs) && typeof row.sendingScope === "boolean" && ["direct", "hold"].includes(row.delivery) && ["all", "restricted"].includes(row.recipientAccess) && typeof row.grantLive === "boolean" && time(row.lastUsedAtMs) && row.thisBrowser === (row.clientId === caller) && time(row.liveSessionCount) && time(row.lastActivityAtMs));
-	valid$6(!row.revoked || !row.grantLive);
-	valid$6(row.liveSessionCount === null || row.liveSessionCount === 0 ? row.lastActivityAtMs === null : integer(row.lastActivityAtMs));
+	valid$5(!row.revoked || !row.grantLive);
+	valid$5(row.liveSessionCount === null || row.liveSessionCount === 0 ? row.lastActivityAtMs === null : integer(row.lastActivityAtMs));
 	return row;
 }
 function original(value, operationId) {
-	const row = object$3(value);
+	const row = object$2(value);
 	if (row.state !== "committed") return parseManagementOutcome(value, operationId);
-	const result = object$3(row.result);
+	const result = object$2(row.result);
 	if (!Object.hasOwn(result, "member") && !Object.hasOwn(result, "remote")) return parseManagementOutcome(value, operationId);
 	exact(row, [
 		"operationId",
@@ -11171,15 +11300,15 @@ function original(value, operationId) {
 		"result",
 		"sessionEnded"
 	]);
-	valid$6(row.operationId === operationId && typeof row.sessionEnded === "boolean");
+	valid$5(row.operationId === operationId && typeof row.sessionEnded === "boolean");
 	if (Object.hasOwn(result, "member")) {
 		exact(result, ["member"]);
 		person(result.member);
 	} else {
 		exact(result, ["remote"]);
-		const remote = object$3(result.remote);
+		const remote = object$2(result.remote);
 		exact(remote, ["remoteId", "displayName"]);
-		valid$6(typeof remote.remoteId === "string" && V4.test(remote.remoteId) && memberName(remote.displayName) && row.sessionEnded === false);
+		valid$5(typeof remote.remoteId === "string" && V4.test(remote.remoteId) && memberName(remote.displayName) && row.sessionEnded === false);
 	}
 	return row;
 }
@@ -11195,12 +11324,12 @@ function members(session, options = {}) {
 		return managementMutation(call, operation, frozen, (value) => {
 			const parsed = original(value, frozen.operationId);
 			if (parsed.state === "committed") {
-				if (kind === "remote") valid$6("remote" in parsed.result && parsed.result.remote.remoteId === frozen.remoteId && parsed.result.remote.displayName === frozen.name);
+				if (kind === "remote") valid$5("remote" in parsed.result && parsed.result.remote.remoteId === frozen.remoteId && parsed.result.remote.displayName === frozen.name);
 				else {
-					valid$6("member" in parsed.result && "memberId" in frozen && parsed.result.member.remoteId === frozen.remoteId && parsed.result.member.memberId === frozen.memberId && parsed.result.member.revision >= frozen.memberRevision);
-					if (operation === "remote.members.rename") valid$6(parsed.result.member.displayName === frozen.name && parsed.sessionEnded === false);
-					if (operation === "remote.members.sending") valid$6(parsed.result.member.sendingEnabled === frozen.enabled);
-					if (operation === "remote.members.revoke") valid$6(parsed.result.member.revokedAtMs !== null && !parsed.result.member.sendingEnabled);
+					valid$5("member" in parsed.result && "memberId" in frozen && parsed.result.member.remoteId === frozen.remoteId && parsed.result.member.memberId === frozen.memberId && parsed.result.member.revision >= frozen.memberRevision);
+					if (operation === "remote.members.rename") valid$5(parsed.result.member.displayName === frozen.name && parsed.sessionEnded === false);
+					if (operation === "remote.members.sending") valid$5(parsed.result.member.sendingEnabled === frozen.enabled);
+					if (operation === "remote.members.revoke") valid$5(parsed.result.member.revokedAtMs !== null && !parsed.result.member.sendingEnabled);
 				}
 			}
 			return parsed;
@@ -11212,13 +11341,13 @@ function members(session, options = {}) {
 	return {
 		clientId,
 		summary: () => call("remote.members.summary", crypto.randomUUID(), {}, (value) => {
-			const row = object$3(value);
+			const row = object$2(value);
 			exact(row, [
 				"remoteId",
 				"memberCount",
 				"lastActiveAtMs"
 			]);
-			valid$6(row.remoteId === remoteId && time(row.memberCount) && time(row.lastActiveAtMs));
+			valid$5(row.remoteId === remoteId && time(row.memberCount) && time(row.lastActiveAtMs));
 			return row;
 		}),
 		list: (value) => {
@@ -11226,7 +11355,7 @@ function members(session, options = {}) {
 			page(value);
 			const frozen = { ...value };
 			return call("remote.members.list", crypto.randomUUID(), frozen, (value) => {
-				const row = object$3(value);
+				const row = object$2(value);
 				exact(row, [
 					"remoteId",
 					"administrator",
@@ -11236,15 +11365,15 @@ function members(session, options = {}) {
 					"invitation",
 					"routes"
 				]);
-				valid$6(row.remoteId === remoteId && typeof row.administrator === "boolean" && (row.displayName === null || memberName(row.displayName)) && Array.isArray(row.members) && row.members.length <= frozen.limit && cursor(row.nextCursor));
+				valid$5(row.remoteId === remoteId && typeof row.administrator === "boolean" && (row.displayName === null || memberName(row.displayName)) && Array.isArray(row.members) && row.members.length <= frozen.limit && cursor(row.nextCursor));
 				const seen = /* @__PURE__ */ new Set();
 				for (const entry of row.members) {
 					const member = person(entry);
-					valid$6(member.remoteId === row.remoteId && !seen.has(member.memberId));
+					valid$5(member.remoteId === row.remoteId && !seen.has(member.memberId));
 					seen.add(member.memberId);
 				}
 				if (row.administrator) invitation(row.invitation);
-				else valid$6(row.members.length <= 1 && row.invitation === null);
+				else valid$5(row.members.length <= 1 && row.invitation === null);
 				routes(row.routes);
 				return row;
 			});
@@ -11259,18 +11388,18 @@ function members(session, options = {}) {
 			input(id(value.memberId));
 			const frozen = { ...value };
 			return call("remote.members.machines", crypto.randomUUID(), frozen, (value) => {
-				const row = object$3(value);
+				const row = object$2(value);
 				exact(row, [
 					"remoteId",
 					"memberId",
 					"machines",
 					"nextCursor"
 				]);
-				valid$6(row.remoteId === remoteId && row.memberId === frozen.memberId && Array.isArray(row.machines) && row.machines.length <= frozen.limit && cursor(row.nextCursor));
+				valid$5(row.remoteId === remoteId && row.memberId === frozen.memberId && Array.isArray(row.machines) && row.machines.length <= frozen.limit && cursor(row.nextCursor));
 				const seen = /* @__PURE__ */ new Set();
 				for (const entry of row.machines) {
 					const item = machine(entry, clientId);
-					valid$6(!seen.has(item.clientId));
+					valid$5(!seen.has(item.clientId));
 					seen.add(item.clientId);
 				}
 				return row;
@@ -11324,8 +11453,8 @@ function members(session, options = {}) {
 			return call("remote.management.operation", crypto.randomUUID(), { operationId }, (value) => {
 				const parsed = original(value, operationId);
 				if (parsed.state === "committed") {
-					if ("member" in parsed.result) valid$6(parsed.result.member.remoteId === remoteId);
-					if ("remote" in parsed.result) valid$6(parsed.result.remote.remoteId === remoteId);
+					if ("member" in parsed.result) valid$5(parsed.result.member.remoteId === remoteId);
+					if ("remote" in parsed.result) valid$5(parsed.result.remote.remoteId === remoteId);
 				}
 				return parsed;
 			});
