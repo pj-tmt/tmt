@@ -47,9 +47,9 @@ its original declarations and spelling. Only that generated distribution
 is excluded from formatting; authored CSS remains formatted. Source-level policy tests inspect
 the assembled source, byte checks inspect the distribution, and browser comparisons verify
 that compilation preserves computed paint and layout. The check compares expected bytes without writing. `test/byte-budget.test.ts` holds the gzip
-size (level 9) of `generated/static.css` plus `generated/ui.css` to 21,955 bytes. The GUI
-lead approved the exact 194-byte increase over 21,761 bytes for grouped menus, with no
-headroom or change to the UI foundation budget. The [Linux measurement](https://github.com/tmt-ninja/tmt/actions/runs/41126465620/job/124308229899) records the approved size.
+size (level 9) of `generated/static.css` plus `generated/ui.css` to 21,978 bytes. The GUI
+lead approved the exact 217-byte increase over 21,761 bytes for grouped menus, with no
+headroom or change to the UI foundation budget. The [Linux measurement](https://github.com/tmt-ninja/tmt/actions/runs/41128808110/job/124320431163) records the approved size.
 Class encapsulation is retained, and further increases return to the lead. Each pull request
 that changes these stylesheets reports their raw sizes. Consumers embed checked CSS;
 Cargo and installed products never run the generator. Select light/system-dark
