@@ -56,3 +56,15 @@ export function withoutVerificationTimestamp(
     .map(({ last_verified_at: _lastVerifiedAt, ...binding }) => binding)
     .sort((left, right) => String(left.id).localeCompare(String(right.id)));
 }
+
+/** Why a Digest Stop printed nothing, as each launch row names it (#4871, #5459). Read only. */
+export function sessionLearning(fixture: E2EFixture): unknown[] {
+  const database = new Database(path.join(fixture.globalDir, 'tmt.db'), { readonly: true });
+  try {
+    return database
+      .prepare('SELECT status,step,reason,detail FROM launch_observations ORDER BY created_at_ms')
+      .all();
+  } finally {
+    database.close();
+  }
+}
