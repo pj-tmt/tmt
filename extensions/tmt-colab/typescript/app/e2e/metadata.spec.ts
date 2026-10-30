@@ -310,6 +310,18 @@ test('navigation disposes a pending editor and its late result cannot reopen an 
   expect((await command(page, 'proof')).commands).toHaveLength(1);
 });
 
+test('a long Creator remains fully named while its trailing value truncates', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 900 });
+  await ready(page);
+  const name = 'A creator name long enough to overflow the available trailing metadata';
+  await command(page, 'legacyCreator', name);
+  const item = await pageAction(page, `Creator ${name}`);
+  await expect(item).toHaveAccessibleName(`Creator ${name}`);
+  const meta = item.locator('.tmt-ui-menu-meta');
+  await expect(meta).toHaveCSS('text-overflow', 'ellipsis');
+  expect(await meta.evaluate((node) => node.scrollWidth > node.clientWidth)).toBe(true);
+});
+
 for (const originalAuthor of ['Legacy author', undefined]) {
   test(`legacy creator display uses a label, never the recipient UUID (${originalAuthor ?? 'unknown'})`, async ({
     page,

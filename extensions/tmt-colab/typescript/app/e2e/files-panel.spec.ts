@@ -336,6 +336,8 @@ test('a reader link lists files read-only and only when the page has files', asy
   ).toBeVisible();
   await page.getByRole('button', { name: 'More', exact: true }).click();
   await expect(page.getByRole('menuitem', { name: /^Files(?: \d+)?$/ })).toHaveCount(0);
+  await expect(page.getByRole('group', { name: 'Content', exact: true })).toHaveCount(0);
+  await expect(page.getByRole('group', { name: 'Page', exact: true })).toBeVisible();
   await page.keyboard.press('Escape');
   await mountReader(page, true);
   const toggle = await pageAction(page, 'Files');
