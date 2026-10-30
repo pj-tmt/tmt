@@ -63,7 +63,7 @@ for (const width of [1440, 390])
       await expect(
         page.locator('.page-header-actions').getByRole('button', { name: 'More', exact: true }),
       ).toBeFocused();
-      const creator = await open(page, 'Creator: First creator…');
+      const creator = await open(page, 'Creator First creator');
       await expect(
         creator.getByRole('button', { name: 'Set creator', exact: true }),
       ).toBeDisabled();
@@ -90,7 +90,7 @@ test('unavailable directory preserves creator, explicit Retry recovers, stale ch
 }) => {
   await ready(page);
   await command(page, 'setMode', 'unavailable');
-  const dialog = await open(page, 'Creator: First creator…');
+  const dialog = await open(page, 'Creator First creator');
   await expect(dialog.getByText(/Agent directory unavailable/)).toBeVisible();
   await expect(dialog.getByText('Current creator: First creator')).toBeVisible();
   await command(page, 'setMode', 'ready');
@@ -125,7 +125,7 @@ test('unknown discussion is shown as verification, never open questions', async 
 });
 test('pending metadata fences reactivation and dismissal, with one overlay', async ({ page }) => {
   await ready(page);
-  const dialog = await open(page, 'Creator: First creator…');
+  const dialog = await open(page, 'Creator First creator');
   await dialog.getByRole('option', { name: 'Next creator', exact: true }).click();
   await command(page, 'setMode', 'pending');
   const save = dialog.getByRole('button', { name: 'Set creator', exact: true });
@@ -170,7 +170,7 @@ test('a metadata edit preserves a dirty Source draft and original attribution', 
   const draft = base + '\n<p>A retained unsaved draft</p>';
   await source.fill(draft);
   await page.getByRole('button', { name: 'Close Source', exact: true }).click();
-  const dialog = await open(page, 'Creator: First creator…');
+  const dialog = await open(page, 'Creator First creator');
   await dialog.getByRole('option', { name: 'Next creator', exact: true }).click();
   await dialog.getByRole('button', { name: 'Set creator', exact: true }).click();
   await expect(dialog).not.toBeVisible();
@@ -277,7 +277,7 @@ test('short phone viewport keeps long registry content reachable and restores di
     .locator('.page-header-actions')
     .getByRole('button', { name: 'More', exact: true });
   await expect(more).toBeFocused();
-  const creator = await open(page, 'Creator: First creator…');
+  const creator = await open(page, 'Creator First creator');
   const search = creator.getByRole('combobox');
   await search.fill('Next');
   await expect(creator.getByRole('option')).toHaveText(['Next creator']);
@@ -293,7 +293,7 @@ test('navigation disposes a pending editor and its late result cannot reopen an 
   page,
 }) => {
   await ready(page);
-  const dialog = await open(page, 'Creator: First creator…');
+  const dialog = await open(page, 'Creator First creator');
   await dialog.getByRole('option', { name: 'Next creator', exact: true }).click();
   await command(page, 'setMode', 'pending');
   await dialog.getByRole('button', { name: 'Set creator', exact: true }).click();
@@ -310,6 +310,18 @@ test('navigation disposes a pending editor and its late result cannot reopen an 
   expect((await command(page, 'proof')).commands).toHaveLength(1);
 });
 
+test('a long Creator remains fully named while its trailing value truncates', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 900 });
+  await ready(page);
+  const name = 'A creator name long enough to overflow the available trailing metadata';
+  await command(page, 'legacyCreator', name);
+  const item = await pageAction(page, `Creator ${name}`);
+  await expect(item).toHaveAccessibleName(`Creator ${name}`);
+  const meta = item.locator('.tmt-ui-menu-meta');
+  await expect(meta).toHaveCSS('text-overflow', 'ellipsis');
+  expect(await meta.evaluate((node) => node.scrollWidth > node.clientWidth)).toBe(true);
+});
+
 for (const originalAuthor of ['Legacy author', undefined]) {
   test(`legacy creator display uses a label, never the recipient UUID (${originalAuthor ?? 'unknown'})`, async ({
     page,
@@ -317,7 +329,7 @@ for (const originalAuthor of ['Legacy author', undefined]) {
     await ready(page);
     await command(page, 'legacyCreator', originalAuthor);
     const name = originalAuthor ?? 'Unknown author';
-    const creator = await open(page, `Creator: ${name}…`);
+    const creator = await open(page, `Creator ${name}`);
     await expect(creator.getByText(`Current creator: ${name}`, { exact: true })).toBeVisible();
     await expect(creator.getByText(/^Selected:/)).toHaveCount(0);
     await expect(creator).not.toContainText('00000000-0000-4000-8000-000000000006');

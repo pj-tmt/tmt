@@ -45,6 +45,10 @@ for (const source of ['React', 'Native'] as const)
           await expect(delta).toBeFocused();
           expect((await focusFrames(page, '.tmt-ui-menu-surface[open]')).clipped).toEqual([]);
           await expect(page.locator('.tmt-ui-menu-surface[open]')).toHaveCSS('padding', '4px');
+          await expect(page.locator('.tmt-ui-menu-surface[open]')).toHaveCSS(
+            'border-radius',
+            '8px',
+          );
           await expect(delta).toHaveCSS('border-radius', '6px');
           await expect(delta).toHaveCSS('height', '42px');
           expect(frames.doubled).toEqual([]);
@@ -262,3 +266,67 @@ for (const source of ['React', 'Native'] as const)
     await expect(page.getByRole('button', { name: next, exact: true })).toBeFocused();
     await expect(page.getByTestId('selection')).toHaveText('none');
   });
+
+for (const source of ['React', 'Native'] as const) {
+  test(`${source}: grouped menu exposes names, descriptions and keyboard groups`, async ({
+    page,
+  }) => {
+    await page.goto('/?frame=menu-host&grouped=true');
+    await page.getByRole('button', { name: `${source} menu`, exact: true }).click();
+    const menu = page.getByRole('menu', { name: `${source} menu`, exact: true });
+    const first = menu.getByRole('group', { name: 'First group', exact: true });
+    const second = menu.getByRole('group', { name: 'Second group', exact: true });
+    await expect(first).toBeVisible();
+    await expect(second).toBeVisible();
+    await expect(second.locator('.tmt-ui-menu-heading')).toHaveAttribute('data-separated', 'true');
+    await expect(second.locator('.tmt-ui-menu-divider')).toHaveCount(0);
+    const alpha = first.getByRole('menuitemradio', { name: 'Alpha 4', exact: true });
+    await expect(alpha).toHaveAccessibleDescription('Detail');
+    await expect(alpha).toBeFocused();
+    await page.keyboard.press('End');
+    await expect(second.getByRole('menuitemradio', { name: 'Delta', exact: true })).toBeFocused();
+    await page.keyboard.press('a');
+    await expect(alpha).toBeFocused();
+    await expect(menu.locator('.tmt-ui-menu-leading-icon').first()).toHaveAttribute(
+      'aria-hidden',
+      'true',
+    );
+    await expect(menu.locator('.tmt-ui-menu-surface')).toHaveCount(0);
+  });
+}
+
+// Captured from current main before the grouped API: normalization only removes the generated menu ID.
+const defaultMenuMarkup: Record<string, string> = {
+  React:
+    '<div class="tmt-ui-menu-description" id="MENU_ID-description">Choose a fixture value</div><div><button type="button" class="tmt-ui-menu-item" role="menuitemradio" aria-checked="true" tabindex="-1"><span>Alpha</span><span aria-hidden="true">✓</span></button></div><div><button type="button" class="tmt-ui-menu-item" role="menuitem" aria-describedby="MENU_ID-reason-1" disabled="" tabindex="-1"><span>Blocked</span></button><span class="tmt-ui-menu-reason" id="MENU_ID-reason-1">Read only</span></div><div><button type="button" class="tmt-ui-menu-item" role="menuitemradio" aria-checked="false" tabindex="-1"><span>Gamma</span></button></div><div><button type="button" class="tmt-ui-menu-item" data-separated="true" role="menuitemradio" aria-checked="false" tabindex="-1"><span>Delta</span></button></div>',
+  Native:
+    '<div id="MENU_ID-description" class="tmt-ui-menu-description">Choose a fixture value</div><div><button type="button" class="tmt-ui-menu-item" tabindex="-1" role="menuitemradio" aria-checked="true"><span>Alpha</span><span aria-hidden="true">✓</span></button></div><div><button type="button" class="tmt-ui-menu-item" tabindex="-1" disabled="" role="menuitem" aria-describedby="MENU_ID-reason-1"><span>Blocked</span></button><span class="tmt-ui-menu-reason" id="MENU_ID-reason-1">Read only</span></div><div><button type="button" class="tmt-ui-menu-item" tabindex="-1" role="menuitemradio" aria-checked="false"><span>Gamma</span></button></div><div><button type="button" class="tmt-ui-menu-item" tabindex="-1" role="menuitemradio" aria-checked="false" data-separated="true"><span>Delta</span></button></div>',
+};
+for (const source of ['React', 'Native'] as const)
+  test(`${source}: default menu DOM is byte-identical`, async ({ page }) => {
+    await page.goto('/?frame=menu-host');
+    await page.getByRole('button', { name: `${source} menu`, exact: true }).click();
+    const menu = page.getByRole('menu', { name: `${source} menu`, exact: true });
+    const markup = await menu.evaluate((node) => node.innerHTML.replaceAll(node.id, 'MENU_ID'));
+    expect(markup).toBe(defaultMenuMarkup[source]);
+  });
+
+for (const source of ['React', 'Native'] as const)
+  for (const width of [320, 390, 1440])
+    for (const theme of ['light', 'dark'] as const)
+      test(`${source}: grouped menu fits ${width} ${theme}`, async ({ page }, info) => {
+        await page.setViewportSize({ width, height: 900 });
+        await page.emulateMedia({ colorScheme: theme, reducedMotion: 'reduce' });
+        await page.goto(`/?frame=menu-host&grouped=true&theme=${theme}`);
+        await page.getByRole('button', { name: `${source} menu`, exact: true }).click();
+        const surface = page.locator('.tmt-ui-menu-surface[open]');
+        const box = await surface.boundingBox();
+        expect(box).not.toBeNull();
+        expect(box!.width).toBeGreaterThanOrEqual(260);
+        expect(box!.x).toBeGreaterThanOrEqual(0);
+        expect(box!.x + box!.width).toBeLessThanOrEqual(width);
+        const menu = page.getByRole('menu', { name: `${source} menu`, exact: true });
+        const delta = menu.getByRole('menuitemradio', { name: 'Delta', exact: true });
+        await expect(delta).toHaveCSS('min-height', '32px');
+        await page.screenshot({ path: info.outputPath('grouped-menu.png') });
+      });
