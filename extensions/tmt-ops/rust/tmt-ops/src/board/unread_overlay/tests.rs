@@ -132,6 +132,11 @@ pub(in crate::board) const SCENES: &[&str] = &[
     "unread-overlay-failed",
     "unread-overlay-unavailable",
     "unread-overlay-older",
+    "unread-overlay-detail",
+    "unread-overlay-read",
+    "unread-overlay-confirm",
+    "unread-overlay-empty",
+    "unread-overlay-hover",
 ];
 
 /// An opened overlay: two agents' unread answers, the way `scene` names.
@@ -219,6 +224,33 @@ pub(in crate::board) fn capture_case(scene: &str, look: crate::look::Look) -> Ap
             arrive(&mut app, MEMBER, worker);
             arrive(&mut app, OTHER, core);
         }
+    }
+    match scene {
+        "unread-overlay-detail" => app.unread_overlay.as_mut().unwrap().detail_open = true,
+        "unread-overlay-read" => {
+            let items = app
+                .unread_overlay
+                .as_ref()
+                .unwrap()
+                .items
+                .values()
+                .cloned()
+                .map(|answer| (answer, crate::board::unread::publish::Outcome::Acknowledged))
+                .collect();
+            app.finished_unread(Ok(crate::board::unread::publish::Completed {
+                actor: ACTOR.into(),
+                items,
+            }));
+        }
+        "unread-overlay-confirm" => {
+            press(&mut app, KeyCode::Char('a'));
+        }
+        "unread-overlay-empty" => {
+            install(&mut app, &[]);
+            app.open_unread(&UnreadScope::All);
+        }
+        "unread-overlay-hover" => app.unread_overlay.as_ref().unwrap().hover.set(Some(1)),
+        _ => {}
     }
     app
 }
