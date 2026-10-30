@@ -268,7 +268,8 @@
   color: var(--tmt-ui-color-secondary);
 }
 .tmt-ui-menu-detail {
-  font-size: var(--tmt-ui-caption-size);
+  font-size: var(--tmt-ui-rail-sub-size);
+  line-height: var(--tmt-ui-header-action-line-height);
 }
 .tmt-ui-menu-meta {
   min-width: 0;
