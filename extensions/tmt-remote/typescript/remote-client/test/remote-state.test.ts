@@ -79,8 +79,8 @@ test('Remote routes separate the global list and current-door tabs without obsol
       '/remote/overview',
       '/remote/members',
       '/remote/my-devices',
-      '/remote/settings',
       '/remote/service',
+      '/remote/settings',
     ],
   );
   assert.equal(remoteItem('/remote')?.id, 'remotes');

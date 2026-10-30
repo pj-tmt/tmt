@@ -5206,8 +5206,8 @@ test('landing registry keeps two origins independent and confirms public-only ha
       await expect(modulePages(page)).toContainText(/connected/i);
       const first = await identity();
       expect(first.extractable).toBe(false);
-      await expect(page.locator('#remote-list > li')).toHaveCount(1);
-      await expect(page.locator('#remote-list > li').first()).toHaveAttribute(
+      await expect(page.locator('#remote-list > [role="row"]')).toHaveCount(1);
+      await expect(page.locator('#remote-list > [role="row"]').first()).toHaveAttribute(
         'data-remote',
         '@this-machine',
       );
@@ -5222,9 +5222,9 @@ test('landing registry keeps two origins independent and confirms public-only ha
       await page.reload();
       await expect(modulePages(page)).toContainText(/connected/i);
       await expect(page.locator('[data-remote="studio"] .tmt-ui-list-state')).toHaveText(
-        '● Connected',
+        'Connected',
       );
-      await expect(page.locator('#remote-list > li').first()).toHaveAttribute(
+      await expect(page.locator('#remote-list > [role="row"]').first()).toHaveAttribute(
         'data-remote',
         'studio',
       );
@@ -5242,7 +5242,7 @@ test('landing registry keeps two origins independent and confirms public-only ha
       ).toHaveAttribute('data-variant', 'primary');
       await expect(page.getByRole('button', { name: 'Add remote', exact: true })).toHaveCount(0);
       await expect(page.locator('[data-remote="desk"] .tmt-ui-list-state')).toHaveText(
-        '◌ Not checked',
+        'Not checked',
       );
       await expect(page.locator('[data-remote="desk"] .state-mark')).toHaveCount(0);
       expect(network.filter((url) => url.startsWith(secondOrigin))).toEqual([]);
@@ -5266,7 +5266,7 @@ test('landing registry keeps two origins independent and confirms public-only ha
       await expect(page.locator('dialog.tmt-ui-dialog')).toHaveCount(0);
       await expect(page.getByRole('button', { name: 'Join a Remote', exact: true })).toBeFocused();
       await expect(page.locator('[data-remote="spare"] .tmt-ui-list-state')).toHaveText(
-        '◌ Not checked',
+        'Not checked',
       );
       expect(network.some((url) => url.startsWith('http://127.0.0.1:9876/'))).toBe(false);
       expect(await identity()).toEqual(first);
@@ -5520,9 +5520,7 @@ test('My Remotes is the one list and keeps settings drafts across origin switche
     await expect(page.locator('#refresh')).toHaveAttribute('aria-busy', 'false');
     await expect(page.locator('[data-remote="studio"] [data-role]')).toHaveText('Admin');
     await expect(page.locator('[data-remote="desk"] [data-role]')).toHaveText('Role unknown');
-    await expect(page.locator('[data-remote="studio"] .tmt-ui-list-state')).toHaveText(
-      '● Connected',
-    );
+    await expect(page.locator('[data-remote="studio"] .tmt-ui-list-state')).toHaveText('Connected');
     await expect(menu.getByRole('link', { name: 'My Remotes', exact: true })).toHaveAttribute(
       'aria-current',
       'page',
@@ -6180,7 +6178,7 @@ test('Remote tab frame keeps unknown, Member locks and designated Admin separate
     const current = await identity();
     const tabs = page.getByRole('tablist', { name: 'This Remote' });
     await expect(tabs.getByRole('tab')).toHaveCount(5);
-    await tabs.getByRole('tab', { name: 'People', exact: true }).click();
+    await tabs.getByRole('tab', { name: /^People(?: · \d+ (?:person|people))?$/ }).click();
     await expect(page).toHaveURL(`${origin}/remote/members`);
     await expect(page.locator('#invitation-status')).toContainText(
       'To confirm an invitation in a browser, use the owner browser',
@@ -6214,10 +6212,9 @@ test('Remote tab frame keeps unknown, Member locks and designated Admin separate
     );
     await page.goBack();
     await expect(page).toHaveURL(`${origin}/remote/members`);
-    await expect(tabs.getByRole('tab', { name: 'People', exact: true })).toHaveAttribute(
-      'aria-selected',
-      'true',
-    );
+    await expect(
+      tabs.getByRole('tab', { name: /^People(?: · \d+ (?:person|people))?$/ }),
+    ).toHaveAttribute('aria-selected', 'true');
     const clientId = (current.paired as { clientId: string }).clientId;
     execFileSync(BINARY, ['devices', 'designate', clientId, '--json'], { env });
     await page.reload();
@@ -6225,13 +6222,26 @@ test('Remote tab frame keeps unknown, Member locks and designated Admin separate
       'This browser manages this Remote.',
     );
     await expect(page.locator('#remote-locked')).toBeHidden();
-    await expect(tabs.getByRole('tab', { name: 'People', exact: true })).toHaveAttribute(
-      'aria-selected',
-      'true',
-    );
+    await expect(
+      tabs.getByRole('tab', { name: /^People(?: · \d+ (?:person|people))?$/ }),
+    ).toHaveAttribute('aria-selected', 'true');
     await expect(page.locator('#owner-invitation')).toBeVisible();
     await expect(page.locator('#invitation-status')).toContainText('No current invitation');
     await expect(page.locator('#people-content')).toBeVisible();
+    await expect(page.locator('.tmt-ui-topbar')).toContainText('This machine · Admin');
+    await expect(tabs.getByRole('tab', { name: /^People/ })).toHaveAttribute(
+      'aria-label',
+      'People · 1 person',
+    );
+    await expect(page.locator('.remote-tab-content .tmt-ui-subheader p:visible')).toContainText(
+      '1 person · Sending is off',
+    );
+    const headingBox = await page
+      .getByRole('heading', { name: 'People', exact: true })
+      .boundingBox();
+    const tableBox = await page.locator('#people .tmt-ui-list-table').boundingBox();
+    expect(headingBox!.x).toBe(tableBox!.x);
+    expect(tableBox!.width).toBeGreaterThan(820);
     await expect(page.locator('#people').getByRole('heading', { name: 'People' })).toHaveCount(0);
     await expect(page.locator('#people-content')).not.toContainText('Invitation:');
     await expect(page.locator('#people-content')).not.toContainText('Route cleanup:');
@@ -6318,10 +6328,10 @@ test('Remote tab frame keeps unknown, Member locks and designated Admin separate
       'aria-selected',
       'true',
     );
-    await tabs.getByRole('tab', { name: 'Settings', exact: true }).focus();
+    await tabs.getByRole('tab', { name: 'Service & upgrade', exact: true }).focus();
     await page.keyboard.press('End');
-    await expect(page).toHaveURL(`${origin}/remote/service`);
-    await expect(tabs.getByRole('tab', { name: 'Service & upgrade', exact: true })).toBeFocused();
+    await expect(page).toHaveURL(`${origin}/remote/settings`);
+    await expect(tabs.getByRole('tab', { name: 'Settings', exact: true })).toBeFocused();
     await page.keyboard.press('Home');
     await expect(page).toHaveURL(`${origin}/remote/overview`);
     await expect(tabs.getByRole('tab', { name: 'Overview', exact: true })).toBeFocused();

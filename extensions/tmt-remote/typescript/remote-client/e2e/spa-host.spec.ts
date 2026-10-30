@@ -389,12 +389,12 @@ test.describe('route identities in the shared top bar', () => {
               await expect(page.locator('#remote-head .remote-head-actions')).toBeVisible();
               const actions = page.locator('#remote-head .remote-head-actions');
               await expect(actions.locator(':scope > *').first()).toHaveAttribute(
-                'id',
-                'remote-join',
-              );
-              await expect(actions.locator(':scope > *').last()).toHaveAttribute(
                 'data-variant',
                 'primary',
+              );
+              await expect(actions.locator(':scope > *').last()).toHaveAttribute(
+                'id',
+                'remote-join',
               );
               await expect(
                 page

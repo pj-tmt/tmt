@@ -1,13 +1,14 @@
 import { expect, it } from 'vite-plus/test';
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { Info, Link } from 'lucide-react';
+import { Info, Link, User } from 'lucide-react';
 import { moduleIcon, shellIconNodes } from '../src/shell-icons.js';
 
-it('shares the pinned Lucide Link and Info nodes without extending module admission', () => {
+it('shares the pinned Lucide Link, Info and User nodes without extending module admission', () => {
   for (const [name, icon] of [
     ['link', Link],
     ['info', Info],
+    ['user', User],
   ] as const) {
     const svg = renderToStaticMarkup(createElement(icon));
     const nodes = Array.from(svg.matchAll(/<(path|circle) ([^>]+)>/g), (match) => [

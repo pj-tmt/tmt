@@ -208,3 +208,58 @@
 .join-guide .tmt-ui-card > p:last-child { margin-bottom: 0; }
 
 .join-guide .join-note { color: var(--tmt-ui-color-secondary); border-top: 1px solid var(--tmt-ui-surface-rule); padding-top: var(--tmt-ui-space-m); }
+
+/* Shared display rules must not reveal owner-only controls or inactive subheaders. */
+.remote-context [role='tab'][hidden],
+.tmt-ui-subheader[hidden],
+.tmt-ui-subheader-actions > [hidden] {
+  display: none;
+}
+
+.settings-page .tmt-ui-list-table .people-person {
+  border: 0;
+  padding: 0;
+}
+.settings-page .tmt-ui-list-table .people-name-actions[hidden],
+.settings-page .tmt-ui-list-table .people-member-actions[hidden] {
+  display: none;
+}
+
+.settings-page .tmt-ui-list-table .people-person:last-child > .tmt-ui-list-table-row {
+  border-bottom: 0;
+}
+
+.settings-page .device.tmt-ui-list-row {
+  display: block;
+  border-top: 0;
+}
+
+/* Current-door headings and table footers follow the Colab page-list layout. */
+.remote-tab-content > .tmt-ui-subheader { width: min(100% - 32px, 820px); margin: 0 auto 24px; }
+.remote-list-footer, .people-list-footer { display: flex; justify-content: space-between; gap: 16px; margin: 16px 0 0; padding: 16px 0 0; border-top: 1px solid var(--tmt-ui-surface-rule); color: var(--tmt-ui-color-secondary); font-size: 10px; line-height: 14px; }
+.settings-page .people-person .tmt-ui-action[data-variant='ghost'] { white-space: nowrap; }
+
+/* List routes use the uncapped Colab page-list insets; forms retain their own column. */
+[data-remote-view='remotes'] .settings-page,
+[data-remote-view='members'] .settings-page,
+[data-remote-view='my-devices'] .settings-page,
+[data-remote-view='members'] .remote-context,
+[data-remote-view='my-devices'] .remote-context,
+[data-remote-view='members'] #remote-panel-members > .tmt-ui-subheader,
+[data-remote-view='my-devices'] #remote-panel-my-devices > .tmt-ui-subheader {
+  box-sizing: border-box;
+  width: 100%;
+  max-width: none;
+  padding-inline: var(--tmt-ui-page-padding-inline);
+}
+@media (max-width: 760px) {
+  [data-remote-view='remotes'] .settings-page,
+  [data-remote-view='members'] .settings-page,
+  [data-remote-view='my-devices'] .settings-page,
+  [data-remote-view='members'] .remote-context,
+  [data-remote-view='my-devices'] .remote-context,
+  [data-remote-view='members'] #remote-panel-members > .tmt-ui-subheader,
+  [data-remote-view='my-devices'] #remote-panel-my-devices > .tmt-ui-subheader {
+    padding-inline: var(--tmt-ui-page-compact-padding-inline);
+  }
+}
