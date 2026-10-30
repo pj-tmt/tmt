@@ -940,8 +940,25 @@ exec ${quote(peer)} ${quote(fixture.executables.cli.executable)} ${quote(scenari
       expect(cancelled.code).not.toBe(0);
       expect(errorCode(cancelled)).toBe('ROOM_NOT_FOUND');
       expect(requestAttempts(fixture)).toEqual(beforeRequests);
+      // Esc kept the draft: N reopens it with Discard, which ↓ then → reach and Enter drops.
       fixture.tmux(['send-keys', '-t', shell.pane, 'N']);
-      await fixture.waitForCapture((screen) => screen.includes('Squad name'), shell.pane);
+      await fixture.waitForCapture(
+        (screen) => screen.includes('product1') && screen.includes('Discard'),
+        shell.pane
+      );
+      fixture.tmux(['send-keys', '-t', shell.pane, 'Down', 'Right', 'Enter']);
+      await fixture.waitForCapture(
+        (screen) => !screen.includes('Squad name') && screen.includes('OPS / UI'),
+        shell.pane
+      );
+      fixture.tmux(['send-keys', '-t', shell.pane, 'N']);
+      await fixture.waitForCapture(
+        (screen) =>
+          screen.includes('Squad name') &&
+          !screen.includes('product1') &&
+          !screen.includes('Discard'),
+        shell.pane
+      );
       fixture.tmux(['send-keys', '-l', '-t', shell.pane, 'product']);
       fixture.tmux(['send-keys', '-t', shell.pane, 'Enter']);
       await fixture.waitForCapture((screen) => screen.includes('Lead (optional'), shell.pane);
@@ -972,7 +989,8 @@ exec ${quote(peer)} ${quote(fixture.executables.cli.executable)} ${quote(scenari
       expect(beforeApply.code).not.toBe(0);
       expect(errorCode(beforeApply)).toBe('ROOM_NOT_FOUND');
       expect(requestAttempts(fixture)).toEqual(beforeRequests);
-      fixture.tmux(['send-keys', '-t', shell.pane, 'Tab', 'Tab', 'Enter']);
+      // The review opens on Create squad, so Enter applies what was reviewed.
+      fixture.tmux(['send-keys', '-t', shell.pane, 'Enter']);
       await fixture.waitForCapture((screen) => screen.includes('Applied'), shell.pane);
       const room = expectJsonResult<{ room: { id: string; memberIds: string[] } }>(
         await fixture.runJsonCli(['room', 'show', 'squad-product'])
