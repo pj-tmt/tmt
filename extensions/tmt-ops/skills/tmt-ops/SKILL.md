@@ -611,7 +611,7 @@ link highlights it, as does the chosen row, and a click on it opens it; a web ad
 written in a title highlights and opens the same way. `↑↓`/`jk` choose,
 Enter opens a link or ticks a todo (global `board.checklist_enter`, `open` by default: `tick` makes
 Enter tick a link row too; edit **checklist enter** in Ops Config or run
-`tmt ops sq config set board.checklist_enter tick`), Space always ticks and `o` always opens the link, `a` adds (a web address becomes a link; `Tab` moves
+`tmt ops sq config set board.checklist_enter tick`), Space always ticks and `o` always opens the link, `a` adds (a web address becomes a link; ↑↓ move
 between Title and Link), `e` edits, `d` deletes after Enter confirms, `Shift+↑↓`
 moves an item one place in the list and Esc closes the list, keeping a form you have not sent.
 A change someone else made first is reported in one line and your words stay in the form.
@@ -628,8 +628,10 @@ it has no alias and receives the ordinary unknown-action notice. The private ide
 `tmt notes` command is separate.
 The conversation Link popover and Selection menu also offer `n Add to checklist`.
 A link starts as Link with its full address and an editable last-segment title;
-a selection starts as Todo with its selected text. Tab chooses Kind, Title or Link;
-Left/Right on Kind switches Todo/Link, Enter saves and Esc keeps the draft. From
+a selection starts as Todo with its selected text. ↑↓ choose Kind, Title or Link;
+Left/Right on Kind switches Todo/Link, Enter saves and Esc keeps the draft. A kept draft
+with text comes back with a Discard line after its fields; ↓ reaches it and Enter drops the
+draft. From
 shows the held message's author, kind and time; the item's body keeps its Source
 reference. Multiple or missing message sources say so. Existing unsent checklist drafts
 are preserved, and these source descriptions grant no request or navigation authority.
@@ -1361,28 +1363,30 @@ directly to the board. Esc during an update hides Checklist; the update goes on 
 status line shows its result.
 
 The checklist starts with Open items, Squad-wide assignment scope and archived
-items excluded. Tab/Shift-Tab reaches **Filter** and **Actions**; Enter opens their
-choices. Filters include Complete, All completion, Unassigned, an explicit member
+items excluded. ↓ past the last item (or on an empty list) reaches **Filter** and
+**Actions** below it, ←→ move between them, ↑ returns; Enter opens their choices. Filters include Complete, All completion, Unassigned, an explicit member
 and archived inclusion. Counts show visible items and all nondeleted items in the
 same archive scope. Arrows/j/k, Home/End and PgUp/PgDn select or scroll items;
 Enter opens details without completing an item. In details, arrows and paging keys
-read the content; Tab switches between reading and the named action choices.
+read the content; ↓ at the end reaches the named action choices, Back first, and ↑ on
+the first one reads again. Tab does nothing in Checklist.
 
 Actions offers Create and Refresh, and Reorder for a current manager. Create starts
 unassigned. Details offers Edit, Complete/Reopen and an explicit Open reference;
 current managers can Assign/Unassign, Archive/Restore and Delete. Archived items
 expose Restore/Delete. Reorder includes the full inventory, including archived
 items, and uses Move up/Move down followed by a separate preview and Confirm.
-Forms accept typing or paste; Tab moves fields and Ctrl-U clears a field.
+Forms accept typing or paste; ↑↓ move fields and Ctrl-U clears a field.
 
 Every update previews exact actor, room, checklist, item and required revisions.
 Delete starts on Cancel; enlarge the terminal when its exact target and controls
 cannot fit readably. Conflicts and refusals retain the draft and target. Refresh
 reads current state, then Review explicitly adopts its expectations before a fresh
 Confirm. An original unknown outcome stays unknown after observation or later
-updates. Esc from a child screen retains intent and returns to the list; Esc from
-the list returns to the board. Resume retained work through Actions, or explicitly
-Cancel to discard it. Checklist completion changes no member state, requests or
+updates. Esc hides Checklist on the screen it is on, keeping its intent, and the same
+key reopens it there; Esc on a menu (Filter, Actions, a member choice, Move item) or on a
+preview closes just that, back to the screen it came from. Back on a form returns to the
+list and keeps the draft: resume it through Actions, where Discard after Back drops it. Checklist completion changes no member state, requests or
 attention, and opens references only when you choose Open reference.
 
 ## Inspect board settings
