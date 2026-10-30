@@ -278,8 +278,13 @@ stream through the public `terminal.stream` API rather than deriving socket path
 - **Ownership.** `tmt-pty-protocol` is a dependency-free leaf for the frames
   (`kind: u8`, `length: u32`, payload of at most 64 KiB; strict decode; the version is in
   `Hello`/`Welcome`). `tmt-adapters::pty` owns the effects (`Supervisor`, `Connection`);
-  `tmt-sys` owns only the terminal system calls (`spawn_on_terminal`, `set_window_size`,
-  `peer_uid`). Core-internal controls use kinds `0x20–0x2f` and `0xa0–0xaf` on the same socket at version 1; these are separate from the attach stream.
+  `tmt-sys` owns only the system calls (`spawn_on_terminal`, `set_window_size`,
+  `peer_uid`, `process_cwd`). Core-internal controls use kinds `0x20–0x2f` and `0xa0–0xaf` on the same socket at version 1; these are separate from the attach stream.
+- **Current directory.** A snapshot reports the member process's live directory as the pane
+  `cwd` (`tmt_sys::process_cwd`, read by the observer; no frame or supervisor change). It is
+  kept only when the process still has the start identity just verified, and it is `None` on
+  any doubt or for a path that is not UTF-8. Like tmux's `pane_current_path`, it is for
+  display and skill roots only, never authority or a binding fence.
 - **Access.** The directory must be owner-only (`private_file::ensure_private_directory`,
   shared with the Claude channel), the socket is 0600, a peer whose user differs from the
   supervisor's is refused, at most 16 clients attach, and a client that does not say hello

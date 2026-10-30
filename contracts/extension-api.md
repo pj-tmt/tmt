@@ -971,8 +971,9 @@ answer `unsupported` with no skills; neither is an error.
 - The driver's provider roots come from the ambient environment of the process answering,
   the same rule as [account limits](#account-limits). A member launched under a different
   `CLAUDE_CONFIG_DIR` or `CODEX_HOME` is not distinguished.
-- Project skills come from the bound pane's current directory as its host reports it. When
-  the host reports none, as the built-in host does, the project group is omitted.
+- Project skills come from the bound pane's current directory as its host reports it (the
+  built-in host reports the member process's live directory). When the host reports none,
+  the project group is omitted.
 
 | Driver | Directories                                                                                                                                                                |
 | ------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |

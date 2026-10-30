@@ -320,6 +320,16 @@ pub(super) struct PtyDriver<'a, R> {
     pub enter_delay: Duration,
 }
 impl<R: CommandRunner> PtyDriver<'_, R> {
+    /// The member process's live directory, as tmux reports a pane's: for display and skill
+    /// roots only, never authority or a binding fence. It is kept only when the process still
+    /// has the start identity just verified, so a reused pid never lends its directory; any
+    /// doubt is `None`.
+    fn member_cwd(&self, pane_pid: u64, start: &str) -> Option<String> {
+        let cwd = tmt_sys::process_cwd(i32::try_from(pane_pid).ok()?)?;
+        let still = runtime::observe_start(self.runner, pane_pid, self.deadline).ok()??;
+        (still == start).then_some(cwd)
+    }
+
     fn snapshot_at(
         &self,
         server: &ServerEvidence,
@@ -359,10 +369,11 @@ impl<R: CommandRunner> PtyDriver<'_, R> {
             let incarnation = starts
                 .get(&answer.pane_pid)
                 .ok_or_else(|| error("the pane process is unverified"))?;
+            let cwd = self.member_cwd(answer.pane_pid, incarnation.start_identity());
             found.push(PaneObservation {
                 id: pane.into(),
                 target: None,
-                cwd: None,
+                cwd,
                 command: String::new(),
                 pane_pid: answer.pane_pid,
                 pane_incarnation: Some(incarnation.start_identity().into()),
@@ -734,6 +745,55 @@ mod tests {
         .unwrap()
         .expect("a live child has a start identity");
         (child, pid, start)
+    }
+
+    #[test]
+    fn the_member_directory_is_its_live_one_and_only_for_the_verified_incarnation() {
+        use crate::test_support::{TestChild, TestDirectory};
+        let root = TestDirectory::new();
+        let (first, second) = (root.path.join("first"), root.path.join("second"));
+        std::fs::create_dir(&first).unwrap();
+        std::fs::create_dir(&second).unwrap();
+        let moved = root.path.join("moved");
+        let script = format!(
+            "cd {} && : > {} && exec sleep 30",
+            second.display(),
+            moved.display()
+        );
+        let mut child = TestChild::new(
+            Command::new("/bin/sh")
+                .args(["-c", &script])
+                .current_dir(&first)
+                .stdin(Stdio::null())
+                .spawn()
+                .unwrap(),
+        );
+        let driver = PtyDriver {
+            runner: &UnixCommandRunner,
+            server: None,
+            deadline: Instant::now() + Duration::from_secs(10),
+            enter_delay: Duration::ZERO,
+        };
+        let pid = u64::from(child.child.id());
+        child.wait_for_content(&moved, "", Duration::from_secs(10));
+        let start = runtime::observe_start(driver.runner, pid, driver.deadline)
+            .unwrap()
+            .unwrap();
+        let canonical =
+            |path: Option<String>| path.map(|path| std::fs::canonicalize(path).unwrap());
+        assert_eq!(
+            canonical(driver.member_cwd(pid, &start)),
+            Some(std::fs::canonicalize(&second).unwrap()),
+            "the live directory after cd, not the launch directory"
+        );
+        assert_eq!(
+            driver.member_cwd(pid, "ps-v1:another incarnation"),
+            None,
+            "a reused pid never lends its directory"
+        );
+        child.child.kill().unwrap();
+        child.wait_for_exit(Duration::from_secs(10));
+        assert_eq!(driver.member_cwd(pid, &start), None, "an exited member");
     }
 
     #[test]
