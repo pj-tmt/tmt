@@ -212,8 +212,12 @@ fn the_window_is_the_tabs_own_view_state_and_leaves_the_agents_range_alone() {
     assert_eq!(app.workspace.selected, selected);
     paint(&mut app, 100, 32);
     app.choose(Choice::DigestBasis);
-    assert!(app.scrolls.offset(crate::config::Pane::Replies) > 0);
+    assert!(
+        app.estimate_basis.is_some(),
+        "Basis opens the Evidence modal"
+    );
     assert_eq!(app.workspace.selected, selected);
+    app.estimate_basis = None;
     app.context_menu();
     assert!(
         app.menu
@@ -258,8 +262,8 @@ fn painted_impact_controls_activate_through_the_digest_mouse_route() {
                     "the painted window chip must open its menu on Digest"
                 ),
                 Choice::DigestBasis => assert!(
-                    app.scrolls.offset(crate::config::Pane::Replies) > 0,
-                    "the painted Basis button must reveal its evidence"
+                    app.estimate_basis.is_some(),
+                    "the painted Basis button must open its evidence"
                 ),
                 _ => unreachable!(),
             }
@@ -290,18 +294,15 @@ fn painted_impact_controls_keep_search_loading_overlay_and_geometry_fences() {
             }
             app.mouse(click, std::time::Instant::now());
             assert!(app.menu.is_none(), "{fence}: no window menu");
-            assert_eq!(
-                app.scrolls.offset(crate::config::Pane::Replies),
-                0,
-                "{fence}"
-            );
+            assert!(app.estimate_basis.is_none(), "{fence}: no basis modal");
         }
     }
 }
 
 #[test]
-fn basis_reveals_hidden_details_via_the_existing_panel_cas() {
+fn basis_opens_the_evidence_modal_and_leaves_hidden_details_hidden() {
     use crate::config::{DigestPanels, PanelSetting};
+    let _no_commands = crate::runner::forbid_commands();
     let mut app = capture_case("impact-complete", crate::look::Look::default());
     let mut panels = DigestPanels::default();
     panels.set_side_shown(false).unwrap();
@@ -315,74 +316,55 @@ fn basis_reveals_hidden_details_via_the_existing_panel_cas() {
         .preferences
         .digest_panels = Some(PanelSetting::configured(panels));
     paint(&mut app, 100, 32);
-    let effect = app.choose(Choice::DigestBasis);
-    let Effect::Act(crate::board::app::Request::WorkspacePreferences { expected, next, .. }) =
-        effect
-    else {
-        panic!("the existing Details toggle must own the write");
-    };
-    assert!(
-        !expected
-            .digest_panels
-            .as_ref()
-            .unwrap()
-            .effective()
-            .side_shown()
-    );
-    assert!(
-        next.digest_panels
-            .as_ref()
-            .unwrap()
-            .effective()
-            .side_shown()
-    );
-    assert_eq!(expected.savings_unit, next.savings_unit);
-    assert_eq!(expected.tok_range, next.tok_range);
-    assert!(
-        !app.digest_panels().side_shown(),
-        "a pending write never paints Saved"
-    );
-    app.finished_workspace_preferences(next, "saved".into());
-    assert!(app.digest_panels().side_shown());
+    assert_eq!(app.choose(Choice::DigestBasis), Effect::None, "no write");
+    assert!(app.estimate_basis.is_some());
+    assert!(!app.digest_panels().side_shown());
+    let shown = paint(&mut app, 100, 32);
+    assert!(shown.contains("Estimate basis · Evidence"), "{shown}");
+    assert!(shown.contains("Method: saved"), "{shown}");
 }
 
 #[test]
-fn details_show_each_impact_amount_once_and_basis_has_only_evidence() {
+fn each_details_line_belongs_to_one_tab_and_amounts_stay_in_impact() {
+    use super::super::details;
     let mut app = valued_board();
     press(&mut app, '2');
     select_worker(&mut app);
-    let lines = super::super::render::detail_lines(&app, 160, 121_000, app.selected_row());
-    let text = lines
-        .iter()
-        .map(ToString::to_string)
-        .collect::<Vec<_>>()
-        .join("\n");
-    let (impact, basis) = text.split_once("Estimate basis").unwrap();
+    let row = app.selected_row();
+    let impact = details::impact(&app, row).join("\n");
+    let delivery = details::delivery(&app, 121_000, row).join("\n");
+    let evidence = details::evidence(&app, 121_000, row).join("\n");
     for amount in ["18.2k", "$12.40", "18%"] {
-        assert_eq!(
-            text.matches(amount).count(),
-            1,
-            "{amount} appears once: {text}"
-        );
-        assert!(impact.contains(amount), "amount stays in Impact: {text}");
+        assert_eq!(impact.matches(amount).count(), 1, "{amount}: {impact}");
         assert!(
-            !basis.contains(amount),
-            "basis contains evidence only: {text}"
+            !delivery.contains(amount) && !evidence.contains(amount),
+            "{amount}"
         );
     }
-    assert_eq!(text.matches(super::super::summary::DEFINITION).count(), 1);
-    assert!(
-        !basis.contains("Observed input quote"),
-        "usage amount stays outside basis"
-    );
     for fact in [
         "gpt-6-sol",
         "$2.00 per 1M",
         "price table 2026-10-14",
         "under 1 s",
         "1–2 min",
+        details::METHOD,
     ] {
-        assert!(basis.contains(fact), "basis retains {fact}: {text}");
+        assert!(evidence.contains(fact), "Evidence keeps {fact}: {evidence}");
+        assert!(!impact.contains(fact) && !delivery.contains(fact), "{fact}");
+    }
+    assert!(delivery.contains("Digest: Auto"), "{delivery}");
+    for (name, tab) in [
+        ("impact", &impact),
+        ("delivery", &delivery),
+        ("evidence", &evidence),
+    ] {
+        for line in tab.lines().filter(|line| !line.is_empty()) {
+            let tabs = [&impact, &delivery, &evidence]
+                .into_iter()
+                .filter(|other| other.lines().any(|other| other == line))
+                .count();
+            assert_eq!(tabs, 1, "{name}: '{line}' appears in more than one tab");
+        }
     }
 }
 

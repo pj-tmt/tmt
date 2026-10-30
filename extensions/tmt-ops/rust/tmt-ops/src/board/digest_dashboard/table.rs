@@ -134,6 +134,14 @@ pub(super) fn painted_width(app: &App) -> Option<u16> {
         .filter(|inside| !inside.is_empty())
         .map(|inside| inside.width)
 }
+/// Whether the painted table carries the hourly strip; Details shows it when it does not.
+pub(super) fn activity_shown(app: &App) -> bool {
+    painted_width(app).is_some_and(|width| {
+        tracks(width, app.savings_unit())
+            .iter()
+            .any(|(field, _)| matches!(field, Field::Activity))
+    })
+}
 pub(super) fn price_column_shown(app: &App) -> bool {
     painted_width(app).is_some_and(|width| {
         tracks(width, app.savings_unit())

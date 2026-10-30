@@ -640,6 +640,10 @@ impl App {
                 )
             });
         }
+        // Details tabs exist only on the Digest tab, so the key is not offered elsewhere.
+        if self.shell.tab != OpsTab::Digest {
+            keys.retain(|_, action| action.verb != Verb::Ui(OpsUiAction::DigestDetails));
+        }
         // Switching tools belongs to the selected Agents row, even when an
         // authored global binding names the action from the conversation pane.
         if self.workspace_scope() != OpsKeyScope::Member {
@@ -1175,6 +1179,12 @@ impl App {
             NewMember => return self.open_new_member(),
             SwitchTool => return self.open_switch_tool(),
             MonitorDetails => return self.overview_details(),
+            DigestDetails => {
+                if self.shell.tab != crate::board::shell::OpsTab::Digest {
+                    return self.say("Details tabs are on the Digest tab.");
+                }
+                return self.show_digest_details(self.digest_details.next());
+            }
             WorkspaceSnapshots => return self.open_recovery(),
             DiscoverAgents => return self.open_discovery(),
             Previous => self.workspace_select(self.selected.saturating_sub(1)),
