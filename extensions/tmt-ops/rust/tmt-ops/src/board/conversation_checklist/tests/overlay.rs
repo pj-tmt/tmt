@@ -670,6 +670,7 @@ pub(in crate::board) const LIST_SCENES: &[&str] = &[
     "notes-list-completed",
     "notes-list-retired",
     "notes-list-conflict",
+    "notes-form-reopened",
 ];
 
 fn stamped(mut view: ItemView, title: &str, by: &str, ago_ms: u64) -> ItemView {
@@ -741,6 +742,14 @@ pub(in crate::board) fn list_case(scene: &str, look: crate::look::Look) -> App {
         .squad_looks
         .clear();
     if scene == "notes-list-empty" {
+        return app;
+    }
+    // A kept draft with text opened again: Title, Link, then Discard.
+    if scene == "notes-form-reopened" {
+        press(&mut app, KeyCode::Char('a'));
+        type_text(&mut app, "half a thought");
+        press(&mut app, KeyCode::Esc);
+        app.open_notes();
         return app;
     }
     if scene == "notes-list-completed" {
