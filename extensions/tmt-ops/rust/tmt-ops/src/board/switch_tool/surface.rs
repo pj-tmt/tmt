@@ -19,7 +19,7 @@ impl Controller {
             "Model".into(),
             String::new(),
             String::new(),
-            "↑↓ choose an observed tool/model, or type a value. Empty model uses the selected tool's policy.".into(),
+            "←→ choose an observed tool/model, or type a value. Empty model uses the selected tool's policy.".into(),
         ]
     }
 
@@ -237,52 +237,62 @@ impl Controller {
                 ),
             );
         }
-        let (cancel, apply, focus) = match self.stage {
-            Stage::Form => (
-                "Cancel",
-                if loaded_form { "Review" } else { "" },
-                self.focus.saturating_sub(2),
-            ),
+        use super::Control;
+        let (first, apply) = match self.stage {
+            Stage::Form => ("Cancel", if loaded_form { "Review" } else { "" }),
+            // Back steps to the form; Esc hides the dialog with its draft.
             Stage::Review => (
-                "Cancel",
+                "Back",
                 if self.review.as_ref().is_some_and(|r| r.outer.is_none()) {
                     "Copy command"
                 } else {
                     "Switch"
                 },
-                self.focus,
             ),
-            Stage::Pending => ("", "", 0),
-            Stage::Result(_) => ("Close", "", 0),
+            Stage::Pending => ("", ""),
+            Stage::Result(_) => ("Close", ""),
         };
         let can_apply = readable
             && !apply.is_empty()
             && (self.stage != Stage::Form || self.review_from_fields().is_ok());
-        let buttons = [
-            super::super::buttons::Button::secondary(cancel)
-                .focused(focus == 0 && (self.stage != Stage::Form || self.focus >= 2))
-                .enabled(!cancel.is_empty()),
-            super::super::buttons::Button::primary(apply)
-                .focused(focus == 1)
-                .enabled(can_apply),
-        ];
-        let n = if apply.is_empty() {
-            usize::from(!cancel.is_empty())
-        } else {
-            2
-        };
+        let focus = self.focused();
+        let controls: Vec<Control> = self
+            .buttons()
+            .into_iter()
+            .filter(|control| *control != Control::Apply || !apply.is_empty())
+            .collect();
+        let buttons: Vec<_> = controls
+            .iter()
+            .map(|control| {
+                let button = match control {
+                    Control::First => super::super::buttons::Button::secondary(first),
+                    Control::Discard => super::super::buttons::Button::secondary("Discard"),
+                    Control::Apply => {
+                        super::super::buttons::Button::primary(apply).enabled(can_apply)
+                    }
+                };
+                button.focused(focus == Some(*control))
+            })
+            .collect();
         let hits = super::super::buttons::paint(
             app,
             frame.buffer_mut(),
             areas.footer,
-            &buttons[..n],
+            &buttons,
             Align::Left,
             Some(super::super::app::Overlay::SwitchTool),
         );
+        let hit = |control| {
+            controls
+                .iter()
+                .position(|c| *c == control)
+                .and_then(|i| hits.get(i).copied().flatten())
+        };
         self.controls.set([
-            hits.first().copied().flatten(),
-            hits.get(1).copied().flatten().filter(|_| can_apply),
+            hit(Control::First),
+            hit(Control::Apply).filter(|_| can_apply),
         ]);
+        self.discard.set(hit(Control::Discard));
         if self.stage == Stage::Review && self.review.as_ref().is_some_and(|r| r.outer.is_some()) {
             let x = hits
                 .iter()

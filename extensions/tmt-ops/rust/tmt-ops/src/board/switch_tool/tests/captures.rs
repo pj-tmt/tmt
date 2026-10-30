@@ -5,6 +5,7 @@ pub(in crate::board) const SCENES: &[&str] = &[
     "switch-tool-form",
     "switch-tool-model",
     "switch-tool-review",
+    "switch-tool-reopened",
     "switch-tool-copy-only",
     "switch-tool-pending",
     "switch-tool-success",
@@ -51,6 +52,7 @@ pub(in crate::board) fn case(scene: &str, look: crate::look::Look) -> App {
     if matches!(
         scene,
         "switch-tool-review"
+            | "switch-tool-reopened"
             | "switch-tool-copy-only"
             | "switch-tool-pending"
             | "switch-tool-hidden-pending"
@@ -121,6 +123,11 @@ pub(in crate::board) fn case(scene: &str, look: crate::look::Look) -> App {
                 )),
             });
         }
+    }
+    // A kept review opened again on its agent: Back · Discard · Switch.
+    if scene == "switch-tool-reopened" {
+        key(&mut app, KeyCode::Esc);
+        app.open_switch_tool();
     }
     app
 }

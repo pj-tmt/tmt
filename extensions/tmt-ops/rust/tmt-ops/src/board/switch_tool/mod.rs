@@ -27,6 +27,14 @@ enum Stage {
     Pending,
     Result(String),
 }
+/// A footer button: the first one (Cancel, Back or Close), Discard on a reopened draft, or the
+/// stage's action.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Control {
+    First,
+    Discard,
+    Apply,
+}
 #[derive(Clone, Copy)]
 enum ResultKind {
     Switched,
@@ -50,7 +58,10 @@ impl Stage {
 }
 pub(in crate::board) struct Controller {
     owner: u64,
+    /// False while the dialog is hidden: a kept draft, or a switch running behind it.
     shown: bool,
+    /// Opened again from a kept draft: Discard drops it.
+    reopened: bool,
     source: Option<Source>,
     loaded: Option<Loaded>,
     stage: Stage,
@@ -62,6 +73,7 @@ pub(in crate::board) struct Controller {
     notice: Option<String>,
     readable: Cell<bool>,
     controls: Cell<[Option<Rect>; 2]>,
+    discard: Cell<Option<Rect>>,
     fields_hit: Cell<[Option<Rect>; 2]>,
     editor_width: Cell<u16>,
     scroll: RefCell<ScrollState>,
@@ -96,8 +108,30 @@ impl Controller {
     pub fn invalidate(&self) {
         self.readable.set(false);
         self.controls.set([None, None]);
+        self.discard.set(None);
         self.fields_hit.set([None, None]);
         self.choices.borrow_mut().clear();
+    }
+    /// The stage's buttons in order; on the form they follow its two fields (`focus` 2, 3, …).
+    fn buttons(&self) -> Vec<Control> {
+        match self.stage {
+            Stage::Form | Stage::Review => [Control::First]
+                .into_iter()
+                .chain(self.reopened.then_some(Control::Discard))
+                .chain([Control::Apply])
+                .collect(),
+            Stage::Pending => vec![],
+            Stage::Result(_) => vec![Control::First],
+        }
+    }
+    /// The focused button, if focus is not in a form field.
+    fn focused(&self) -> Option<Control> {
+        let at = if self.stage == Stage::Form {
+            self.focus.checked_sub(2)?
+        } else {
+            self.focus
+        };
+        self.buttons().get(at).copied()
     }
     fn cycle(&mut self, back: bool) {
         if self.focus > 1 {
@@ -163,8 +197,33 @@ impl App {
                 "Select an agent and close the current input or overlay before switching AI tool.",
             );
         }
+        // A kept draft belongs to its agent's observed session; on another agent it gives way
+        // to a fresh form and says so. A running switch or its result reopens from anywhere.
+        let dropped = self
+            .switch_tool
+            .as_ref()
+            .filter(|c| {
+                matches!(c.stage, Stage::Form | Stage::Review)
+                    && c.source.as_ref().is_none_or(|s| !s.still_selected(self))
+            })
+            .map(|c| {
+                c.source
+                    .as_ref()
+                    .map_or("an agent".to_owned(), |s| s.name.clone())
+            });
+        if dropped.is_some() {
+            self.switch_tool = None;
+        }
         if let Some(c) = &mut self.switch_tool {
             c.shown = true;
+            // Discard joins the row; the focused button stays the same button.
+            let control = c.focused();
+            c.reopened = matches!(c.stage, Stage::Form | Stage::Review);
+            if let Some(control) = control
+                && let Some(at) = c.buttons().iter().position(|b| *b == control)
+            {
+                c.focus = at + if c.stage == Stage::Form { 2 } else { 0 };
+            }
             c.invalidate();
             self.menu = None;
             return Effect::None;
@@ -179,6 +238,7 @@ impl App {
         self.switch_tool = Some(Controller {
             owner: task.owner,
             shown: true,
+            reopened: false,
             source,
             loaded: None,
             stage: Stage::Form,
@@ -190,17 +250,23 @@ impl App {
             notice: None,
             readable: Cell::new(false),
             controls: Cell::new([None, None]),
+            discard: Cell::new(None),
             fields_hit: Cell::new([None, None]),
             editor_width: Cell::new(40),
             scroll: RefCell::new(Default::default()),
             choices: RefCell::new(Vec::new()),
         });
         self.menu = None;
+        if let Some(name) = dropped {
+            self.say(format!("Dropped the kept Switch tool draft for {name}."));
+        }
         Effect::SwitchTool(task)
     }
     pub(in crate::board) fn switch_tool_changed(&mut self) -> bool {
+        // A hidden draft waits for its reopen, which handles a changed selection.
         let stale = self.switch_tool.as_ref().is_some_and(|c| {
-            matches!(c.stage, Stage::Form | Stage::Review)
+            c.shown
+                && matches!(c.stage, Stage::Form | Stage::Review)
                 && c.source.as_ref().is_some_and(|s| !s.still_selected(self))
         });
         if stale && let Some(c) = &mut self.switch_tool {
@@ -255,12 +321,18 @@ impl App {
             Effect::None
         }
     }
-    /// A running switch hides and keeps going; any other stage closes.
+    /// Esc, Cancel or an outside press. A loaded form or a review hides and keeps its draft for
+    /// the same key; a running switch hides and keeps going; a load or a result closes.
     pub(in crate::board) fn switch_tool_close(&mut self) -> Effect {
         let reopen = self.switch_tool_reopen_hint();
         let Some(c) = &mut self.switch_tool else {
             return Effect::None;
         };
+        if c.stage == Stage::Review || c.stage == Stage::Form && c.loaded.is_some() {
+            c.shown = false;
+            c.invalidate();
+            return Effect::None;
+        }
         if c.stage != Stage::Pending {
             self.switch_tool = None;
             return Effect::None;
@@ -317,23 +389,21 @@ impl App {
                 c.invalidate();
                 return Some(Effect::None);
             }
-            activate = c
-                .controls
-                .get()
-                .iter()
-                .position(|r| r.is_some_and(|r| r.contains(point)));
+            let [first, apply] = c.controls.get();
+            activate = [
+                (first, Control::First),
+                (c.discard.get(), Control::Discard),
+                (apply, Control::Apply),
+            ]
+            .into_iter()
+            .find(|(area, _)| area.is_some_and(|a| a.contains(point)))
+            .map(|(_, control)| control);
         }
         if let Event::Key(key) = event {
             if key.kind == KeyEventKind::Release {
                 return Some(Effect::None);
             }
             if key.code == KeyCode::Esc {
-                if c.stage == Stage::Review {
-                    c.stage = Stage::Form;
-                    c.focus = 0;
-                    c.invalidate();
-                    return Some(Effect::None);
-                }
                 return Some(self.switch_tool_close());
             }
             if c.stage == Stage::Pending {
@@ -352,32 +422,35 @@ impl App {
                     feedback: CopyFeedback::Destination,
                 }));
             }
+            let form = c.stage == Stage::Form;
+            let buttons = c.buttons();
             match key.code {
-                KeyCode::Tab | KeyCode::BackTab => {
-                    let n = if c.stage == Stage::Form {
-                        4
-                    } else if c.stage == Stage::Review {
-                        2
-                    } else {
-                        1
-                    };
-                    c.focus = (c.focus + if key.code == KeyCode::Tab { 1 } else { n - 1 }) % n;
-                    c.invalidate();
-                }
                 KeyCode::Enter => {
-                    if c.stage == Stage::Form && c.focus < 2 {
+                    if form && c.focus < 2 {
                         c.focus += 1;
                         c.invalidate();
                     } else {
-                        activate = Some(if c.stage == Stage::Form {
-                            c.focus.saturating_sub(2)
-                        } else {
-                            c.focus
-                        });
+                        activate = c.focused();
                     }
                 }
-                KeyCode::Up | KeyCode::Down if c.stage == Stage::Form && c.focus < 2 => {
-                    c.cycle(key.code == KeyCode::Up);
+                // ↑↓ change the field, and below Model the button row; ←→ change the value.
+                KeyCode::Up if form && c.focus > 0 => {
+                    c.focus = c.focus.min(2) - 1;
+                    c.invalidate();
+                }
+                KeyCode::Down if form && c.focus < 2 => {
+                    c.focus += 1;
+                    c.invalidate();
+                }
+                KeyCode::Left | KeyCode::Right if form && c.focus < 2 => {
+                    c.cycle(key.code == KeyCode::Left);
+                    c.invalidate();
+                }
+                KeyCode::Left | KeyCode::Right if !buttons.is_empty() && c.focused().is_some() => {
+                    let base = if form { 2 } else { 0 };
+                    let n = buttons.len();
+                    let at = c.focus - base;
+                    c.focus = base + (at + if key.code == KeyCode::Left { n - 1 } else { 1 }) % n;
                     c.invalidate();
                 }
                 _ if c.stage == Stage::Form && c.focus < 2 => {
@@ -405,16 +478,23 @@ impl App {
         if c.stage != Stage::Form && c.scroll.borrow_mut().input(event) {
             c.readable.set(false);
         }
-        if let Some(index) = activate {
-            if index == 0 {
+        // Only a painted Discard drops the draft, by key or click.
+        if activate == Some(Control::Discard) {
+            if c.discard.get().is_some() {
+                self.switch_tool = None;
+            }
+            return Some(Effect::None);
+        }
+        if let Some(control) = activate {
+            if control == Control::First {
+                // Back from the review to the form; Cancel hides the form; Close ends a result.
                 if c.stage == Stage::Review {
                     c.stage = Stage::Form;
                     c.focus = 0;
                     c.invalidate();
-                } else {
-                    self.switch_tool = None;
+                    return Some(Effect::None);
                 }
-                return Some(Effect::None);
+                return Some(self.switch_tool_close());
             }
             if !c.readable.get() {
                 return Some(Effect::None);

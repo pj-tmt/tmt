@@ -666,8 +666,9 @@ The header names the target and effective action; custom bindings retain their
 actual argv. `j` is not tree navigation.
 New member shows Name, AI tool, Model, Effort, Host, Session, Squad and Keep
 (Saved/Temporary); Effort appears only when the tool's driver lists efforts, and
-Session only on tmux. ↑↓ (or Tab) move through the fields and the Cancel/Create
-buttons, ←→ change a listed (▾) field, and Enter opens its list: type to filter, and
+Session only on tmux. ↑↓ move through the fields and the Cancel/Create buttons, ←→
+change a listed (▾) field or move between buttons, and Tab does nothing. Enter opens a
+listed field's list (Esc closes just the list): type to filter, and
 the last row takes free text (a model id, a session, or a new squad created with the
 kept member). Model and Effort lists come from Core's `drivers.models`, else from
 observed models; "(provider default)" omits the option. The built-in host shows as
@@ -687,7 +688,10 @@ member. A left drag over the screen selects its text and copies it with the chat
 While typing into a program that asked for the mouse, Ops ignores a plain drag (only
 the wheel reaches the program); drag with your terminal's selection bypass (often Shift,
 Option in iTerm2) to select. A failed or uncertain launch keeps the draft; never retry before checking public
-state. Esc during a launch or template save hides the form: the launch goes on, the status
+state. Esc, Cancel or a click outside hides the form or its template editor with what you
+typed; `n` reopens it with Discard between Cancel and Create (Back · Discard · Save on the
+template) to drop it. Back steps from the template to the form. Esc during a launch or template
+save hides the form: the launch goes on, the status
 line says it is running and then shows its result, and `n` reopens the form on that result. A created member whose squad add fails remains visible in Common pool with
 its repair command.
 
@@ -1038,7 +1042,11 @@ reviewed; the same key reopens it, titled with its target, with Discard beside C
 drop it. ↓ past a field's last line reaches those buttons, ←→ move between them and ↑
 goes back. Member actions reopen only from the Agents list. One draft is kept at a time:
 starting a different management form drops it, and the status line says
-`Dropped the kept <form> draft.`
+`Dropped the kept <form> draft.` Switch tool (`S`) keeps its form or review the same way and
+reopens it on the same agent with Discard; Back steps from the review to the form. On another
+agent `S` starts fresh and says `Dropped the kept Switch tool draft for <agent>.`; a running
+switch or its result reopens from any agent. In the form ↑↓ move between AI tool, Model and
+the buttons, and ←→ choose an observed value.
 Results retain per-item success/failure and explicit repair guidance, with no
 automatic retry; Enter or Esc closes a result. `x` removes membership, not an identity, process, draft or history.
 Source timers pause before leave; re-add/reassign never resumes them. Explicit

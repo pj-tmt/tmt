@@ -319,7 +319,16 @@ fn a_list_filters_takes_free_form_text_and_escape_closes_it_first() {
     key(&mut app, KeyCode::Esc);
     assert!(app.new_member.as_ref().unwrap().list.is_none());
     key(&mut app, KeyCode::Esc);
-    assert!(app.new_member.is_none());
+    assert!(!app.new_member_shown(), "a second Esc hides the dialog");
+    assert_eq!(
+        app.new_member
+            .as_ref()
+            .unwrap()
+            .draft
+            .text(model::Slot::Model),
+        "my-model",
+        "and keeps its draft"
+    );
 }
 #[test]
 fn the_command_passes_model_and_effort_before_the_name_and_a_new_squad_is_created() {
@@ -402,7 +411,7 @@ fn a_clean_built_in_start_closes_the_form_onto_the_member_terminal() {
     ));
 }
 #[test]
-fn template_editor_returns_to_the_exact_member_draft_without_saving_on_escape() {
+fn template_esc_hides_without_saving_and_back_returns_to_the_exact_member_draft() {
     let _ui = crate::runner::forbid_commands();
     let mut app = form();
     let draft = app.new_member.as_ref().unwrap().draft.fields.clone();
@@ -410,8 +419,55 @@ fn template_editor_returns_to_the_exact_member_draft_without_saving_on_escape() 
     key(&mut app, KeyCode::Char('e'));
     assert_eq!(app.new_member.as_ref().unwrap().stage, Stage::Template);
     app.new_member_event(&Event::Paste(" invalid".into()));
-    key(&mut app, KeyCode::Esc);
-    assert_eq!(app.new_member.as_ref().unwrap().draft.fields, draft);
+    let typed = app.new_member.as_ref().unwrap().template.to_string();
+    assert_eq!(key(&mut app, KeyCode::Esc), Effect::None);
+    assert!(!app.new_member_shown(), "Esc hides; nothing saves");
+
+    assert_eq!(app.open_new_member(), Effect::None);
+    let c = app.new_member.as_ref().unwrap();
+    assert_eq!(c.stage, Stage::Template);
+    assert_eq!(c.template.to_string(), typed);
+    let screen = paint(&app, 150, 43);
+    assert!(
+        screen.contains("Back") && screen.contains("Discard"),
+        "{screen}"
+    );
+    // ↓ past the editor reaches Back; Enter steps back to the untouched member draft.
+    key(&mut app, KeyCode::Down);
+    assert_eq!(app.new_member.as_ref().unwrap().focus, 1);
+    key(&mut app, KeyCode::Enter);
+    let c = app.new_member.as_ref().unwrap();
+    assert_eq!(c.stage, Stage::Form);
+    assert_eq!(c.draft.fields, draft);
+}
+
+#[test]
+fn a_kept_form_reopens_with_discard_reached_by_arrows() {
+    let mut app = form();
+    assert!(!paint(&app, 150, 43).contains("Discard"));
+    key(&mut app, KeyCode::Tab);
+    assert_eq!(
+        app.new_member.as_ref().unwrap().at,
+        Focus::Slot(model::Slot::Name),
+        "Tab does nothing in the dialog"
+    );
+    assert_eq!(key(&mut app, KeyCode::Esc), Effect::None);
+    assert!(!app.new_member_shown());
+
+    assert_eq!(app.open_new_member(), Effect::None);
+    let c = app.new_member.as_ref().unwrap();
+    assert!(c.shown && c.reopened);
+    assert_eq!(c.draft.text(model::Slot::Name), "new-worker");
+    assert!(paint(&app, 150, 43).contains("Discard"));
+    app.new_member.as_mut().unwrap().at = Focus::Cancel;
+    key(&mut app, KeyCode::Right);
+    assert_eq!(app.new_member.as_ref().unwrap().at, Focus::Discard);
+    key(&mut app, KeyCode::Right);
+    assert_eq!(app.new_member.as_ref().unwrap().at, Focus::Create);
+    key(&mut app, KeyCode::Left);
+    paint(&app, 150, 43);
+    assert_eq!(key(&mut app, KeyCode::Enter), Effect::None);
+    assert!(app.new_member.is_none(), "Discard drops the kept draft");
 }
 
 #[test]
@@ -633,4 +689,48 @@ fn esc_hides_a_running_launch_and_the_status_line_follows_it_to_its_result() {
         Stage::Result(_)
     ));
     assert_eq!(app.overlay(), Some(crate::board::app::Overlay::NewMember));
+}
+
+#[test]
+fn reopen_keeps_the_template_button_and_arrows_stay_on_the_button_row() {
+    let mut app = form();
+    app.new_member.as_mut().unwrap().at = Focus::Slot(model::Slot::Host);
+    key(&mut app, KeyCode::Char('e'));
+    paint(&app, 150, 43);
+    key(&mut app, KeyCode::Down);
+    key(&mut app, KeyCode::Right);
+    let c = app.new_member.as_ref().unwrap();
+    assert_eq!(c.template_controls()[c.focus - 1], Control::Apply);
+    key(&mut app, KeyCode::Esc);
+    assert_eq!(app.open_new_member(), Effect::None);
+    let c = app.new_member.as_ref().unwrap();
+    assert_eq!(
+        c.template_controls()[c.focus - 1],
+        Control::Apply,
+        "Discard joined the row; focus stayed on Save template"
+    );
+
+    // ←→ on the form's buttons never walk into the fields.
+    let mut app = form();
+    app.new_member.as_mut().unwrap().at = Focus::Cancel;
+    key(&mut app, KeyCode::Left);
+    assert_eq!(app.new_member.as_ref().unwrap().at, Focus::Create);
+    key(&mut app, KeyCode::Right);
+    assert_eq!(app.new_member.as_ref().unwrap().at, Focus::Cancel);
+}
+
+#[test]
+fn an_unpainted_discard_never_drops_the_draft() {
+    let mut app = form();
+    key(&mut app, KeyCode::Esc);
+    app.open_new_member();
+    let c = app.new_member.as_mut().unwrap();
+    c.at = Focus::Discard;
+    c.invalidate();
+    assert_eq!(key(&mut app, KeyCode::Enter), Effect::None);
+    assert!(app.new_member.is_some(), "nothing painted to choose from");
+    paint(&app, 150, 43);
+    app.new_member.as_mut().unwrap().at = Focus::Discard;
+    key(&mut app, KeyCode::Enter);
+    assert!(app.new_member.is_none());
 }

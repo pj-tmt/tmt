@@ -458,57 +458,81 @@ impl Controller {
             .as_ref()
             .and_then(|l| self.draft.review(l).ok())
             .is_some_and(|r| r.outer.is_none());
+        use super::Control;
         let (cancel, apply, focus) = match self.stage {
             Stage::Form if unavailable => ("Cancel", "", None),
-            Stage::Form if self.list.is_some() => ("Back", "Choose", Some(1)),
+            Stage::Form if self.list.is_some() => ("Back", "Choose", Some(Control::Apply)),
             Stage::Form => (
                 "Cancel",
                 if copy_only { "Copy commands" } else { "Create" },
                 match self.at {
-                    Focus::Cancel => Some(0),
-                    Focus::Create => Some(1),
+                    Focus::Cancel => Some(Control::First),
+                    Focus::Discard => Some(Control::Discard),
+                    Focus::Create => Some(Control::Apply),
                     Focus::Slot(_) => None,
                 },
             ),
             Stage::Hosts if unavailable => ("Close", "", None),
-            Stage::Hosts => ("Close", "Edit template", Some(1)),
+            Stage::Hosts => ("Close", "Edit template", Some(Control::Apply)),
+            // Back steps to the form or host list; the editor holds focus at 0.
             Stage::Template => (
-                "Cancel",
+                "Back",
                 "Save template",
-                Some(self.focus.saturating_sub(1)),
+                self.focus
+                    .checked_sub(1)
+                    .and_then(|at| self.template_controls().get(at).copied()),
             ),
             Stage::Launching | Stage::Saving => ("", "", None),
-            Stage::Result(_) => ("Close", "", Some(0)),
+            Stage::Result(_) => ("Close", "", Some(Control::First)),
         };
         complete &= body.height >= 10;
         if matches!(self.stage, Stage::Form | Stage::Hosts) {
             complete &= usize::from(content.height) >= demand;
         }
-        let buttons = [
-            super::super::buttons::Button::secondary(cancel)
-                .focused(focus == Some(0))
-                .enabled(!cancel.is_empty()),
-            super::super::buttons::Button::primary(apply)
-                .focused(focus == Some(1))
-                .enabled(complete && !apply.is_empty()),
-        ];
-        let buttons = &buttons[..if apply.is_empty() {
-            usize::from(!cancel.is_empty())
-        } else {
-            2
-        }];
+        let discard = self.discards() && !unavailable;
+        let mut controls = Vec::new();
+        let mut buttons = Vec::new();
+        if !cancel.is_empty() {
+            controls.push(Control::First);
+            buttons.push(
+                super::super::buttons::Button::secondary(cancel)
+                    .focused(focus == Some(Control::First)),
+            );
+        }
+        if discard {
+            controls.push(Control::Discard);
+            buttons.push(
+                super::super::buttons::Button::secondary("Discard")
+                    .focused(focus == Some(Control::Discard)),
+            );
+        }
+        if !apply.is_empty() {
+            controls.push(Control::Apply);
+            buttons.push(
+                super::super::buttons::Button::primary(apply)
+                    .focused(focus == Some(Control::Apply))
+                    .enabled(complete),
+            );
+        }
         let hits = super::super::buttons::paint(
             app,
             frame.buffer_mut(),
             areas.footer,
-            buttons,
+            &buttons,
             Align::Left,
             Some(super::super::app::Overlay::NewMember),
         );
+        let hit = |control| {
+            controls
+                .iter()
+                .position(|c| *c == control)
+                .and_then(|i| hits.get(i).copied().flatten())
+        };
         self.controls.set([
-            hits.first().copied().flatten(),
-            hits.get(1).copied().flatten().filter(|_| complete),
+            hit(Control::First),
+            hit(Control::Apply).filter(|_| complete),
         ]);
+        self.discard.set(hit(Control::Discard));
         self.readable.set(complete);
         let start = hits
             .iter()
@@ -522,7 +546,7 @@ impl Controller {
             Stage::Form | Stage::Hosts if unavailable => "Esc close",
             Stage::Form if self.list.is_some() => "↑↓ choose · type to filter · Esc back",
             Stage::Form => "↑↓ move · ←→ change · Enter list · e template",
-            Stage::Template => "Ctrl-R reset · Esc back",
+            Stage::Template => "Ctrl-R reset · Esc close",
             _ => "Esc close",
         };
         strip::paint_left(
