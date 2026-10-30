@@ -50,19 +50,19 @@ export const REMOTE_ITEMS: readonly RemoteItem[] = [
     page: 'settings',
   },
   {
-    id: 'settings',
-    path: '/remote/settings',
-    label: 'Settings',
-    title: 'Settings',
-    page: 'settings',
-  },
-  {
     id: 'service',
     path: '/remote/service',
     label: 'Service & upgrade',
     title: 'Service & upgrade',
     page: 'settings',
     adminOnly: true,
+  },
+  {
+    id: 'settings',
+    path: '/remote/settings',
+    label: 'Settings',
+    title: 'Settings',
+    page: 'settings',
   },
 ];
 export const REMOTE_PATHS: readonly string[] = [

@@ -495,7 +495,7 @@ export async function settingsPage(
         let row = rows.get(device.clientId);
         if (!row) {
           row = document.createElement('div');
-          row.className = 'device';
+          row.className = 'device tmt-ui-list-row';
           const summary = document.createElement('p');
           summary.className = 'device-summary';
           const form = document.createElement('form');

@@ -20,10 +20,14 @@
       var(--tmt-ui-list-padding-block) * 2 + var(--tmt-ui-rule-width)
   );
   padding: var(--tmt-ui-list-padding-block) var(--tmt-ui-list-padding-inline);
-  border-bottom: var(--tmt-ui-rule-width) solid var(--tmt-ui-surface-rule);
   /* A row's rule is a one-sided border: the row stays square (a rounded box never takes one side). */
   border-radius: 0;
   box-shadow: none;
+}
+.tmt-ui-list-row,
+.tmt-ui-list-columns,
+.tmt-ui-list-table-row {
+  border-bottom: var(--tmt-ui-rule-width) solid var(--tmt-ui-surface-rule);
 }
 .tmt-ui-list-row[data-leading] {
   grid-template-columns: auto minmax(0, 1fr) auto auto;
@@ -91,10 +95,14 @@
 .tmt-ui-list-label {
   display: block;
 }
+.tmt-ui-list-description,
+.tmt-ui-list-columns,
+.tmt-ui-subheader-text p {
+  color: var(--tmt-ui-color-secondary);
+}
 .tmt-ui-list-description {
   display: block;
   margin-top: var(--tmt-ui-space-xs);
-  color: var(--tmt-ui-color-secondary);
   font-size: var(--tmt-ui-header-action-size);
   line-height: 1.4;
 }
@@ -133,5 +141,73 @@
   }
   .tmt-ui-list-actions {
     grid-area: actions;
+  }
+}
+
+/* Column labels and rows share one caller-provided set of tracks. */
+.tmt-ui-list-table {
+  overflow: hidden;
+  border: var(--tmt-ui-rule-width) solid var(--tmt-ui-surface-rule);
+  border-radius: var(--tmt-ui-radius-l);
+  background: var(--tmt-ui-surface-sheet);
+}
+.tmt-ui-list-columns,
+.tmt-ui-list-table-row {
+  display: grid;
+  grid-template-columns: var(--tmt-ui-list-tracks);
+  align-items: center;
+}
+.tmt-ui-list-columns {
+  min-height: 29px;
+  height: 29px;
+  font-size: 10px;
+}
+.tmt-ui-list-columns > *,
+.tmt-ui-list-table-row > * {
+  min-width: 0;
+  padding-inline: 14px;
+}
+.tmt-ui-list-table-row {
+  min-height: 64px;
+}
+.tmt-ui-subheader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  margin-bottom: 24px;
+}
+.tmt-ui-subheader-text {
+  min-width: 0;
+}
+.tmt-ui-subheader-text :is(h2, h3, h4, h5, h6) {
+  margin: 0;
+}
+.tmt-ui-subheader-text p {
+  margin: 0;
+  font-size: 14px;
+}
+.tmt-ui-subheader-actions {
+  flex: none;
+  white-space: nowrap;
+}
+@media (max-width: 650px) {
+  .tmt-ui-subheader {
+    align-items: flex-start;
+    gap: 12px;
+  }
+  .tmt-ui-subheader-text p {
+    font-size: 12px;
+  }
+  .tmt-ui-list-columns {
+    display: none;
+  }
+  .tmt-ui-list-table-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+  .tmt-ui-list-table-row > [data-hide-below='phone'] {
+    display: none;
   }
 }

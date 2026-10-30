@@ -832,8 +832,8 @@ state, a React component.
   and a label that states the value.
 - **Glyph.** `createIcon(name)` (from `@tmt/browser-ui/glyph`, outside the static graph because it reads the
   shell's icon data) returns a `tmt-ui-glyph`: a line icon from the shell's icon set,
-  drawn at 1em in the colour of its text and hidden from assistive tech. `link` and `info` use the
-  pinned Lucide Link/Info nodes; they do not expand the module-describe icon allowlist.
+  drawn at 1em in the colour of its text and hidden from assistive tech. `link`, `info` and `user` use the
+  pinned Lucide Link/Info/User nodes; they do not expand the module-describe icon allowlist.
   `?frame=glyphs` shows both at 14px and 24px.
 - **Page head.** `tmt-ui-page-head` holds a `tmt-ui-page-title` (the display face, the page's
   first read) over a `tmt-ui-page-subtitle`. Static only.
@@ -1152,3 +1152,9 @@ border-only control contrast and the named soft-edge field exception, plus overl
 and reduced motion. Seeded controls prove each audit detects a violation and accepts its
 repair. CI selection and gate ownership live in the
 [CI guide](../../.agents/skills/tmt-release/references/ci-selection.md#worker-gates).
+
+### List table and page subheader
+
+`BrowserListTable` and the framework-free `createListTable` render caller-supplied columns and rows without owning navigation, selection, data, or keyboard state. Each column supplies `id`, `label`, `track`, and optionally `hideBelow: 'phone'`; one grid track value aligns the semantic column headers and each row. The host supplies one cell per column and owns links and row actions. At phone width headers are hidden and rows stack; cells marked for phone hiding are hidden with their headers.
+
+`BrowserPageSubheader` and `createPageSubheader` render a content subheader with a title, optional count, subtitle, actions, and heading level (default 2). Counts use the shell count pill. The host owns actions and the top-bar title; the subheader does not replace the page identity in the top bar.

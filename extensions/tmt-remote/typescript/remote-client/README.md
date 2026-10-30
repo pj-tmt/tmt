@@ -404,6 +404,11 @@ The settings page retains the current device page during value/effect/recovery r
 First/next navigation focuses an unsent device name and refuses to leave until that name is saved
 or restored to its admitted value. Only the current bounded page's forms are retained.
 
+People keeps unsent person-name drafts in per-tab session storage scoped to the current Remote,
+so a reload or refresh reopens the editor. A draft for a person no longer on the current page
+remains visible until restored. If browser storage is unavailable, the page reports that it cannot
+retain the draft through reload. Restoring a name clears its stored draft.
+
 ## Remote browser entry
 
 The human `tmt remote serve` link opens `/`; the JSON `address` remains the signed protocol base.

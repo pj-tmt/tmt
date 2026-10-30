@@ -44,19 +44,19 @@ var REMOTE_ITEMS = [
 		page: "settings"
 	},
 	{
-		id: "settings",
-		path: "/remote/settings",
-		label: "Settings",
-		title: "Settings",
-		page: "settings"
-	},
-	{
 		id: "service",
 		path: "/remote/service",
 		label: "Service & upgrade",
 		title: "Service & upgrade",
 		page: "settings",
 		adminOnly: true
+	},
+	{
+		id: "settings",
+		path: "/remote/settings",
+		label: "Settings",
+		title: "Settings",
+		page: "settings"
 	}
 ];
 [...REMOTE_ITEMS.filter((item) => item.id !== "remotes").map((item) => item.path), remotePath("remotes")];
@@ -925,6 +925,11 @@ var shellIconNodes = {
 			rx: "2"
 		}]
 	],
+	user: [["path", { d: "M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2" }], ["circle", {
+		cx: "12",
+		cy: "7",
+		r: "4"
+	}]],
 	users: [
 		["path", { d: "M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" }],
 		["path", { d: "M16 3.128a4 4 0 0 1 0 7.744" }],
@@ -1403,6 +1408,77 @@ function mountBrowserMenu(container, initial) {
 		}
 	};
 }
+//#endregion
+//#region ../../../../design/browser-ui/src/list-table-host.ts
+var listTableTracks = (columns) => columns.map((column) => column.track).join(" ");
+/** Framework-free owner for the same table presentation used by the React entry. */
+function createListTable(columns, label) {
+	const root = document.createElement("div");
+	root.className = "tmt-ui-list-table";
+	root.setAttribute("role", "table");
+	root.setAttribute("aria-label", label);
+	root.style.setProperty("--tmt-ui-list-tracks", listTableTracks(columns));
+	const header = document.createElement("div");
+	header.className = "tmt-ui-list-columns";
+	header.setAttribute("role", "row");
+	for (const column of columns) {
+		const cell = document.createElement("span");
+		cell.setAttribute("role", "columnheader");
+		if (column.hideBelow) cell.dataset.hideBelow = column.hideBelow;
+		cell.textContent = column.label;
+		header.append(cell);
+	}
+	const body = document.createElement("div");
+	body.setAttribute("role", "rowgroup");
+	root.append(header, body);
+	return {
+		root,
+		body,
+		row(cells) {
+			if (cells.length !== columns.length) throw new Error("A cell is required for every column.");
+			const row = document.createElement("div");
+			row.className = "tmt-ui-list-table-row";
+			row.setAttribute("role", "row");
+			cells.forEach((content, index) => {
+				const cell = document.createElement("div");
+				cell.setAttribute("role", "cell");
+				if (columns[index]?.hideBelow) cell.dataset.hideBelow = columns[index].hideBelow;
+				cell.append(content);
+				row.append(cell);
+			});
+			return row;
+		}
+	};
+}
+/** Framework-free subheader. The caller owns its actions and the top-bar title. */
+function createPageSubheader(options) {
+	const root = document.createElement("header");
+	root.className = "tmt-ui-subheader";
+	const text = document.createElement("div");
+	text.className = "tmt-ui-subheader-text";
+	const heading = document.createElement(`h${options.headingLevel ?? 2}`);
+	heading.textContent = options.title;
+	if (options.count !== void 0) {
+		const count = document.createElement("span");
+		count.className = "tmt-ui-shell-count";
+		count.textContent = String(options.count);
+		heading.append(" ", count);
+	}
+	text.append(heading);
+	if (options.subtitle !== void 0) {
+		const subtitle = document.createElement("p");
+		subtitle.textContent = options.subtitle;
+		text.append(subtitle);
+	}
+	root.append(text);
+	if (options.actions) {
+		const actions = document.createElement("div");
+		actions.className = "tmt-ui-subheader-actions";
+		actions.append(options.actions);
+		root.append(actions);
+	}
+	return root;
+}
 new TextEncoder();
 function requireValue(condition, label) {
 	if (!condition) throw new Error(`Invalid ${label}.`);
@@ -1844,6 +1920,16 @@ function node$2(tag, text = "") {
 	result.textContent = text;
 	return result;
 }
+function paintConnection(state, connection) {
+	state.dataset.tone = connection.text === "Connected" ? "working" : connection.text === "Offline" ? "blocked" : "neutral";
+	const mark = node$2("span");
+	mark.className = browserUiClasses.stateMark;
+	mark.dataset.shape = "dot";
+	mark.setAttribute("aria-hidden", "true");
+	const label = node$2("span", connection.text);
+	label.className = browserUiClasses.chipLabel;
+	state.replaceChildren(mark, label);
+}
 function action(text, run, variant) {
 	const button = node$2("button");
 	const label = node$2("span", text);
@@ -1881,13 +1967,76 @@ function remoteRegistryPage(initialBlocked = () => "", shell) {
 	const root = document.getElementById("remotes");
 	if (!root) return Object.assign(() => {}, {
 		blockedBy: () => {},
+		setSummary: () => {},
+		watchSummary: () => () => {},
 		renameCurrent: () => {},
 		watch: () => () => {}
 	});
 	const listeners = /* @__PURE__ */ new Set();
+	const summaryListeners = /* @__PURE__ */ new Set();
 	const fragment = location.hash;
 	if (fragment) history.replaceState(null, "", location.pathname + location.search);
-	const list = document.getElementById("remote-list");
+	const oldList = document.getElementById("remote-list");
+	const table = createListTable([
+		{
+			id: "icon",
+			label: "",
+			track: "48px",
+			hideBelow: "phone"
+		},
+		{
+			id: "name",
+			label: "Name",
+			track: "minmax(0, 1fr)"
+		},
+		{
+			id: "connection",
+			label: "Connection",
+			track: "128px"
+		},
+		{
+			id: "role",
+			label: "Your role",
+			track: "136px"
+		},
+		{
+			id: "members",
+			label: "Members",
+			track: "96px",
+			hideBelow: "phone"
+		},
+		{
+			id: "active",
+			label: "Last active",
+			track: "104px",
+			hideBelow: "phone"
+		},
+		{
+			id: "actions",
+			label: "",
+			track: "36px"
+		}
+	], "My Remotes");
+	const list = table.body;
+	list.id = "remote-list";
+	oldList.replaceWith(table.root);
+	const footer = node$2("p");
+	footer.className = "remote-list-footer";
+	table.root.after(footer);
+	const head = document.getElementById("remote-head");
+	const actions = head.querySelector(".remote-head-actions");
+	const primary = actions.querySelector("a[data-variant=primary]");
+	if (primary) actions.prepend(primary);
+	const subheader = createPageSubheader({
+		title: "My Remotes",
+		count: 0,
+		subtitle: "Names and addresses stay in this browser.",
+		actions
+	});
+	head.replaceChildren(...subheader.childNodes);
+	head.className = subheader.className;
+	const count = head.querySelector(".tmt-ui-shell-count");
+	const subtitle = head.querySelector(".tmt-ui-subheader-text p");
 	const status = document.getElementById("remote-status");
 	const joinHost = document.getElementById("remote-join");
 	const joinMenu = mountBrowserMenu(joinHost, {
@@ -1914,6 +2063,7 @@ function remoteRegistryPage(initialBlocked = () => "", shell) {
 	}, { once: true });
 	let observed = "Checking";
 	let observedRole;
+	let summary;
 	let address = document.documentElement.dataset.tmtPage === "settings" ? new URL("./", location.href).href : void 0;
 	let currentDialog;
 	(shell ?? void 0)?.signal.addEventListener("abort", () => {
@@ -2087,6 +2237,11 @@ function remoteRegistryPage(initialBlocked = () => "", shell) {
 			address,
 			role: observedRole
 		});
+		const visibleSummary = observed === "Connected" && observedRole === "owner" ? summary : void 0;
+		summaryListeners.forEach((listener) => listener(visibleSummary));
+		count.textContent = String(projection.rows.length);
+		if (subtitle) subtitle.textContent = `${projection.rows.length} ${projection.rows.length === 1 ? "remote" : "remotes"} · Names and addresses stay in this browser.`;
+		footer.replaceChildren(node$2("span", `${projection.rows.length} ${projection.rows.length === 1 ? "remote" : "remotes"} in this view`), node$2("span", "Saved in this browser · Forget leaves access unchanged"));
 		listeners.forEach((listener) => listener(projection));
 		const existing = [...list.children];
 		if (existing.length === projection.rows.length && existing.every((row, index) => {
@@ -2098,9 +2253,11 @@ function remoteRegistryPage(initialBlocked = () => "", shell) {
 				const role = row.querySelector("[data-role]");
 				role.querySelector(".tmt-ui-chip-label").textContent = entry.roleLabel;
 				role.dataset.roleTone = entry.role === "owner" ? "selected" : entry.role === void 0 ? "muted" : "neutral";
-				const state = row.querySelector(".tmt-ui-list-state");
-				state.textContent = `${entry.connection.mark} ${entry.connection.text}`;
-				state.dataset.tone = entry.connection.tone;
+				paintConnection(row.querySelector(".tmt-ui-list-state"), entry.connection);
+				const countCell = row.querySelector("[data-summary=members]");
+				const activeCell = row.querySelector("[data-summary=active]");
+				countCell.textContent = entry.thisMachine && observedRole === "owner" && summary?.memberCount != null ? String(summary.memberCount) : "";
+				activeCell.textContent = entry.thisMachine && observedRole === "owner" && summary?.lastActiveAtMs != null ? new Date(summary.lastActiveAtMs).toLocaleString() : "";
 				const open = row.querySelector("[data-action=\"open\"]");
 				open.setAttribute("aria-disabled", String(!entry.thisMachine && !!blocked()));
 				if (!entry.thisMachine && blocked()) open.removeAttribute("href");
@@ -2113,13 +2270,6 @@ function remoteRegistryPage(initialBlocked = () => "", shell) {
 		rowMenus.forEach((item) => item.dispose());
 		rowMenus = [];
 		list.replaceChildren(...projection.rows.map((entry) => {
-			const row = node$2("li");
-			row.className = browserUiClasses.listRow;
-			row.dataset.remote = entry.id;
-			row.dataset.thisMachine = String(entry.thisMachine);
-			row.dataset.url = entry.url;
-			row.dataset.kind = entry.reference?.kind ?? "local";
-			row.dataset.leading = "";
 			const leading = node$2("div");
 			leading.className = browserUiClasses.listLeading;
 			leading.append(createIcon(entry.backend === "Local" ? "terminal" : "box"));
@@ -2163,16 +2313,12 @@ function remoteRegistryPage(initialBlocked = () => "", shell) {
 			role.className += " remote-role";
 			role.dataset.role = "";
 			role.dataset.roleTone = entry.role === "owner" ? "selected" : entry.role === void 0 ? "muted" : "neutral";
-			label.append(role);
 			const description = node$2("span", `${entry.backend}${entry.project ? ` · ${entry.project}` : ""} · ${entry.url}`);
 			description.className = browserUiClasses.listDescription;
 			title.append(label, description);
-			const meta = node$2("div");
-			meta.className = browserUiClasses.listMeta;
-			const state = node$2("div", `${entry.connection.mark} ${entry.connection.text}`);
-			state.className = browserUiClasses.listState;
-			state.dataset.tone = entry.connection.tone;
-			meta.append(state);
+			const state = node$2("div");
+			state.className = `${browserUiClasses.listState} ${browserUiClasses.chip}`;
+			paintConnection(state, entry.connection);
 			const actions = node$2("div");
 			actions.className = browserUiClasses.listActions;
 			if (entry.reference) {
@@ -2198,7 +2344,23 @@ function remoteRegistryPage(initialBlocked = () => "", shell) {
 				});
 				rowMenus.push(rowMenu);
 			}
-			row.append(leading, title, meta, actions);
+			const memberCount = node$2("span", entry.thisMachine && observedRole === "owner" && summary?.memberCount != null ? String(summary.memberCount) : "");
+			memberCount.dataset.summary = "members";
+			const lastActive = node$2("span", entry.thisMachine && observedRole === "owner" && summary?.lastActiveAtMs != null ? new Date(summary.lastActiveAtMs).toLocaleString() : "");
+			lastActive.dataset.summary = "active";
+			const row = table.row([
+				leading,
+				title,
+				state,
+				role,
+				memberCount,
+				lastActive,
+				actions
+			]);
+			row.dataset.remote = entry.id;
+			row.dataset.thisMachine = String(entry.thisMachine);
+			row.dataset.url = entry.url;
+			row.dataset.kind = entry.reference?.kind ?? "local";
 			return row;
 		}));
 		menu(projection);
@@ -2248,12 +2410,23 @@ function remoteRegistryPage(initialBlocked = () => "", shell) {
 	}, { signal: (shell ?? void 0)?.signal });
 	const observe = (state, checkedAddress, role) => {
 		observed = state;
-		if (state !== "Connected" || role === null) observedRole = void 0;
-		else if (role !== void 0) observedRole = role;
+		if (state !== "Connected" || role === null) {
+			observedRole = void 0;
+			summary = void 0;
+		} else if (role !== void 0) observedRole = role;
 		if (checkedAddress) address = checkedAddress;
 		paint();
 	};
 	return Object.assign(observe, {
+		setSummary: (value) => {
+			summary = observed === "Connected" ? value : void 0;
+			paint();
+		},
+		watchSummary: (listener) => {
+			summaryListeners.add(listener);
+			listener(observed === "Connected" && observedRole === "owner" ? summary : void 0);
+			return () => summaryListeners.delete(listener);
+		},
 		renameCurrent: (opener) => {
 			const current = registryView(catalog, {
 				pageUrl: location.href,
@@ -3084,6 +3257,27 @@ function memberName(value) {
 	return typeof value === "string" && value.trim().length > 0 && new TextEncoder().encode(value).length <= 64 && ![...value].some((character) => character.charCodeAt(0) < 32 || character.charCodeAt(0) === 127);
 }
 //#endregion
+//#region src/person-drafts.ts
+var key = (remote) => `tmt-remote-person-drafts-v1:${remote}`;
+function readPersonDrafts(storage, remote) {
+	const raw = storage.getItem(key(remote));
+	if (!raw) return /* @__PURE__ */ new Map();
+	try {
+		const data = JSON.parse(raw);
+		if (!Array.isArray(data)) return /* @__PURE__ */ new Map();
+		return new Map(data.filter((item) => Array.isArray(item) && item.length === 2 && typeof item[0] === "string" && item[1] !== null && typeof item[1] === "object" && typeof item[1].baseline === "string" && typeof item[1].value === "string"));
+	} catch {
+		return /* @__PURE__ */ new Map();
+	}
+}
+function writePersonDraft(storage, remote, member, draft) {
+	const drafts = readPersonDrafts(storage, remote);
+	if (draft) drafts.set(member, draft);
+	else drafts.delete(member);
+	if (drafts.size) storage.setItem(key(remote), JSON.stringify([...drafts]));
+	else storage.removeItem(key(remote));
+}
+//#endregion
 //#region src/members-page.ts
 /** Keeps one roster page and one explicitly opened machine page, never a second authority. */
 var MembersPage = class {
@@ -3287,7 +3481,42 @@ function mountMembersPage(root, page, signal, otherBusy, changed = () => {}, obs
 	const status = node("p", "Checking people…");
 	status.setAttribute("role", "status");
 	const facts = node("p");
-	const list = node("div");
+	const table = createListTable([
+		{
+			id: "icon",
+			label: "",
+			track: "48px",
+			hideBelow: "phone"
+		},
+		{
+			id: "person",
+			label: "Person",
+			track: "minmax(0, 2.2fr)"
+		},
+		{
+			id: "role",
+			label: "Role",
+			track: "minmax(0, .9fr)"
+		},
+		{
+			id: "sending",
+			label: "Sending",
+			track: "minmax(0, 1fr)"
+		},
+		{
+			id: "machines",
+			label: "Machines",
+			track: "minmax(0, 1.2fr)"
+		},
+		{
+			id: "actions",
+			label: "",
+			track: "36px"
+		}
+	], "People");
+	const list = table.body;
+	const footer = node("p");
+	footer.className = "people-list-footer";
 	const refreshButton = button("Refresh people");
 	const first = button("First people");
 	const more = button("Next people");
@@ -3295,10 +3524,23 @@ function mountMembersPage(root, page, signal, otherBusy, changed = () => {}, obs
 	const recover = button("Check original outcome");
 	const rows = /* @__PURE__ */ new Map();
 	let localNotice = "";
+	let draftsLoaded = false;
+	function persistDraft(memberId, baseline, value) {
+		const remoteId = page.roster?.remoteId;
+		if (!remoteId) return;
+		try {
+			writePersonDraft(sessionStorage, remoteId, memberId, value === baseline ? void 0 : {
+				baseline,
+				value
+			});
+		} catch {
+			localNotice = "This browser could not retain the unsent name after reload.";
+		}
+	}
 	let selected;
 	let machineCursor = null;
 	let confirmation;
-	root.replaceChildren(status, facts, refreshButton, list, first, more, original, recover);
+	root.replaceChildren(status, facts, refreshButton, table.root, footer, first, more, original, recover);
 	function draftReason() {
 		for (const row of rows.values()) if (row.input.value !== row.baseline) return "Save or restore the unsent person name first.";
 		return "";
@@ -3380,7 +3622,25 @@ function mountMembersPage(root, page, signal, otherBusy, changed = () => {}, obs
 		const item = node("article");
 		item.className = "people-person";
 		const summary = node("p");
-		summary.className = "people-person-summary";
+		summary.className = "tmt-ui-visually-hidden";
+		const nameText = node("span", name);
+		const person = node("span");
+		person.className = "tmt-ui-list-leading";
+		person.append(createIcon("user"));
+		const roleText = node("span");
+		roleText.className = "tmt-ui-chip-label";
+		const roleChip = node("span");
+		roleChip.className = "tmt-ui-chip remote-role";
+		roleChip.append(roleText);
+		const sendingText = node("span");
+		sendingText.className = "tmt-ui-chip-label";
+		const sendingChip = node("span");
+		sendingChip.className = "tmt-ui-chip";
+		const sendingMark = node("span");
+		sendingMark.className = "tmt-ui-state-mark";
+		sendingMark.dataset.shape = "dot";
+		sendingMark.setAttribute("aria-hidden", "true");
+		sendingChip.append(sendingMark, sendingText);
 		const field = node("div");
 		field.className = "tmt-ui-field";
 		const label = node("label", "Person name");
@@ -3397,19 +3657,60 @@ function mountMembersPage(root, page, signal, otherBusy, changed = () => {}, obs
 		nameActions.className = "people-name-actions";
 		const memberActions = node("div");
 		memberActions.className = "people-member-actions";
+		nameActions.hidden = true;
+		memberActions.hidden = true;
 		const save = button("Save name");
 		const restore = button("Restore name");
 		const send = button("Enable sending");
 		const revoke = button("Remove person");
 		revoke.dataset.variant = "destructive";
 		const expand = button("Show machines");
+		expand.dataset.variant = "ghost";
 		const machines = node("div");
 		const confirmText = node("p");
 		confirmText.setAttribute("role", "status");
 		const cancel = button("Cancel");
+		const menuHost = node("div");
+		const menuOptions = () => ({
+			label: `Actions for ${nameText.textContent}`,
+			items: [
+				{
+					key: "rename",
+					label: "Rename"
+				},
+				{
+					key: "sending",
+					label: send.textContent ?? "Enable sending",
+					disabled: send.disabled
+				},
+				{
+					key: "revoke",
+					label: "Remove person",
+					disabled: revoke.disabled,
+					separated: true
+				}
+			],
+			onSelect(key) {
+				if (key === "rename") {
+					nameActions.hidden = false;
+					input.focus();
+				} else if (key === "sending" || key === "revoke") {
+					memberActions.hidden = false;
+					confirm(memberId, key);
+				}
+			}
+		});
 		const row = {
 			root: item,
 			summary,
+			nameText,
+			roleText,
+			roleChip,
+			sendingText,
+			sendingChip,
+			nameActions,
+			memberActions,
+			menu: mountBrowserMenu(menuHost, menuOptions()),
 			input,
 			baseline: name,
 			save,
@@ -3423,13 +3724,25 @@ function mountMembersPage(root, page, signal, otherBusy, changed = () => {}, obs
 			cancel
 		};
 		nameActions.append(field, save, restore);
-		memberActions.append(send, revoke, expand);
-		item.append(summary, nameActions, memberActions, machines, confirmText, cancel);
+		memberActions.append(send, revoke);
+		const tableRow = table.row([
+			person,
+			nameText,
+			roleChip,
+			sendingChip,
+			expand,
+			menuHost
+		]);
+		item.append(tableRow, summary, nameActions, memberActions, machines, confirmText, cancel);
 		restore.addEventListener("click", () => {
 			input.value = row.baseline;
+			persistDraft(memberId, row.baseline, input.value);
 			render();
 		}, { signal });
-		input.addEventListener("input", render, { signal });
+		input.addEventListener("input", () => {
+			persistDraft(memberId, row.baseline, input.value);
+			render();
+		}, { signal });
 		save.addEventListener("click", () => {
 			const member = page.roster?.members.find((value) => value.memberId === memberId);
 			if (!member || !available() || input.value === row.baseline) return;
@@ -3479,6 +3792,8 @@ function mountMembersPage(root, page, signal, otherBusy, changed = () => {}, obs
 	function render() {
 		if (signal.aborted) return;
 		const view = page.roster;
+		footer.replaceChildren(node("span", view ? `${view.members.length} ${view.members.length === 1 ? "person" : "people"} in this page` : ""), node("span", "Remove person · Enable / Disable sending in the row menu"));
+		footer.hidden = !view;
 		const outcome = page.outcome;
 		if (localNotice) status.textContent = localNotice;
 		else if (outcome?.state === "unknown") status.textContent = "This change is unconfirmed. Check its original outcome before another change.";
@@ -3499,13 +3814,29 @@ function mountMembersPage(root, page, signal, otherBusy, changed = () => {}, obs
 			observations.textContent = pendingMemberObservations(view);
 			observations.hidden = !observations.textContent;
 		}
+		if (view && !draftsLoaded) {
+			draftsLoaded = true;
+			try {
+				for (const [id, draft] of readPersonDrafts(sessionStorage, view.remoteId)) {
+					const member = view.members.find((item) => item.memberId === id);
+					const row = rows.get(id) ?? rowFor(id, member?.displayName ?? draft.baseline);
+					row.input.value = draft.value;
+					if (row.input.value !== row.baseline) row.nameActions.hidden = false;
+					else persistDraft(id, row.baseline, row.input.value);
+				}
+			} catch {
+				localNotice = "This browser could not restore an unsent name after reload.";
+			}
+		}
 		const current = new Set(view?.members.map((member) => member.memberId) ?? []);
 		for (const [id, row] of rows) if (!current.has(id)) {
 			if (row.input.value === row.baseline) {
+				row.menu.dispose();
 				row.root.remove();
 				rows.delete(id);
 			} else {
 				row.root.hidden = false;
+				row.summary.className = "";
 				row.summary.textContent = "This person is not in the current page. Your unsent name is kept; restore it to continue.";
 				row.save.disabled = row.send.disabled = row.revoke.disabled = row.expand.disabled = true;
 				row.restore.hidden = false;
@@ -3515,9 +3846,17 @@ function mountMembersPage(root, page, signal, otherBusy, changed = () => {}, obs
 		for (const member of view?.members ?? []) {
 			const row = rows.get(member.memberId) ?? rowFor(member.memberId, member.displayName);
 			row.root.hidden = false;
+			row.summary.className = "tmt-ui-visually-hidden";
 			if (row.input.value === row.baseline) row.input.value = member.displayName;
 			row.baseline = member.displayName;
+			if (row.input.value === row.baseline) persistDraft(member.memberId, row.baseline, row.input.value);
+			else row.nameActions.hidden = false;
 			row.summary.textContent = `${member.displayName} · ${member.role === "owner" ? "Owner" : "Member"} · Sending ${member.sendingEnabled ? "on" : "off"}${member.revokedAtMs === null ? "" : " · Revoked"}`;
+			row.nameText.textContent = member.displayName;
+			row.roleText.textContent = member.role === "owner" ? "Owner" : "Member";
+			row.roleChip.dataset.roleTone = member.role === "owner" ? "selected" : "neutral";
+			row.sendingChip.dataset.tone = member.revokedAtMs !== null ? "blocked" : member.sendingEnabled ? "working" : "neutral";
+			row.sendingText.textContent = member.revokedAtMs !== null ? "Revoked" : member.sendingEnabled ? "Sending on" : "Sending off";
 			const editable = available() && member.revokedAtMs === null;
 			row.input.disabled = !editable;
 			row.save.disabled = !editable || row.input.value === row.baseline;
@@ -3582,6 +3921,37 @@ function mountMembersPage(root, page, signal, otherBusy, changed = () => {}, obs
 			row.confirmation.textContent = !pending ? "" : confirmation.kind === "revoke" ? `This removes ${member.displayName}'s Remote access. Press Remove person again to confirm.` : `${confirmation.enabled ? "Enable" : "Disable"} sending for ${member.displayName}. Press the same action again to confirm.`;
 			row.confirmation.hidden = !pending;
 			row.cancel.hidden = !pending;
+			row.memberActions.hidden = !pending;
+			row.menu.update({
+				label: `Actions for ${member.displayName}`,
+				items: [
+					{
+						key: "rename",
+						label: "Rename",
+						disabled: row.input.disabled
+					},
+					{
+						key: "sending",
+						label: row.send.textContent ?? "Enable sending",
+						disabled: row.send.disabled
+					},
+					{
+						key: "revoke",
+						label: "Remove person",
+						disabled: row.revoke.disabled,
+						separated: true
+					}
+				],
+				onSelect(key) {
+					if (key === "rename") {
+						row.nameActions.hidden = false;
+						row.input.focus();
+					} else if (key === "sending" || key === "revoke") {
+						row.memberActions.hidden = false;
+						confirm(member.memberId, key);
+					}
+				}
+			});
 		}
 	}
 	refreshButton.addEventListener("click", () => void refresh(), { signal });
@@ -3593,7 +3963,10 @@ function mountMembersPage(root, page, signal, otherBusy, changed = () => {}, obs
 		if (cursor && !heldBy()) run(() => page.refresh(cursor));
 	}, { signal });
 	recover.addEventListener("click", () => void run(() => page.recover()), { signal });
-	signal.addEventListener("abort", () => page.dispose(), { once: true });
+	signal.addEventListener("abort", () => {
+		for (const row of rows.values()) row.menu.dispose();
+		page.dispose();
+	}, { once: true });
 	render();
 	return {
 		render,
@@ -3963,7 +4336,7 @@ async function settingsPage(shell, registry, initial) {
 				let row = rows.get(device.clientId);
 				if (!row) {
 					row = document.createElement("div");
-					row.className = "device";
+					row.className = "device tmt-ui-list-row";
 					const summary = document.createElement("p");
 					summary.className = "device-summary";
 					const form = document.createElement("form");

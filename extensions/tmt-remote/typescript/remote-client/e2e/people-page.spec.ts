@@ -1,6 +1,7 @@
 import { test, expect } from '@playwright/test';
 import { createServer, type ViteDevServer } from 'vite';
-import { readFile } from 'node:fs/promises';
+import { mkdir, readFile } from 'node:fs/promises';
+import { join } from 'node:path';
 
 // Presentation uses the real retained model with an isolated signed-port stand-in.
 let server: ViteDevServer;
@@ -34,7 +35,7 @@ test.beforeAll(async () => {
     const member={remoteId,memberId:'person-1',role:'user',displayName:'Guest',sendingEnabled:false,revision:4,createdAtMs:1,revokedAtMs:null};
     const fixture=window.peopleFixture={admin:true,reads:0,machineReads:0,effects:[],originals:[],external:false,known:false,failLookup:false,role:'user',routes:{state:'not-recorded'}};
     const client={clientId:'current',
-      async list(){fixture.reads++;return {remoteId,administrator:fixture.admin,displayName:'Remote',members:[{...member,role:fixture.role}],nextCursor:null,invitation:fixture.admin?{state:'no-current-offer'}:null,routes:fixture.routes}},
+      async list(){fixture.reads++;return {remoteId,administrator:fixture.admin,displayName:'Remote',members:location.search.includes('hide=1')?[]:[{...member,role:fixture.role}],nextCursor:null,invitation:fixture.admin?{state:'no-current-offer'}:null,routes:fixture.routes}},
       async machines({memberId}){fixture.machineReads++;return {remoteId,memberId,machines:[{clientId:'browser-1',name:'Laptop',kind:'browser',revision:1,revoked:false,expiresAtMs:null,sendingScope:false,delivery:'direct',recipientAccess:'all',grantLive:true,lastUsedAtMs:null,thisBrowser:true,liveSessionCount:null,lastActivityAtMs:null},{clientId:'browser-2',name:'Old browser',kind:'browser',revision:1,revoked:false,expiresAtMs:1,sendingScope:false,delivery:'direct',recipientAccess:'all',grantLive:false,lastUsedAtMs:null,thisBrowser:false,liveSessionCount:0,lastActivityAtMs:null},{clientId:'browser-3',name:'Removed browser',kind:'browser',revision:1,revoked:true,expiresAtMs:null,sendingScope:false,delivery:'direct',recipientAccess:'all',grantLive:false,lastUsedAtMs:null,thisBrowser:false,liveSessionCount:null,lastActivityAtMs:null}],nextCursor:null}},
       async rename(input){fixture.effects.push({kind:'rename',...input});return {operationId:input.operationId,state:'unknown',reason:'effect_outcome_unconfirmed'}},
       async sending(input){fixture.effects.push({kind:'sending',...input});return {operationId:input.operationId,state:'unknown',reason:'effect_outcome_unconfirmed'}},
@@ -52,7 +53,7 @@ test.beforeAll(async () => {
     server: { host: '127.0.0.1', port: 0 },
   });
   server.middlewares.use((request, response, next) => {
-    if (request.url !== '/remote/members') return next();
+    if (!request.url?.startsWith('/remote/members')) return next();
     response.setHeader('Content-Type', 'text/html; charset=utf-8');
     response.end(html);
   });
@@ -65,11 +66,37 @@ test.afterAll(async () => {
   await server?.close();
 });
 
+async function captureExisting(page: import('@playwright/test').Page, state: string) {
+  const directory = process.env.REMOTE_PEOPLE_CAPTURE_DIR;
+  if (!directory) return;
+  await mkdir(directory, { recursive: true });
+  await page.screenshot({ path: join(directory, `${state}.png`), fullPage: true });
+}
+
+async function openRename(page: import('@playwright/test').Page) {
+  await page.getByRole('button', { name: 'Actions for Guest' }).click();
+  await page.getByRole('menuitem', { name: 'Rename' }).click();
+}
+async function beginSending(page: import('@playwright/test').Page) {
+  await page.getByRole('button', { name: 'Actions for Guest' }).click();
+  await page.getByRole('menuitem', { name: 'Enable sending' }).click();
+}
+
 test('People keeps drafts on refresh and reads machines only when expanded', async ({ page }) => {
   await page.goto(`${origin}/remote/members`);
-  await expect(page.getByText('Guest · Member · Sending off')).toBeVisible();
+  await expect(page.getByRole('cell', { name: 'Guest', exact: true })).toBeVisible();
+  const sending = page.getByText('Sending off', { exact: true });
+  await expect(sending).toBeVisible();
+  expect(
+    await sending.evaluate(
+      (element) => element.parentElement!.scrollWidth <= element.parentElement!.clientWidth,
+    ),
+  ).toBe(true);
+  await captureExisting(page, 'refresh');
+  await openRename(page);
   const name = page.getByRole('textbox', { name: 'Person name for Guest' });
   await name.fill('Guest draft');
+  await captureExisting(page, 'draft');
   await page.getByRole('button', { name: 'Refresh people' }).click();
   await expect(name).toHaveValue('Guest draft');
   expect(
@@ -91,13 +118,43 @@ test('People keeps drafts on refresh and reads machines only when expanded', asy
   });
   await page.getByRole('button', { name: 'Refresh people' }).click();
   await expect(name).toHaveValue('Guest draft');
-  await expect(page.getByRole('button', { name: 'Enable sending for Guest' })).toBeDisabled();
-  await expect(page.getByRole('button', { name: 'Remove Guest' })).toBeDisabled();
+  await page.getByRole('button', { name: 'Actions for Guest' }).click();
+  await expect(page.getByRole('menuitem', { name: 'Enable sending' })).toBeDisabled();
+  await expect(page.getByRole('menuitem', { name: 'Remove person' })).toBeDisabled();
   await expect(page.getByText(/Only a designated admin/)).toBeVisible();
+});
+
+test('an unsaved person name remains visible after reload until restored', async ({ page }) => {
+  await page.goto(`${origin}/remote/members`);
+  await openRename(page);
+  await page.getByRole('textbox', { name: 'Person name for Guest' }).fill('Guest draft');
+  await page.reload();
+  const name = page.getByRole('textbox', { name: 'Person name for Guest' });
+  await expect(name).toBeVisible();
+  await expect(name).toHaveValue('Guest draft');
+  await page.getByRole('button', { name: 'Restore name for Guest' }).click();
+  await page.reload();
+  await expect(name).toBeHidden();
+});
+
+test('an unsent name remains visible if its person is absent after reload', async ({ page }) => {
+  await page.goto(`${origin}/remote/members`);
+  await openRename(page);
+  await page.getByRole('textbox', { name: 'Person name for Guest' }).fill('Guest draft');
+  await page.goto(`${origin}/remote/members?hide=1`);
+  await expect(
+    page.getByText(
+      'This person is not in the current page. Your unsent name is kept; restore it to continue.',
+    ),
+  ).toBeVisible();
+  await expect(page.getByLabel('Person name', { exact: true })).toHaveValue('Guest draft');
+  await page.getByRole('button', { name: 'Restore name', exact: true }).click();
+  await expect(page.getByLabel('Person name', { exact: true })).toHaveCount(0);
 });
 
 test('invalid names are refused locally without a member effect', async ({ page }) => {
   await page.goto(`${origin}/remote/members`);
+  await openRename(page);
   const name = page.getByRole('textbox', { name: 'Person name for Guest' });
   await name.fill('   ');
   await page.getByRole('button', { name: 'Save name for Guest' }).click();
@@ -111,10 +168,11 @@ test('invalid names are refused locally without a member effect', async ({ page 
 
 test('People confirms sending once and reads the original without replay', async ({ page }) => {
   await page.goto(`${origin}/remote/members`);
-  const send = page.getByRole('button', { name: 'Enable sending for Guest' });
+  await beginSending(page);
+  const send = page.locator('button[aria-label="Enable sending for Guest"]');
   await expect(send).toBeEnabled();
-  await send.click();
   await expect(page.getByText(/Press the same action again to confirm/)).toBeVisible();
+  await captureExisting(page, 'confirmation');
   expect(
     await page.evaluate(
       () => (window as unknown as { peopleFixture: Fixture }).peopleFixture.effects.length,
@@ -125,6 +183,7 @@ test('People confirms sending once and reads the original without replay', async
   await expect(send).toBeDisabled();
   await page.getByRole('button', { name: 'Refresh people' }).click();
   await expect(page.getByText(/Original change/)).toBeVisible();
+  await captureExisting(page, 'recovery');
   const checkOriginal = page.getByRole('button', { name: 'Check original outcome' });
   await checkOriginal.click();
   await expect(page.getByText(/This change is unconfirmed/)).toBeVisible();
@@ -152,9 +211,9 @@ test('People retains its original ID after a failed lookup and permits another c
   page,
 }) => {
   await page.goto(`${origin}/remote/members`);
-  const send = page.getByRole('button', { name: 'Enable sending for Guest' });
+  await beginSending(page);
+  const send = page.locator('button[aria-label="Enable sending for Guest"]');
   await expect(send).toBeEnabled();
-  await send.click();
   await send.click();
   const original = page.getByText(/Original change/);
   await expect(original).toBeVisible();
@@ -184,12 +243,14 @@ test('owner rows do not offer sending or removal, while a member retains both', 
   page,
 }) => {
   await page.goto(`${origin}/remote/members`);
-  await expect(page.getByRole('button', { name: 'Enable sending for Guest' })).toBeEnabled();
+  await page.getByRole('button', { name: 'Actions for Guest' }).click();
+  await expect(page.getByRole('menuitem', { name: 'Enable sending' })).toBeEnabled();
+  await page.keyboard.press('Escape');
   await page.evaluate(() => {
     (window as unknown as { peopleFixture: Fixture }).peopleFixture.role = 'owner';
   });
   await page.getByRole('button', { name: 'Refresh people' }).click();
-  await expect(page.getByText('Guest · Owner · Sending off')).toBeVisible();
+  await expect(page.getByRole('cell', { name: 'Owner' })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Enable sending for Guest' })).toHaveCount(0);
   await expect(page.getByRole('button', { name: 'Remove Guest' })).toHaveCount(0);
   await page.locator('.people-person button[aria-label="Remove Guest"]').evaluate((button) => {
@@ -207,6 +268,7 @@ test('person name is stacked and the save action stays next to the field on wide
 }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
   await page.goto(`${origin}/remote/members`);
+  await openRename(page);
   const input = page.getByRole('textbox', { name: 'Person name for Guest' });
   const label = page.locator('.people-name-actions label');
   const save = page.getByRole('button', { name: 'Save name for Guest' });
