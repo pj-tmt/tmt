@@ -101,6 +101,22 @@ impl TestChild {
     }
 }
 
+/// Start a new fixture once, to its observed exit, before it is probed. On macOS
+/// the first start of a newly written executable can take longer than a probe
+/// deadline, and such first starts run one at a time (#2352); a probe test must
+/// not depend on it. A user right after installing an extension can meet the
+/// same cost once (#5624); that is accepted production behaviour.
+pub(crate) fn warm(executable: &Path) {
+    let child = std::process::Command::new(executable)
+        .arg("warm")
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .spawn()
+        .unwrap();
+    let status = TestChild::new(child).wait_for_exit(Duration::from_secs(10));
+    assert!(status.success(), "{status}");
+}
+
 impl Drop for TestChild {
     fn drop(&mut self) {
         match self.child.try_wait() {
