@@ -87,8 +87,11 @@ impl App {
 
     /// Opens, replaces or drops the one stream so it matches what is shown. True when it changed.
     pub(in crate::board) fn terminal_sync(&mut self) -> bool {
-        let wanted = self
-            .terminal_identity()
+        let selected = self.terminal_identity();
+        if let Some(id) = &selected {
+            self.terminal.selected(id);
+        }
+        let wanted = selected
             .filter(|id| self.terminal.showing(id))
             .and_then(|id| {
                 let address = self.terminal.address(&id)?.clone();

@@ -82,6 +82,8 @@ pub(in crate::board) struct Tab {
     ended: HashSet<String>,
     /// Keys go to the program, byte for byte.
     typing: bool,
+    /// The member whose stream starts typing as soon as it opens: a clean built-in create.
+    type_on_open: Option<String>,
     /// The tab fills the board.
     zoomed: bool,
     /// Where the last frame drew the screen, which is the size the program is given.
@@ -127,6 +129,10 @@ impl Tab {
     }
 
     pub(in crate::board) fn located(&mut self, identity: &str, located: Located, now_ms: u64) {
+        // A failed answer is asked again; only no stream ends the wish.
+        if matches!(located, Located::NoStream) && self.type_on_open.as_deref() == Some(identity) {
+            self.type_on_open = None;
+        }
         self.seen.insert(
             identity.to_owned(),
             Seen {
@@ -146,6 +152,25 @@ impl Tab {
         self.shown = true;
     }
 
+    /// Shows the terminal of `identity` and types into it once its stream opens, as a click
+    /// would. Any other stream opening, a toggle, a reattach or core finding no stream drops it.
+    pub(in crate::board) fn show_typing(&mut self, identity: &str) {
+        self.shown = true;
+        self.type_on_open = Some(identity.to_owned());
+    }
+
+    #[cfg(test)]
+    pub(in crate::board) fn typing_wish(&self) -> Option<&str> {
+        self.type_on_open.as_deref()
+    }
+
+    /// The selection moved to `identity`: a typing wish for another member is dropped.
+    pub(in crate::board) fn selected(&mut self, identity: &str) {
+        if self.type_on_open.as_deref() != Some(identity) {
+            self.type_on_open = None;
+        }
+    }
+
     /// The tab is on for `identity`: asked for, and a stream exists to show.
     pub(in crate::board) fn showing(&self, identity: &str) -> bool {
         self.shown && self.address(identity).is_some()
@@ -155,6 +180,7 @@ impl Tab {
     /// asks core again, since the program may have been started anew.
     pub(in crate::board) fn toggle(&mut self, identity: &str) {
         self.shown = !self.shown;
+        self.type_on_open = None;
         if self.shown
             && self.ended.remove(identity)
             && let Some(seen) = self.seen.get_mut(identity)
@@ -187,8 +213,11 @@ impl Tab {
                 stream: connect(self.epoch, address.clone()),
             });
         }
-        // Typing and zoom belong to one stream: they end with it.
-        self.typing = false;
+        // Typing and zoom belong to one stream: they end with it. A new one starts typing when
+        // it is the stream a create asked for; any open stream uses up that wish.
+        self.typing = self.open.as_ref().is_some_and(|open| {
+            self.type_on_open.take().as_deref() == Some(open.identity.as_str())
+        });
         self.zoomed &= self.open.is_some();
         true
     }
@@ -196,6 +225,7 @@ impl Tab {
     /// Drops the open stream so the next [`Tab::sync`] opens a fresh one: `⏎` after the stream
     /// ended. Core is asked again, since the program may have been started anew.
     pub(in crate::board) fn reattach(&mut self) {
+        self.type_on_open = None;
         if let Some(open) = self.open.take() {
             self.ended.remove(&open.identity);
             if let Some(seen) = self.seen.get_mut(&open.identity) {
@@ -386,6 +416,62 @@ pub(in crate::board) mod tests {
         assert!(!tab.needs_locating(ID, u64::MAX / 2), "a stream stays");
         assert_eq!(tab.locating_wait(ID, 9_000), None);
         assert_eq!(tab.address(ID), Some(&address("a")));
+    }
+
+    #[test]
+    fn a_create_types_only_into_its_own_stream_when_it_opens() {
+        let (mut tab, _) = tab();
+        let (a, b) = (address("a"), address("b"));
+        tab.show_typing(ID);
+        assert!(tab.shown());
+        assert!(!tab.sync(None), "no stream yet keeps the wish");
+        tab.selected(ID);
+        assert!(tab.sync(Some((ID, &a))));
+        assert!(tab.typing(), "its stream opens typing");
+        tab.sync(Some((OTHER, &b)));
+        assert!(!tab.typing(), "typing belongs to that one stream");
+        tab.sync(Some((ID, &a)));
+        assert!(!tab.typing(), "and the wish was used once");
+    }
+
+    #[test]
+    fn a_failed_answer_keeps_the_create_wish_for_the_retry() {
+        let (mut tab, _) = tab();
+        let a = address("a");
+        tab.show_typing(ID);
+        tab.located(ID, Located::Failed("busy".into()), 0);
+        tab.sync(None);
+        tab.located(ID, Located::Stream(a.clone()), FAILED_FOR_MS);
+        assert!(tab.sync(Some((ID, &a))));
+        assert!(tab.typing(), "the retry's stream starts typing");
+    }
+
+    #[test]
+    fn a_create_wish_is_dropped_by_anything_else_first() {
+        let a = address("a");
+        type Drop = fn(&mut Tab);
+        let dropped: [(&str, Drop); 5] = [
+            ("another stream opens", |tab| {
+                tab.sync(Some((OTHER, &address("b"))));
+            }),
+            ("another member is picked", |tab| tab.selected(OTHER)),
+            ("the tab is toggled twice", |tab| {
+                tab.toggle(ID);
+                tab.toggle(ID);
+            }),
+            ("a reattach", Tab::reattach),
+            ("core finds no stream", |tab| {
+                tab.located(ID, Located::NoStream, 0);
+            }),
+        ];
+        for (what, drop) in dropped {
+            let (mut tab, _) = tab();
+            tab.show_typing(ID);
+            drop(&mut tab);
+            tab.sync(None);
+            tab.sync(Some((ID, &a)));
+            assert!(!tab.typing(), "{what}");
+        }
     }
 
     #[test]

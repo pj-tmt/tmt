@@ -446,6 +446,14 @@ struct Attached {
 
 impl Attached {
     fn new(snapshot: &[u8]) -> Self {
+        Self::opened(snapshot, |app, address| {
+            app.apply_terminal_located(MEMBER, Located::Stream(address));
+            press_t(app);
+        })
+    }
+
+    /// Attached once `open` has asked for the terminal of the stream at its address.
+    fn opened(snapshot: &[u8], open: impl FnOnce(&mut App, super::discovery::Address)) -> Self {
         let fake = super::stream::tests::Fake::new();
         let (sender, events) = std::sync::mpsc::channel();
         let mut tab = super::tab::Tab::default();
@@ -457,8 +465,7 @@ impl Attached {
         }));
         let mut app = reader();
         app.terminal = tab;
-        app.apply_terminal_located(MEMBER, Located::Stream(fake.address.clone()));
-        press_t(&mut app);
+        open(&mut app, fake.address.clone());
         assert!(app.terminal_sync());
         let mut peer = fake.accept();
         peer.attach(super::stream::tests::size(40, 6), snapshot);
@@ -958,5 +965,51 @@ fn while_typing_the_composer_and_its_key_hints_are_not_offered() {
     assert!(
         text(&app).contains("to message worker"),
         "back after leaving"
+    );
+}
+
+#[test]
+fn a_created_member_terminal_takes_the_keys_as_soon_as_its_stream_opens() {
+    // A clean built-in create asks before core has named the stream.
+    let mut attached = Attached::opened(b"hi", |app, address| {
+        app.terminal.show_typing(MEMBER);
+        assert!(!app.terminal_sync(), "nothing to open yet");
+        assert!(!app.terminal.typing());
+        app.apply_terminal_located(MEMBER, Located::Stream(address));
+    });
+    assert!(attached.app.terminal.typing(), "typing as if clicked");
+    let typing = text(&attached.app);
+    for hint in ["to message worker", "⏎ send", "@ mention"] {
+        assert!(!typing.contains(hint), "no composer: {hint}\n{typing}");
+    }
+    attached.app.terminal_sync();
+    assert_eq!(
+        attached.peer.expect(),
+        ClientMessage::Resize(window(&attached.app)),
+        "the window is asked for as with a click"
+    );
+    assert_eq!(
+        attached.typed(KeyCode::Char('a'), KeyModifiers::NONE),
+        b"a",
+        "keys reach the member, not the composer"
+    );
+}
+
+#[test]
+fn a_create_whose_stream_never_opens_leaves_no_typing_behind() {
+    let mut app = reader();
+    app.terminal.show_typing(MEMBER);
+    app.terminal_sync();
+    // The member exited before its stream was found.
+    app.apply_terminal_located(MEMBER, Located::NoStream);
+    app.terminal_sync();
+    assert!(!app.terminal.typing());
+    // Later the member is started again and picked by hand.
+    app.apply_terminal_located(MEMBER, Located::Stream(address("a")));
+    assert!(app.terminal_sync(), "the shown terminal opens");
+    assert!(!app.terminal.typing(), "the old create does not type");
+    assert!(
+        text(&app).contains("to message worker"),
+        "the composer is offered"
     );
 }
