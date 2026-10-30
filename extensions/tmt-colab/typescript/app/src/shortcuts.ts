@@ -1,5 +1,7 @@
 import { canonical } from './closed.js';
-import { validateHomeSearch, type HomeSearch } from './page-list-filter.js';
+import { listPages, validateHomeSearch, type HomeSearch } from './page-list-filter.js';
+import type { PageSummary } from './transport.js';
+
 export interface Shortcut {
   id: string;
   name: string;
@@ -57,4 +59,40 @@ export function readShortcuts(raw: string | null): ShortcutCollection {
     ids.add(item.id);
   }
   return record;
+}
+
+/** Counts are omitted when a pending field could change the matching set or attention. */
+export function shortcutCounts(
+  pages: readonly PageSummary[] | undefined,
+  search: HomeSearch,
+): { total?: number; attention?: number } {
+  if (!pages) return {};
+  const candidates = listPages(pages, {
+    ...search,
+    q: undefined,
+    by: undefined,
+    needs: undefined,
+    stage: undefined,
+    state: undefined,
+  });
+  const dependsOnSummary = !!(
+    search.q ||
+    search.by?.length ||
+    search.needs ||
+    (search.stage && search.stage !== 'all' && !search.archived)
+  );
+  if (
+    candidates.some(
+      (page) =>
+        (dependsOnSummary && !page.summary) ||
+        (!!search.q && page.titleMissing) ||
+        (!!search.state && !!page.stateError),
+    )
+  )
+    return {};
+  const matches = listPages(pages, search);
+  const total = matches.length;
+  return matches.some((page) => !page.summary)
+    ? { total }
+    : { total, attention: matches.filter((page) => page.summary?.waiting).length };
 }

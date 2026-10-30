@@ -881,6 +881,8 @@ export const text = {
     group: 'Shortcuts',
     addRow: '+ New shortcut',
     edit: 'Edit shortcut',
+    editRow: (name: string) => `Edit ${name}`,
+    deleteRow: (name: string) => `Delete ${name}`,
     saveAs: 'Save as shortcut',
     localOnly: 'Saved on this machine only. Shortcuts are not synced or shared.',
     savedList: 'Saved shortcuts',
@@ -909,6 +911,7 @@ export const text = {
     state: (value: string) => `State: ${value}`,
     readFailed: 'Saved shortcuts could not be read. Existing data has been kept.',
     saveFailed: 'Shortcut changes could not be saved on this machine. Your draft has been kept.',
+    operationFailed: 'Shortcut changes could not be saved on this machine.',
     projectLimit:
       'Save supports up to eight project filters. Reduce the project filters before saving.',
     nameErrors: {
