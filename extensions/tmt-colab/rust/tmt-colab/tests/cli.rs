@@ -3724,6 +3724,56 @@ fn an_offline_replace_combines_a_retained_own_tail_before_admitting_the_next_wri
 }
 
 #[test]
+fn a_patch_reports_the_usage_a_fresh_read_reports_with_and_without_a_combine() {
+    const SIZE: usize = 600 * 1024;
+    for serving in [false, true] {
+        let mut pilot = Pilot::new(None);
+        if serving {
+            pilot.start();
+        }
+        let file = pilot.root.join("source.html");
+        fs::write(&file, "<p>first</p>").unwrap();
+        let created = pilot.call(&[
+            "page",
+            "create",
+            "--title",
+            "Usage",
+            "--layout",
+            "column",
+            "--file",
+            file.to_str().unwrap(),
+            "--json",
+        ]);
+        let id = created["pageId"].as_str().unwrap();
+        let mut combined = false;
+        // Two small changes, then whole replacements whose tail passes the combine trigger.
+        let sources = [
+            "<p>first</p><p>1</p>".to_owned(),
+            "<p>first</p><p>2</p>".to_owned(),
+            varied_source(2, SIZE),
+            varied_source(3, SIZE),
+            varied_source(4, SIZE),
+        ];
+        for source in &sources {
+            fs::write(&file, source).unwrap();
+            let written = pilot.patch_call(id, &["--file", file.to_str().unwrap(), "--json"]);
+            assert_eq!(written["changed"], true, "{written}");
+            let read = pilot.call(&["page", "read", id, "--json"]);
+            assert_eq!(read["source"], *source);
+            assert_eq!(
+                written["usage"], read["usage"],
+                "a patch reports what a fresh read reports (serving: {serving})"
+            );
+            combined |= read["usage"]["checkpointBytes"].as_u64().unwrap() > 0;
+        }
+        assert!(combined, "a write combined its tail (serving: {serving})");
+        if serving {
+            pilot.stop();
+        }
+    }
+}
+
+#[test]
 fn a_page_of_one_and_a_half_mib_is_replaced_whole_three_times_offline_and_serving() {
     const SIZE: usize = 1_536 * 1024;
     for serving in [false, true] {
@@ -13820,11 +13870,18 @@ fn show_reuses_one_work_index_including_archived_pages() {
     let archived = titled_page(&pilot, "Archived cache");
     let deleted = titled_page(&pilot, "Deleted cache");
     pilot.call(&["archive", &archived, "--json"]);
-    pilot.call(&["delete", &deleted, "--yes", "--json"]);
     pilot.call(&["show", &active, "--json"]);
     let cache = pilot.root.join("selected/colab/work-index.json");
+    let warm: Value = serde_json::from_slice(&fs::read(&cache).unwrap()).unwrap();
+    assert!(warm["pages"][&deleted]["fingerprint"].is_string());
+    pilot.call(&["delete", &deleted, "--yes", "--json"]);
+    pilot.call(&["show", &active, "--json"]);
     let before = fs::read(&cache).unwrap();
     let parsed: Value = serde_json::from_slice(&before).unwrap();
+    assert!(
+        parsed["pages"].get(&deleted).is_none(),
+        "deleted page must be pruned"
+    );
     assert!(
         parsed["pages"][&archived]["fingerprint"].is_string(),
         "archived page must remain indexed"

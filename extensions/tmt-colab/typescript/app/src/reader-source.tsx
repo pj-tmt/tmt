@@ -129,7 +129,9 @@ export function ReaderSource({
   );
   return (
     <BrowserDrawer
-      focusFallback={() => document.querySelector<HTMLButtonElement>('.tmt-ui-header button')}
+      focusFallback={() =>
+        document.querySelector<HTMLButtonElement>('.tmt-ui-header button[aria-label="More"]')
+      }
       open={open}
       title={text.source}
       panel="source"

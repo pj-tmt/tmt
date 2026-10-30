@@ -441,7 +441,11 @@ fn valuation_vectors_parse_to_the_supplied_quotes_and_ratios() {
         .unwrap_or_else(|| panic!("quote {} parses", case["name"]));
         assert_eq!(cost.usd_micros, expected["usdMicros"].as_u64().unwrap());
         assert_eq!(cost.model_id, expected["modelId"].as_str().unwrap());
-        assert_eq!(cost.pricing_version, "2026-10-14");
+        // The vector names its own pricing version; a new approved table changes only data.
+        assert_eq!(
+            cost.pricing_version,
+            expected["pricingVersion"].as_str().unwrap()
+        );
     }
     for case in vectors["ratios"].as_array().unwrap() {
         let Some(expected) = case["expected"].as_object() else {

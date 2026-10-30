@@ -245,7 +245,12 @@ pub(super) fn detail_lines(
         }
     }
     text.push(format!("Impact · {}", app.digest_window().label()));
-    let summary = metrics::savings(app, &ids);
+    // The all row reads the sum its tiles and table row share; a member reads its own.
+    let summary = if selected.is_some_and(|row| metrics::id(row).is_none()) {
+        super::savings(app)
+    } else {
+        std::rc::Rc::new(metrics::savings(app, &ids))
+    };
     text.extend(super::summary::fields(
         &summary,
         ["Est. ctx avoided", "List-price equivalent:"],

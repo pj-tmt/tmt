@@ -24,7 +24,7 @@ for (const width of [320, 390, 1440])
       }) => {
         await mount(page);
         const select = page.getByRole('button', { name: 'Selection mode', exact: true });
-        const original = await select.boundingBox();
+        const original = await page.locator('.page-floating-actions').boundingBox();
         await run(page, 'arrive', { destination: 'Chat', foreign: true });
         await expect(action(page)).toHaveAccessibleName('Chat');
         await run(page, 'arrive', { destination: 'Thread', human: true });
@@ -36,8 +36,9 @@ for (const width of [320, 390, 1440])
         await page.getByRole('button', { name: 'Dismiss Chat reply', exact: true }).click();
         await expect(page.locator('.tmt-ui-notification')).toHaveCount(0);
         await expect(action(page)).toHaveAccessibleName('Chat · Unread');
-        const after = await select.boundingBox();
-        expect(after!.x).toBeCloseTo(original!.x, 0);
+        // Unread text grows the reordered capsule to the left; its right anchor stays fixed.
+        const after = await page.locator('.page-floating-actions').boundingBox();
+        expect(after!.x + after!.width).toBeCloseTo(original!.x + original!.width, 0);
         expect(after!.y).toBeCloseTo(original!.y, 0);
         const group = await page.locator('.page-floating-actions').boundingBox();
         expect(group!.x).toBeGreaterThanOrEqual(0);

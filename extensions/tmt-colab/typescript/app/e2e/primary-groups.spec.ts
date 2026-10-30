@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
-import { pageAction } from '../test/page-actions.js';
+import { pageAction, openWorkTasks } from '../test/page-actions.js';
 import { text } from '../src/strings.js';
 import { capturePath } from './captures.js';
 import { expectOnePrimaryPerGroup } from './primary-groups.js';
@@ -57,7 +57,7 @@ for (const { width, scheme } of views) {
     });
     await expect(page.locator('.page-header-actions:visible')).toBeVisible();
     const band = page.getByRole('region', { name: 'Work on this page' });
-    await band.getByRole('button', { name: /Show \d+ tasks/ }).click();
+    await openWorkTasks(band);
     for (const id of ['T-3', 'T-2']) {
       await band.locator('.work-row', { hasText: id }).locator('button').click();
       await expect(band.locator('.work-controls')).toBeVisible();

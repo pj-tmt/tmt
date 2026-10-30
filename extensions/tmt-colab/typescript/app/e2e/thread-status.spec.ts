@@ -21,8 +21,6 @@ async function open(page: Page) {
   return {
     toggle: commentsAction(host),
     markers: page.frameLocator('#ask-page-fixture iframe').locator('[data-colab-thread]'),
-    row: page.getByTestId('annotation-row'),
-    status: page.getByTestId('thread-row-status'),
     // The Discussion view's status line, once a thread is open.
     state: page.getByTestId('discussion-state'),
   };
@@ -36,12 +34,10 @@ const statusActions = async (page: Page) =>
 test('resolving hides the margin marker, Reopen restores it, and each click writes once', async ({
   page,
 }) => {
-  // The resolved thread stays in view, to be reopened, only with Show resolved on.
+  // A selected thread stays expanded through resolution.
   await showResolvedOn(page);
-  const { markers, row, status, state } = await open(page);
+  const { markers, state } = await open(page);
   await expect(markers).toHaveCount(1);
-  await expect(status).toHaveText('1 comment');
-  await row.click();
   // An open thread has no state line: it says something only when it is resolved or waits for you.
   await expect(state).toHaveCount(0);
   const thread = page.getByTestId('comment-thread');
@@ -52,7 +48,7 @@ test('resolving hides the margin marker, Reopen restores it, and each click writ
   await expect(markers).toHaveCount(0);
   await expect(thread).toHaveAttribute('data-anchor', 'resolved');
   await expect(state).toHaveText('Resolved by You');
-  await expect(thread.getByText('Detached')).toHaveCount(0);
+  await expect(thread.getByText('Detached')).toBeHidden();
   expect(await statusActions(page)).toEqual(['status:resolve']);
   await headerActions(page).getByRole('button', { name: 'Reopen', exact: true }).click();
   await expect(
@@ -62,31 +58,28 @@ test('resolving hides the margin marker, Reopen restores it, and each click writ
   expect(await statusActions(page)).toEqual(['status:resolve', 'status:reopen']);
 });
 
-test('an agent resolution stays unseen until the person opens the thread', async ({ page }) => {
-  // The resolved thread is listed only with Show resolved on.
-  await showResolvedOn(page);
-  const { toggle, markers, row, status, state } = await open(page);
+test('an agent resolution stays unseen until the person reopens the selected discussion', async ({
+  page,
+}) => {
+  const { toggle, markers, state } = await open(page);
   await run(page, 'agentResolves');
   await expect(markers).toHaveCount(0);
   await expect(toggle).toHaveAccessibleName(/New/);
-  // The dock's name carries the news; the thread's row, listed with Show resolved, says so too.
-  await expect(status).toHaveText('1 comment · Resolved by Atlas · New');
-  // Rendering and the open panel never acknowledge it.
-  expect(await run(page, 'seenProof')).toBe(0);
-  await row.click();
+  expect(await run(page, 'seenProof')).toBe(1);
+  await page.getByRole('button', { name: 'Close Discussion', exact: true }).click();
+  await toggle.click();
   await expect(state).toHaveText('Resolved by Atlas');
   await expect(toggle).not.toHaveAccessibleName(/New/);
-  expect(await run(page, 'seenProof')).toBe(1);
+  expect(await run(page, 'seenProof')).toBe(2);
   await expect(page.getByTestId('comment-thread')).toHaveAttribute('data-anchor', 'resolved');
 });
 
 test('a device without owner-member provenance gets no Resolve or Reopen control', async ({
   page,
 }) => {
-  const { row } = await open(page);
+  await open(page);
   await run(page, 'nonOwnerDevice');
-  await row.click();
-  await expect(page.getByRole('button', { name: 'All comments', exact: true })).toBeVisible();
+  await expect(page.locator('.discussion-position')).toHaveText('1 / 1');
   await expect(
     headerActions(page).getByRole('button', { name: 'Resolve', exact: true }),
   ).toHaveCount(0);
@@ -120,8 +113,7 @@ test('Resolve shows the resolved thread in the click frame, and the record takes
 }) => {
   await setLook(page);
   await showResolvedOn(page);
-  const { row, state } = await open(page);
-  await row.click();
+  const { state } = await open(page);
   const thread = page.getByTestId('comment-thread');
   await expect(thread.getByTestId('comment-entry').first()).toBeVisible();
   await expect(state).toHaveCount(0);
@@ -135,19 +127,19 @@ test('Resolve shows the resolved thread in the click frame, and the record takes
   await expect(
     headerActions(page).getByRole('button', { name: 'Resolving…', exact: true }),
   ).toBeDisabled();
-  // The write is held: the resolved summary is already there, at its final size.
-  await expect(thread.locator('.resolved-summary')).toBeVisible();
-  await expect(thread.getByTestId('comment-entry').first()).toBeHidden();
+  // The write is held: the same conversation stays expanded.
+  await expect(thread.locator('.resolved-summary')).toHaveCount(0);
+  await expect(thread.getByTestId('comment-entry').first()).toBeVisible();
   // The status line shows the same state in the same frame.
   await expect(state).toHaveText('Resolving…');
   await expect(state).toHaveAttribute('data-state', 'resolved');
   await capture(page, 'click-frame');
   const echoed = await box(thread);
-  expect(echoed.height).toBeLessThan(open_.height);
+  expect(echoed.height).toBe(open_.height);
   expect(await statusActions(page)).toEqual([]);
   await run(page, 'releaseStatus');
   await expect(thread).toHaveAttribute('data-anchor', 'resolved');
-  await expect(thread.locator('.resolved-summary')).toBeVisible();
+  await expect(thread.locator('.resolved-summary')).toHaveCount(0);
   await expect(state).toHaveText('Resolved by You');
   // Focus stays on the control, which now offers Reopen.
   await expect(
@@ -163,15 +155,14 @@ test('a Resolve that fails restores the open thread, reports at once and keeps f
   page,
 }) => {
   await setLook(page);
-  const { row, state } = await open(page);
-  await row.click();
+  const { state } = await open(page);
   const thread = page.getByTestId('comment-thread');
   const open_ = await box(thread);
   await run(page, 'holdStatusOnce');
   const resolve = headerActions(page).getByRole('button', { name: 'Resolve', exact: true });
   await resolve.focus();
   await resolve.click();
-  await expect(thread.locator('.resolved-summary')).toBeVisible();
+  await expect(thread.locator('.resolved-summary')).toHaveCount(0);
   await page.evaluate(
     async (fixture) => (await import(fixture)).releaseStatus({ fail: true }),
     fixture,
@@ -193,9 +184,8 @@ test('Reopen stays busy until confirmation and restores the resolved thread on f
   page,
 }) => {
   await showResolvedOn(page);
-  const { row, state } = await open(page);
+  const { state } = await open(page);
   await run(page, 'agentResolves');
-  await row.click();
   await run(page, 'holdStatusOnce');
   await headerActions(page).getByRole('button', { name: 'Reopen', exact: true }).click();
   const reopening = headerActions(page).getByRole('button', { name: 'Reopening…', exact: true });
@@ -230,8 +220,9 @@ test('a page with 500 threads can immediately Reopen while Resolve notifications
   await run(page, 'mount', { statusAgents: true, holdStatusNotice: true });
   await run(page, 'seedManyThreads');
   await (await pageAction(page.locator('#ask-page-fixture'), 'Comments')).click();
-  await expect(page.getByTestId('annotation-row')).toHaveCount(500);
-  await page.getByTestId('annotation-row').filter({ hasText: '@Agent 1 Opening note' }).click();
+  await expect(page.locator('.discussion-position')).toHaveText('1 / 500');
+  await expect(page.getByTestId('annotation-row')).toHaveCount(0);
+  await expect(page.getByTestId('comment-thread')).toContainText('@Agent 1 Opening note');
   await headerActions(page).getByRole('button', { name: 'Resolve', exact: true }).click();
   // The notification has started but cannot finish until the explicit fixture release below.
   await expect(

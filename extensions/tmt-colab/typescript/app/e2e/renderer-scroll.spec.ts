@@ -2,10 +2,10 @@ import { headerHeight } from './tokens.js';
 import { expect, test, type Page } from '@playwright/test';
 
 /** What trusted content takes between the header and the page frame, margins included: the reader's
- * note, or the owner page's title row under the shared bar. */
+ * status and note, or the owner page's title row under the shared bar. */
 const noteSize = (page: Page) =>
   page
-    .locator('.reader-note, .colab-title-row')
+    .locator('.reader-note, .reader-status-row, .colab-title-row, .work-band')
     .evaluateAll((nodes) =>
       nodes
         .filter((node) => node.getClientRects().length)
@@ -54,9 +54,9 @@ async function mount(page: Page, source: string, reader: boolean, readerOnly = f
     },
     { source, reader },
   );
-  // The owner page's status sits in the shared bar; the reader's own header carries it.
+  // The owner page's status sits in the shared bar; the reader's content row carries it.
   await expect(
-    page.locator(reader ? '.tmt-ui-header:visible .status' : '.tmt-ui-topbar:visible .status'),
+    page.locator(reader ? '.reader-status-row .status' : '.tmt-ui-topbar:visible .status'),
   ).toContainText('Live');
   await page.evaluate(() => (window as unknown as { firstHeight: Promise<void> }).firstHeight);
 }
@@ -177,6 +177,26 @@ for (const reader of [false, true]) {
       )
       .toBeLessThanOrEqual(0);
     if (reader) expect(await noteSize(page)).toBeGreaterThan(0);
+  });
+  test(`${reader ? 'reader' : 'owner'}: expanding the status panel reallocates short-page viewport room`, async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await mount(page, '<style>body{margin:0}</style><main>A short page</main>', reader);
+    const frame = page.locator('iframe');
+    const before = (await frame.boundingBox())!.height;
+    const panel = page.getByRole('region', { name: 'Work on this page' });
+    await panel.getByRole('button', { name: 'Expand status panel' }).click();
+    await expect.poll(async () => (await frame.boundingBox())!.height).toBeLessThan(before);
+    await expect
+      .poll(() =>
+        page.evaluate(
+          () => document.documentElement.scrollHeight - document.documentElement.clientHeight,
+        ),
+      )
+      .toBeLessThanOrEqual(0);
+    await panel.getByRole('button', { name: 'Collapse status panel' }).click();
+    await expect.poll(async () => (await frame.boundingBox())!.height).toBe(before);
   });
 }
 

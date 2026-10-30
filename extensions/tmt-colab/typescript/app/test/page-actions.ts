@@ -1,4 +1,4 @@
-import type { Locator, Page } from '@playwright/test';
+import { expect, type Locator, type Page } from '@playwright/test';
 import { commentsRegion } from './comments-region.js';
 
 /** The dock's Comments action: its name carries the open-thread count and, while a thread has news,
@@ -12,8 +12,7 @@ export function chatAction(host: Page | Locator) {
   return host.locator('.page-floating-actions').getByRole('button', { name: CHAT_NAME });
 }
 
-/** Turn Show resolved on for this page, before it loads: specs of the resolve and reopen mechanics
- * keep the resolved thread in view, which the Comments panel does only with the toggle on. */
+/** Exercise the retained legacy preference: it selects All when no v2 filter is stored. */
 export async function showResolvedOn(page: Page) {
   await page.addInitScript(() => localStorage.setItem('colab.comments.showResolved', '1'));
 }
@@ -22,13 +21,14 @@ export async function showResolvedOn(page: Page) {
  * where a host's shell mounts Colab (the hosted mount keeps its own header). */
 const BAR_BUTTONS = '.tmt-ui-topbar:visible button:visible, .tmt-ui-header:visible button:visible';
 
-/** Resolve page actions: Comments and Chat are the dock's, page tools (including Agent status) are in
- * the top bar's More menu, and readers keep their direct Files control. */
+/** Resolve page actions: Comments and Chat are in the dock; page tools are in More. */
 export async function pageAction(host: Page | Locator, name: string): Promise<Locator> {
   const directName =
     name === 'Files' ? /^Files(?: \(\d+\)| \d+)?$/ : name === 'Agents' ? 'Agent status' : name;
   const page = 'page' in host ? host.page() : host;
-  const header = host.locator('.page-header-actions:visible');
+  const header = host
+    .locator('.page-header-actions:visible, .tmt-ui-header:visible:has(+ main .reader-status-row)')
+    .first();
   // Every action starts from nothing open: a modal drawer is dismissed from its covered header, and
   // the non-modal Comments panel (which leaves the header live) through its own Close.
   const drawer = page.locator('.tmt-ui-drawer[open]');
@@ -54,11 +54,6 @@ export async function pageAction(host: Page | Locator, name: string): Promise<Lo
       .getByRole('button', { name: /^Theme:/ })
       .click();
     return page.getByRole('menuitemradio', { name: name.slice('Theme: '.length), exact: true });
-  }
-  if (name === 'Files') {
-    const direct = host.getByRole('button', { name: directName, exact: true });
-    await header.or(direct).first().waitFor();
-    if (await direct.isVisible()) return direct;
   }
   if (name === 'Chat' || name === 'Comments') {
     const action = name === 'Chat' ? chatAction(host) : commentsAction(host);
@@ -99,5 +94,60 @@ export async function pageAction(host: Page | Locator, name: string): Promise<Lo
   return page.getByRole('menuitem', {
     name: name === 'Share…' ? /^Share…/ : directName,
     exact: name !== 'Share…',
+  });
+}
+
+/** Reach the existing task controls through the v2 panel's two in-place disclosures. */
+export async function openWorkTasks(band: Locator): Promise<void> {
+  await band.waitFor({ state: 'visible' });
+  const expand = band.getByRole('button', { name: 'Expand status panel' });
+  if (await expand.isVisible()) await expand.click();
+  const tasks = band.getByRole('button', { name: /^Tasks \d+$/ });
+  if ((await tasks.count()) && (await tasks.getAttribute('aria-expanded')) !== 'true')
+    await tasks.click();
+}
+
+/** Open a shared reader's More menu and select a page action. */
+export async function readerAction(page: Page, name: string) {
+  await page.locator('.tmt-ui-header').getByRole('button', { name: 'More', exact: true }).click();
+  return page.getByRole('menuitem', { name, exact: true });
+}
+
+/** Select through the shipped filter and arrows; no synthetic row, state injection or hidden UI. */
+export async function chooseThreadFilter(page: Page, name: 'Open' | 'Needs you' | 'All') {
+  const panel = commentsRegion(page);
+  await panel.getByRole('button', { name: 'Thread filter', exact: true }).click();
+  await page.getByRole('menuitemradio', { name, exact: true }).click();
+}
+async function walkDiscussion(page: Page, matches: () => Promise<boolean>) {
+  await chooseThreadFilter(page, 'All');
+  const panel = commentsRegion(page);
+  const position = panel.locator('.discussion-position');
+  await expect(position).toBeVisible();
+  const count = Number((await position.innerText()).split('/')[1].trim());
+  if (!Number.isSafeInteger(count) || count < 1) throw new Error('Missing thread count');
+  const previous = panel.getByRole('button', { name: 'Previous thread', exact: true });
+  for (let index = 0; index < count && !(await previous.isDisabled()); index++)
+    await previous.click();
+  for (let index = 0; index < count; index++) {
+    if (await matches()) return;
+    const next = panel.getByRole('button', { name: 'Next thread', exact: true });
+    if (await next.isDisabled()) break;
+    await next.click();
+  }
+  throw new Error('Thread was not reachable through the discussion arrows');
+}
+export async function selectThread(page: Page, id: string | null) {
+  if (!id) throw new Error('Missing thread ID');
+  await walkDiscussion(
+    page,
+    async () =>
+      (await commentsRegion(page).locator('.comments-panel').getAttribute('data-thread-id')) === id,
+  );
+}
+export async function selectDiscussion(page: Page, content: string | RegExp) {
+  await walkDiscussion(page, async () => {
+    const body = await commentsRegion(page).locator('.comments-panel').innerText();
+    return typeof content === 'string' ? body.includes(content) : content.test(body);
   });
 }

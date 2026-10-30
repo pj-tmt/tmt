@@ -162,7 +162,7 @@ function newSlot(url: string): ShellSlot {
     topBarReady: () => false,
     setTopBar: () => {
       bar.append(actions);
-      return { actions };
+      return { actions, status: document.createElement('div') };
     },
     basePath: '/colab/',
     answer: () => undefined,
@@ -187,7 +187,7 @@ let host: ShellHost | undefined;
 /** The one TMT app itself: the real host owns the rail and the header bar, and Colab is its `/colab`
  * route. `crash` makes the Home route throw while it renders (`route`), or mounts the module
  * boundary over a child that throws (`boundary`). */
-export function mountHostApp(url: string, crash?: 'route' | 'boundary') {
+export function mountHostApp(url: string, crash?: 'route' | 'boundary', shared = false) {
   restoreCrash?.();
   restoreCrash = crash === 'route' ? crashHome() : undefined;
   document.getElementById('root')?.setAttribute('hidden', '');
@@ -209,6 +209,11 @@ export function mountHostApp(url: string, crash?: 'route' | 'boundary') {
       }),
     },
   ]);
+  if (shared)
+    host.setCommonControls({
+      openSearch: () => {},
+      remote: { kind: 'unconfirmed', href: '/remote/' },
+    });
 }
 
 let boundaryBroken = false;

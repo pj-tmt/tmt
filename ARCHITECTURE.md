@@ -44,7 +44,7 @@ are outside the tracked-file map. The [layout skill](.agents/skills/tmt-layout/S
 owns moves and the tracked-file guard.
 
 `tmt-gui-lead` owns shared visual tokens and [private browser UI](design/browser-ui/README.md).
-`design/browser-ui` splits React entries (`./ui`, `./react`) from framework-free DOM entries (`./static`, `./shell`, `./chart`, `./menu-host`) and an import-free `./search` registry; hosts own domain state and retain commands and closure admission. The [README](design/browser-ui/README.md) owns modality and header-action rules.
+`design/browser-ui` splits React entries (`./ui`, `./react`) from framework-free DOM entries (`./static`, `./shell`, `./chart`, `./menu-host`) and an import-free `./search` registry; hosts own domain state and retain commands and closure admission. The shared shell exposes separate route-owned status and action slots; the root owns common controls. The [README](design/browser-ui/README.md) owns modality and header-action rules.
 [Release procedures](.agents/skills/tmt-release/SKILL.md) include the archive’s
 product-neutral `rust/archive/NATIVE-INSTALL.md`; [dev-only embed](site/README.md) stays site-owned.
 
@@ -288,6 +288,8 @@ monotonic deadlines, group cleanup, reaping and invocation-owned SIGINT forwardi
 native-first process-incarnation acquisition. `process::interactive` owns direct terminal children. `tmux` pins caller or recorded
 sockets, with bounded budgets and no ambient fallback; a failed paste
 or Enter is uncertain and never retried as unsent; [pane cosmetics](.agents/skills/tmt-core-runtime/references/hosts-drivers.md) own only pane-local badge overrides.
+
+Driver-owned consumption attribution uses completed-record evidence; Agy may fill an omitted model from its admitted hook observation, never a kept resume setting ([consumption rules](.agents/skills/tmt-core-runtime/references/identity-bindings.md)).
 
 The CLI acquires caller-host evidence only for caller-scoped operations; explicit senders
 and stored bindings retain their own authority. Caller-process observation failures retain typed adapter causes through the driver registry to bounded CLI context.

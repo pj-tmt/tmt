@@ -152,15 +152,15 @@ test('three tabs on two pages sync edits and annotations, then all lose a revoke
     }
     await expect(commentsAction(a)).toBeVisible();
     await (await pageAction(a, 'Comments')).click();
-    await expect(a.getByTestId('annotation-row')).toContainText('Quote A.');
-    await expect(a.getByTestId('annotation-row')).toHaveCount(1);
+    await expect(a.getByTestId('comment-thread')).toContainText('Quote A.');
+    await expect(a.getByTestId('comment-thread')).toHaveCount(1);
     // The dock hides its actions while the anchored thread C just posted in stays open.
     const anchored = c.getByRole('dialog', { name: 'Annotate selection' });
     if (await anchored.isVisible())
       await anchored.getByRole('button', { name: 'Collapse thread', exact: true }).click();
     if (!(await commentsRegion(c).isVisible())) await (await pageAction(c, 'Comments')).click();
-    await expect(c.getByTestId('annotation-row')).toHaveCount(1);
-    await expect(c.getByTestId('annotation-row')).toContainText('Quote B.');
+    await expect(c.getByTestId('comment-thread')).toHaveCount(1);
+    await expect(c.getByTestId('comment-thread')).toContainText('Quote B.');
 
     run(world, world.binaries.remote, [
       'devices',

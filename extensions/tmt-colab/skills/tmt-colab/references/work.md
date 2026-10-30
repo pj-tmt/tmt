@@ -1,8 +1,13 @@
 # Page work
 
 A page can carry a two-line summary and a task list: use them when a page drives work (a plan, a
-spec, a review that turns into tasks). A page with tasks is still an ordinary page; its stage,
-progress and who is working are computed from the tasks. `tmt colab ls` shows only current cached
+spec, a review that turns into tasks). A page with tasks is still an ordinary page. Its manual
+page state is independent of progress: use `tmt colab page state PAGE todo|in-progress|done --json`
+to change it. `tmt colab show PAGE --json` reads the state and native progress buckets. The browser
+shows them in the compact panel below the nav. Expand it for the legend and a selectable task list;
+when sub-pages are listed, `Tasks N` opens the unlinked tasks beside that list.
+A shared reader shows the verified state with progress unavailable. The task-derived stage and
+workers remain separate values. `tmt colab ls` shows only current cached
 work and parent links; missing/stale entries are omitted without reading page content. Use
 `task ls PAGE` for freshly folded work.
 

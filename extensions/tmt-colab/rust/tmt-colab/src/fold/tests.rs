@@ -18,6 +18,7 @@ fn batch_delta_admission_accepts_exact_limits_and_rejects_count_bytes_and_overfl
             tail_bytes: crate::decoder::WRITE_TAIL_BYTES - 1,
             ..Default::default()
         },
+        opened: None,
     };
     assert!(input.admit_deltas(page, 1, 1).is_ok());
     for (count, bytes) in [(2, 1), (1, 2)] {
@@ -183,6 +184,7 @@ fn usage_gzips_the_state_only_from_a_quarter_mebibyte_and_counts_every_part_of_i
         owner_provenance: BTreeMap::new(),
         local_writer: String::new(),
         tally: Default::default(),
+        opened: None,
     };
     let small = input(1000, vec![vec![1; 1000]], vec![vec![2; 1000]])
         .usage(true)
@@ -224,6 +226,7 @@ fn a_full_tail_offers_the_compaction_that_makes_room_and_other_refusals_do_not()
             tail_bytes,
             ..Default::default()
         },
+        opened: None,
     };
     let message = |input: &MaterializationInput, count, bytes| {
         input

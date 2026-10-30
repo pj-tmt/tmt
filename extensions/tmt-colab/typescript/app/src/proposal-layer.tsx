@@ -37,7 +37,6 @@ export function useProposalLayer({
   closeAnnotation,
   draft,
   keepDraft,
-  activeThread,
   setActiveThread,
   slotPositions,
 }: {
@@ -53,7 +52,6 @@ export function useProposalLayer({
   closeAnnotation(): void;
   draft(key: string): ComposerEdit | undefined;
   keepDraft(key: string, edit: ComposerEdit | null): void;
-  activeThread: string | null;
   setActiveThread: Dispatch<SetStateAction<string | null>>;
 }) {
   const targets = useRef(new Map<string, HTMLDivElement>());
@@ -139,8 +137,7 @@ export function useProposalLayer({
             next.delete(id);
             return next;
           });
-        if (location === 'comments')
-          setActiveThread((previous) => (thread.resolved ? id : previous === id ? null : previous));
+        if (location === 'comments') setActiveThread(id);
       })
       .catch(() => {
         setProposalStatusPending((previous) => {
@@ -180,15 +177,7 @@ export function useProposalLayer({
         pendingResolved={proposalStatusPending.get(id)}
         resolvedLabel={resolvedLabel(status)}
         unseen={status?.unseen}
-        historyOpen={location === 'comments' ? activeThread === id : revealedHistory === id}
-        toggleHistory={
-          location === 'comments'
-            ? () => {
-                binding.current?.markThreadStatusSeen?.(thread.ref);
-                setActiveThread((previous) => (previous === id ? null : id));
-              }
-            : undefined
-        }
+        historyOpen={location === 'comments' || revealedHistory === id}
         detached={detached}
         sending={proposalSending}
         disabled={discussionBlocked || !snapshot.binding?.discussion}
@@ -350,7 +339,6 @@ export function useProposalLayer({
       return 'comments' as const;
     },
     proposalStatusPending,
-    reopenProposal: (thread: ThreadView) => changeProposalStatus(thread, 'comments'),
     inline: (
       <>
         {proposals

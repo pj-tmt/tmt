@@ -2,6 +2,7 @@ import { PROJECT_POINTS, PROJECTS_PER_PAGE } from './bootstrap.js';
 import { orderPages, pageTitle } from './page-index.js';
 import { pageStage, type PageStage } from './list-stage.js';
 import type { PageSummary } from './transport.js';
+import type { PageState } from './bootstrap.js';
 
 /** Pages one `page.projects` request may name; `limits.rs` and the contract's Projects section hold it too. */
 export const PROJECT_REQUEST_PAGES = 64;
@@ -19,6 +20,8 @@ export interface PageFilter {
   stage?: PageStage;
   /** Only the pages with an item waiting on the viewer (the owner's `waiting`, `needsYou > 0`). */
   needsYou?: boolean;
+  /** Manual page state, independent of task-derived stage. */
+  state?: PageState;
 }
 export interface ProjectChange {
   pageId: string;
@@ -111,6 +114,7 @@ export function filterPages(
 ): PageSummary[] {
   const words = filter.text.toLocaleLowerCase().split(/\s+/).filter(Boolean);
   const kept = pages.filter((page) => {
+    if (filter.state && page.state !== filter.state) return false;
     if (filter.needsYou && !page.summary?.waiting) return false;
     if (filter.stage && pageStage(page) !== filter.stage) return false;
     const projects = page.projects ?? [];

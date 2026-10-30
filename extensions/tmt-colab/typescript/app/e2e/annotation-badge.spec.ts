@@ -31,7 +31,7 @@ function contrast(foreground: string, background: string) {
 
 for (const width of [1440, 390])
   for (const theme of ['light', 'dark'] as const)
-    test(`the Comments list badge matches the page badge and clears the title: ${width}px ${theme}`, async ({
+    test(`the discussion quote badge matches the page badge and clears the title: ${width}px ${theme}`, async ({
       page,
     }) => {
       await page.setViewportSize({ width, height: 900 });
@@ -53,7 +53,7 @@ for (const width of [1440, 390])
       await expect(pageBadge).toBeVisible();
       await (await pageAction(app, 'Comments')).click();
       const panel = page.getByTestId('comments-panel');
-      const row = panel.locator('.annotation-row').first();
+      const row = panel.locator('.discussion-quote').first();
       const badge = row.locator('.annotation-number');
       await expect(badge).toBeVisible();
 
@@ -69,7 +69,7 @@ for (const width of [1440, 390])
       expect(contrast(inPanel.color, inPanel.background)).toBeGreaterThanOrEqual(4.5);
 
       // An 8px gap at least separates the badge from the row's text column.
-      const gap = await row.locator('.annotation-row-text').evaluate((text) => {
+      const gap = await row.locator('q').evaluate((text) => {
         const badge = text
           .parentElement!.querySelector('.annotation-number')!
           .getBoundingClientRect();
@@ -82,69 +82,11 @@ for (const width of [1440, 390])
       });
     });
 
-test('the Comments list is the website list: views, rows and an empty state per view', async ({
+test('the dock opens the Discussion view: header, title passage, turns, reply, Resolve in the header', async ({
   page,
 }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
-  await page.goto('/');
-  await run(page, 'mount');
-  await expect(page.locator('#ask-page-fixture .status')).toContainText('Live');
-  await run(page, 'seedThread');
-  await (await pageAction(page.locator('#ask-page-fixture'), 'Comments')).click();
-  const panel = commentsRegion(page);
-  // Two views in one strip (no Proposals view without a proposal), and the add action under it.
-  const views = panel.getByRole('tablist', { name: 'Comment views' });
-  await expect(views.getByRole('tab')).toHaveText(['Open', 'Needs you']);
-  await expect(views.getByRole('tab', { name: 'Open', exact: true })).toHaveAttribute(
-    'aria-selected',
-    'true',
-  );
-  const add = panel.getByRole('button', { name: '+ Comment on page', exact: true });
-  const [strip, action, frame] = [
-    await views.boundingBox(),
-    await add.boundingBox(),
-    await panel.locator('.tmt-ui-tabs').boundingBox(),
-  ];
-  // Under the strip, ending at the panel's right edge, with the list right below it.
-  expect(action!.y).toBeGreaterThanOrEqual(strip!.y + strip!.height - 1);
-  expect(Math.abs(action!.x + action!.width - (frame!.x + frame!.width))).toBeLessThanOrEqual(2);
-  const firstRow = await panel.getByTestId('annotation-row').first().boundingBox();
-  expect(firstRow!.y - (action!.y + action!.height)).toBeLessThanOrEqual(16);
-  // A row is the number, the title, the quoted passage and one small line; no byline or time.
-  const row = panel.getByTestId('annotation-row');
-  await expect(row).toHaveCount(1);
-  await expect(row.locator('.annotation-number')).toHaveText('1');
-  await expect(row.locator('strong')).not.toBeEmpty();
-  await expect(row.locator('.annotation-row-quote')).toHaveText('Exact selected text');
-  await expect(row.getByTestId('thread-row-status')).toHaveText('1 comment');
-  await expect(row.locator('time')).toHaveCount(0);
-  // The website's list: a 1px rule closes the view strip and the row, which has 18px of vertical
-  // padding after the first row's tighter top; the quote and meta are the caption size, the
-  // title the body size; the selected view tab carries the selection tint.
-  await expect(panel.locator('.tmt-ui-tabs-header')).toHaveCSS('border-bottom-width', '1px');
-  await expect(row).toHaveCSS('border-bottom-width', '1px');
-  await expect(row).toHaveCSS('padding-bottom', '18px');
-  await expect(row.locator('.annotation-row-quote')).toHaveCSS('font-size', '11px');
-  await expect(row.getByTestId('thread-row-status')).toHaveCSS('font-size', '11px');
-  await expect(row.locator('strong')).toHaveCSS('font-size', '14px');
-  expect(
-    await views
-      .getByRole('tab', { name: 'Open', exact: true })
-      .evaluate((node) => getComputedStyle(node).backgroundColor),
-  ).not.toBe('rgba(0, 0, 0, 0)');
-  // The other view is empty here, and says so.
-  await views.getByRole('tab', { name: 'Needs you', exact: true }).click();
-  await expect(panel.getByTestId('annotation-row')).toHaveCount(0);
-  const empty = panel.getByTestId('comments-empty');
-  await expect(empty.getByRole('heading')).toHaveText('Nothing waiting here.');
-  await expect(empty).toContainText('You are caught up in this view.');
-});
-
-test('a row opens the Discussion view: header, title passage, turns, reply, Resolve in the header', async ({
-  page,
-}) => {
-  await page.setViewportSize({ width: 1440, height: 900 });
-  // The resolved thread stays in view, to be reopened, only with Show resolved on.
+  // The legacy preference selects All, including resolved threads.
   await showResolvedOn(page);
   await page.goto('/');
   await run(page, 'mount');
@@ -152,18 +94,14 @@ test('a row opens the Discussion view: header, title passage, turns, reply, Reso
   await run(page, 'seedThread');
   await (await pageAction(page.locator('#ask-page-fixture'), 'Comments')).click();
   const drawer = commentsRegion(page);
-  await expect(drawer.getByRole('heading', { level: 2 })).toHaveText('Comments');
-  await drawer.getByTestId('annotation-row').click();
+
   // The list is replaced; the drawer reads Discussion with the thread's position.
   await expect(drawer.getByRole('heading', { level: 2 })).toHaveText('Discussion');
   await expect(drawer.locator('.tmt-ui-drawer-caption')).toHaveText('1 / 1');
   await expect(drawer.getByTestId('annotation-row')).toHaveCount(0);
-  // An open thread has no state line, and no row of its own to leave by: the position, which is the
-  // way back to the list, and the thread arrows stand in the header.
+  // An open thread has no state label; the static position and arrows stand in the header.
   await expect(drawer.getByTestId('discussion-state')).toHaveCount(0);
-  await expect(drawer.getByRole('button', { name: 'All comments', exact: true })).toHaveText(
-    '1 / 1',
-  );
+  await expect(drawer.locator('.discussion-position')).toHaveText('1 / 1');
   await expect(drawer.getByRole('button', { name: 'Previous thread', exact: true })).toBeDisabled();
   await expect(drawer.getByRole('button', { name: 'Next thread', exact: true })).toBeDisabled();
   const thread = drawer.getByTestId('comment-thread');
@@ -197,12 +135,8 @@ test('a row opens the Discussion view: header, title passage, turns, reply, Reso
   await actions.getByRole('button', { name: 'Resolve', exact: true }).click();
   await expect(drawer.getByTestId('discussion-state')).toContainText('Resolved');
   await expect(actions.getByRole('button', { name: 'Reopen', exact: true })).toBeVisible();
-  // All comments returns to the list, and the drawer to Comments.
-  await drawer.getByRole('button', { name: 'All comments', exact: true }).click();
-  await expect(drawer.getByRole('heading', { level: 2 })).toHaveText('Comments');
-  await expect(drawer.getByRole('tablist', { name: 'Comment views' })).toBeVisible();
+  await expect(drawer.getByRole('tablist')).toHaveCount(0);
   // Show in the page scrolls to the passage; the non-modal panel stays beside or over it.
-  await drawer.getByTestId('annotation-row').click();
   await drawer.getByRole('button', { name: /^Show in the page/ }).click();
   await expect(commentsRegion(page)).toBeVisible();
   await expect(drawer.getByRole('heading', { level: 2 })).toHaveText('Discussion');

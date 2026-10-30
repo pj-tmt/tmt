@@ -458,6 +458,17 @@ pub fn revision(store: &Store, key: &Keyring, page: &str) -> Result<String> {
 pub fn usage(store: &Store, key: &Keyring, page: &str, decoder: &mut Decoder) -> Result<PageUsage> {
     snapshot(store, key, page, false)?.usage(key, page, decoder)
 }
+/// [`usage`] after a patch's write: an object the patch's read opened is taken from `base` when
+/// the object and its opening context are unchanged, and any other is opened.
+pub fn usage_after_patch(
+    store: &Store,
+    key: &Keyring,
+    page: &str,
+    decoder: &mut Decoder,
+    base: &PatchBase,
+) -> Result<PageUsage> {
+    snapshot(store, key, page, false)?.usage_reusing(key, page, decoder, &base.input)
+}
 pub fn read(store: &Store, key: &Keyring, page: &str, decoder: &mut Decoder) -> Result<Page> {
     Ok(read_with_meta(store, key, page, decoder)?.0)
 }

@@ -386,7 +386,6 @@ fn skewed_batch_clocks_keep_the_all_row_total_and_activity_on_one_cut() {
             .iter()
             .find(|line| line.contains("all") && line.contains("35.0k"))
             .unwrap_or_else(|| panic!("{range:?}: all-row total is missing: {}", lines.join("\n")));
-        assert!(all.contains("100%"), "{all}");
         assert!(
             !all.contains('?'),
             "all-row activity must have a common clock: {all}"

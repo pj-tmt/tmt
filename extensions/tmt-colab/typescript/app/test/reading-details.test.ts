@@ -1,6 +1,7 @@
 import { afterEach, expect, it, vi } from 'vite-plus/test';
 import {
   ReadingDetailsQueue,
+  ProgressReads,
   readingDetails,
   readReadingDetails,
   READING_DETAILS_BYTES,
@@ -273,4 +274,60 @@ it('admits all fifty bounded non-ASCII readings and twenty passages without trun
     READING_DETAILS_BYTES,
   );
   expect(readingDetails(value, pageId)).toEqual(value);
+});
+
+it('coalesces a burst of progress invalidations into one active read and one trailing read', async () => {
+  const pending: ((value: ReturnType<typeof ready>) => void)[] = [];
+  const read = vi.fn(
+    () => new Promise<ReturnType<typeof ready>>((resolve) => pending.push(resolve)),
+  );
+  const publish = vi.fn();
+  const reads = new ProgressReads(read, publish);
+  const first = reads.refresh();
+  for (let n = 0; n < 100; n++) void reads.refresh();
+  expect(read).toHaveBeenCalledTimes(1);
+  pending[0]!(ready());
+  await vi.waitFor(() => expect(read).toHaveBeenCalledTimes(2));
+  expect(publish).not.toHaveBeenCalled();
+  pending[1]!(ready());
+  await first;
+  expect(read).toHaveBeenCalledTimes(2);
+  expect(publish).toHaveBeenCalledTimes(1);
+  reads.close();
+});
+
+it('cancels a progress read on close without publishing a stale completion', async () => {
+  let finish!: (value: ReturnType<typeof ready>) => void;
+  let signal!: AbortSignal;
+  const publish = vi.fn();
+  const reads = new ProgressReads((s) => {
+    signal = s;
+    return new Promise((resolve) => {
+      finish = resolve;
+    });
+  }, publish);
+  const running = reads.refresh();
+  reads.close();
+  expect(signal.aborted).toBe(true);
+  finish(ready());
+  await running;
+  expect(publish).not.toHaveBeenCalled();
+});
+
+it('does not lose an invalidation between a settled read and its completion cleanup', async () => {
+  let finish!: (value: ReturnType<typeof ready>) => void;
+  const response = new Promise<ReturnType<typeof ready>>((resolve) => {
+    finish = resolve;
+  });
+  const read = vi.fn().mockReturnValueOnce(response).mockResolvedValue(ready());
+  const publish = vi.fn();
+  const reads = new ProgressReads(read, publish);
+  const first = reads.refresh();
+  finish(ready());
+  await response;
+  await Promise.resolve();
+  void reads.refresh();
+  await first;
+  await vi.waitFor(() => expect(read).toHaveBeenCalledTimes(2));
+  reads.close();
 });

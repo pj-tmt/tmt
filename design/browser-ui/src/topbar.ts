@@ -2,6 +2,7 @@ import { createIcon } from './glyph.js';
 import { bindIconActionTooltip } from './icon-action-tooltip.js';
 import { mountBrowserMenu } from './menu-host.js';
 import { browserUiClasses as c, countText } from './static.js';
+import { admitsOverlayEscape, outsideOverlay, restoreOverlayFocus } from './overlay.js';
 import { setStoredTheme, THEMES, type ThemeChoice } from './theme.js';
 
 export type ShellRemoteStatus =
@@ -17,10 +18,16 @@ export interface ShellCommonControls {
 /** A route receives only its action slot, never the common-control owner. */
 export interface ShellTopBar {
   readonly actions: HTMLElement;
+  readonly status: HTMLElement;
 }
 
 /** Internal renderer shared by native and React shells. */
-export function createShellTopBar(root: HTMLElement, bar: Element, navigation: HTMLButtonElement) {
+export function createShellTopBar(
+  root: HTMLElement,
+  bar: Element,
+  navigation: HTMLButtonElement,
+  railSearch?: HTMLElement,
+) {
   const document = root.ownerDocument;
   const view = document.defaultView!;
   let options: ShellCommonControls | undefined;
@@ -47,6 +54,8 @@ export function createShellTopBar(root: HTMLElement, bar: Element, navigation: H
     left.append(navigation);
     const right = document.createElement('div');
     right.className = 'tmt-ui-topbar-controls';
+    const statusSlot = document.createElement('div');
+    statusSlot.className = 'tmt-ui-topbar-status';
     const actions = document.createElement('div');
     actions.className = 'tmt-ui-topbar-actions';
     const common = document.createElement('div');
@@ -69,7 +78,22 @@ export function createShellTopBar(root: HTMLElement, bar: Element, navigation: H
     hint.textContent = command ? '⌘K' : 'Ctrl K';
     searchMark.append(createIcon('search', document), hint);
     search.append(searchMark);
-    const remote = document.createElement('a');
+    const sidebarSearch = document.createElement('button');
+    sidebarSearch.type = 'button';
+    sidebarSearch.className = 'tmt-ui-rail-search';
+    sidebarSearch.setAttribute('aria-label', 'Search TMT');
+    sidebarSearch.setAttribute('aria-haspopup', 'dialog');
+    sidebarSearch.setAttribute('aria-keyshortcuts', command ? 'Meta+K' : 'Control+K');
+    const sidebarLabel = document.createElement('span');
+    sidebarLabel.className = 'tmt-ui-rail-label';
+    sidebarLabel.textContent = 'Search';
+    const sidebarHint = document.createElement('kbd');
+    sidebarHint.textContent = hint.textContent;
+    sidebarSearch.append(createIcon('search', document), sidebarLabel, sidebarHint);
+    railSearch?.replaceChildren(sidebarSearch);
+    const remote = document.createElement('button');
+    remote.type = 'button';
+    remote.setAttribute('aria-haspopup', 'dialog');
     remote.className = `${c.action} ${c.iconActionControl} tmt-ui-topbar-remote`;
     remote.dataset.variant = 'text';
     const remoteMark = document.createElement('span');
@@ -100,7 +124,7 @@ export function createShellTopBar(root: HTMLElement, bar: Element, navigation: H
     const remoteHelp = help(remote, 'Remote: session count unconfirmed');
     left.append(searchHelp.wrapper);
     common.append(theme, remoteHelp.wrapper);
-    right.append(actions, common);
+    right.append(statusSlot, common, actions);
     header.append(left, right);
 
     const choice = (): ThemeChoice => {
@@ -123,13 +147,79 @@ export function createShellTopBar(root: HTMLElement, bar: Element, navigation: H
       attributes: true,
       attributeFilter: ['data-theme'],
     });
-    const openSearch = () => {
+    const dialog = document.createElement('dialog');
+    dialog.className = c.dialog;
+    dialog.setAttribute('aria-label', 'Remote');
+    const dialogHeader = document.createElement('header');
+    dialogHeader.className = c.dialogHeader;
+    const heading = document.createElement('h2');
+    heading.textContent = 'Remote';
+    dialogHeader.append(heading);
+    const body = document.createElement('div');
+    body.className = c.dialogBody;
+    const connection = document.createElement('p');
+    const settings = document.createElement('a');
+    settings.textContent = 'Remote settings';
+    body.append(connection, settings);
+    const footer = document.createElement('footer');
+    footer.className = c.dialogActions;
+    const close = document.createElement('button');
+    close.type = 'button';
+    close.className = c.action;
+    close.dataset.variant = 'secondary';
+    close.textContent = 'Close';
+    footer.append(close);
+    dialog.append(dialogHeader, body, footer);
+    let origin: Element | null = null;
+    const dismiss = () => {
+      if (!dialog.open) return;
+      dialog.close();
+      dialog.remove();
+      restoreOverlayFocus(origin, () => remote);
+    };
+    remote.onclick = (event) => {
+      if (!event.isTrusted || dialog.open) return;
+      themeMenu.close();
+      remoteHelp.binding.dismiss();
+      origin = document.activeElement;
+      header.append(dialog);
+      dialog.showModal();
+      close.focus();
+    };
+    close.onclick = (event) => {
+      if (event.isTrusted) dismiss();
+    };
+    dialog.oncancel = (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      if (event.isTrusted) dismiss();
+    };
+    dialog.onkeydown = (event) => {
+      if (event.key !== 'Escape' || event.defaultPrevented) return;
+      event.preventDefault();
+      event.stopPropagation();
+      if (admitsOverlayEscape(event)) dismiss();
+    };
+    dialog.onpointerdown = (event) => {
+      if (event.target === dialog && outsideOverlay(dialog, event.clientX, event.clientY))
+        event.preventDefault();
+    };
+    dialog.onclick = (event) => {
+      if (event.target !== dialog || !outsideOverlay(dialog, event.clientX, event.clientY)) return;
+      event.preventDefault();
+      event.stopPropagation();
+      if (event.isTrusted) dismiss();
+    };
+    const openSearch = (opener: HTMLButtonElement) => {
       themeMenu.close();
       searchHelp.binding.dismiss();
-      options!.openSearch(search);
+      options!.openSearch(opener);
     };
     search.onclick = (event) => {
-      if (event.isTrusted) openSearch();
+      if (event.isTrusted) openSearch(search);
+    };
+    sidebarSearch.onclick = (event) => {
+      if (event.isTrusted) openSearch(sidebarSearch);
     };
     const shortcut = (event: KeyboardEvent) => {
       if (
@@ -154,7 +244,7 @@ export function createShellTopBar(root: HTMLElement, bar: Element, navigation: H
         );
       if (editing) return;
       event.preventDefault();
-      openSearch();
+      openSearch(view.matchMedia('(max-width: 900px)').matches ? search : sidebarSearch);
     };
     document.addEventListener('keydown', shortcut);
     root.dataset.topbar = '';
@@ -167,7 +257,11 @@ export function createShellTopBar(root: HTMLElement, bar: Element, navigation: H
           : status.liveSessions === 0
             ? 'Remote: no live sessions'
             : `Remote: ${status.liveSessions} live ${status.liveSessions === 1 ? 'session' : 'sessions'}`;
-      remote.setAttribute('href', status.href);
+      settings.href = status.href;
+      // Older roots name the Remote overview; the shared dialog needs its settings route.
+      if (settings.pathname === '/remote' || settings.pathname === '/remote/')
+        settings.pathname = '/remote/settings';
+      connection.textContent = label;
       remote.setAttribute('aria-label', label);
       remoteHelp.text.textContent = label;
       badge.hidden = status.kind !== 'confirmed' || status.liveSessions === 0;
@@ -175,7 +269,7 @@ export function createShellTopBar(root: HTMLElement, bar: Element, navigation: H
     };
     update();
     return {
-      slot: { actions },
+      slot: { actions, status: statusSlot },
       update,
       dispose() {
         document.removeEventListener('keydown', shortcut);
@@ -183,6 +277,8 @@ export function createShellTopBar(root: HTMLElement, bar: Element, navigation: H
         themeMenu.dispose();
         searchHelp.binding.dispose();
         remoteHelp.binding.dispose();
+        if (dialog.open) dialog.close();
+        railSearch?.replaceChildren();
         root.prepend(navigation);
         delete root.dataset.topbar;
         header.remove();

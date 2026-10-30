@@ -280,6 +280,15 @@ evidence without repeating the amounts. Basis opens the existing Details evidenc
 to the delivery-settings panel; no placeholder control is painted. These figures do not
 change `savings_unit`. Missing/stale evidence, confirmed zero and incompatible price
 versions remain distinct.
+`digest_dashboard::table` fits whole tracks: AGENT yields width first; ≈ $ USED (observed
+input at list price), SAVED and ≈ $ SAVED come before SHARE and TALKS TO, which return only
+when they fit beside full agent names; below 94 columns money leaves, below 76 the activity
+strip. The footer names the columns width left out (a count when the names do not fit). SAVED follows the shared
+`savings_unit`, and its heading is a `Choice::SavingsUnit` hit through the existing Config
+CAS; under the cost unit ≈ $ SAVED steps aside rather than repeat it. `all` and the summary
+tiles read one `SavingsSummary` held in the Digest cache, keyed by weak pointers to the held
+status and the cached admitted rows, the status's staleness and the window; a member cell reads
+its own status entry. A sum that leaves members out reads as a bound (`≥`), a percent never does.
 
 Agents and Digest use the selected squad's appearance and contextual detail. Auto/Side/Stack is an Ops preference,
 not a second editor or a revival of factory board views. An explicit message

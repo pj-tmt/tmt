@@ -452,7 +452,7 @@ fn valuation_status_is_read_only_and_matches_day_week_and_lifetime_bounds() {
         assert_eq!(savings["estimatedInputTokensAvoided"], 2700);
         assert_eq!(savings["cost"]["usdMicros"], 5400);
         assert_eq!(savings["cost"]["modelObservedAtMs"], through);
-        assert_eq!(document["pricing"]["version"], "2026-10-14");
+        assert_eq!(document["pricing"]["version"], "2026-10-28");
         if window == "lifetime" {
             assert!(savings["percent"].is_null());
         } else {
@@ -494,7 +494,12 @@ fn fetched_file() -> Vec<u8> {
         serde_json::from_str(include_str!("../../../pricing/pricing-v1.json")).unwrap();
     file["version"] = json!("2026-11-01");
     file["asOf"] = json!("2026-11-01");
-    file["models"][3]["usdMicrosPerMillionInputTokens"] = json!(3_000_000);
+    file["models"]
+        .as_array_mut()
+        .unwrap()
+        .iter_mut()
+        .find(|row| row["modelId"] == "gpt-6.1-sol")
+        .unwrap()["usdMicrosPerMillionInputTokens"] = json!(3_000_000);
     serde_json::to_vec(&file).unwrap()
 }
 
@@ -548,7 +553,7 @@ fn a_stalled_price_server_never_holds_status_past_its_deadline() {
     assert!(output.status.success(), "{:?}", output.stderr);
     let document: Value = serde_json::from_slice(&output.stdout).unwrap();
     assert_eq!(document["pricing"]["origin"], "built-in");
-    assert_eq!(document["pricing"]["version"], "2026-10-14");
+    assert_eq!(document["pricing"]["version"], "2026-10-28");
     assert!(
         waited < std::time::Duration::from_millis(4_500),
         "{waited:?}"
@@ -562,5 +567,5 @@ fn status_with_the_fetch_off_names_the_built_in_table_and_asks_for_nothing() {
     let document = fixture.status();
     assert_eq!(document["pricing"]["origin"], "built-in");
     assert!(document["pricing"].get("fetchedAtMs").is_none());
-    assert_eq!(document["pricing"]["models"].as_array().unwrap().len(), 4);
+    assert_eq!(document["pricing"]["models"].as_array().unwrap().len(), 17);
 }

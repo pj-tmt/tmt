@@ -1,3 +1,4 @@
+import { PageMenu as BrowserMenu } from './page-menu.js';
 import { useEditLockLayer } from './edit-lock-layer.js';
 import { ShellPage } from './shell-page.js';
 import { PageWorkBand } from './work-band-live.js';
@@ -33,7 +34,6 @@ import {
   ArrowUpRight,
   ChevronLeft,
   ChevronRight,
-  Eye,
   MessageCircle,
   MessageSquarePlus,
   MessagesSquare,
@@ -97,8 +97,8 @@ import { ReplyNotificationContext } from './reply-notification-context.js';
 import { ThreadPanel, ThreadWindow } from './thread-panel.js';
 import { presentationOf } from './thread-status-presentation.js';
 import { isStatusThread, openThreadCount } from './thread-status-view.js';
-import { afterResolving, listedThreads, threadKey } from './comments-listing.js';
-import { useShowResolved } from './use-show-resolved.js';
+import { firstThread, listedThreads, threadKey, type ThreadFilter } from './comments-listing.js';
+import { useThreadFilter } from './use-thread-filter.js';
 import type { QuoteSelector } from './thread-records.js';
 import { Home, validateHomeSearch, type HomeSearch } from './home.js';
 import { knownScope, readScope } from './project-scope.js';
@@ -294,28 +294,27 @@ function PageFloatingActions({
         <p className="selection-mode-hint">{text.selectionModeHint}</p>
       )}
       <div className="page-floating-actions">
-        {!enabled && !discussionOpen && (
+        {(canSelect || selectPending) && (
           <BrowserIconAction
             type="button"
             variant="secondary"
-            label={`${text.comments}${comments === undefined ? '' : ` (${comments})`}${unseen ? ` · ${text.threadUnseen}` : ''}`}
-            buttonRef={commentsButton}
-            expanded={panel === 'comments'}
+            busy={selectPending}
+            label={text.selectionMode}
+            ariaKeyShortcuts={enabled ? 'c Escape' : 'c'}
+            pressed={enabled}
             icon={
               <>
-                <MessagesSquare />
-                {comments !== undefined ? (
-                  <span className="dock-count" data-unseen={unseen || undefined}>
-                    {comments}
-                    {unseen && <span aria-hidden="true">•</span>}
-                  </span>
-                ) : (
-                  <span className="dock-count" data-pending aria-hidden="true" />
+                <MousePointer2 />
+                {enabled && (
+                  <>
+                    <span>{text.selecting}</span>
+                    <kbd>Esc</kbd>
+                  </>
                 )}
               </>
             }
             onActivate={(event) => {
-              if (event.isTrusted) toggleComments();
+              if (event.isTrusted) toggle();
             }}
           />
         )}
@@ -342,27 +341,28 @@ function PageFloatingActions({
             }}
           />
         )}
-        {(canSelect || selectPending) && (
+        {!enabled && !discussionOpen && (
           <BrowserIconAction
             type="button"
             variant="secondary"
-            busy={selectPending}
-            label={text.selectionMode}
-            ariaKeyShortcuts={enabled ? 'c Escape' : 'c'}
-            pressed={enabled}
+            label={`${text.comments}${comments === undefined ? '' : ` (${comments})`}${unseen ? ` · ${text.threadUnseen}` : ''}`}
+            buttonRef={commentsButton}
+            expanded={panel === 'comments'}
             icon={
               <>
-                <MousePointer2 />
-                {enabled && (
-                  <>
-                    <span>{text.selecting}</span>
-                    <kbd>Esc</kbd>
-                  </>
+                <MessagesSquare />
+                {comments !== undefined ? (
+                  <span className="dock-count" data-unseen={unseen || undefined}>
+                    {comments}
+                    {unseen && <span aria-hidden="true">•</span>}
+                  </span>
+                ) : (
+                  <span className="dock-count" data-pending aria-hidden="true" />
                 )}
               </>
             }
             onActivate={(event) => {
-              if (event.isTrusted) toggle();
+              if (event.isTrusted) toggleComments();
             }}
           />
         )}
@@ -452,14 +452,24 @@ function SelectionAnnotation({
         : innerHeight - 8;
       const placementHeight = expanded ? Math.min(480, edge - inset - 4) : 34;
       if (expanded && innerWidth <= 640) {
-        setPosition({
-          left: 12,
-          bottom: Math.max(8, innerHeight - edge),
-          maxHeight: Math.max(
-            0,
-            edge - Math.max(inset, notice?.getBoundingClientRect().bottom ?? inset) - 8,
-          ),
-        });
+        const noticeBox = notice?.getBoundingClientRect();
+        const below = Math.max(0, edge - Math.max(inset, noticeBox?.bottom ?? inset) - 8);
+        const above = Math.max(0, (noticeBox?.top ?? inset) - inset - 16);
+        // A failure card can fill the room below the page chrome. Preserve a usable draft
+        // above it instead of collapsing the retained window to zero height beneath it.
+        setPosition(
+          above > below
+            ? {
+                left: 12,
+                top: inset + 8,
+                maxHeight: above,
+              }
+            : {
+                left: 12,
+                bottom: Math.max(8, innerHeight - edge),
+                maxHeight: below,
+              },
+        );
         return;
       }
       if (!frame || !rectangle) {
@@ -1131,7 +1141,9 @@ function Shell() {
   const isPage = pathname.startsWith('/pages/');
   const isHome = pathname === '/';
   // Colab's own shell has the shared bar's Search on every route, and the bar owns the one shortcut.
-  const ownShell = useContext(ShellHostSlot) === null;
+  const hostSlot = useContext(ShellHostSlot);
+  const ownShell = hostSlot === null;
+  const sharedSearch = ownShell || hostSlot.topBarReady();
   return (
     <RemotePresenceProvider owner={transport.remotePresence}>
       <QuickSwitcherHost
@@ -1140,7 +1152,7 @@ function Shell() {
         pageId={isPage ? pathname.slice('/pages/'.length) : undefined}
         routeKey={pathname}
         allowed={ownShell || isPage || isHome}
-        shortcut={!ownShell}
+        shortcut={!sharedSearch}
         navigate={(pageId) => router.navigate({ to: '/pages/$pageId', params: { pageId } })}
         pageHref={(pageId) =>
           router.history.createHref(
@@ -1323,6 +1335,7 @@ function OpenPage({
   const replyObserver = useMemo(() => new ReplyNotificationObserver(snapshot), [snapshot]);
   const toolbar = useRef<HTMLElement>(null);
   const titleRow = useRef<HTMLDivElement>(null);
+  const [workBandSize, setWorkBandSize] = useState(0);
   const {
     reset: resetPageLinks,
     request: requestPageLink,
@@ -1356,6 +1369,11 @@ function OpenPage({
   } = panels;
   const floatingChat = useRef<HTMLButtonElement>(null);
   const floatingComments = useRef<HTMLButtonElement>(null);
+  const closeComments = () => {
+    // Return before the closing clip keeps the old composer temporarily focusable.
+    floatingComments.current?.focus({ preventScroll: true });
+    close();
+  };
   useDockMotion(dockPanel(panel), panelMode);
   const activateChat = useRef<() => boolean>(() => false);
 
@@ -1528,7 +1546,6 @@ function OpenPage({
     panels: {
       clear,
       showThread,
-      setActiveThread,
     },
   });
   useEffect(() => {
@@ -1555,19 +1572,34 @@ function OpenPage({
   // The Discussion header's arrows walk the threads in the order of their numbers, the order of the
   // position it shows.
   const [resolveSlot, setResolveSlot] = useState<HTMLElement | null>(null);
-  // The panel lists and walks the open threads; Show resolved (kept on this device) adds the rest.
-  const [showResolved, setShowResolved] = useShowResolved();
+  const [threadFilter, setThreadFilter] = useThreadFilter();
   const listed = useMemo(
-    () => listedThreads(view.threads ?? [], numbers, showResolved, activeThread),
-    [view.threads, numbers, showResolved, activeThread],
+    () =>
+      listedThreads(
+        view.threads ?? [],
+        numbers,
+        threadFilter,
+        activeThread,
+        view.threadPresentations,
+      ),
+    [view.threads, numbers, threadFilter, activeThread, view.threadPresentations],
   );
-  const [advanceFrom, setAdvanceFrom] = useState<string | null>(null);
   useEffect(() => {
-    if (advanceFrom === null || changingStatus) return;
-    setAdvanceFrom(null);
-    if (activeThread === advanceFrom)
-      openThread(afterResolving(view.threads ?? [], numbers, advanceFrom)?.ref ?? null);
-  }, [advanceFrom, changingStatus, activeThread, view.threads, numbers, openThread]);
+    if (panel !== 'comments' || discussionPending || changingStatus) return;
+    if (activeThread && listed.some((thread) => threadKey(thread) === activeThread)) return;
+    const first = firstThread(listed, view.threadPresentations);
+    // Passive projection changes select cosmetically; only a trusted open acknowledges status.
+    if (first) setActiveThread(threadKey(first));
+    else if (activeThread) setActiveThread(null);
+  }, [
+    panel,
+    discussionPending,
+    changingStatus,
+    activeThread,
+    listed,
+    view.threadPresentations,
+    setActiveThread,
+  ]);
   const position =
     activeThread === null ? -1 : listed.findIndex((t) => threadKey(t) === activeThread);
   const neighbour = (offset: -1 | 1) => (position < 0 ? undefined : listed[position + offset]);
@@ -1632,7 +1664,7 @@ function OpenPage({
       // Escape inside the non-modal panel closes it; on the page it falls through to the rungs
       // below and leaves the panel open. A send or status change in flight holds the open
       // Discussion, as Chat holds its busy send.
-      if (!discussedThread || !statusBusy.current) close();
+      if (!discussedThread || !statusBusy.current) closeComments();
     } else if (annotationRef.current) closeRef.current(true);
     else if (canSelect) setSelectionMode(false);
   };
@@ -1711,7 +1743,6 @@ function OpenPage({
     closeAnnotation: () => closeRef.current(false),
     draft: (key) => drafts.current.get(key),
     keepDraft,
-    activeThread,
     setActiveThread,
   });
   const editLockLayer = useEditLockLayer({
@@ -1734,6 +1765,7 @@ function OpenPage({
     setState,
     toolbar,
     titleRow,
+    workBandSize,
     anchor,
     layers: {
       onEditLocks: editLockLayer.onEditLocks,
@@ -1888,20 +1920,40 @@ function OpenPage({
       return true;
     },
   });
-  const showResolvedToggle = (
-    <BrowserIconAction
-      type="button"
-      variant="text"
-      label={text.showResolved}
-      icon={<Eye />}
-      pressed={showResolved}
-      onActivate={(event) => {
-        if (event.isTrusted) setShowResolved(!showResolved);
+  const filterLabels: Record<ThreadFilter, string> = {
+    open: text.commentsViewOpen,
+    needs: text.needsYouWord,
+    all: text.commentsViewAll,
+  };
+  const threadFilterMenu = (
+    <BrowserMenu
+      label={text.commentsFilter}
+      triggerText={filterLabels[threadFilter]}
+      variant="crumb"
+      presentation="compact"
+      disabled={changingStatus}
+      items={(['open', 'needs', 'all'] as const).map((key) => ({
+        key,
+        label: filterLabels[key],
+        role: 'menuitemradio' as const,
+        checked: key === threadFilter,
+      }))}
+      onSelect={(filter) => {
+        setThreadFilter(filter);
+        const first = firstThread(
+          listedThreads(view.threads ?? [], numbers, filter, null, view.threadPresentations),
+          view.threadPresentations,
+        );
+        if (first) openThread(first.ref, { revealInPage: false });
+        else setActiveThread(null);
       }}
     />
   );
   const content = (
-    <section className="page">
+    <section
+      className="page"
+      style={{ '--colab-work-band-size': `${workBandSize}px` } as React.CSSProperties}
+    >
       <BrowserNotifications
         pageKey={notificationScope}
         events={notifications.events}
@@ -2110,7 +2162,10 @@ function OpenPage({
       >
         {pageLinkBar}
         <PageWorkBand
+          onSize={setWorkBandSize}
           work={view.work}
+          pageState={view.state === undefined ? (view.pageState ?? 'todo') : view.state}
+          progress={view.progress}
           binding={snapshot.binding}
           transport={transport}
           space={space}
@@ -2171,20 +2226,10 @@ function OpenPage({
           mode={panelMode}
           title={discussedThread ? text.discussion : text.comments}
           caption={
-            discussedThread && numbers.get(activeThread!) !== undefined ? (
-              // The position is the way back to the list.
-              <button
-                type="button"
-                className={`${ui.action} discussion-position`}
-                data-variant="text"
-                aria-label={text.allComments}
-                title={text.allComments}
-                onClick={(event) => {
-                  if (event.isTrusted) openThread(null);
-                }}
-              >
+            discussedThread && position >= 0 ? (
+              <span className="discussion-position">
                 {text.discussionPosition(position + 1, listed.length)}
-              </button>
+              </span>
             ) : undefined
           }
           headerActions={
@@ -2210,17 +2255,17 @@ function OpenPage({
                     if (event.isTrusted) openNeighbour(1);
                   }}
                 />
-                {showResolvedToggle}
+                {threadFilterMenu}
                 <span className="discussion-header-slot" ref={setResolveSlot} />
               </>
             ) : (
-              showResolvedToggle
+              threadFilterMenu
             )
           }
           data-panel="comments"
           data-discussion={discussedThread || undefined}
           onDismiss={(reason) => {
-            if (reason === 'close') close();
+            if (reason === 'close') closeComments();
             else escapeAnnotation.current(true);
           }}
         >
@@ -2244,7 +2289,6 @@ function OpenPage({
             <ThreadPanel
               connectionPresentation={connectionPresentation}
               archived={archived}
-              reopenProposal={proposalLayer.reopenProposal}
               proposalStatusPending={proposalLayer.proposalStatusPending}
               creationRecipient={creatorTarget(view)}
               hideHeader
@@ -2252,7 +2296,6 @@ function OpenPage({
               renderProposal={proposalLayer.renderProposal}
               key={`discussion:${snapshot.id}:${draftsReady}`}
               threads={(view.threads ?? []).filter((thread) => !isChatThread(thread))}
-              showResolved={showResolved}
               resolved={resolved}
               anchorsChecked={anchorsChecked}
               selection={selector}
@@ -2264,6 +2307,7 @@ function OpenPage({
               asks={view.asks ?? []}
               active={activeThread}
               select={openThread}
+              close={closeComments}
               headerSlot={resolveSlot}
               showInPage={(ref) => {
                 // The panel stays: it is beside or over the page, not a modal that hides it.
@@ -2272,14 +2316,7 @@ function OpenPage({
               presentations={view.threadPresentations}
               onStatusChange={
                 statusCoordinator
-                  ? async (thread, resolved) => {
-                      const outcome = await statusCoordinator.change(thread, resolved);
-                      // With resolved threads hidden, resolving the one being viewed moves on to the
-                      // next open thread, or to the list's empty state, once the change has settled.
-                      if (outcome.changed && resolved && !showResolved)
-                        setAdvanceFrom(threadKey(thread));
-                      return outcome;
-                    }
+                  ? (thread, resolved) => statusCoordinator.change(thread, resolved)
                   : undefined
               }
               onBusy={(busy) => {
@@ -2307,7 +2344,15 @@ function OpenPage({
           comments={openThreads}
           unseen={unseenThreads}
           commentsButton={floatingComments}
-          toggleComments={() => toggle('comments')}
+          toggleComments={() => {
+            const selected = (view.threads ?? []).find(
+              (thread) =>
+                !thread.deleted && !isChatThread(thread) && threadKey(thread) === activeThread,
+            );
+            const target = selected ?? firstThread(listed, view.threadPresentations);
+            if (panel !== 'comments' && target) openThread(target.ref, { revealInPage: false });
+            else toggle('comments');
+          }}
           panelMode={panelMode}
           canSelect={canSelect}
           selectPending={selectPending}

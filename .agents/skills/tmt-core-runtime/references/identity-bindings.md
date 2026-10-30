@@ -429,7 +429,7 @@ delivery. They install and launch nothing.
   under the driver's tree, opened without following a final symlink and without blocking, with
   tail reads bounded to one MiB. Unusable usage writes nothing for that value.
 - Consumption counts accepted completed-request provider token units (cached input is a subset
-  of input), not cost or throughput. A baseline starts at EOF with zero counters; cursor loss,
+  of input), not cost or throughput. A baseline starts at EOF with zero counters, including a bounded initial source containing only valid foreign records (Agy index-0 user input); invalid or clipped unprovable evidence is not a complete zero. Cursor loss,
   shrink, replacement, limit exhaustion or invalid records start a new epoch at EOF with
   `gap=true, complete=false`; history is never recounted and a partial last line waits for its
   newline. A compaction keeps the counter; any other start begins a new baseline. After a gap, a
@@ -440,7 +440,7 @@ delivery. They install and launch nothing.
   `token_count` is unavailable. Optional `cacheWriteTokens` stays a subset of unchanged input
   totals; missing fields are unknown. `modelId`/`deltaByModel` read completed-request/turn model
   evidence (Claude `message.model`, Codex `turn_context.model`), separately from the
-  starting-hook resume model. Deltas group at most four models per sequence, compacted
+  starting-hook resume model. Agy uses an explicit completed-response model, or, only when omitted, the model actually reported by an admitted hook in the current state. A start without a model clears that observation even if its resume setting survives; a later idle phase does not erase it. The fallback never attributes absorbed initial history. Deltas group at most four models per sequence, compacted
   only inside the existing opaque cursor; size/evidence loss omits attribution before
   evicting legacy counters. A Codex `token_count` line also supplies optional `rateLimits`
   ([contract](../../../../contracts/extension-api.md#consumption-history)) from that same

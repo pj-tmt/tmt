@@ -48,6 +48,7 @@ export function usePageRenderer({
   setState,
   toolbar,
   titleRow,
+  workBandSize = 0,
   anchor,
   layers,
   handlers,
@@ -65,6 +66,7 @@ export function usePageRenderer({
   /** The page's title row when it is content under the shared bar: it takes room from a frame that
    * fills the viewport, but not from where a revealed element lands. */
   titleRow: RefObject<HTMLElement | null>;
+  workBandSize?: number;
   /** The element a shell item opened the page at. */
   anchor: string | undefined;
   layers: RendererLayers;
@@ -82,6 +84,11 @@ export function usePageRenderer({
   const [missingAnchor, setMissingAnchor] = useState<string>();
   const revealed = useRef('');
   const [rendererMounts, setRendererMounts] = useState(0);
+  const bandSize = useRef(workBandSize);
+  bandSize.current = workBandSize;
+  useEffect(() => {
+    renderer.current?.resize();
+  }, [workBandSize, renderer]);
   const current = useRef(handlers);
   current.current = handlers;
   // The frame is mounted again only when its key changes (#5022): the page, its layout and type,
@@ -159,7 +166,7 @@ export function usePageRenderer({
       onQuestions,
       onReadings,
       viewportInset: () => toolbarInset(toolbar.current),
-      frameLead: () => frameLead(titleRow.current),
+      frameLead: () => frameLead(titleRow.current) + bandSize.current,
       onSelection: (_value, quote, rect) => current.current.onSelection(quote, rect),
       onAnchors: (ids, checked = false) => {
         setResolved(ids);

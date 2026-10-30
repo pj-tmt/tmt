@@ -137,6 +137,89 @@ pub(crate) struct MaterializationInput {
     owner_provenance: BTreeMap<String, bool>,
     local_writer: String,
     tally: crate::page::UsageCounts,
+    /// What each object opened to, kept only by [`Snapshot::materialize_measured`] for a later
+    /// read of the same page in the same command.
+    opened: Option<OpenedIndex>,
+}
+/// How [`Snapshot::materialization_input`] treats the objects other reads already opened.
+#[derive(Clone, Copy)]
+enum Opening<'a> {
+    /// Open every object.
+    Fresh,
+    /// Open every object and keep what each opened to.
+    Record,
+    /// Take an object another read opened when the object and everything its opening depends on
+    /// are identical; open any other.
+    Reuse(&'a MaterializationInput),
+}
+/// What opening a snapshot's stored object depends on besides the object itself. Equal contexts
+/// open an identical object to identical results.
+#[derive(PartialEq)]
+struct OpeningContext {
+    head: statement::Head,
+    epoch: u64,
+    secret: [u8; 32],
+    devices: Vec<(Vec<u8>, bool)>,
+    anchors: BTreeMap<(String, u64), Vec<u8>>,
+    baseline: Option<([u8; 32], [u8; 32])>,
+}
+/// One stored object as its snapshot's cut names it, with a digest of its exact bytes.
+#[derive(PartialEq, Eq, PartialOrd, Ord)]
+struct ObjectIdentity {
+    stream: String,
+    namespace: String,
+    seq: u64,
+    previous: [u8; 32],
+    hash: [u8; 32],
+    checkpoint: bool,
+    bytes: [u8; 32],
+}
+/// Where an opened object's plaintext sits in its [`MaterializationInput`].
+enum Plaintext {
+    Content(usize),
+    Own(usize),
+}
+/// An opened object without its plaintext, which its input already holds.
+struct OpenedEntry {
+    namespace: String,
+    author_device: String,
+    key_bytes: [u8; 32],
+    owner_device: bool,
+    plaintext: Plaintext,
+}
+struct OpenedIndex {
+    context: OpeningContext,
+    objects: BTreeMap<ObjectIdentity, OpenedEntry>,
+}
+impl ObjectIdentity {
+    fn of(cut: &Cut, stored: &crate::store::owner::epoch::StoredObject) -> Self {
+        Self {
+            stream: cut.stream.clone(),
+            namespace: cut.namespace.clone(),
+            seq: stored.seq,
+            previous: stored.previous,
+            hash: stored.hash,
+            checkpoint: stored.checkpoint,
+            bytes: crypto::digest(&stored.bytes),
+        }
+    }
+}
+impl MaterializationInput {
+    /// The identical object this input opened. The caller has compared the opening contexts.
+    fn reopened(&self, identity: &ObjectIdentity) -> Option<OpenedObject> {
+        let entry = self.opened.as_ref()?.objects.get(identity)?;
+        let plaintext = match entry.plaintext {
+            Plaintext::Content(at) => self.updates.get(at)?,
+            Plaintext::Own(at) => self.own_updates.get(&entry.author_device)?.get(at)?,
+        };
+        Some(OpenedObject {
+            namespace: entry.namespace.clone(),
+            author_device: entry.author_device.clone(),
+            plaintext: plaintext.clone(),
+            key_bytes: entry.key_bytes,
+            owner_device: entry.owner_device,
+        })
+    }
 }
 impl crate::page::UsageCounts {
     /// Count one stored object: a checkpoint holds what the tail since the last one has not yet
@@ -238,8 +321,46 @@ impl Snapshot {
         page: &str,
         decoder: &mut Decoder,
     ) -> Result<crate::page::PageUsage> {
-        self.materialization_input(key, page, decoder, &BTreeMap::new(), None)?
+        self.materialization_input(key, page, decoder, &BTreeMap::new(), None, Opening::Fresh)?
             .usage(true)
+    }
+    /// [`Self::usage`], taking each object `held` already opened instead of opening it again
+    /// when the object and its opening context are identical.
+    pub(crate) fn usage_reusing(
+        &self,
+        key: &Keyring,
+        page: &str,
+        decoder: &mut Decoder,
+        held: &MaterializationInput,
+    ) -> Result<crate::page::PageUsage> {
+        self.materialization_input(
+            key,
+            page,
+            decoder,
+            &BTreeMap::new(),
+            None,
+            Opening::Reuse(held),
+        )?
+        .usage(true)
+    }
+    fn opening_context(&self) -> OpeningContext {
+        OpeningContext {
+            head: self.authority.head.clone(),
+            epoch: self.epoch,
+            secret: self.secret,
+            devices: self
+                .devices
+                .iter()
+                .map(|device| (device.chain.clone(), device.revoked))
+                .collect(),
+            anchors: self.anchors.clone(),
+            baseline: self.baseline.as_ref().map(|saved| {
+                (
+                    crypto::digest(&saved.descriptor),
+                    crypto::digest(&saved.envelope),
+                )
+            }),
+        }
     }
     /// [`Self::materialize`] with the gzipped state measured into `usage`, for a reader that
     /// reports it, and the authenticated bytes it decoded, which an edit of this snapshot reuses.
@@ -249,7 +370,14 @@ impl Snapshot {
         page: &str,
         decoder: &mut Decoder,
     ) -> Result<(View, MaterializationInput)> {
-        let input = self.materialization_input(key, page, decoder, &BTreeMap::new(), None)?;
+        let input = self.materialization_input(
+            key,
+            page,
+            decoder,
+            &BTreeMap::new(),
+            None,
+            Opening::Record,
+        )?;
         let usage = input.usage(true)?;
         let mut view = input.materialize(page, decoder, None)?;
         view.usage = usage;
@@ -795,8 +923,15 @@ impl Snapshot {
         decoder: &mut Decoder,
         deadline: Instant,
     ) -> Result<View> {
-        self.materialization_input(key, page, decoder, &BTreeMap::new(), Some(deadline))?
-            .materialize(page, decoder, Some(deadline))
+        self.materialization_input(
+            key,
+            page,
+            decoder,
+            &BTreeMap::new(),
+            Some(deadline),
+            Opening::Fresh,
+        )?
+        .materialize(page, decoder, Some(deadline))
     }
     /// Decode a candidate checkpoint in place of each selected stream's retained objects.
     /// Original objects are still opened and authenticated before the candidate is considered.
@@ -807,7 +942,7 @@ impl Snapshot {
         decoder: &mut Decoder,
         replacements: &BTreeMap<usize, Vec<u8>>,
     ) -> Result<View> {
-        self.materialization_input(key, page, decoder, replacements, None)?
+        self.materialization_input(key, page, decoder, replacements, None, Opening::Fresh)?
             .materialize(page, decoder, None)
     }
     /// The verified genesis belongs to the same read snapshot as the page base.
@@ -833,7 +968,14 @@ impl Snapshot {
         let input = match known {
             Some(known) => &known.input,
             None => {
-                opened = self.materialization_input(key, page, decoder, &BTreeMap::new(), None)?;
+                opened = self.materialization_input(
+                    key,
+                    page,
+                    decoder,
+                    &BTreeMap::new(),
+                    None,
+                    Opening::Fresh,
+                )?;
                 &opened
             }
         };
@@ -923,7 +1065,8 @@ impl Snapshot {
         decoder: &mut Decoder,
     ) -> Result<crate::decoder::PreparedContent> {
         use crate::decoder::StructuredKind;
-        let input = self.materialization_input(key, page, decoder, &BTreeMap::new(), None)?;
+        let input =
+            self.materialization_input(key, page, decoder, &BTreeMap::new(), None, Opening::Fresh)?;
         let base = input.materialize(page, decoder, None)?;
         let shell = base.meta["pageType"].as_str() == Some("shell");
         // Validate the action before crossing the child boundary so callers retain the typed
@@ -991,9 +1134,21 @@ impl Snapshot {
         decoder: &mut Decoder,
         replacements: &BTreeMap<usize, Vec<u8>>,
         deadline: Option<Instant>,
+        opening: Opening<'_>,
     ) -> Result<MaterializationInput> {
+        let context = (!matches!(opening, Opening::Fresh)).then(|| self.opening_context());
+        let held = match opening {
+            Opening::Reuse(held) => context
+                .as_ref()
+                .and_then(|context| held.opened.as_ref().filter(|i| i.context == *context))
+                .map(|_| held),
+            _ => None,
+        };
         let mut baseline = Vec::new();
-        if let Some(saved) = &self.baseline {
+        if let Some(held) = held {
+            // An identical context holds the identical baseline, opened and verified.
+            baseline = held.baseline.clone();
+        } else if let Some(saved) = &self.baseline {
             let d = payload::decode_baseline(&saved.descriptor)?;
             let rev = values::decimal(&d.membership_revision, false)?;
             let Payload::EpochAdvance(advance) = self
@@ -1066,8 +1221,18 @@ impl Snapshot {
         let mut replaced = BTreeSet::new();
         let local_writer = key.local_writer()?.0;
         let mut tally = crate::page::UsageCounts::default();
+        let mut objects = BTreeMap::new();
         for (index, stored) in &self.objects {
-            let opened = self.open_object(key, page, *index, stored)?;
+            let identity = context
+                .is_some()
+                .then(|| ObjectIdentity::of(&self.cuts[*index], stored));
+            let reopened = held
+                .zip(identity.as_ref())
+                .and_then(|(held, identity)| held.reopened(identity));
+            let opened = match reopened {
+                Some(opened) => opened,
+                None => self.open_object(key, page, *index, stored)?,
+            };
             if opened.namespace == "own" {
                 // Authenticate every original envelope before a candidate replaces its
                 // structs. Ambiguous writer provenance never grants status authority.
@@ -1089,19 +1254,45 @@ impl Snapshot {
                 opened.author_device == local_writer,
                 plaintext.len(),
             )?;
-            if opened.namespace == "content" {
+            let at = if opened.namespace == "content" {
                 updates.push(plaintext);
+                Plaintext::Content(updates.len() - 1)
             } else {
                 signing_keys.insert(opened.author_device.clone(), opened.key_bytes);
-                own_updates
-                    .entry(opened.author_device)
-                    .or_default()
-                    .push(plaintext);
+                let own = own_updates.entry(opened.author_device.clone()).or_default();
+                own.push(plaintext);
+                Plaintext::Own(own.len() - 1)
+            };
+            if matches!(opening, Opening::Record)
+                && !replacements.contains_key(index)
+                && let Some(identity) = identity
+            {
+                let OpenedObject {
+                    namespace,
+                    author_device,
+                    key_bytes,
+                    owner_device,
+                    ..
+                } = opened;
+                objects.insert(
+                    identity,
+                    OpenedEntry {
+                        namespace,
+                        author_device,
+                        key_bytes,
+                        owner_device,
+                        plaintext: at,
+                    },
+                );
             }
         }
         if replaced.len() != replacements.len() {
             return Err(OwnerFault::Invalid.into());
         }
+        let opened = match (opening, context) {
+            (Opening::Record, Some(context)) => Some(OpenedIndex { context, objects }),
+            _ => None,
+        };
         Ok(MaterializationInput {
             baseline,
             updates,
@@ -1110,6 +1301,7 @@ impl Snapshot {
             owner_provenance,
             local_writer,
             tally,
+            opened,
         })
     }
 }

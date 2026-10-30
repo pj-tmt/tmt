@@ -129,7 +129,20 @@ pub fn scan(
     decoder: &mut Decoder,
     pages: &[String],
 ) -> Result<BTreeMap<String, Marks>> {
-    page_index::scan(layout, store, key, pages, |id| {
+    let live = crate::inspection::all_page_ids(store, key).ok();
+    scan_with_live(layout, store, key, decoder, pages, live.as_deref())
+}
+
+/// Scan with a live-page catalog the caller already read; `None` leaves the cache untouched.
+pub fn scan_with_live(
+    layout: &Layout,
+    store: &Store,
+    key: &Keyring,
+    decoder: &mut Decoder,
+    pages: &[String],
+    live: Option<&[String]>,
+) -> Result<BTreeMap<String, Marks>> {
+    page_index::scan(layout, store, key, pages, live, |id| {
         let snapshot = page::snapshot(store, key, id, false).ok()?;
         let view = snapshot.materialize(key, id, decoder).ok()?;
         Some(if view.meta["pageType"].as_str() == Some("shell") {

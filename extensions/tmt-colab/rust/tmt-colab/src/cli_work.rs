@@ -545,8 +545,9 @@ fn follow_pages(root: &Path, page_id: &str, read: &mut page::WorkPage) -> Result
     let store = Store::read(&layout)?;
     store.require_current_schema()?;
     let mut decoder = Decoder::new(std::env::current_exe()?)?;
-    let found = tmt_colab::inspection::all_page_ids(&store, &key)
-        .and_then(|pages| work_index::scan(&layout, &store, &key, &mut decoder, &pages));
+    let found = tmt_colab::inspection::all_page_ids(&store, &key).and_then(|pages| {
+        work_index::scan_with_live(&layout, &store, &key, &mut decoder, &pages, Some(&pages))
+    });
     let closed = store.close();
     let found = found?;
     closed?;

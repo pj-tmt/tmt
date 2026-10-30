@@ -294,7 +294,8 @@ body:has(.needs-you-header-menu):not(:has(.tmt-ui-shell)) {
 }
 .frame-host {
   min-height: calc(
-    100dvh - var(--page-bar-size) - var(--tmt-ui-shell-lead, 0px) - var(--colab-title-row-size, 0px)
+    100dvh - var(--page-bar-size) - var(--tmt-ui-shell-lead, 0px) -
+      var(--colab-title-row-size, 0px) - var(--colab-work-band-size, 0px)
   );
   /* Browser page canvas stays white; theme tokens belong to the surrounding chrome. */
   background: #fff;
@@ -789,63 +790,9 @@ body:has(.needs-you-header-menu):not(:has(.tmt-ui-shell)) {
   border-radius: var(--tmt-ui-radius-pill);
   box-shadow: var(--tmt-ui-shadow-overlay);
 }
-/* The website's row: number bubble, then title, quoted passage and a small line. */
-.annotation-row {
-  display: flex;
-  align-items: flex-start;
-  gap: 8px;
-  width: 100%;
-  margin: 0;
-  padding: 18px 0;
-  border: 0;
-  border-bottom: 1px solid var(--c-rule);
-  /* Square: a row of a ruled list, as the website's thread rows are. */
-  border-radius: 0;
-  background: transparent;
-  color: var(--c-text);
-  text-align: left;
-  box-shadow: none;
-}
-.annotation-row-text {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  min-width: 0;
-}
-.annotation-row strong {
-  /* Comments titles keep the 14px compact body scale at every viewport. */
-  font-size: var(--tmt-ui-page-compact-body-size);
-  overflow: hidden;
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  -webkit-box-orient: vertical;
-  overflow-wrap: anywhere;
-  font-weight: 500;
-}
-.annotation-row-quote {
-  overflow: hidden;
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  -webkit-box-orient: vertical;
-  overflow-wrap: anywhere;
-}
-.annotation-row-quote,
-.annotation-row small,
 .annotation-hint {
   color: var(--c-muted);
   font-size: 12px;
-}
-/* The row's quote and meta are the caption size, as on the website (11px, with a 9px meta below our
-   readable minimum); the title keeps the body size, the smallest body token there is. */
-.annotation-row-quote,
-.annotation-row small {
-  font-size: var(--tmt-ui-caption-size);
-  line-height: var(--tmt-ui-host-field-line-height);
-}
-/* The filter strip is closed by a rule, as the website's is, before the list begins. */
-.comments-panel .tmt-ui-tabs-header {
-  padding-bottom: 15px;
-  border-bottom: 1px solid var(--c-rule);
 }
 /* Where comments and chat will be until the page's threads are verified: quiet, in the drawer body. */
 .discussion-pending {
@@ -853,19 +800,6 @@ body:has(.needs-you-header-menu):not(:has(.tmt-ui-shell)) {
   padding: 16px;
   color: var(--c-muted);
   font-size: 12px;
-}
-.annotation-row .annotation-number {
-  margin-top: 1px;
-}
-.annotation-row small[data-unseen] {
-  color: var(--c-text);
-  font-weight: 600;
-}
-.annotation-row:hover strong {
-  text-decoration: underline;
-}
-.annotation-row[aria-expanded='true'] {
-  border-bottom: 2px solid var(--c-text);
 }
 .annotation-compose textarea {
   width: 100%;
@@ -1531,7 +1465,7 @@ body:has(.needs-you-header-menu):not(:has(.tmt-ui-shell)) {
   color: var(--c-muted);
 }
 
-/* The add action ends under the view strip, at its right edge, with the list right below. */
+/* Page-comment creation precedes the selected conversation. */
 .comments-add {
   display: flex;
   justify-content: flex-end;
@@ -1539,12 +1473,11 @@ body:has(.needs-you-header-menu):not(:has(.tmt-ui-shell)) {
 .comments-add > .tmt-ui-action[data-variant='text'] {
   padding-inline: 0;
 }
-.comments-panel .annotation-list-item:first-child .annotation-row {
-  padding-top: 10px;
-}
 /* The Discussion view: a quiet state line when there is something to say, the thread's title (its
    passage) and the turns. Resolve and the position stand in the panel's header. */
 .discussion-status {
+  min-height: 1.5em;
+  line-height: 1.5;
   display: flex;
   align-items: center;
   gap: 8px;
@@ -1614,35 +1547,14 @@ button.discussion-quote:focus-visible {
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 3;
 }
-/* The header's controls: the position is the way back to the list, Resolve is a small secondary
-   action, and the arrows are the shared icon actions. */
-.discussion-position.tmt-ui-action[data-variant='text'] {
-  min-height: 0;
-  padding: 2px 4px;
+/* Position is static; filter and arrows own navigation. */
+.discussion-position {
   color: var(--tmt-ui-color-secondary);
   font-size: 12px;
-  text-decoration: none;
-}
-.discussion-position.tmt-ui-action[data-variant='text']:hover {
-  color: var(--tmt-ui-color-text);
-  text-decoration: underline;
+  white-space: nowrap;
 }
 .discussion-header-slot {
   display: contents;
-}
-.discussion-resolve {
-  gap: 4px;
-  min-height: 0;
-  padding: 4px 8px;
-  border-radius: var(--tmt-ui-radius);
-  font-size: 12px;
-  line-height: 1.4;
-  white-space: nowrap;
-}
-.discussion-resolve svg {
-  width: 14px;
-  height: 14px;
-  flex: none;
 }
 /* In the drawer the thread is the page sheet itself, not a card: turns run full width, a rule
    between them, and the time ends the byline. */
@@ -1764,10 +1676,6 @@ button.discussion-quote:focus-visible {
   > * {
   order: 3;
 }
-.tmt-ui-panel:is([data-mode='column'], [data-mode='card'])[data-discussion] .discussion-resolve {
-  order: 4;
-  margin-inline-start: auto;
-}
 .tmt-ui-panel[data-discussion] .tmt-ui-drawer-header-actions {
   gap: 2px;
   --tmt-ui-host-icon-action-size: 24px;
@@ -1849,26 +1757,6 @@ button.discussion-quote:focus-visible {
   padding-inline: 0;
   font-weight: 600;
   text-align: left;
-}
-
-.annotation-row-controls {
-  display: flex;
-  align-items: end;
-  gap: 8px;
-}
-.annotation-row-controls .annotation-row {
-  flex: 1;
-  min-width: 0;
-}
-.annotation-row[data-resolved] strong {
-  color: var(--c-muted);
-}
-.proposal-row-reopen {
-  flex: none;
-  margin-bottom: 14px;
-}
-.proposal-row-reopen .tmt-ui-action {
-  color: var(--c-muted);
 }
 
 .question-card {

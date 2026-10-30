@@ -1,3 +1,4 @@
+import { openWorkTasks } from '../test/page-actions.js';
 import { expect, test, type Page } from '@playwright/test';
 
 /**
@@ -17,7 +18,7 @@ async function openWorkBand(page: Page) {
     (await import(path)).mountWorkPage(true, true);
   });
   const band = page.getByRole('region', { name: 'Work on this page' });
-  await band.getByRole('button', { name: /Show \d+ tasks/ }).click();
+  await openWorkTasks(band);
   await band.locator('.work-row', { hasText: 'T-3' }).locator('button').click();
   await expect(band.locator('.work-controls')).toBeVisible();
   await expect(band.getByRole('textbox', { name: 'New task' })).toBeVisible();
@@ -87,7 +88,9 @@ for (const { width, height } of views) {
   test(`the last control at the page end is clear of the floating actions at ${width}`, async ({
     page,
   }) => {
-    await page.setViewportSize({ width, height });
+    // The direct task list can fit a desktop's 900 px viewport. Keep this case about
+    // reaching the last controls by scrolling, independently of that compact layout.
+    await page.setViewportSize({ width, height: 480 });
     await openWorkBand(page);
     await page.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight));
     await expect.poll(() => page.evaluate(() => Math.round(scrollY))).toBeGreaterThan(0);

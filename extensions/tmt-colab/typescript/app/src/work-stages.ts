@@ -29,7 +29,15 @@ export function useLinkedPages(
   space: string | undefined,
   pageId: string,
   work: Work | undefined,
-): { stageOf?: (pageId: string) => string | undefined; parent?: WorkParent } {
+): {
+  stageOf?: (pageId: string) => string | undefined;
+  /** Whether the existing owner list has been observed, including an empty list. */
+  observed: boolean;
+  pages?: readonly PageSummary[];
+  knownChild: boolean;
+  parent?: WorkParent;
+  subpages: readonly { id: string; title?: string; state?: PageSummary['state'] }[];
+} {
   const key = followed(work);
   const [pages, setPages] = useState<readonly PageSummary[] | undefined>(() =>
     rememberedPages(transport, space),
@@ -67,5 +75,14 @@ export function useLinkedPages(
       ? { pageId: link.page, taskId: link.task, title: held.title, taskTitle: link.title }
       : undefined;
   }, [pages, pageId]);
-  return { stageOf, parent };
+  const subpages = useMemo(
+    () =>
+      [...new Set(key.split(' ').filter(Boolean))].map((id) => {
+        const row = pages?.find((page) => page.id === id);
+        return { id, title: row?.title, state: row?.state };
+      }),
+    [key, pages],
+  );
+  const knownChild = pages?.find((page) => page.id === pageId)?.summary?.parent !== undefined;
+  return { stageOf, parent, subpages, pages, knownChild, observed: pages !== undefined };
 }

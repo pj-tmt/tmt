@@ -9,10 +9,11 @@ async function mount(
 ) {
   await page.goto('/');
   if (remembered !== undefined)
-    await page.evaluate(
-      (name) => localStorage.setItem('tmt-colab-project-scope-v1:', name),
-      remembered,
-    );
+    await page.evaluate(async (name) => {
+      const path = '/test/page-list-browser.tsx';
+      const { pageListSpace } = await import(path);
+      localStorage.setItem(`tmt-colab-project-scope-v1:${pageListSpace}`, name);
+    }, remembered);
   await page.clock.setFixedTime(new Date('2026-10-09T00:00:00Z'));
   await page.evaluate(
     async ({ size, hash }) => {
@@ -21,6 +22,13 @@ async function mount(
     },
     { size, hash },
   );
+}
+async function storedScope(page: Page) {
+  return page.evaluate(async () => {
+    const path = '/test/page-list-browser.tsx';
+    const { pageListSpace } = await import(path);
+    return localStorage.getItem(`tmt-colab-project-scope-v1:${pageListSpace}`);
+  });
 }
 /** The fixture mounts beside the hidden app, which renders the same route; scope to the fixture. */
 const app = (page: Page) => page.locator('#list-fixture');
@@ -1008,16 +1016,14 @@ test('the scope is remembered on this device; All pages forgets it; a missing pr
 }) => {
   await mount(page);
   await scopeTo(page, 'ops');
-  expect(await page.evaluate(() => localStorage.getItem('tmt-colab-project-scope-v1:'))).toBe(
-    'ops',
-  );
+  expect(await storedScope(page)).toBe('ops');
   // Opening the list without a scope applies the remembered one, and the address shows it.
   await mount(page, 'few', '/', 'ops');
   await expect(scopeTrigger(page, 'ops')).toBeVisible();
   expect(new URL(page.url()).hash).toContain('scope=ops');
   await expect(titles(page)).toHaveText(['Delta ops']);
   await scopeTo(page, 'All pages');
-  expect(await page.evaluate(() => localStorage.getItem('tmt-colab-project-scope-v1:'))).toBeNull();
+  expect(await storedScope(page)).toBeNull();
   await mount(page);
   await expect(scopeTrigger(page)).toBeVisible();
   await expect(titles(page)).toHaveCount(4);

@@ -224,6 +224,7 @@
 }
 .tmt-ui-shell-open:focus-visible,
 .tmt-ui-rail-item:focus-visible,
+.tmt-ui-rail-search:focus-visible,
 .tmt-ui-module-menu-item:focus-visible,
 .tmt-ui-rail-sub-item:focus-visible {
   outline: var(--tmt-ui-focus-width) solid var(--tmt-ui-color-focus);
@@ -264,6 +265,7 @@
   border-top: var(--tmt-ui-rule-width) solid var(--tmt-ui-surface-rule);
 }
 .tmt-ui-rail-item,
+.tmt-ui-rail-search,
 .tmt-ui-module-menu-item,
 .tmt-ui-rail-sub-item {
   position: relative;
@@ -273,7 +275,8 @@
   text-decoration: none;
   white-space: nowrap;
 }
-.tmt-ui-rail-item {
+.tmt-ui-rail-item,
+.tmt-ui-rail-search {
   gap: var(--tmt-ui-rail-item-gap);
   min-height: var(--tmt-ui-rail-item-height);
   box-sizing: border-box;
@@ -282,6 +285,7 @@
 }
 /* Hover lightly tints the row; the current module is a soft mint pill with a mint edge. */
 .tmt-ui-rail-item:hover,
+.tmt-ui-rail-search:hover,
 .tmt-ui-module-menu-item:hover,
 .tmt-ui-rail-sub-item:hover {
   color: var(--tmt-ui-color-selected-text);
@@ -422,11 +426,16 @@
 .tmt-ui-topbar-navigation,
 .tmt-ui-topbar-controls,
 .tmt-ui-topbar-actions,
+.tmt-ui-topbar-status,
 .tmt-ui-topbar-common {
   display: flex;
   align-items: center;
   gap: var(--tmt-ui-header-gap);
   min-width: 0;
+}
+.tmt-ui-topbar-status:empty,
+.tmt-ui-topbar-actions:empty {
+  display: none;
 }
 .tmt-ui-shell[data-topbar] > .tmt-ui-shell-content > .tmt-ui-shell-tools {
   display: none;
@@ -577,6 +586,42 @@
 /* A phone-width bar draws no key hint. */
 @media (max-width: 640px) {
   .tmt-ui-shell-tools kbd {
+    display: none;
+  }
+}
+
+/* Global search is a rail item; the compact bar keeps its own opener. */
+.tmt-ui-rail-search-section:not(:empty) {
+  padding-bottom: var(--tmt-ui-space-s);
+  margin-bottom: var(--tmt-ui-space-s);
+  border-bottom: var(--tmt-ui-rule-width) solid var(--tmt-ui-surface-rule);
+}
+.tmt-ui-rail-search {
+  width: 100%;
+  border: 0;
+  background: transparent;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.tmt-ui-rail-search > svg {
+  width: var(--tmt-ui-rail-icon-size);
+  height: var(--tmt-ui-rail-icon-size);
+  flex: none;
+}
+.tmt-ui-rail-search kbd {
+  margin-left: auto;
+  font: var(--tmt-ui-caption-size)/1 var(--tmt-ui-font-body);
+  color: var(--tmt-ui-color-secondary);
+}
+.tmt-ui-topbar-navigation > .tmt-ui-icon-action {
+  display: none;
+}
+@media (max-width: 900px) {
+  .tmt-ui-topbar-navigation > .tmt-ui-icon-action {
+    display: inline-flex;
+  }
+  .tmt-ui-topbar-search kbd {
     display: none;
   }
 }

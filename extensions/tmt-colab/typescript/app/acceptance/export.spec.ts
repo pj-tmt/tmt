@@ -68,7 +68,7 @@ test('browser and CLI export the same two-writer discussion and Ask conversation
     const operationId = (await t1.getByTestId('ask-entry').getAttribute('data-operation-id'))!;
     const messageId = (await t1.getByTestId('comment-entry').getAttribute('data-message-id'))!;
     await (await pageAction(second, 'Comments')).click();
-    await second.getByTestId('annotation-row').click();
+
     const t2 = second.getByTestId('comment-thread').first();
     await expect(t2).toHaveAttribute('data-anchor', 'attached');
     await expect(

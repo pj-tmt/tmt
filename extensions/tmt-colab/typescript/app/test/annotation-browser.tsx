@@ -595,6 +595,7 @@ export function mountWindow(mode = 'ready') {
           blocked={false}
           active={null}
           select={() => {}}
+          close={() => {}}
         />
       );
     return (

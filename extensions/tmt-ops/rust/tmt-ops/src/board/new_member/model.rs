@@ -134,7 +134,7 @@ impl Review {
         self.save
             .then(|| self.tmt(&["identity", "create", &self.name]))
     }
-    fn squad_lines(&self) -> Vec<String> {
+    pub fn squad_lines(&self) -> Vec<String> {
         let squad = match (&self.room, &self.new_squad) {
             (Some(room), _) => &room.name,
             (None, Some(name)) => name,
@@ -389,6 +389,9 @@ impl Draft {
         } else {
             effort
         };
+        if host != BUILT_IN_HOST && !plain_word(session) {
+            return Err("A session name has no outer spaces, controls or leading '-'.".into());
+        }
         let squad = if self.saved { squad } else { "" };
         let room = self.rooms.iter().find(|r| r.name == squad).cloned();
         let new_squad = if squad.is_empty() || room.is_some() {

@@ -64,7 +64,8 @@ for (const width of [1440, 390])
       );
       const header = (await bar.boundingBox())!;
       const row = (await page.locator('.colab-title-row:visible').boundingBox())!;
-      expect(rect?.y).toBe(header.y + header.height + lead + row.height);
+      const panel = (await page.locator('.work-band:visible').boundingBox())!;
+      expect(rect?.y).toBe(header.y + header.height + lead + row.height + panel.height);
       expect(rect?.height).toBeGreaterThanOrEqual(900 - rect!.y);
       // The frame ends the document: a page taller than the room grows it (window scroll mode), so
       // the bottom is the frame's, not a fixed 900 that depends on the runner's fonts. The frame
@@ -168,7 +169,7 @@ for (const width of [1440, 390])
         expect(box.y + box.height).toBe(900 - gap);
       }
       await page.screenshot({ path: `/tmp/1586-${width}-${theme}-comments.png` });
-      await commentsClose(page, 'list').click();
+      await commentsClose(page, 'empty').click();
       await expect(comments).not.toBeVisible();
       await expect(commentsAction(page)).toBeFocused();
       await (await pageAction(page, 'Chat')).click();
@@ -312,7 +313,8 @@ for (const width of [1440, 390])
       // The page starts under the title row: give it room and scroll exactly past the row, so the
       // column's sticky offset under the bar applies and the marker stays clear of the bar.
       const rowHeight = Math.round(
-        (await page.locator('.colab-title-row:visible').boundingBox())!.height,
+        (await page.locator('.colab-title-row:visible').boundingBox())!.height +
+          (await page.locator('.work-band:visible').boundingBox())!.height,
       );
       await page.evaluate((top) => {
         document.querySelector<HTMLElement>('#ask-page-fixture .canvas')!.style.minHeight =
@@ -369,7 +371,7 @@ for (const width of [1440, 390])
         await page.screenshot({ path: `${capture}/comments-${width}-${theme}.png` });
       }
       expect(await page.evaluate(() => window.scrollY)).toBe(scroll);
-      await commentsClose(page, 'list').click();
+      await commentsClose(page, 'discussion').click();
       await expect(panel).not.toBeVisible();
       await expect.poll(frameAt).toBe(true);
       expect((await frame.boundingBox())?.width).toBe(before?.width);

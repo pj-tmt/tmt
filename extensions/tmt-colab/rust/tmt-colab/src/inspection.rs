@@ -30,13 +30,30 @@ pub fn active_page_ids(store: &Store, key: &Keyring) -> Result<Vec<String>> {
 }
 fn page_ids(store: &Store, key: &Keyring, active: bool) -> Result<Vec<String>> {
     let catalog = catalog(store, key)?;
-    Ok(catalog["pages"]
+    Ok(if active {
+        catalog_active_page_ids(&catalog)
+    } else {
+        catalog_page_ids(&catalog)
+    })
+}
+/// Every non-deleted page in a previously verified catalog.
+pub fn catalog_page_ids(catalog: &Value) -> Vec<String> {
+    catalog["pages"]
         .as_array()
         .into_iter()
         .flatten()
-        .filter(|page| !active || page["archived"] != true)
         .filter_map(|page| page["pageId"].as_str().map(str::to_owned))
-        .collect())
+        .collect()
+}
+/// Non-archived pages in a previously verified catalog.
+pub fn catalog_active_page_ids(catalog: &Value) -> Vec<String> {
+    catalog["pages"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter(|page| page["archived"] != true)
+        .filter_map(|page| page["pageId"].as_str().map(str::to_owned))
+        .collect()
 }
 pub fn catalog_for(store: &Store, key: &Keyring, space: SpaceExpiry) -> Result<Value> {
     store.owner_read(&key.space_id, &key.owner_public(), |tx| {

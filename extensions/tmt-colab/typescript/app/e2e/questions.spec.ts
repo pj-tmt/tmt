@@ -2,7 +2,7 @@ import { mkdirSync } from 'node:fs';
 import { expect, test, type Page } from '@playwright/test';
 import { pageAction } from '../test/page-actions.js';
 import { rgb, tokens } from './tokens.js';
-import { expectAnswered } from './question-line.js';
+import { expectAnswered, openAnsweredQuestion } from './question-line.js';
 const fixture = '/test/ask-page-browser.tsx';
 async function run(page: Page, method: string, argument?: unknown) {
   return page.evaluate(
@@ -27,10 +27,84 @@ async function send(page: Page) {
   await card.getByRole('button', { name: /^Send answer/ }).press('Enter');
   const line = card.locator('.question-line');
   await expect(line).toContainText('Answered');
-  await expect(line).toHaveAttribute('aria-expanded', 'false');
-  await line.click();
+  await openAnsweredQuestion(line);
   await expect(card.getByRole('button', { name: 'Change answer', exact: true })).toBeEnabled();
 }
+test('the answer-history handoff waits for verified second-send disclosure across placement changes', async ({
+  page,
+}) => {
+  const card = await mount(page, {}, { holdQuestionView: true });
+  const line = card.locator('.question-line');
+  const slot = page.locator('[data-inline-question]');
+  for (const [index, answer] of ['Keep it', 'Change it'].entries()) {
+    if (index) await card.getByRole('button', { name: 'Change answer', exact: true }).click();
+    await card.getByLabel(answer, { exact: true }).check();
+    let reopened = false;
+    const handoff = send(page).then(() => {
+      reopened = true;
+    });
+    try {
+      await expect(line.locator('.question-line-answer')).toContainText(answer);
+      await expect(line).toHaveAttribute('aria-disabled', 'true');
+      await expect(line).toHaveAttribute('aria-expanded', 'false');
+      expect(reopened).toBe(false);
+      await expect
+        .poll(async () => (await run(page, 'discussionProof'))[0]?.comments.length ?? 0)
+        .toBe(index + 1);
+      const beforeTop = await slot.evaluate((node) => parseFloat((node as HTMLElement).style.top));
+      expect(Number.isFinite(beforeTop)).toBe(true);
+      // Real author-frame geometry changes still travel through the renderer/slot owner.
+      await page
+        .frameLocator('#ask-page-fixture iframe')
+        .locator('body')
+        .evaluate(
+          (node, padding) => {
+            node.style.paddingTop = `${padding}px`;
+          },
+          (index + 1) * 120,
+        );
+      await expect
+        .poll(() => slot.evaluate((node) => parseFloat((node as HTMLElement).style.top)))
+        .not.toBe(beforeTop);
+      // Model a remaining placement update landing during pointer activation of the second answer.
+      if (index) await run(page, 'shiftQuestionOnPointerDown');
+    } finally {
+      await run(page, 'releaseQuestionView');
+      await handoff;
+    }
+    await expect(line).toHaveAttribute('aria-expanded', 'true');
+    await expect(card.locator('.question-answer > p')).toHaveText(answer);
+    await expect(card.locator('.question-history article')).toHaveCount(index + 1);
+  }
+  const threads = await run(page, 'discussionProof');
+  expect(threads).toHaveLength(1);
+  expect(threads[0].comments).toHaveLength(2);
+  await expect.poll(async () => (await run(page, 'proof')).sends.length).toBe(2);
+});
+
+test('the placement fixture makes a coordinate reopen miss without changing the recorded answer', async ({
+  page,
+}) => {
+  const card = await mount(page);
+  await card.getByLabel('Keep it', { exact: true }).check();
+  await card.getByRole('button', { name: /^Send answer/ }).press('Enter');
+  const line = card.locator('.question-line');
+  await expectAnswered(line, 'Keep it');
+  await expect(line).toBeEnabled();
+  await expect(line).toHaveAttribute('aria-expanded', 'false');
+  const before = (await line.boundingBox())!;
+  await run(page, 'shiftQuestionOnPointerDown');
+  await line.click();
+  await expect(line).toHaveAttribute('aria-expanded', 'false');
+  await expect(card.getByRole('button', { name: 'Change answer', exact: true })).toBeHidden();
+  expect((await line.boundingBox())!.y).toBeGreaterThan(before.y + before.height);
+  await expectAnswered(line, 'Keep it');
+  const threads = await run(page, 'discussionProof');
+  expect(threads).toHaveLength(1);
+  expect(threads[0].comments).toHaveLength(1);
+  await expect.poll(async () => (await run(page, 'proof')).sends.length).toBe(1);
+});
+
 for (const kind of ['single', 'multiple', 'short', 'long']) {
   test(`${kind} creates a normal quote thread and changing answers appends`, async ({ page }) => {
     const card = await mount(page, { kind, other: kind === 'single' || kind === 'multiple' });
@@ -442,7 +516,7 @@ test('removed markup leaves a normal annotation accessible in Comments', async (
   await run(page, 'change', '<p>The question was removed.</p>');
   await expect(page.locator('.question-group-card')).toHaveCount(0);
   await (await pageAction(page.locator('#ask-page-fixture'), 'Comments')).click();
-  await expect(page.getByTestId('annotation-row')).toContainText('Which heading should we use?');
+  await expect(page.getByTestId('comment-thread')).toContainText('Which heading should we use?');
   expect((await run(page, 'proof')).sends).toHaveLength(1);
 });
 

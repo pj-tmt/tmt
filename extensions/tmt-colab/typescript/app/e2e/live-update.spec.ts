@@ -1,5 +1,5 @@
 import { commentsRegion, openPanel } from '../test/comments-region.js';
-import { pageAction, showResolvedOn } from '../test/page-actions.js';
+import { pageAction, showResolvedOn, selectDiscussion } from '../test/page-actions.js';
 import { mkdirSync } from 'node:fs';
 import { expect, test, type Locator, type Page } from '@playwright/test';
 import { text } from '../src/strings.js';
@@ -273,7 +273,7 @@ for (const width of [1440, 390]) {
       await page.screenshot({ path: `${captureDir}/chat-${width}-${theme}-updated.png` });
       await page.getByRole('button', { name: 'Close Chat', exact: true }).click();
       await panel(page, 'comments');
-      await page.getByTestId('annotation-row').filter({ hasText: 'Exact selected text' }).click();
+      await selectDiscussion(page, 'Exact selected text');
       await expect.poll(() => messageText(reply)).toBe(continuedThreadDraft);
       await expect(thread).toHaveAttribute('data-anchor', 'detached');
       await expect(thread.getByText(text.commentQuoteChanged)).toBeVisible();
@@ -329,9 +329,18 @@ for (const width of [1440, 390]) {
         .poll(async () => {
           const card = await notice.boundingBox();
           const draft = await composer.boundingBox();
-          return card && draft ? draft.y - (card.y + card.height) : -1;
+          if (!card || !draft) return false;
+          // A tall notice can leave more usable room above it on a phone. The retained
+          // draft must fit the viewport and stay clear of the notice in either placement.
+          const separate = draft.y >= card.y + card.height || draft.y + draft.height <= card.y;
+          return (
+            separate &&
+            draft.height > 0 &&
+            draft.y >= 0 &&
+            draft.y + draft.height <= (page.viewportSize()?.height ?? 0)
+          );
         })
-        .toBeGreaterThan(0);
+        .toBe(true);
       await page.screenshot({ path: `${captureDir}/annotation-${width}-${theme}-failure.png` });
       expect((await run(page, 'proof')).sends).toHaveLength(1);
     });

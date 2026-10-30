@@ -1,6 +1,6 @@
 {
   "contract": "../digest-v1.md#valuation",
-  "description": "Independent quote/ratio results. Official standard base input rates verified 2026-10-14; these are list-price estimates, not bills. The weighted-members case sums (100 avoided,100 observed) and (100 avoided,900 observed), never averages 50% and 10%. The mismatched-pricing-versions case is never summed: the total is unavailable and consumers say the prices differ.",
+  "description": "Independent quote/ratio results. Official standard base input rates verified 2026-10-28; these are list-price estimates, not bills. The weighted-members case sums (100 avoided,100 observed) and (100 avoided,900 observed), never averages 50% and 10%. The mismatched-pricing-versions case is never summed: the total is unavailable and consumers say the prices differ.",
   "quotes": [
     {
       "name": "openai-sol",
@@ -11,7 +11,7 @@
         "usdMicros": 5400,
         "modelId": "gpt-6-sol",
         "modelObservedAtMs": 1000,
-        "pricingVersion": "2026-10-14",
+        "pricingVersion": "2026-10-28",
         "usdMicrosPerMillionInputTokens": 2000000,
         "assumption": "uncached-input"
       }
@@ -25,7 +25,7 @@
         "usdMicros": 5400,
         "modelId": "gpt-6.1-sol",
         "modelObservedAtMs": 1000,
-        "pricingVersion": "2026-10-14",
+        "pricingVersion": "2026-10-28",
         "usdMicrosPerMillionInputTokens": 2000000,
         "assumption": "uncached-input"
       }
@@ -39,7 +39,7 @@
         "usdMicros": 10800,
         "modelId": "claude-opus-5-5",
         "modelObservedAtMs": 1000,
-        "pricingVersion": "2026-10-14",
+        "pricingVersion": "2026-10-28",
         "usdMicrosPerMillionInputTokens": 4000000,
         "assumption": "uncached-input"
       }
@@ -53,7 +53,7 @@
         "usdMicros": 5400,
         "modelId": "claude-sonnet-5-5",
         "modelObservedAtMs": 1000,
-        "pricingVersion": "2026-10-14",
+        "pricingVersion": "2026-10-28",
         "usdMicrosPerMillionInputTokens": 2000000,
         "assumption": "uncached-input"
       }
@@ -67,7 +67,7 @@
         "usdMicros": 0,
         "modelId": "gpt-6.1-sol",
         "modelObservedAtMs": 1000,
-        "pricingVersion": "2026-10-14",
+        "pricingVersion": "2026-10-28",
         "usdMicrosPerMillionInputTokens": 2000000,
         "assumption": "uncached-input"
       }
@@ -112,6 +112,216 @@
       "model": "gpt-6-sol",
       "observedAtMs": 9007199254740992,
       "tokens": 1,
+      "expected": null
+    },
+    {
+      "name": "gemini-3-flash-preview",
+      "model": "gemini-3-flash-preview",
+      "observedAtMs": 1000,
+      "tokens": 2000,
+      "expected": {
+        "usdMicros": 1000,
+        "modelId": "gemini-3-flash-preview",
+        "modelObservedAtMs": 1000,
+        "pricingVersion": "2026-10-28",
+        "usdMicrosPerMillionInputTokens": 500000,
+        "assumption": "uncached-input"
+      }
+    },
+    {
+      "name": "gemini-3.1-flash-lite",
+      "model": "gemini-3.1-flash-lite",
+      "observedAtMs": 1000,
+      "tokens": 2000,
+      "expected": {
+        "usdMicros": 500,
+        "modelId": "gemini-3.1-flash-lite",
+        "modelObservedAtMs": 1000,
+        "pricingVersion": "2026-10-28",
+        "usdMicrosPerMillionInputTokens": 250000,
+        "assumption": "uncached-input"
+      }
+    },
+    {
+      "name": "gemini-3.1-pro-preview",
+      "model": "gemini-3.1-pro-preview",
+      "observedAtMs": 1000,
+      "tokens": 2000,
+      "expected": {
+        "usdMicros": 4000,
+        "modelId": "gemini-3.1-pro-preview",
+        "modelObservedAtMs": 1000,
+        "pricingVersion": "2026-10-28",
+        "usdMicrosPerMillionInputTokens": 2000000,
+        "assumption": "uncached-input"
+      }
+    },
+    {
+      "name": "gemini-3.5-flash-lite",
+      "model": "gemini-3.5-flash-lite",
+      "observedAtMs": 1000,
+      "tokens": 2000,
+      "expected": {
+        "usdMicros": 600,
+        "modelId": "gemini-3.5-flash-lite",
+        "modelObservedAtMs": 1000,
+        "pricingVersion": "2026-10-28",
+        "usdMicrosPerMillionInputTokens": 300000,
+        "assumption": "uncached-input"
+      }
+    },
+    {
+      "name": "gemini-3.6-flash",
+      "model": "gemini-3.6-flash",
+      "observedAtMs": 1000,
+      "tokens": 2000,
+      "expected": {
+        "usdMicros": 1500,
+        "modelId": "gemini-3.6-flash",
+        "modelObservedAtMs": 1000,
+        "pricingVersion": "2026-10-28",
+        "usdMicrosPerMillionInputTokens": 750000,
+        "assumption": "uncached-input"
+      }
+    },
+    {
+      "name": "gemini-3.8-flash",
+      "model": "gemini-3.8-flash",
+      "observedAtMs": 1000,
+      "tokens": 2000,
+      "expected": {
+        "usdMicros": 1500,
+        "modelId": "gemini-3.8-flash",
+        "modelObservedAtMs": 1000,
+        "pricingVersion": "2026-10-28",
+        "usdMicrosPerMillionInputTokens": 750000,
+        "assumption": "uncached-input"
+      }
+    },
+    {
+      "name": "gemini-4-argon",
+      "model": "gemini-4-argon",
+      "observedAtMs": 1000,
+      "tokens": 2000,
+      "expected": {
+        "usdMicros": 4000,
+        "modelId": "gemini-4-argon",
+        "modelObservedAtMs": 1000,
+        "pricingVersion": "2026-10-28",
+        "usdMicrosPerMillionInputTokens": 2000000,
+        "assumption": "uncached-input"
+      }
+    },
+    {
+      "name": "gemini-3.8-flash-low",
+      "model": "gemini-3.8-flash-low",
+      "observedAtMs": 1000,
+      "tokens": 2000,
+      "expected": {
+        "usdMicros": 1500,
+        "modelId": "gemini-3.8-flash-low",
+        "modelObservedAtMs": 1000,
+        "pricingVersion": "2026-10-28",
+        "usdMicrosPerMillionInputTokens": 750000,
+        "assumption": "uncached-input"
+      }
+    },
+    {
+      "name": "gemini-3.8-flash-medium",
+      "model": "gemini-3.8-flash-medium",
+      "observedAtMs": 1000,
+      "tokens": 2000,
+      "expected": {
+        "usdMicros": 1500,
+        "modelId": "gemini-3.8-flash-medium",
+        "modelObservedAtMs": 1000,
+        "pricingVersion": "2026-10-28",
+        "usdMicrosPerMillionInputTokens": 750000,
+        "assumption": "uncached-input"
+      }
+    },
+    {
+      "name": "gemini-3.8-flash-high",
+      "model": "gemini-3.8-flash-high",
+      "observedAtMs": 1000,
+      "tokens": 2000,
+      "expected": {
+        "usdMicros": 1500,
+        "modelId": "gemini-3.8-flash-high",
+        "modelObservedAtMs": 1000,
+        "pricingVersion": "2026-10-28",
+        "usdMicrosPerMillionInputTokens": 750000,
+        "assumption": "uncached-input"
+      }
+    },
+    {
+      "name": "gemini-4-argon-low",
+      "model": "gemini-4-argon-low",
+      "observedAtMs": 1000,
+      "tokens": 2000,
+      "expected": {
+        "usdMicros": 4000,
+        "modelId": "gemini-4-argon-low",
+        "modelObservedAtMs": 1000,
+        "pricingVersion": "2026-10-28",
+        "usdMicrosPerMillionInputTokens": 2000000,
+        "assumption": "uncached-input"
+      }
+    },
+    {
+      "name": "gemini-4-argon-medium",
+      "model": "gemini-4-argon-medium",
+      "observedAtMs": 1000,
+      "tokens": 2000,
+      "expected": {
+        "usdMicros": 4000,
+        "modelId": "gemini-4-argon-medium",
+        "modelObservedAtMs": 1000,
+        "pricingVersion": "2026-10-28",
+        "usdMicrosPerMillionInputTokens": 2000000,
+        "assumption": "uncached-input"
+      }
+    },
+    {
+      "name": "gemini-4-argon-high",
+      "model": "gemini-4-argon-high",
+      "observedAtMs": 1000,
+      "tokens": 2000,
+      "expected": {
+        "usdMicros": 4000,
+        "modelId": "gemini-4-argon-high",
+        "modelObservedAtMs": 1000,
+        "pricingVersion": "2026-10-28",
+        "usdMicrosPerMillionInputTokens": 2000000,
+        "assumption": "uncached-input"
+      }
+    },
+    {
+      "name": "unverified-gemini-3.7-flash",
+      "model": "gemini-3.7-flash",
+      "observedAtMs": 1000,
+      "tokens": 2000,
+      "expected": null
+    },
+    {
+      "name": "unverified-gemini-3.5-flash",
+      "model": "gemini-3.5-flash",
+      "observedAtMs": 1000,
+      "tokens": 2000,
+      "expected": null
+    },
+    {
+      "name": "unverified-gemini-3-pro",
+      "model": "gemini-3-pro",
+      "observedAtMs": 1000,
+      "tokens": 2000,
+      "expected": null
+    },
+    {
+      "name": "unverified-gemini-4-argon-turbo",
+      "model": "gemini-4-argon-turbo",
+      "observedAtMs": 1000,
+      "tokens": 2000,
       "expected": null
     }
   ],
@@ -217,8 +427,14 @@
     {
       "name": "mismatched-pricing-versions",
       "members": [
-        { "usdMicros": 5400, "pricingVersion": "2026-10-14" },
-        { "usdMicros": 5400, "pricingVersion": "2026-11-01" }
+        {
+          "usdMicros": 5400,
+          "pricingVersion": "2026-10-14"
+        },
+        {
+          "usdMicros": 5400,
+          "pricingVersion": "2026-11-01"
+        }
       ],
       "expected": null,
       "pricesDiffer": true

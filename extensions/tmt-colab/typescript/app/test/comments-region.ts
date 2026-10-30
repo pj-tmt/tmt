@@ -1,6 +1,6 @@
 import type { Locator, Page } from '@playwright/test';
 
-/** The Comments surface while it is open: the list and a thread's Discussion view share it. It is the
+/** The Comments surface while it is open: an empty filter and a selected Discussion share it. It is the
  * non-modal Comments panel (a column, card or sheet by width); closed, it stays mounted and hidden.
  * Every spec reaches it through here, so a change of container is one edit. */
 const commentsSelector = '.tmt-ui-panel[data-panel="comments"]:not([hidden])';
@@ -10,9 +10,9 @@ export function commentsRegion(page: Page): Locator {
 }
 
 /** The control that closes the Comments region; its name follows the view it shows. */
-export function commentsClose(page: Page, view: 'list' | 'discussion'): Locator {
+export function commentsClose(page: Page, view: 'empty' | 'discussion'): Locator {
   return commentsRegion(page).getByRole('button', {
-    name: view === 'list' ? 'Close Comments' : 'Close Discussion',
+    name: view === 'empty' ? 'Close Comments' : 'Close Discussion',
     exact: true,
   });
 }
