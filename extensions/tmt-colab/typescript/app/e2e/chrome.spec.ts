@@ -467,6 +467,7 @@ for (const width of [1440, 390, 320])
       // A floating layer carries the one overlay shadow.
       await expect(surface).toHaveCSS('box-shadow', /60px/);
       await expect(surface).toHaveCSS('border-width', '1px');
+      expect(tokens.browser.metric['radius-l']).toBe('12px');
       await expect(surface).toHaveCSS('border-radius', tokens.browser.metric['radius-l']);
       await page.screenshot({ path: info.outputPath(`2314-${width}-${theme}-header-menu.png`) });
       await page.keyboard.press('Escape');

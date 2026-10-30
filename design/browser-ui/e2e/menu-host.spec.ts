@@ -45,6 +45,10 @@ for (const source of ['React', 'Native'] as const)
           await expect(delta).toBeFocused();
           expect((await focusFrames(page, '.tmt-ui-menu-surface[open]')).clipped).toEqual([]);
           await expect(page.locator('.tmt-ui-menu-surface[open]')).toHaveCSS('padding', '4px');
+          await expect(page.locator('.tmt-ui-menu-surface[open]')).toHaveCSS(
+            'border-radius',
+            '8px',
+          );
           await expect(delta).toHaveCSS('border-radius', '6px');
           await expect(delta).toHaveCSS('height', '42px');
           expect(frames.doubled).toEqual([]);
