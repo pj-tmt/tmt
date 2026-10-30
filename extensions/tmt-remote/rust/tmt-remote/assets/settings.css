@@ -148,6 +148,13 @@
 }
 
 
+/* ListTable's fixed tracks are host stylesheet values under the shell's style-src policy. */
+.remote-registry-table { --tmt-ui-list-tracks: 48px minmax(0, 2.4fr) minmax(0, 1.2fr) minmax(0, .9fr) minmax(0, 1fr) minmax(0, 1fr) 36px; }
+.remote-people-table { --tmt-ui-list-tracks: 48px minmax(0, 2.2fr) minmax(0, .9fr) minmax(0, 1fr) minmax(0, 1.2fr) 36px; }
+@media (max-width: 650px) {
+  .remote-registry-table, .remote-people-table { --tmt-ui-list-tracks: minmax(0, 1fr) minmax(0, 1fr); }
+}
+
 /* My Remotes composes the shipped list, menu, chip and action roles. */
 .remote-head { display: flex; align-items: start; justify-content: space-between; gap: var(--tmt-ui-space-l); margin-bottom: var(--tmt-ui-space-l); }
 .remote-head-copy { min-width: 0; }

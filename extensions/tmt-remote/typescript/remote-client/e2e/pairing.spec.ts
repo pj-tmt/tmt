@@ -98,6 +98,31 @@ async function feedbackBounds(page: Page, selector: string) {
   return measurement;
 }
 
+/** At phone width the visible cells share the host's two aligned tracks. */
+async function assertPhoneTable(page: Page, selector: string) {
+  const previous = page.viewportSize()!;
+  await page.setViewportSize({ width: 390, height: 900 });
+  const table = page.locator(selector);
+  await expect(table).not.toHaveAttribute('style');
+  const positions = await table
+    .locator('.tmt-ui-list-table-row')
+    .first()
+    .evaluate((row) =>
+      Array.from(row.children)
+        .filter((node) => getComputedStyle(node).display !== 'none')
+        .map((node) => {
+          const box = node.getBoundingClientRect();
+          return { left: box.left, center: box.top + box.height / 2 };
+        }),
+    );
+  expect(positions.length).toBeGreaterThanOrEqual(4);
+  expect(positions[0]!.center).toBeCloseTo(positions[1]!.center, 0);
+  expect(positions[2]!.left).toBeCloseTo(positions[0]!.left, 0);
+  expect(positions[3]!.left).toBeCloseTo(positions[1]!.left, 0);
+  await expect(page.locator('html')).toHaveJSProperty('scrollWidth', 390);
+  await page.setViewportSize(previous);
+}
+
 /** Capture the real served state; media and viewport changes never activate it. */
 async function captureState(
   page: Page,
@@ -5239,6 +5264,7 @@ test('landing registry keeps two origins independent and confirms public-only ha
         'data-remote',
         'studio',
       );
+      await assertPhoneTable(page, '.remote-registry-table');
       await expect(page.locator('[data-remote="studio"]')).toContainText('This machine');
       await expect(page.locator('[data-remote="studio"] [data-role]')).toHaveText('Member');
       await expect(page.getByRole('link', { name: 'Open studio', exact: true })).toBeVisible();
@@ -6277,6 +6303,7 @@ test('Remote tab frame keeps unknown, Member locks and designated Admin separate
     await expect(page.locator('#people').getByRole('heading', { name: 'People' })).toHaveCount(0);
     await expect(page.locator('#people-content')).not.toContainText('Invitation:');
     await expect(page.locator('#people-content')).not.toContainText('Route cleanup:');
+    await assertPhoneTable(page, '.remote-people-table');
     const ownerRow = page
       .locator('#people-content .people-person')
       .filter({ hasText: ' · Owner · ' });

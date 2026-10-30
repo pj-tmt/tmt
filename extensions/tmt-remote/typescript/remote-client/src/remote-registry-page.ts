@@ -110,15 +110,16 @@ export function remoteRegistryPage(
   const oldList = document.getElementById('remote-list')!;
   const table = createListTable(
     [
-      { id: 'icon', label: '', track: '48px', hideBelow: 'phone' },
-      { id: 'name', label: 'Name', track: 'minmax(0, 2.4fr)' },
-      { id: 'connection', label: 'Connection', track: 'minmax(0, 1.2fr)' },
-      { id: 'role', label: 'Your role', track: 'minmax(0, .9fr)' },
-      { id: 'members', label: 'Members', track: 'minmax(0, 1fr)', hideBelow: 'phone' },
-      { id: 'active', label: 'Last active', track: 'minmax(0, 1fr)', hideBelow: 'phone' },
-      { id: 'actions', label: '', track: '36px' },
+      { id: 'icon', label: '', hideBelow: 'phone' },
+      { id: 'name', label: 'Name' },
+      { id: 'connection', label: 'Connection' },
+      { id: 'role', label: 'Your role' },
+      { id: 'members', label: 'Members', hideBelow: 'phone' },
+      { id: 'active', label: 'Last active', hideBelow: 'phone' },
+      { id: 'actions', label: '' },
     ],
     'My Remotes',
+    'remote-registry-table',
   );
   const list = table.body;
   list.id = 'remote-list';

@@ -45,7 +45,7 @@ describe('browser-ui CSS tokens', () => {
         (match) => match[1],
       ),
     );
-    // ListTable writes this one layout value from its column tracks on the table root.
+    // ListTable hosts define this layout value in their own stylesheets.
     const hostValues = new Set(['--tmt-ui-list-tracks']);
     const undefinedTokens = new Map<string, string[]>();
     for (const file of readdirSync(new URL('src/', root)).filter((name) => name.endsWith('.css'))) {

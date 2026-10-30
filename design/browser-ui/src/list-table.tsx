@@ -1,22 +1,23 @@
-import { createElement, type CSSProperties, type ReactNode } from 'react';
-import { listTableTracks, type ListTableColumn } from './list-table-host.js';
+import { createElement, type ReactNode } from 'react';
+import type { ListTableColumn } from './list-table-host.js';
 export type { ListTableColumn } from './list-table-host.js';
 
 export function BrowserListTable({
   label,
+  className,
   columns,
   rows,
 }: {
   label: string;
+  className?: string;
   columns: readonly ListTableColumn[];
   rows: readonly { id: string; cells: readonly ReactNode[] }[];
 }) {
   return (
     <div
-      className="tmt-ui-list-table"
+      className={['tmt-ui-list-table', className].filter(Boolean).join(' ')}
       role="table"
       aria-label={label}
-      style={{ '--tmt-ui-list-tracks': listTableTracks(columns) } as CSSProperties}
     >
       <div className="tmt-ui-list-columns" role="row">
         {columns.map((column) => (

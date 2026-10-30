@@ -1162,6 +1162,17 @@ repair. CI selection and gate ownership live in the
 
 ### List table and page subheader
 
-`BrowserListTable` and the framework-free `createListTable` render caller-supplied columns and rows without owning navigation, selection, data, or keyboard state. Each column supplies `id`, `label`, `track`, and optionally `hideBelow: 'phone'`; the component sets host-supplied `--tmt-ui-list-tracks` from those tracks to align the semantic column headers and each row; there is no default. The host supplies one cell per column and owns links and row actions. At phone width headers are hidden and rows stack; cells marked for phone hiding are hidden with their headers.
+`BrowserListTable` and the framework-free `createListTable` render caller-supplied columns and rows without owning navigation, selection, data, or keyboard state. Columns supply `id`, `label` and optionally `hideBelow: 'phone'`. The host passes a root `className` (the third argument to `createListTable`) and sets `--tmt-ui-list-tracks` in its stylesheet; no inline style is emitted. The fallback is a single `minmax(0, 1fr)` column. The host supplies one cell per column and owns links and row actions. Phone layouts hide headers and marked cells; redefine the tracks in a phone query so the remaining cells align:
+
+```css
+.people-table {
+  --tmt-ui-list-tracks: 2fr 1fr;
+}
+@media (max-width: 650px) {
+  .people-table {
+    --tmt-ui-list-tracks: minmax(0, 1fr);
+  }
+}
+```
 
 `BrowserPageSubheader` and `createPageSubheader` render a content subheader with a title, optional count, subtitle, actions, and heading level (default 2). Counts use the shell count pill. The host owns actions and the top-bar title; the subheader does not replace the page identity in the top bar.
