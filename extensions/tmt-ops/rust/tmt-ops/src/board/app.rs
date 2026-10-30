@@ -831,6 +831,8 @@ pub struct App {
     pub(super) unread_overlay: Option<super::unread_overlay::Overlay>,
     /// The painted unread counts a press opens the overlay from, rebuilt every frame.
     pub(in crate::board) unread_hits: RefCell<Vec<super::unread_overlay::Hit>>,
+    /// The painted unread count under the pointer; it highlights as the composer's chip does.
+    pub(in crate::board) unread_hover: Cell<Option<ratatui::layout::Rect>>,
     /// Whether this frame has any unread answer to count, so a row paints no target for nothing.
     pub(in crate::board) unread_counted: Cell<bool>,
     /// How many Unread overlays were opened; a read belongs to one opening.
@@ -4058,6 +4060,7 @@ impl App {
         self.meter_hover = None;
         self.header_hover = None;
         self.composer.unread_hover.set(false);
+        self.unread_hover.set(None);
         self.idle_alert_hover = None;
         if key.kind == ratatui::crossterm::event::KeyEventKind::Release {
             return Effect::None;
@@ -4446,12 +4449,27 @@ impl App {
                 .as_ref()
                 .is_some_and(|hit| hit.area.contains((event.column, event.row).into()));
         let unread_changed = unread != self.composer.unread_hover.replace(unread);
+        let count = (!self.loading()
+            && self.overlay().is_none()
+            && self.menu.is_none()
+            && self.input.is_none()
+            && !self.searching)
+            .then(|| {
+                self.unread_hits
+                    .borrow()
+                    .iter()
+                    .find(|hit| hit.area.contains((event.column, event.row).into()))
+                    .map(|hit| hit.area)
+            })
+            .flatten();
+        let count_changed = count != self.unread_hover.replace(count);
         let changed = chart_changed
             || notes_changed
             || resize_changed
             || buttons_changed
             || links_changed
             || unread_changed
+            || count_changed
             || next != self.meter_hover
             || header != self.header_hover
             || idle_alert_hover != self.idle_alert_hover;
@@ -4532,6 +4550,7 @@ impl App {
         if self.meter_hover.is_some()
             || self.header_hover.is_some()
             || self.composer.unread_hover.get()
+            || self.unread_hover.get().is_some()
         {
             self.move_pointer(event);
         }

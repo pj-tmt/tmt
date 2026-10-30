@@ -725,6 +725,32 @@ impl App {
         }
     }
 
+    /// Highlight the painted unread count under the pointer, in the composer chip's hover
+    /// style, while the board itself takes input.
+    pub(in crate::board) fn paint_unread_hover(&self, buffer: &mut ratatui::buffer::Buffer) {
+        let Some(area) = self.unread_hover.get() else {
+            return;
+        };
+        if self.modal_open()
+            || self.input.is_some()
+            || !self.unread_hits.borrow().iter().any(|hit| hit.area == area)
+        {
+            return;
+        }
+        let look = self.look();
+        let style = tmt_cli_style::theme::screen::chip(
+            &look.theme,
+            tmt_cli_style::theme::screen::ChipKind::Secondary,
+            tmt_cli_style::theme::screen::ChipState::Hot,
+            look.depth,
+        );
+        for y in area.top()..area.bottom() {
+            for x in area.left()..area.right() {
+                buffer[(x, y)].set_style(style);
+            }
+        }
+    }
+
     /// A left press on a painted unread count opens the overlay for what it counts.
     pub(in crate::board) fn unread_count_mouse(
         &mut self,

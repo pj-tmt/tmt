@@ -248,6 +248,7 @@ pub(in crate::board) fn render_frame(
         app.pane_resize.invalidate();
         app.pane_resize.finish_frame(frame.buffer_mut());
     }
+    app.paint_unread_hover(frame.buffer_mut());
     footer::render(frame, app, footer, look);
     overlays::render(frame, app, body, look);
     super::workspace::render::dialog(frame, app, body);

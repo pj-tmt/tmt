@@ -1438,8 +1438,8 @@ fn link_area(app: &App, item: u8) -> ratatui::layout::Rect {
         .link_hits
         .borrow()
         .iter()
-        .find(|(_, row)| row == id(item).as_str())
-        .map(|(area, _)| *area)
+        .find(|hit| hit.row == id(item).as_str() && hit.link == 0)
+        .map(|hit| hit.area)
         .expect("a painted link")
 }
 
@@ -1523,5 +1523,62 @@ fn the_pointer_highlights_only_the_link_under_it() {
     assert!(
         !style_at(&app, area).contains(Modifier::UNDERLINED),
         "left again"
+    );
+}
+
+#[test]
+fn a_web_link_inside_a_title_highlights_under_the_pointer_and_opens_on_a_press() {
+    let mut titled = todo(2);
+    titled.item.content.title = "Read https://example.org/spec and reply".into();
+    let (mut app, _) = opened(vec![link(1), titled]);
+    paint(&app);
+    let cells: Vec<_> = app
+        .notes_overlay
+        .as_ref()
+        .unwrap()
+        .link_hits
+        .borrow()
+        .iter()
+        .filter(|hit| hit.row == id(2).as_str())
+        .cloned()
+        .collect();
+    assert_eq!(cells.len(), "https://example.org/spec".len(), "{cells:?}");
+    assert!(
+        cells
+            .iter()
+            .all(|hit| hit.link == 1 && hit.url == "https://example.org/spec")
+    );
+    let first = cells[0].area;
+    let underlined = |app: &App, x: u16, y: u16| {
+        let mut terminal = Terminal::new(TestBackend::new(120, 40)).unwrap();
+        terminal
+            .draw(|frame| crate::board::view::render(frame, app))
+            .unwrap();
+        terminal.backend().buffer()[(x, y)]
+            .modifier
+            .contains(ratatui::style::Modifier::UNDERLINED)
+    };
+    assert!(!underlined(&app, first.x, first.y), "at rest");
+    pointer_at(&mut app, first.x + 3, first.y);
+    assert!(underlined(&app, first.x, first.y), "under the pointer");
+    assert!(
+        !underlined(&app, first.x - 2, first.y),
+        "the words around the link are not"
+    );
+    let effect = click_at(&mut app, first.x + 3, first.y);
+    assert!(
+        matches!(&effect, Effect::Act(Request::Open { link, .. }) if link == "https://example.org/spec"),
+        "{effect:?}"
+    );
+    assert_eq!(
+        app.notes_overlay
+            .as_ref()
+            .unwrap()
+            .ui
+            .borrow()
+            .picker
+            .list
+            .selected(),
+        Some(id(2).as_str())
     );
 }
