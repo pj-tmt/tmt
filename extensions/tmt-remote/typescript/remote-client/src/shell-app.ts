@@ -57,7 +57,7 @@ async function adopt(slot: ShellSlot, html: string): Promise<() => void> {
   return release;
 }
 
-/** The common bar draws controls; the original title is content, in the shared title-row type. */
+/** The common bar draws controls. Pages without their own hero retain a content title row. */
 function adoptBar(slot: ShellSlot, source: Element | null): void {
   const { actions } = slot.setTopBar();
   const header = source?.querySelector('header');

@@ -1,6 +1,7 @@
 /** The Ops web view, read-only: Agents, Squads, Timers and Ops settings, one section at a time from
  * the module menu. Every state is a mark and a word; what the reader sets on a section stays across
  * the board's refreshes. */
+import { pageHead } from './ops-parts.js';
 import { pageLoading } from './page-loading.js';
 import type { RemoteShell } from './remote-shell.js';
 import { notAvailable } from './not-available.js';
@@ -24,7 +25,6 @@ type Section = (typeof SECTIONS)[number]['id'];
 
 export function opsPage(shell: RemoteShell, source: OpsSource = opsSource): void {
   const main = document.getElementById('ops-section');
-  const title = document.querySelector<HTMLElement>('.tmt-ui-title');
   const note = document.getElementById('ops-note');
   if (!main || !note) return;
   const href = (id: Section) => `${location.pathname}#${id}`;
@@ -65,8 +65,9 @@ export function opsPage(shell: RemoteShell, source: OpsSource = opsSource): void
         },
       ],
     });
-    if (title) title.textContent = SECTIONS.find((item) => item.id === section)!.label;
-    if (!board) main.replaceChildren(pageLoading());
+    const label = SECTIONS.find((item) => item.id === section)!.label;
+    if (!board) main.replaceChildren(pageHead(label, ''), pageLoading());
+    else if (board.unavailable) main.replaceChildren(pageHead(label, ''));
     else if (section === 'settings') {
       // The board's settings have no browser read: the page says where they are.
       settings ??= settingsView(href);
@@ -89,12 +90,10 @@ export function opsPage(shell: RemoteShell, source: OpsSource = opsSource): void
     const seen = JSON.stringify(next);
     if (seen !== last) {
       last = seen;
+      board = next;
       if (next.unavailable) {
-        board = undefined;
-        main.replaceChildren();
         notAvailable(note, next.unavailable);
       } else {
-        board = next;
         if (next.truncated)
           notAvailable(
             note,
@@ -104,8 +103,8 @@ export function opsPage(shell: RemoteShell, source: OpsSource = opsSource): void
           note.textContent = '';
           note.hidden = true;
         }
-        paint();
       }
+      paint();
     }
     return next.unavailable === undefined;
   });

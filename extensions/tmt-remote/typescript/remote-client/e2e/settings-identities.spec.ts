@@ -112,7 +112,11 @@ for (const state of ['unavailable', 'empty', 'refused', 'failed', 'observed'])
     await open(page, state);
     if (state === 'failed') {
       await expect(page.locator('#tmt-settings-note')).toHaveText('Settings could not be read.');
-      await expect(page.locator('#tmt-settings-section')).toBeEmpty();
+      await expect(page.locator('#tmt-settings-section')).toHaveText('Identities');
+      await expect(
+        page.getByRole('heading', { level: 1, name: 'Identities', exact: true }),
+      ).toBeVisible();
+      await expect(page.locator('.tmt-page-loading')).toHaveCount(0);
     } else if (state === 'observed') {
       await expect(page.locator('#tmt-settings-identities-title')).toBeVisible();
       await expect(page.locator('.tmt-settings-identity-notice')).toContainText(

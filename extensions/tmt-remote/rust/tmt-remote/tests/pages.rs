@@ -856,10 +856,7 @@ fn remote_headers_carry_the_static_mark_only_outside_the_web_shell() {
             include_str!("../assets/settings.html"),
             Some("Remote · My Remotes"),
         ),
-        (include_str!("../assets/ops.html"), None),
         (include_str!("../assets/home.html"), None),
-        (include_str!("../assets/tmt-settings.html"), None),
-        (include_str!("../assets/digest.html"), None),
     ] {
         assert!(!page.contains("header-mark"));
         assert!(!page.contains("header-wordmark"));
@@ -872,6 +869,25 @@ fn remote_headers_carry_the_static_mark_only_outside_the_web_shell() {
             None => assert!(page.contains("<header class=\"header tmt-ui-header\">")),
         }
     }
+}
+
+#[test]
+fn hero_pages_keep_document_titles_without_a_second_shell_heading() {
+    for (page, title) in [
+        (include_str!("../assets/digest.html"), "Digest · TMT"),
+        (include_str!("../assets/ops.html"), "Ops · TMT"),
+        (
+            include_str!("../assets/tmt-settings.html"),
+            "TMT settings · TMT",
+        ),
+    ] {
+        assert!(page.contains(&format!("<title>{title}</title>")));
+        assert!(!page.contains("header-title"));
+        assert!(!page.contains("tmt-ui-shell-bar"));
+    }
+    let digest = include_str!("../assets/digest.html");
+    assert_eq!(digest.matches("<h1").count(), 1);
+    assert!(digest.contains("<h1 class=\"tmt-ui-page-title\">Understand your team’s usage.</h1>"));
 }
 
 #[test]
@@ -1066,7 +1082,8 @@ fn door_routes_home_and_tmt_settings_load_only_the_shell_and_remote_pages_move()
     let home = app_page(&h, "/", include_str!("../assets/home.html"));
     assert!(home.body.contains("id=\"home-needs\""));
     let settings = app_page(&h, "/settings", include_str!("../assets/tmt-settings.html"));
-    assert!(settings.body.contains(">TMT settings</h1>"));
+    assert!(settings.body.contains("<title>TMT settings · TMT</title>"));
+    assert!(settings.body.contains("id=\"tmt-settings-section\""));
     let entry = get(&h, "/sdk/shell.js", "");
     assert_eq!(entry.status, 200);
     assert_eq!(entry.body, include_str!("../assets/shell.js"));

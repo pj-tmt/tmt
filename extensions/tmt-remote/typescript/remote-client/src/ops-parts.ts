@@ -137,10 +137,8 @@ export function statsStrip(agents: readonly OpsAgent[], totals: readonly TotalSt
 /** The page's headline over its one-line subtitle. */
 export function pageHead(title: string, subtitle: string): HTMLElement {
   const head = el('header', browserUiClasses.pageHead);
-  head.append(
-    el('h2', browserUiClasses.pageTitle, title),
-    el('p', browserUiClasses.pageSubtitle, subtitle),
-  );
+  head.append(el('h1', browserUiClasses.pageTitle, title));
+  if (subtitle) head.append(el('p', browserUiClasses.pageSubtitle, subtitle));
   return head;
 }
 

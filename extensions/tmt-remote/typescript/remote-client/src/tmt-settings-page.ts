@@ -261,7 +261,6 @@ export function tmtSettingsPage(shell: RemoteShell, source: SettingsSource = set
   const main = document.getElementById('tmt-settings-section');
   const note = document.getElementById('tmt-settings-note');
   if (!main || !note) return;
-  const title = document.querySelector<HTMLElement>('.tmt-ui-title');
   const href = (id: Section) => `${location.pathname}#${id}`;
   const current = (): Section =>
     SECTIONS.find((section) => `#${section.id}` === location.hash)?.id ?? 'general';
@@ -299,9 +298,10 @@ export function tmtSettingsPage(shell: RemoteShell, source: SettingsSource = set
         },
       ],
     });
-    if (title) title.textContent = SECTIONS.find((item) => item.id === section)!.label;
     main.replaceChildren(
-      ...(settings ? settingsSection(section, settings, links) : [pageLoading()]),
+      ...(settings
+        ? settingsSection(section, settings, links)
+        : [settingsHead(SECTIONS.find((item) => item.id === section)!.label, ''), pageLoading()]),
     );
   };
   window.addEventListener('hashchange', paint, { signal: shell.signal });
@@ -318,7 +318,7 @@ export function tmtSettingsPage(shell: RemoteShell, source: SettingsSource = set
     },
     () => {
       if (!live()) return;
-      main.replaceChildren();
+      main.replaceChildren(settingsHead(SECTIONS.find((item) => item.id === current())!.label, ''));
       note.textContent = 'Settings could not be read.';
       note.hidden = false;
     },

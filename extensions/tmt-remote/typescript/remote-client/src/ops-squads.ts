@@ -26,7 +26,7 @@ export function squadsView(): { node: HTMLElement; update(board: OpsBoard): void
     'Squads, clearly connected.',
     'Every team, its lead and the people moving work forward.',
   );
-  const fallback = heading.querySelector('h2')!;
+  const fallback = heading.querySelector('h1')!;
   fallback.tabIndex = -1;
   const drawer = agentDrawer({
     returnFocus: (agent) => members.get(keyOf(agent)),
