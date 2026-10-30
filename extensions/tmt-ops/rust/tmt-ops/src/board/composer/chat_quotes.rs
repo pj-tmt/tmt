@@ -189,6 +189,8 @@ impl Input {
         })
     }
 
+    /// The sent body with each mention as typed; tests read quote folds through it.
+    #[cfg(test)]
     pub(in crate::board) fn quoted_message(&self) -> String {
         self.quoted_message_named(&|_| None)
     }
