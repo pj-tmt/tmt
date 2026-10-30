@@ -225,7 +225,7 @@ fn diagnostic_status_preserves_door_when_credential_writer_is_busy() {
     assert!(human.status.success());
     let line = String::from_utf8_lossy(&human.stdout);
     assert!(
-        line.contains("held the Firestore sign-in lock under remote/firebase-auth for 2 seconds")
+        line.contains("held the Firestore sign-in lock under remote/firebase-auth for 1 second;")
             && line.contains("REMOTE_STATE_UNAVAILABLE"),
         "{line}"
     );

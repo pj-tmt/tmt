@@ -106,10 +106,12 @@ impl AuthError {
 impl fmt::Display for AuthError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         if let Some(wait) = self.lock_wait {
+            // Whole seconds, rounded up, so a sub-second wait never reads "0 seconds".
+            let seconds = wait.as_millis().div_ceil(1000).max(1);
+            let unit = if seconds == 1 { "second" } else { "seconds" };
             return write!(
                 f,
-                "Another tmt operation held the Firestore sign-in lock under remote/firebase-auth for {} seconds; nothing changed. Run the same command again after it ends. ({})",
-                wait.as_secs(),
+                "Another tmt operation held the Firestore sign-in lock under remote/firebase-auth for {seconds} {unit}; nothing changed. Run the same command again after it ends. ({})",
                 self.code()
             );
         }

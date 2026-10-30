@@ -710,6 +710,16 @@ mod tests {
     }
 
     #[test]
+    fn a_lock_refusal_names_the_wait_in_whole_seconds() {
+        let line = |wait| AuthError::lock_held_for(wait).to_string();
+        assert!(line(Duration::from_secs(1)).contains(" for 1 second; "));
+        assert!(line(Duration::from_millis(200)).contains(" for 1 second; "));
+        assert!(line(Duration::from_millis(1500)).contains(" for 2 seconds; "));
+        assert!(line(WRITE_WAIT).contains(" for 5 seconds; "));
+        assert_eq!(AuthError::lock_held_for(WRITE_WAIT), AuthError::lock_held());
+    }
+
+    #[test]
     fn retained_credential_handle_is_close_on_exec() {
         let (_root, store, _) = fixture();
         let cached = store.handle.try_lock().unwrap();

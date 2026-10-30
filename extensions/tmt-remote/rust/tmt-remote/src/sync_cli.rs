@@ -62,8 +62,9 @@ fn action(spec: &CommandSpec) -> Command {
 }
 /// How long ordinary status waits for a held credential lock. Colab's door lookup gives the
 /// whole `tmt remote status --json` call 3 s (`tmt-colab` `door.rs` `TIMEOUT`), so this stays
-/// below it with 1 s left for process start, the lease and the serve's control reply.
-const STATUS_LOCK_WAIT: Duration = Duration::from_secs(2);
+/// well below it and leaves 2 s for process start, the lease and the serve's control reply on a
+/// loaded host. Holders do only file I/O under the lock, so a normal holder ends long before.
+const STATUS_LOCK_WAIT: Duration = Duration::from_secs(1);
 /// Status has no caller budget of its own; this one ends its credential lock wait.
 struct Deadline(Instant);
 impl Cancellation for Deadline {

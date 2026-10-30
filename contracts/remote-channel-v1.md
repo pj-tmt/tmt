@@ -1373,9 +1373,9 @@ stopped by hand (Ctrl-C in its terminal) and started again, since `stop` cannot 
 Ordinary CLI status adds the secret-free `signIn:{state,expiresAtMs}` projection; expiry is
 nullable. Credential read/ownership errors report `unreadable`, preserving door status and a
 successful diagnostic exit with the existing message line. A held credential lock is waited for
-up to 2 s, which keeps the whole status answer inside a 3 s caller lookup; a holder that ends
+up to 1 s, so that a 3 s caller lookup normally gets the answer; a holder that ends
 sooner gives the real `signIn`, and one that outlasts the wait reports `busy`, with door status,
-a successful diagnostic exit and a line that names the held lock and the 2 s wait.
+a successful diagnostic exit and a line that names the held lock and the 1 s wait.
 Explicit/default remote selection failures still refuse. No credentials,
 cookies or device inventory are exposed.
 

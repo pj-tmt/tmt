@@ -623,7 +623,7 @@ guards, which explicitly unlock before releasing the mutex, even if a fork keeps
 replace and remove wait for the mutex and the file lock within the state leaf's shared write wait
 (`WriteWait`, 5 s); a holder past it gets the named `REMOTE_STATE_UNAVAILABLE` refusal that says
 to run the same command again. The lifecycle passes its cancellation, so a serving token call
-stops waiting at its IoBudget deadline or stop, and ordinary status stops after 2 s and reports
+stops waiting at its IoBudget deadline or stop, and ordinary status stops after 1 s and reports
 `busy` (see [door and discovery](door-and-discovery.md)); only saving a newly created sign-up
 identity always waits the whole 5 s. Failed lock admission, missing or mismatched metadata (checked
 again after the lock is taken), or a poisoned mutex refuses the current operation at once and

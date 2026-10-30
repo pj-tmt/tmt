@@ -221,8 +221,8 @@ keys, Keychain integration or claims of immediate invalidation of previously iss
 
 Ordinary status adds `signIn` with `state` and nullable `expiresAtMs`. Unreadable/unsafe
 credentials report `unreadable` with the existing credential diagnostic line. Status waits up to
-2 s (`STATUS_LOCK_WAIT` in `sync_cli.rs`, below Colab's 3 s door lookup) for a held credential
-lock; a holder that outlasts it reports `busy` with a line that names the held lock and the 2 s
+1 s (`STATUS_LOCK_WAIT` in `sync_cli.rs`, below Colab's 3 s door lookup) for a held credential
+lock; a holder that outlasts it reports `busy` with a line that names the held lock and the 1 s
 wait. Both preserve door status and a normal exit. Explicit/default
 selection errors still refuse. Expiring human copy
 names the ISO UTC end date, warns that signing in after it creates a new identity, and states the machine-page-access limitation only for an imported remote.
