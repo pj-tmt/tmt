@@ -217,7 +217,7 @@ impl App {
             return Effect::None;
         };
         let saving = c.pending && c.config.is_some();
-        if !saving && c.unsaved() && !c.pending {
+        if !c.pending && c.unsaved() {
             c.shown = false;
             c.invalidate();
             return Effect::None;

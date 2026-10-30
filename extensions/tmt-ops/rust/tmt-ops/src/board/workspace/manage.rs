@@ -733,7 +733,7 @@ impl App {
         draft.shown = false;
         draft.invalidate();
     }
-    /// Drops a kept form for good; only an explicit Discard does this.
+    /// The editor's cursor is on its last line, so ↓ leaves the field for the buttons.
     fn input_on_last_line(&self) -> bool {
         let width = self.input_viewport.get().map_or(80, |(area, _)| area.width);
         self.input.as_ref().is_none_or(|input| {
@@ -741,6 +741,7 @@ impl App {
             layout.cursor.0 + 1 >= layout.lines.len()
         })
     }
+    /// Drops a kept form for good; only an explicit Discard does this.
     pub(in crate::board) fn workspace_discard(&mut self) {
         if self
             .workspace_form

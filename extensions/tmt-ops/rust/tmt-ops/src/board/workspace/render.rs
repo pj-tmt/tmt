@@ -1456,10 +1456,8 @@ pub(in crate::board) fn dialog(frame: &mut Frame, app: &App, body: Rect) {
     }
     // Fields keep focus in the editor; Pending and Result have one button, which Enter chooses.
     let focused = match draft.stage {
-        Stage::Review => Some(match draft.review.focus {
-            tmt_tui::components::Focus::Buttons(1) => "apply",
-            _ => "cancel",
-        }),
+        // Review paints its focus from `draft.review` with its button order.
+        Stage::Review => None,
         Stage::Pending | Stage::Result(_) => Some("cancel"),
         Stage::Fields => match draft.fields_button {
             Some(super::manage::ReviewButton::Cancel) => Some("cancel"),
@@ -1590,8 +1588,8 @@ pub(in crate::board) fn dialog(frame: &mut Frame, app: &App, body: Rect) {
             .max()
             .unwrap_or(0);
         let mut controls = [None; 3];
-        controls[0] = painted[0];
-        controls[2] = painted.get(1).copied().flatten();
+        controls[super::manage::ReviewButton::Cancel as usize] = painted[0];
+        controls[super::manage::ReviewButton::Discard as usize] = painted.get(1).copied().flatten();
         draft.controls.set(controls);
         let hints: &[(&str, &str)] = if draft.stage == Stage::Fields {
             &[("Esc", "cancel"), ("Enter", "next")]
