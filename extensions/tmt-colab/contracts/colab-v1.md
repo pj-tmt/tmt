@@ -5909,7 +5909,9 @@ events refresh the local view without polling. Names contain 1–80 characters w
 characters; filters retain the list's existing bounds.
 
 The Colab side menu is a fixed list (#5662): All pages, a Shortcuts group of the saved shortcuts
-in their order (with Manage and **+ New shortcut**), then Colab settings. It lists no project and
+in their order (with Manage and **+ New shortcut**), Dashboards (the space's shell pages, when it
+has any), then Colab settings. Exactly one row is selected, and a list showing a shortcut is titled
+with the shortcut's name. It lists no project and
 the browser has no Pin to sidebar or pin-order controls; All projects… and New project… sit in a ⋯
 beside the list's project filter. When a managing list loads, it migrates the owner's explicit pins
 (`automatic:false`) once, in order, into project-only shortcuts; automatic recent-project

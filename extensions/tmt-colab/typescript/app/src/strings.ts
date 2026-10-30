@@ -1181,6 +1181,7 @@ export const text = {
     /** The settings route's segment after the module in the bar's title. */
     section: 'Settings',
     subtitle: 'Reference defaults and a clear path to your terminal.',
+    shells: 'Dashboards',
     reference: 'Reference defaults',
     referenceHelp: 'An illustration of the current schema, not your live settings.',
     current: 'Current settings',

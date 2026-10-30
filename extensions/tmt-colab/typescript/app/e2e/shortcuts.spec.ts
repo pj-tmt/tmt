@@ -376,9 +376,10 @@ test('the side menu lists the shortcuts, selects exactly one row and opens the l
   await save.getByRole('textbox', { name: 'Name', exact: true }).fill('Mine');
   await save.getByRole('button', { name: 'Save', exact: true }).click();
   await expect(railShortcuts(page)).toHaveText(['Mine']);
-  // The list now shows the shortcut, so its row is the one selected.
+  // The list now shows the shortcut, so its row is the one selected and the bar names it.
   await expect(selected(page)).toHaveCount(1);
   await expect(railShortcuts(page)).toHaveAttribute('aria-current', 'page');
+  await expect(page.locator('#list-fixture .tmt-ui-topbar-title-current')).toHaveText('Mine');
   // A page opened from that list keeps the shortcut selected.
   await page.locator('#list-fixture .pages > li .tmt-ui-list-title > a').first().click();
   await expect(page).toHaveURL(/#\/pages\//);
@@ -389,6 +390,7 @@ test('the side menu lists the shortcuts, selects exactly one row and opens the l
   await expect(page).not.toHaveURL(/shortcut=/);
   await expect(selected(page)).toHaveCount(1);
   await expect(selected(page)).toHaveAttribute('data-id', 'all');
+  await expect(page.locator('#list-fixture .tmt-ui-topbar-title-current')).toHaveText('All pages');
   // The shortcut row opens the list with it.
   await railShortcuts(page).click();
   await expect(page).toHaveURL(/shortcut=/);

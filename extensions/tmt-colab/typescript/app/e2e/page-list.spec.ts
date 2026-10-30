@@ -907,7 +907,9 @@ test('the module menu is the fixed list: All pages, Shortcuts with its commands,
       .locator('a[data-id]')
       .evaluateAll((nodes) => nodes.map((node) => (node as HTMLElement).dataset.id)),
   ).toEqual(['all', 'colab-settings']);
-  // No project rows, project commands or dashboards: projects live in the list's filter.
+  // No project rows or project commands: projects live in the list's filter. With no dashboard,
+  // no Dashboards group.
+  await expect(menu).not.toContainText('Dashboards');
   await expect(menu).not.toContainText('design');
   await expect(menu).not.toContainText('New project');
   await expect(menu.locator('[aria-current="page"]')).toHaveCount(1);
@@ -919,6 +921,21 @@ test('the module menu is the fixed list: All pages, Shortcuts with its commands,
   // The ⋯ beside the project filter holds the project commands.
   await fromScopeMenu(page, 'All projects…');
   await expect(app(page).getByRole('dialog', { name: 'Manage projects' })).toBeVisible();
+  // With a dashboard: the same list, Dashboards after Shortcuts, and the dashboard selects its row.
+  await mount(page, 'shells');
+  await expect(menu.locator('.tmt-ui-rail-sub-group')).toHaveText(['Shortcuts', 'Dashboards']);
+  expect(
+    await menu
+      .locator('a[data-id]')
+      .evaluateAll((nodes) => nodes.map((node) => (node as HTMLElement).dataset.id!.split(':')[0])),
+  ).toEqual(['all', 'shell', 'colab-settings']);
+  const shell = menu.locator('a[data-id^="shell:"]');
+  await expect(shell).toHaveText('Reading shell');
+  await expect(shell).toHaveAttribute('href', /#\/pages\/[0-9a-f-]+$/);
+  await shell.click();
+  await expect(page).toHaveURL(/#\/pages\//);
+  await expect(menu.locator('[aria-current="page"]')).toHaveCount(1);
+  await expect(shell).toHaveAttribute('aria-current', 'page');
 });
 
 test('the module menu opens Colab settings read-only and selects only its row', async ({
@@ -932,7 +949,7 @@ test('the module menu opens Colab settings read-only and selects only its row', 
       .locator('.tmt-ui-rail .tmt-ui-rail-item')
       .evaluateAll((nodes) => nodes.map((node) => (node as HTMLElement).dataset.id)),
   ).toEqual(['home', 'colab', 'remote', 'ops', 'digest', 'settings']);
-  await expect(moduleMenu(page)).not.toContainText('Dashboards');
+  await expect(moduleMenu(page).locator('a[data-id^="shell:"]')).toHaveText('Reading shell');
   await moduleMenu(page).getByRole('link', { name: 'Colab settings', exact: true }).click();
   await expect(page).toHaveURL(/#\/settings$/);
   const settings = page.getByRole('region', { name: 'Colab settings' }).first();

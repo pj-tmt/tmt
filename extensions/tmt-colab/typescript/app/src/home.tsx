@@ -965,7 +965,7 @@ export function Home() {
       ref={section}
     >
       <AppHeader
-        title={scope ?? text.pageList.allPages}
+        title={currentShortcut?.name ?? scope ?? text.pageList.allPages}
         remote={{ deviceName: transport.backendName }}
       />
       <header className="page-list-hero">

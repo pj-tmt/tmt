@@ -54,9 +54,10 @@ export function shortcutRows(
 
 /**
  * Colab inside the one TMT web shell. The rail comes from Remote's composed descriptions; the
- * module menu is Colab's own fixed list: All pages, the Shortcuts group, then Colab settings.
- * Exactly one row is selected: settings on its route, else the shortcut the list shows (or the
- * list a page was opened from), else All pages.
+ * module menu is Colab's own fixed list: All pages, the Shortcuts group, Dashboards (the shell
+ * pages, when there are any), then Colab settings. Exactly one row is selected: settings or a
+ * dashboard on its route, else the shortcut the list shows (or the list a page was opened from),
+ * else All pages.
  */
 export function ColabShell({
   transport,
@@ -111,8 +112,22 @@ export function ColabShell({
   const view = useMemo(() => {
     const shown = (listed ?? NO_PAGES).filter((page) => !page.archived);
     const settings = location.pathname === '/settings';
-    const rows = shortcutRows(shortcuts.items, settings ? undefined : shortcutId, (item) =>
-      href('/', { ...item.search, shortcut: item.id }),
+    // A dashboard selects its own row, ahead of the shortcut its list showed.
+    const shells = shown
+      .filter((page) => page.pageType === 'shell')
+      .map((page) => ({
+        id: `shell:${page.id}`,
+        label: page.title,
+        href: router.history.createHref(
+          router.buildLocation({ to: '/pages/$pageId', params: { pageId: page.id } }).publicHref,
+        ),
+        current: location.pathname === `/pages/${page.id}`,
+      }));
+    const dashboard = shells.some((row) => row.current);
+    const rows = shortcutRows(
+      shortcuts.items,
+      settings || dashboard ? undefined : shortcutId,
+      (item) => href('/', { ...item.search, shortcut: item.id }),
     );
     const [all] = scopeRows(shown, NO_PROJECTS);
     const menu: ShellMenu = {
@@ -126,7 +141,7 @@ export function ColabShell({
               href: href('/'),
               total: all!.count,
               count: all!.waiting ? shellCount(all!.waiting) : undefined,
-              current: !settings && !rows.some((row) => row.current),
+              current: !settings && !dashboard && !rows.some((row) => row.current),
             },
           ],
         },
@@ -144,6 +159,7 @@ export function ColabShell({
             : {}),
           items: rows,
         },
+        ...(shells.length ? [{ label: text.colabSettings.shells, items: shells }] : []),
       ],
       settings: {
         id: 'colab-settings',
@@ -169,6 +185,11 @@ export function ColabShell({
   }, [answer, listed, shortcuts.items, manageable, location.pathname, shortcutId]);
   const select = (id: string) => {
     if (id === 'colab-settings') return (void router.navigate({ to: '/settings' }), true);
+    if (id.startsWith('shell:')) {
+      const pageId = id.slice('shell:'.length);
+      void router.navigate({ to: '/pages/$pageId', params: { pageId } });
+      return true;
+    }
     const shortcut = id.startsWith('shortcut:')
       ? shortcuts.items.find((item) => `shortcut:${item.id}` === id)
       : undefined;

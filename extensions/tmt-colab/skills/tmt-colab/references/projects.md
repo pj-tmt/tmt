@@ -21,8 +21,8 @@ is independent of task stage; Include archived adds archived pages, while the Ar
 archived-only. No selected project means all projects.
 
 Shortcuts are saved in this browser on this machine, per space; they are not synced or shared.
-The Colab side menu lists the shortcuts, with Manage and **+ New shortcut**, between All pages and
-Colab settings. The first time a managing list loads, explicit pinned projects become project
+The Colab side menu lists the shortcuts, with Manage and **+ New shortcut**, after All pages and
+before Dashboards (shell pages) and Colab settings. The first time a managing list loads, explicit pinned projects become project
 shortcuts once, in their order; automatic recent projects do not, and owner pins stay unchanged.
 All projects… and New project… are in the ⋯ beside the list's project filter. Manage can create, rename, edit, delete and reorder
 shortcuts, with a matching-page preview. Failed storage writes keep the draft and report the error.
