@@ -78,6 +78,17 @@ fn the_host_starts_on_the_environment_ops_runs_in() {
         "herdr",
         "first eligible"
     );
+    // Only null is a plain terminal; ambiguous locators omit the field, and a value this Ops
+    // does not know keeps the default too.
+    let read = |document| CallerHost::of(&document);
+    assert_eq!(read(json!({"callerHost": null})), CallerHost::Plain);
+    assert_eq!(
+        read(json!({})),
+        CallerHost::Unknown,
+        "omitted when ambiguous"
+    );
+    assert_eq!(read(json!({"callerHost": 1})), CallerHost::Unknown);
+    assert_eq!(read(json!({"callerHost": "herdr"})), named("herdr"));
 }
 #[test]
 fn null_template_copies_both_lines_without_a_launch_or_creation() {

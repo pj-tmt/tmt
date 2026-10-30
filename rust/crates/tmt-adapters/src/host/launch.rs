@@ -45,25 +45,33 @@ pub(super) fn compose(
     built_in.into_iter().chain(hosts).collect()
 }
 
+/// The host a client may preselect for a new pane (`callerHost` of `tmt host templates`).
+/// Advisory only: it is not evidence and selects, binds or launches nothing; implicit
+/// selection keeps its own rules.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum AdvisoryHost {
+    /// The host the caller's locators name.
+    Named(String),
+    /// No locator names a host: a plain terminal.
+    Unnamed,
+    /// The locators do not name one host the caller's own pane is in; no advice is given.
+    Ambiguous,
+}
+
 impl super::CallerEnvironment {
-    /// The host a client may preselect for a new pane: the one the caller's locators name
-    /// (`callerHost` of `tmt host templates`). Advisory only: it is not evidence and selects,
-    /// binds or launches nothing; implicit selection keeps its own rules. `None` when no
-    /// locator names a host, or more than one external host is named.
-    pub fn advisory_host(&self, records: &[DriverRecord]) -> Option<String> {
+    pub fn advisory_host(&self, records: &[DriverRecord]) -> AdvisoryHost {
         use tmt_core::host::HostKind;
         match self.named_host(records) {
             super::NamedHost::Pty | super::NamedHost::PtyNested => {
-                Some(HostKind::pty().as_str().to_owned())
+                AdvisoryHost::Named(HostKind::pty().as_str().to_owned())
             }
             // tmux inside another host: the caller's own pane is tmux's.
             super::NamedHost::Builtin | super::NamedHost::Nested(_) if self.names_tmux() => {
-                Some(HostKind::Tmux.as_str().to_owned())
+                AdvisoryHost::Named(HostKind::Tmux.as_str().to_owned())
             }
-            super::NamedHost::External(record) => Some(record.name.clone()),
-            super::NamedHost::Builtin
-            | super::NamedHost::Nested(_)
-            | super::NamedHost::Ambiguous => None,
+            super::NamedHost::External(record) => AdvisoryHost::Named(record.name.clone()),
+            super::NamedHost::Builtin => AdvisoryHost::Unnamed,
+            super::NamedHost::Nested(_) | super::NamedHost::Ambiguous => AdvisoryHost::Ambiguous,
         }
     }
 }
@@ -115,28 +123,26 @@ mod tests {
                 .collect(),
         };
         let advisory = |tmux, variables: &[&str]| caller(tmux, variables).advisory_host(&records);
-        assert_eq!(advisory(false, &[]), None, "a plain terminal names none");
-        assert_eq!(advisory(true, &[]).as_deref(), Some("tmux"));
+        let named = |host: &str| AdvisoryHost::Named(host.into());
         assert_eq!(
-            advisory(false, &["HERDR_PANE_ID"]).as_deref(),
-            Some("herdr")
+            advisory(false, &[]),
+            AdvisoryHost::Unnamed,
+            "a plain terminal"
         );
+        assert_eq!(advisory(true, &[]), named("tmux"));
+        assert_eq!(advisory(false, &["HERDR_PANE_ID"]), named("herdr"));
         assert_eq!(
-            advisory(true, &["HERDR_PANE_ID"]).as_deref(),
-            Some("tmux"),
+            advisory(true, &["HERDR_PANE_ID"]),
+            named("tmux"),
             "tmux inside Herdr"
         );
         for pty in [super::super::pty::PANE_ENV, super::super::pty::SOCKET_ENV] {
-            assert_eq!(advisory(false, &[pty]).as_deref(), Some("pty"));
-            assert_eq!(
-                advisory(true, &[pty]).as_deref(),
-                Some("pty"),
-                "built-in in tmux"
-            );
+            assert_eq!(advisory(false, &[pty]), named("pty"));
+            assert_eq!(advisory(true, &[pty]), named("pty"), "built-in in tmux");
         }
         assert_eq!(
             advisory(false, &["HERDR_PANE_ID", "OTHER_PANE_ID"]),
-            None,
+            AdvisoryHost::Ambiguous,
             "two external hosts choose none"
         );
     }

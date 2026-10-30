@@ -12,7 +12,7 @@ use tmt_adapters::{
     driver_protocol::registry,
     host::{
         CallerEnvironment,
-        launch::{HostLaunch, HostSource, LaunchTemplate},
+        launch::{AdvisoryHost, HostLaunch, HostSource, LaunchTemplate},
         launch_templates,
     },
     process::UnixCommandRunner,
@@ -20,7 +20,7 @@ use tmt_adapters::{
 use tmt_cli_style::{detail, palette::Terminal};
 
 /// Every host's template, and the host the caller's locators name (advisory).
-fn read() -> Result<(Vec<HostLaunch>, Option<String>), Failure> {
+fn read() -> Result<(Vec<HostLaunch>, AdvisoryHost), Failure> {
     let paths = ConfigPaths::discover()?;
     let tmt = running_tmt()?;
     let records = registry::read(&paths.global_dir)
@@ -36,10 +36,9 @@ fn read() -> Result<(Vec<HostLaunch>, Option<String>), Failure> {
     Ok((launch_templates(&drivers), caller_host))
 }
 
-fn document(hosts: &[HostLaunch], caller_host: Option<&str>) -> serde_json::Value {
-    json!({
+fn document(hosts: &[HostLaunch], caller_host: &AdvisoryHost) -> serde_json::Value {
+    let mut document = json!({
         "version": 1,
-        "callerHost": caller_host,
         "hosts": hosts.iter().map(|host| json!({
             "host": host.host,
             "state": match host.source {
@@ -51,7 +50,14 @@ fn document(hosts: &[HostLaunch], caller_host: Option<&str>) -> serde_json::Valu
                 "placeholders": LaunchTemplate::PLACEHOLDERS,
             })),
         })).collect::<Vec<_>>(),
-    })
+    });
+    // Ambiguous locators give no advice: the key is left out, as from an older Core.
+    match caller_host {
+        AdvisoryHost::Named(host) => document["callerHost"] = json!(host),
+        AdvisoryHost::Unnamed => document["callerHost"] = serde_json::Value::Null,
+        AdvisoryHost::Ambiguous => {}
+    }
+    document
 }
 
 fn source_text(source: HostSource) -> String {
@@ -110,7 +116,7 @@ pub fn execute(request: HostRequest, mode: OutputMode) -> io::Result<u8> {
             let mut output = tmt_cli_style::stream::stdout(mode.json);
             let terminal = output.terminal();
             if mode.json {
-                writeln!(output, "{}", document(&hosts, caller_host.as_deref()))?;
+                writeln!(output, "{}", document(&hosts, &caller_host))?;
             } else {
                 write_hosts(&mut output, terminal, &hosts)?;
             }

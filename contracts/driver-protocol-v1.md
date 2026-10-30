@@ -833,8 +833,10 @@ approved host driver in the registry's order:
 - **`callerHost`:** an advisory default read from the caller's environment
   locators: `pty` inside a built-in host member, `tmux` inside tmux (also when
   tmux runs inside another host), an approved driver's name when only that
-  driver's declared variables are set, and `null` when no locator names a host
-  or several external hosts are named. It is not evidence: no driver or tmux is
+  driver's declared variables are set, and `null` only when no locator names a
+  host (a plain terminal). It is absent when the locators name more than one
+  external host; a client then keeps its own default, as with an older Core.
+  It is not evidence: no driver or tmux is
   run for it, and it never selects, binds or launches anything by itself. A
   client uses it only to preselect a choice the user can change. Implicit
   selection keeps its own rules. A client that does not know the field ignores

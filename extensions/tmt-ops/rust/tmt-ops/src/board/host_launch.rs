@@ -18,7 +18,7 @@ pub(in crate::board) struct Loaded {
 /// `callerHost` of `tmt host templates`: advisory, never evidence.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub(in crate::board) enum CallerHost {
-    /// An older Core does not say.
+    /// An older Core does not say, or the locators name more than one host.
     #[default]
     Unknown,
     /// No locator names a host: a plain terminal.
@@ -27,11 +27,13 @@ pub(in crate::board) enum CallerHost {
 }
 
 impl CallerHost {
-    fn of(document: &serde_json::Value) -> Self {
+    pub(in crate::board) fn of(document: &serde_json::Value) -> Self {
         match document.get("callerHost") {
             None => Self::Unknown,
             Some(serde_json::Value::String(host)) => Self::Named(host.clone()),
-            Some(_) => Self::Plain,
+            Some(serde_json::Value::Null) => Self::Plain,
+            // Not a value this Ops knows: keep the default.
+            Some(_) => Self::Unknown,
         }
     }
 }

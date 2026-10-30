@@ -234,7 +234,8 @@ channels and the driver protocol. The owner map is in
   composes it with the built-in host's (`host::pty::launch_template`, which starts a background
   member through `tmt run --host pty` and opens no pane) and each approved driver's (an `ok`
   driver only) for `tmt host templates`. Its advisory `callerHost` is
-  `CallerEnvironment::advisory_host` (`host::launch`), mapped from `named_host`.
+  `CallerEnvironment::advisory_host` (`host::launch`), mapped from `named_host` into
+  `AdvisoryHost` (a name, `null` for no locator, or no key when ambiguous).
   The mark a template leaves is `openedByTmt` evidence; `tmt stop --close` is its reader. It
   runs the verified stop first (`verified_stop`, shared with `resume --move`), then asks the
   host to close that one pane (`HostDriver::{close_preflight, opened_by_tmt, close_pane}`,
