@@ -127,11 +127,15 @@
   display: inline-flex;
   flex: none;
 }
-/* Header title space hides only header chips; stacked phone rows retain their project disclosure. */
-@media (max-width: 639px) {
-  .page-project-group[data-location='header']
-    :is(.page-project-group-chip, .page-project-group-word),
-  .page-header-pin {
+/* A phone bar (≤900px) keeps only the title: the leaf hides the chips slot, but the page's picker,
+   New project dialog and failure notice still open from More, so the slot stays laid out and only
+   the group, the pin and the caption are hidden. Stacked phone rows retain their project disclosure. */
+@media (max-width: 900px) {
+  .tmt-ui-topbar-title .tmt-ui-topbar-title-chips:has(.page-header-projects) {
+    display: contents;
+  }
+  .tmt-ui-topbar-title-chips :is(.page-project-group[data-location='header'], .page-header-pin),
+  .tmt-ui-topbar-title-chips:has(.page-header-projects) > .tmt-ui-caption {
     display: none;
   }
 }

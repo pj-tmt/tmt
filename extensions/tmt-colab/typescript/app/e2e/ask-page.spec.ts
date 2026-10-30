@@ -619,7 +619,7 @@ for (const width of [1440, 390])
       await expect(mode).toHaveAttribute('aria-pressed', 'false');
       const modeBox = (await mode.boundingBox())!;
       const windowBox = (await page.locator('.annotation-popover').boundingBox())!;
-      const headerBox = (await page.locator('#ask-page-fixture .tmt-ui-header').boundingBox())!;
+      const headerBox = (await page.locator('.tmt-ui-topbar:visible').boundingBox())!;
       expect(modeBox.y).toBeGreaterThanOrEqual(headerBox.y + headerBox.height);
       expect(
         modeBox.y + modeBox.height <= windowBox.y ||

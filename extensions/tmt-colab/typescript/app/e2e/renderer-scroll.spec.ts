@@ -94,7 +94,9 @@ for (const reader of [false, true]) {
       .locator('#target')
       .evaluate((node) => node.getBoundingClientRect().top);
     // The owner's status band stays pinned under the bar, so the anchor lands below both.
-    const pinned = reader ? 0 : ((await page.locator('.page-main .work-band').boundingBox())?.height ?? 0);
+    const pinned = reader
+      ? 0
+      : ((await page.locator('.page-main .work-band').boundingBox())?.height ?? 0);
     expect(
       Math.abs((await frame.boundingBox())!.y + targetTop - headerHeight(1440) - pinned),
     ).toBeLessThan(2);

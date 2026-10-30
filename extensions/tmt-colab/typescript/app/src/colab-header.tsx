@@ -198,7 +198,13 @@ export function ColabHeader({
     return (
       <BrowserTopBar
         title={
-          <>
+          // The connection identity names the title's group for assistive technology, as the
+          // module's own header names itself; nothing of it shows.
+          <div
+            className="colab-topbar-identity"
+            role="group"
+            aria-label={`${identity ?? text.product} · ${title}`}
+          >
             <h1
               ref={(node) => assign(headerRef, node)}
               aria-describedby={caption === undefined ? undefined : captionId}
@@ -222,7 +228,7 @@ export function ColabHeader({
                 )}
               </div>
             )}
-          </>
+          </div>
         }
         status={status}
         actions={actions}

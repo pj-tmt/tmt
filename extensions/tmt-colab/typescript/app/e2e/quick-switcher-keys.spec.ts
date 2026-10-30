@@ -114,8 +114,8 @@ for (const width of [1440, 390]) {
     await expectActive(page, 'Alpha brief');
     await page.keyboard.press('Enter');
     await expect(dialog(page)).toHaveCount(0);
-    await expect(page.locator('.tmt-ui-header h1')).toHaveText('Alpha brief');
-    await expect(page.locator('.tmt-ui-header h1')).toBeFocused();
+    await expect(page.locator('.tmt-ui-topbar-title-current')).toHaveText('Alpha brief');
+    await expect(page.locator('.tmt-ui-topbar-title h1')).toBeFocused();
     expect((await reads(page)).pageReads).toEqual(['c0000001-1111-4111-8111-000000000001']);
   });
 }
@@ -154,7 +154,7 @@ test('project and author suggestions own the first Enter and active-descendant w
   ).toBe(true);
   await expectActive(page, 'Alpha brief');
   await page.keyboard.press('Enter');
-  await expect(page.locator('.tmt-ui-header h1')).toHaveText('Alpha brief');
+  await expect(page.locator('.tmt-ui-topbar-title-current')).toHaveText('Alpha brief');
 });
 
 test('chip Enter removes only its filter; Tab never opens a result and Escape restores the opener', async ({
@@ -282,7 +282,7 @@ test('page-list links preserve native modified activation without changing this 
   }
   expect(await observedClicks(page)).toEqual([modifiedClick(false), middleClick]);
   await link.press('Enter');
-  await expect(page.locator('.tmt-ui-header h1')).toHaveText('Beta review');
+  await expect(page.locator('.tmt-ui-topbar-title-current')).toHaveText('Beta review');
 });
 
 test('page-list Shift-click keeps the href and leaves navigation to the browser', async ({

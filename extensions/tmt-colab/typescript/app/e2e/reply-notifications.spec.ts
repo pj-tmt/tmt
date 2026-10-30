@@ -574,9 +574,7 @@ for (const [width, theme] of [
         token.remove();
         return {
           top: node.getBoundingClientRect().top,
-          header: document
-            .querySelector('.tmt-ui-header:not([data-shell-placeholder])')!
-            .getBoundingClientRect().bottom,
+          header: document.querySelector('.tmt-ui-topbar')!.getBoundingClientRect().bottom,
           width: css.outlineWidth,
           style: css.outlineStyle,
           color: css.outlineColor,

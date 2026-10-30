@@ -415,9 +415,9 @@ for (const width of [1440, 390, 320])
         const path = '/test/chrome-browser.tsx';
         await (await import(path)).mount('page');
       });
-      const header = page.locator('#chrome-fixture .tmt-ui-header');
+      const header = page.locator('#chrome-fixture .colab-topbar-identity');
       const bar = page.locator('#chrome-fixture .tmt-ui-topbar');
-      // The connection moved into the header's accessible name; the bar shows the page title alone.
+      // The connection is in the title group's accessible name; the bar shows the page title alone.
       await expect(header).toHaveAttribute(
         'aria-label',
         'Colab · local · Studio Mac · Release notes',
@@ -430,7 +430,11 @@ for (const width of [1440, 390, 320])
       await expect(header.locator('.tmt-ui-brand, .tmt-ui-wordmark')).toHaveCount(0);
       await expect(header.locator('.colab-remote-attribution, .colab-remote-label')).toHaveCount(0);
       const heading = header.getByRole('heading', { name: 'Release notes', exact: true });
-      expect(await header.evaluate((node) => node.scrollWidth <= node.clientWidth)).toBe(true);
+      expect(
+        await bar
+          .locator('.tmt-ui-topbar-title')
+          .evaluate((node) => node.scrollWidth <= node.clientWidth),
+      ).toBe(true);
       // The access words stay in the document for assistive technology, never on screen (#4116);
       // Share… in the More menu carries them.
       await expect(bar.locator('.page-connection')).toHaveText('Private · Live');

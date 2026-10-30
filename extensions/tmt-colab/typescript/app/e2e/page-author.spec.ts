@@ -35,7 +35,8 @@ for (const width of [1440, 390])
         document.documentElement.dataset.theme = value;
       }, theme);
       await mount(page);
-      const header = page.locator('.tmt-ui-header:visible');
+      // A page names its author in the bar; the reader in its own header.
+      const header = page.locator('.tmt-ui-topbar:visible, .tmt-ui-header:visible');
       await expect(header.locator('.tmt-ui-caption')).toHaveText('by Alice <b>creator</b>');
       await expect(header.locator('.tmt-ui-caption'))[
         width <= 900 ? 'toBeHidden' : 'toBeVisible'

@@ -281,7 +281,11 @@ body:not(:has(.tmt-ui-shell)) {
   border-bottom: var(--tmt-ui-rule-width) solid var(--tmt-ui-surface-rule);
 }
 
-/* The shared bar's title slot: the crumb reads as one quiet segment before the title. */
+/* The shared bar's title slot: the identity group lays out as the slot's own children, and the crumb
+   reads as one quiet segment before the title. */
+.colab-topbar-identity {
+  display: contents;
+}
 .tmt-ui-topbar-title-prefix .colab-crumb-group {
   display: inline-flex;
 }

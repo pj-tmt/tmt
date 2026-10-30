@@ -207,9 +207,9 @@ test.describe('the shell bar', () => {
       await expect(toggle).toHaveAttribute('aria-expanded', 'true');
       await expect.poll(gap).toBeCloseTo(0, 0);
       const room = await page.evaluate(() => window.innerHeight);
-      expect((await band.boundingBox())!.y + (await band.boundingBox())!.height).toBeLessThanOrEqual(
-        room + 1,
-      );
+      expect(
+        (await band.boundingBox())!.y + (await band.boundingBox())!.height,
+      ).toBeLessThanOrEqual(room + 1);
     });
 
     test(`the search opens from the shortcut once, with its key hint, and Escape returns focus at ${width} ${scheme}`, async ({

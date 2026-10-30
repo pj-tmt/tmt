@@ -99,6 +99,11 @@ for (const width of [1440, 390])
       await expect(bar.locator('.tmt-ui-wordmark, .tmt-ui-brand')).toHaveCount(0);
       await expect(title.getByRole('heading', { level: 1 })).toHaveCount(1);
       await expect(page.locator('.colab-title-row')).toHaveCount(0);
+      // The module and the connection identity stay in the title group's accessible name.
+      await expect(title.locator('.colab-topbar-identity')).toHaveAttribute(
+        'aria-label',
+        'Colab · local · Studio Mac · Release notes',
+      );
       // The connection words stay in the document for assistive technology; nothing shows.
       await expect(bar.locator('.page-connection')).toHaveText('Private · Live');
       await expect(bar.locator('.page-attention')).toHaveCount(0);

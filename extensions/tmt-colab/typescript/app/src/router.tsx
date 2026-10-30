@@ -41,6 +41,7 @@ import {
 } from 'lucide-react';
 import { moreButtonRect, PageHeaderActions, type PageHeaderAction } from './page-header-actions.js';
 import { AppHeader } from './app-header.js';
+import { SharedTopBar } from './shared-top-bar.js';
 import { ColabHeader } from './colab-header.js';
 import { creatorName, PageAttribution } from './page-attribution.js';
 import { PageLayoutSection } from './page-layout-section.js';
@@ -806,7 +807,7 @@ const root = createRootRouteWithContext<AppContext>()({
     const inHost = (view: ReactNode) =>
       hostSlot ? (
         <HostedShell slot={hostSlot} menu={undefined}>
-          {view}
+          <SharedTopBar value={hostSlot.topBarReady()}>{view}</SharedTopBar>
         </HostedShell>
       ) : (
         view

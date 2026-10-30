@@ -70,7 +70,8 @@ export function PageHeaderActions({
   // The shared top bar owns Theme and the Remote link; the menu keeps neither.
   const sharedBar = useContext(SharedTopBar);
   const remoteAvailable = useRemoteHeaderSource() && !sharedBar;
-  const compact = useMedia('(max-width: 639px)');
+  // The bar hides the page's chips and pin up to 900px; More offers the pin there instead.
+  const compact = useMedia('(max-width: 900px)');
   const pinItem = pinMenuItem(pin, compact, canProjects, readOnly);
   const more = {
     items: [
