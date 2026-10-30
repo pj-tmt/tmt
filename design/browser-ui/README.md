@@ -166,7 +166,8 @@ Global Search is the first sidebar item, above Home and a divider; at the 900px 
 an icon beside the navigation button opens the same search. The left group is navigation,
 phone Search, then the route-owned title. The route supplies its one page `h1` here, without
 a duplicated large content title. Ancestor segments and their `/` separators use
-`tmt-ui-topbar-title-prefix`; the final segment uses `tmt-ui-topbar-title-current`. Optional
+`tmt-ui-topbar-title-prefix` (regular weight and secondary colour); the final segment uses
+`tmt-ui-topbar-title-current` and retains the heading’s semibold weight. Optional
 project chips/add/pin controls follow the heading in `tmt-ui-topbar-title-chips`. Colab page
 author attribution follows those controls as muted `by <author>` text (`tmt-ui-caption`)
 inside that same compact-hidden group. At widths

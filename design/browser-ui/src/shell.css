@@ -457,6 +457,7 @@
   white-space: nowrap;
 }
 .tmt-ui-topbar-title-prefix {
+  font-weight: 400;
   min-width: 0;
   overflow: hidden;
   color: var(--tmt-ui-color-secondary);
