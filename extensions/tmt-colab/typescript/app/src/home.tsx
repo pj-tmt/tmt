@@ -1,7 +1,7 @@
 import { PageStateMenu } from './page-state-menu.js';
 import { useShortcuts } from './use-shortcuts.js';
 import { ShortcutDialog } from './shortcut-dialogs.js';
-import type { Shortcut } from './shortcuts.js';
+import { shortcutConditions, type Shortcut } from './shortcuts.js';
 import { rereadInPlace, useSummaryFill } from './home-fill.js';
 import { useHomeSpace, useSpaceTitle } from './home-space.js';
 import {
@@ -14,7 +14,16 @@ import {
   type BrowserTab,
 } from '@tmt/browser-ui/react';
 import { getRouteApi, useRouter } from '@tanstack/react-router';
-import { Archive, ArchiveRestore, ExternalLink, Pin, Plus, Search, Settings } from 'lucide-react';
+import {
+  Archive,
+  ArchiveRestore,
+  Bookmark,
+  ExternalLink,
+  Pencil,
+  Pin,
+  Plus,
+  Search,
+} from 'lucide-react';
 import { useContext, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import {
   ProjectWriting,
@@ -246,6 +255,7 @@ export function Home() {
   const port = transport.management;
   const shortcuts = useShortcuts(spaceId);
   const [shortcutDialog, setShortcutDialog] = useState<'save' | 'edit' | 'manage'>();
+  const shortcutFromMenu = useRef(false);
   const currentShortcut = shortcuts.items.find((item) => item.id === search.shortcut);
   function savedShortcut(item: Shortcut) {
     setShortcutDialog(undefined);
@@ -440,7 +450,10 @@ export function Home() {
     const held = shortcutRequest?.request;
     if (!held) return;
     shortcutRequest.done(held.id);
-    if (port && shortcuts.store) setShortcutDialog(held.kind);
+    if (port && shortcuts.store) {
+      shortcutFromMenu.current = true;
+      setShortcutDialog(held.kind);
+    }
   }, [shortcutRequest, port, shortcuts.store]);
   // The route search holds what is applied; the editor holds the draft until Enter applies it.
   const applied = JSON.stringify([filter.projects, filter.authors, filter.text]);
@@ -970,29 +983,27 @@ export function Home() {
       />
       <header className="page-list-hero">
         <div className="page-list-hero-text">
-          <p>{t.heroBody}</p>
-          {port && (
-            <div className="page-list-shortcuts">
-              <BrowserAction
-                type="button"
-                variant="ghost"
-                presentation="compact"
-                label={currentShortcut ? text.shortcuts.edit : text.shortcuts.saveAs}
-                disabled={!shortcuts.store}
-                onActivate={() => setShortcutDialog(currentShortcut ? 'edit' : 'save')}
-              />
-              <BrowserIconAction
-                type="button"
-                variant="text"
-                icon={<Settings />}
-                label={text.shortcuts.manage}
-                disabled={!shortcuts.store}
-                onActivate={() => setShortcutDialog('manage')}
-              />
-            </div>
-          )}
+          <h1>{currentShortcut?.name ?? scope ?? text.pageList.allPages}</h1>
+          <p>
+            {currentShortcut
+              ? [text.shortcuts.shortcut, ...shortcutConditions(search)].join(' · ')
+              : t.heroBody}
+          </p>
           {shortcuts.error && <p role="alert">{shortcuts.error}</p>}
         </div>
+        {port && (
+          <BrowserAction
+            type="button"
+            variant="ghost"
+            label={currentShortcut ? text.shortcuts.edit : text.shortcuts.saveAs}
+            leadingIcon={currentShortcut ? <Pencil /> : <Bookmark />}
+            disabled={!shortcuts.store}
+            onActivate={() => {
+              shortcutFromMenu.current = false;
+              setShortcutDialog(currentShortcut ? 'edit' : 'save');
+            }}
+          />
+        )}
         <span className="page-list-hero-create" inert={compact}>
           {newPageAction}
         </span>
@@ -1014,7 +1025,18 @@ export function Home() {
           pages={homePages}
           projects={projectNames}
           error={shortcuts.error}
-          onClose={() => setShortcutDialog(undefined)}
+          onClose={() => {
+            setShortcutDialog(undefined);
+            if (shortcutFromMenu.current) {
+              requestAnimationFrame(() => {
+                const opener = [
+                  ...document.querySelectorAll<HTMLElement>('.tmt-ui-shell-open'),
+                ].find((node) => node.getClientRects().length > 0);
+                opener?.focus({ preventScroll: true });
+              });
+            }
+          }}
+          focusFallback={() => document.querySelector<HTMLElement>('.tmt-ui-shell-open')}
           onSaved={savedShortcut}
         />
       )}

@@ -22,12 +22,10 @@ const record = (page: Page) =>
     const { pageListSpace } = await import(path);
     return JSON.parse(localStorage.getItem(`tmt-colab-shortcuts-v1:${pageListSpace}`) ?? 'null');
   });
-/** The list's own Manage; the side menu's Shortcuts group has the same command. */
-const heroManage = (page: Page) =>
-  page
-    .locator('.page-list-shortcuts')
-    .getByRole('button', { name: 'Manage shortcuts', exact: true });
+/** The sidebar group owns the Manage entry point. */
 const rail = (page: Page) => page.locator('#list-fixture .tmt-ui-rail-sub');
+const manageShortcuts = (page: Page) =>
+  rail(page).getByRole('button', { name: 'Manage shortcuts', exact: true });
 const railShortcuts = (page: Page) => rail(page).locator('a[data-id^="shortcut:"]');
 const selected = (page: Page) => rail(page).locator('[aria-current="page"]');
 test('Save current filters, edit the shortcut, retain drafts on failed storage and keep owner writes untouched', async ({
@@ -40,6 +38,12 @@ test('Save current filters, edit the shortcut, retain drafts on failed storage a
   await dialog.getByRole('textbox', { name: 'Name', exact: true }).fill('My work');
   await dialog.getByRole('button', { name: 'Save', exact: true }).click();
   await expect(dialog).not.toBeVisible();
+  const hero = page.locator('.page-list-hero:visible');
+  await expect(hero.getByRole('heading', { name: 'My work', exact: true })).toBeVisible();
+  await expect(hero).toContainText('Shortcut · Include archived');
+  await expect(
+    hero.getByRole('button', { name: 'Edit shortcut', exact: true }).locator('svg.lucide-pencil'),
+  ).toBeVisible();
   await page.getByRole('button', { name: 'Edit shortcut', exact: true }).click();
   const edit = page.getByRole('dialog', { name: 'Edit shortcut', exact: true });
   await expect(edit.getByRole('textbox', { name: 'Name', exact: true })).toHaveValue('My work');
@@ -75,15 +79,22 @@ test('Manage creates and reorders explicit shortcuts and the side menu follows i
   const save = page.getByRole('dialog', { name: 'Save as shortcut', exact: true });
   await save.getByRole('textbox', { name: 'Name', exact: true }).fill('Design');
   await save.getByRole('button', { name: 'Save', exact: true }).click();
-  await heroManage(page).click();
+  await manageShortcuts(page).click();
   const dialog = page.getByRole('dialog', { name: 'Manage shortcuts', exact: true });
   await expect(dialog.getByRole('button', { name: 'Design', exact: true })).toBeVisible();
-  await expect(dialog.getByRole('checkbox', { name: 'design', exact: true })).toBeChecked();
+  await expect(dialog.getByRole('button', { name: 'design', exact: true })).toHaveAttribute(
+    'aria-pressed',
+    'true',
+  );
   await dialog.getByRole('button', { name: 'New shortcut', exact: true }).click();
   await dialog.getByRole('textbox', { name: 'Name', exact: true }).fill('Everything');
   await dialog.getByRole('button', { name: 'Save', exact: true }).click();
   await expect(dialog.getByRole('button', { name: 'Everything', exact: true })).toBeVisible();
-  await dialog.getByRole('button', { name: 'Move Everything up', exact: true }).click();
+  await expect(dialog.getByRole('button', { name: 'Everything', exact: true })).toHaveAttribute(
+    'aria-keyshortcuts',
+    'Alt+ArrowUp Alt+ArrowDown',
+  );
+  await dialog.getByRole('button', { name: 'Everything', exact: true }).press('Alt+ArrowUp');
   await expect(dialog.locator('.shortcut-list > li').first()).toContainText('Everything');
   await dialog
     .locator('.shortcut-list > li')
@@ -104,7 +115,7 @@ test('saved shortcuts survive remount, propagate same-page changes and keep lega
   await dialog.getByRole('textbox', { name: 'Name', exact: true }).fill('Persistent');
   await dialog.getByRole('button', { name: 'Save', exact: true }).click();
   await mount(page);
-  await heroManage(page).click();
+  await manageShortcuts(page).click();
   const manage = page.getByRole('dialog', { name: 'Manage shortcuts', exact: true });
   await expect(manage.getByRole('button', { name: 'Persistent', exact: true })).toBeVisible();
   await page.evaluate(async () => {
@@ -137,7 +148,8 @@ for (const width of [390, 1440])
       await page.mouse.move(width - 1, 899);
       await page.screenshot({ path: capturePath(`shortcuts-save-${width}-${theme}.png`) });
       await save.getByRole('button', { name: 'Save', exact: true }).click();
-      await heroManage(page).click();
+      if (width === 390) await page.getByRole('button', { name: 'Open navigation' }).click();
+      await manageShortcuts(page).click();
       const manage = page.getByRole('dialog', { name: 'Manage shortcuts', exact: true });
       await expect(manage.getByRole('textbox', { name: 'Name', exact: true })).toHaveValue(
         'Design reviews',
@@ -151,7 +163,9 @@ for (const width of [390, 1440])
         true,
       );
       await manage.getByRole('button', { name: 'Cancel', exact: true }).click();
-      await expect(heroManage(page)).toBeFocused();
+      if (width === 390)
+        await expect(page.getByRole('button', { name: 'Open navigation' })).toBeFocused();
+      else await expect(manageShortcuts(page)).toBeFocused();
     });
   }
 
@@ -172,7 +186,7 @@ test('another tab receives storage updates; a separate browser profile has no sa
   browser,
 }) => {
   await mount(page);
-  await heroManage(page).click();
+  await manageShortcuts(page).click();
   const peer = await page.context().newPage();
   await peer.goto('/');
   await peer.evaluate(async () => {
@@ -193,7 +207,7 @@ test('another tab receives storage updates; a separate browser profile has no sa
   try {
     const fresh = await isolated.newPage();
     await mount(fresh);
-    await heroManage(fresh).click();
+    await manageShortcuts(fresh).click();
     await expect(fresh.getByRole('button', { name: 'From other tab', exact: true })).toHaveCount(0);
   } finally {
     await isolated.close();
@@ -262,7 +276,7 @@ test('Save uses the effective list scope when a removed project falls back to Al
   });
   await page.getByRole('button', { name: 'Save as shortcut', exact: true }).click();
   const dialog = page.getByRole('dialog', { name: 'Save as shortcut', exact: true });
-  await expect(dialog.getByRole('status')).toHaveText('5 matching pages');
+  await expect(dialog.getByRole('status')).toHaveText('5 pages');
   await dialog.getByRole('textbox', { name: 'Name', exact: true }).fill('Current view');
   await dialog.getByRole('button', { name: 'Save', exact: true }).click();
   await expect(page.locator('#list-fixture .pages > li')).toHaveCount(5);
@@ -349,10 +363,10 @@ test('Manage uses shared field labels and the same page-state menu as the list',
   page,
 }) => {
   await mount(page);
-  await heroManage(page).click();
+  await manageShortcuts(page).click();
   const dialog = page.getByRole('dialog', { name: 'Manage shortcuts', exact: true });
   const labels = dialog.locator('.tmt-ui-field-label');
-  await expect(labels).toHaveText(['Name', 'Projects', 'Page state']);
+  await expect(labels).toHaveText(['Name', 'Projects', 'Page state', 'Also']);
   const positions = await labels.evaluateAll((nodes) =>
     nodes.map((node) => node.getBoundingClientRect().left),
   );
@@ -402,4 +416,74 @@ test('the side menu lists the shortcuts, selects exactly one row and opens the l
   await rail(page).getByRole('button', { name: 'Manage shortcuts', exact: true }).click();
   await expect(page.getByRole('dialog', { name: 'Manage shortcuts', exact: true })).toBeVisible();
   await expect(selected(page)).toHaveAttribute('data-id', 'all');
+});
+
+test('shortcut save action and preview follow the page-list mock', async ({ page }) => {
+  await mount(page);
+  const hero = page.locator('.page-list-hero:visible');
+  const save = hero.getByRole('button', { name: 'Save as shortcut', exact: true });
+  await expect(hero.getByRole('heading', { name: 'All pages', exact: true })).toBeVisible();
+  await expect(save.locator('svg.lucide-bookmark')).toBeVisible();
+  await expect(hero.getByRole('button', { name: 'Manage shortcuts', exact: true })).toHaveCount(0);
+  await expect(
+    rail(page).getByRole('button', { name: 'Manage shortcuts', exact: true }),
+  ).toBeVisible();
+  await save.click();
+  const dialog = page.getByRole('dialog', { name: 'Save as shortcut', exact: true });
+  await expect(dialog).toHaveCSS('width', '400px');
+  await expect(dialog.getByRole('textbox', { name: 'Name', exact: true })).toBeVisible();
+  await expect(dialog.locator('.shortcut-summary svg.lucide-funnel')).toBeVisible();
+  await expect(
+    dialog.getByText('It appears under Shortcuts in the sidebar. Change it later with the gear.'),
+  ).toBeVisible();
+  await expect(dialog.getByRole('button', { name: 'Cancel', exact: true })).toBeVisible();
+  await expect(dialog.getByRole('button', { name: 'Save', exact: true })).toBeVisible();
+});
+
+test('Manage shortcut rows, project and Also chips, and preview follow the mock', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await mount(page);
+  await page.getByRole('button', { name: 'Save as shortcut', exact: true }).click();
+  const save = page.getByRole('dialog', { name: 'Save as shortcut', exact: true });
+  await save.getByRole('textbox', { name: 'Name', exact: true }).fill('My filter');
+  await save.getByRole('button', { name: 'Save', exact: true }).click();
+  await manageShortcuts(page).click();
+  const dialog = page.getByRole('dialog', { name: 'Manage shortcuts', exact: true });
+  await expect(dialog).toHaveCSS('width', '640px');
+  await expect(dialog.getByRole('navigation', { name: 'Saved shortcuts' })).toHaveCSS(
+    'width',
+    '220px',
+  );
+  const selectedRow = dialog.locator('.shortcut-list > li').first();
+  await expect(selectedRow.getByRole('img', { name: 'Drag to reorder' })).toBeVisible();
+  await expect(selectedRow.locator('svg.lucide-menu')).toBeVisible();
+  await expect(selectedRow).toContainText('My filter');
+  await expect(selectedRow.getByRole('button', { name: 'My filter' })).toHaveAttribute(
+    'aria-current',
+    'true',
+  );
+  await expect(selectedRow.locator('[data-match-count]')).toHaveText(/^[0-9]+$/);
+  await expect(dialog.getByRole('button', { name: 'Move My filter up' })).toHaveCount(0);
+  const project = dialog.getByRole('button', { name: 'design', exact: true });
+  await expect(project).toHaveAttribute('aria-pressed', 'false');
+  await project.click();
+  await expect(project).toHaveAttribute('aria-pressed', 'true');
+  await expect(dialog.getByText('None selected means every project.')).toBeVisible();
+  const needs = dialog.getByRole('button', { name: 'Needs me', exact: true });
+  await expect(needs).toHaveAttribute('aria-pressed', 'false');
+  await needs.click();
+  await expect(needs).toHaveAttribute('aria-pressed', 'true');
+  await expect(dialog.locator('.shortcut-summary svg.lucide-funnel')).toBeVisible();
+  await expect(dialog.getByRole('status')).toContainText(/^Matches [0-9]+ pages/);
+  await dialog.getByRole('button', { name: 'Save', exact: true }).click();
+  expect((await record(page)).items[0].search).toMatchObject({ project: ['design'], needs: true });
+  const remove = dialog.getByRole('button', { name: 'Delete', exact: true });
+  await expect(remove).toHaveAttribute('data-variant', 'ghost');
+  const cancel = dialog.getByRole('button', { name: 'Cancel', exact: true });
+  expect((await remove.boundingBox())!.x).toBeLessThan((await cancel.boundingBox())!.x);
+  await remove.click();
+  await expect(dialog.getByRole('button', { name: 'My filter', exact: true })).toHaveCount(0);
+  expect((await record(page)).items).toHaveLength(0);
 });

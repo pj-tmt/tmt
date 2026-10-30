@@ -1,6 +1,6 @@
 import { expect, it } from 'vite-plus/test';
 import { validateHomeSearch, listPages } from '../src/page-list-filter.js';
-import { shortcutSearch } from '../src/shortcuts.js';
+import { shortcutConditions, shortcutSearch } from '../src/shortcuts.js';
 import type { PageSummary } from '../src/transport.js';
 const pages = [
   {
@@ -69,5 +69,27 @@ it('archived and needs-you tabs keep their existing precedence over a retained s
   ]);
   expect(listPages(pages, { needs: true, stage: 'done' }).map((page) => page.id)).toEqual([
     'active',
+  ]);
+});
+
+it('shortcut summaries show saved conditions and retain their actual sort label', () => {
+  expect(
+    shortcutConditions({
+      project: ['design'],
+      state: 'in-progress',
+      needs: true,
+      includeArchived: true,
+      q: 'Plan',
+      by: ['Ana'],
+      sort: 'title',
+    }),
+  ).toEqual([
+    'project: design',
+    'stage: In progress',
+    'Needs me',
+    'Include archived',
+    'Search: Plan',
+    'Creators: Ana',
+    'Sort: Title',
   ]);
 });
