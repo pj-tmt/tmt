@@ -1,4 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
+import { openModuleNavigation } from '../test/home-list.js';
 import { capturePath } from './captures.js';
 
 async function mount(
@@ -37,9 +38,8 @@ const titles = (page: Page) => rows(page).locator('.tmt-ui-list-title > a');
 const search = (page: Page) => app(page).getByRole('combobox', { name: 'Search pages' });
 const requests = (page: Page) => page.evaluate(() => window.__projectRequests);
 /** The shell's module menu: All pages, each project with its counts, then the project actions. On a
- * wide screen its entries nest under Colab in the rail; on a phone they are the strip under the bar. */
-const moduleMenu = (page: Page) =>
-  app(page).locator('.tmt-ui-rail-sub:visible, .tmt-ui-module-menu:visible');
+ * wide screen its entries nest under Colab in the rail; phones use the same tree in the drawer. */
+const moduleMenu = (page: Page) => app(page).locator('.tmt-ui-rail-sub:visible');
 /** The menu's current scope row, named by its value. */
 const scopeTrigger = (page: Page, value = 'All pages') =>
   moduleMenu(page)
@@ -50,10 +50,12 @@ const scopeTrigger = (page: Page, value = 'All pages') =>
 const scopeRows = (page: Page) =>
   moduleMenu(page).locator('a[data-id="all"], a[data-id^="project:"]');
 async function fromScopeMenu(page: Page, name: string) {
+  await openModuleNavigation(page, app(page));
   await moduleMenu(page).getByRole('link', { name, exact: true }).click();
 }
 /** Scope the list to a project (or All pages) from the module menu. */
 async function scopeTo(page: Page, name: string) {
+  await openModuleNavigation(page, app(page));
   await moduleMenu(page)
     .locator('a')
     .filter({
@@ -1565,6 +1567,7 @@ for (const width of [1440, 390, 320])
           };
         });
       for (const long of ['W'.repeat(32), '漢'.repeat(32)]) {
+        await openModuleNavigation(page, app(page));
         const row = moduleMenu(page)
           .locator('a')
           .filter({ has: page.locator('.tmt-ui-module-menu-label', { hasText: long }) });
@@ -1573,13 +1576,15 @@ for (const width of [1440, 390, 320])
           await page.screenshot({
             path: await capturePath(`3747-scope-long-${width}-${theme}.png`),
           });
-        // On a phone the module menu is a scrolling tab strip; a long tab ellipsizes within it.
+        // The same child row ellipsizes inside the wide rail or phone drawer.
         await row.scrollIntoViewIfNeeded();
         const box = await row.boundingBox();
         expect(box!.x + box!.width).toBeLessThanOrEqual(width + 0.5);
         await row.click();
+        await openModuleNavigation(page, app(page));
         await expect(scopeTrigger(page, long)).toBeVisible();
         expect(await inside()).toEqual({ scroll: 0, crumbInside: true, railOverflow: 0 });
+        if (width <= 900) await page.keyboard.press('Escape');
         await rows(page).first().getByRole('link', { name: 'Long names' }).click();
         // The bar's title keeps the crumb, ellipsized at its own cap, beside a long title; a phone
         // keeps only the title, ellipsized.
@@ -1599,7 +1604,9 @@ for (const width of [1440, 390, 320])
         if (width > 900) await crumb.click();
         else await page.goBack();
         await showAll(page);
+        await openModuleNavigation(page, app(page));
         await expect(scopeTrigger(page, long)).toBeVisible();
+        if (width <= 900) await page.keyboard.press('Escape');
       }
     });
 
@@ -1781,7 +1788,7 @@ for (const width of [1440, 390, 320])
         await page.evaluate((theme) => {
           document.documentElement.dataset.theme = theme;
         }, theme);
-        // On a phone the module menu is a scrolling tab strip.
+        await openModuleNavigation(page, app(page));
         const entry = moduleMenu(page)
           .locator('a')
           .filter({ has: page.locator('.tmt-ui-module-menu-label', { hasText: name }) });

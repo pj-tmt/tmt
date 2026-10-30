@@ -231,9 +231,8 @@ async function captureState(
   }
 }
 
-/** The module's pages: nested in the rail on a wide screen, a tab strip on a phone. */
-const modulePages = (page: Page) =>
-  page.locator('.tmt-ui-rail-sub:visible, nav.tmt-ui-module-menu:visible');
+/** The same nested module tree is visible in the wide rail or open phone drawer. */
+const modulePages = (page: Page) => page.locator('.tmt-ui-rail-sub:visible');
 
 const BINARY =
   process.env.TMT_REMOTE_BINARY ??
@@ -4211,7 +4210,7 @@ for (const [width, theme] of [
         });
       }
       await page.mouse.move(1000, 600);
-      await modulePages(page).hover();
+      await page.getByRole('heading', { level: 1 }).hover();
       const foreign = page.locator('[data-remote="foreign"] [data-action="open"]');
       await expect(foreign).toHaveAttribute('aria-disabled', 'true');
       await expect(foreign).toHaveAttribute(
@@ -4232,7 +4231,7 @@ for (const [width, theme] of [
     await expect(slot).toHaveAttribute('data-state', 'unknown');
     await expect(name).toBeFocused();
     await expect(name).toHaveValue('Unsent next draft');
-    await modulePages(page).hover();
+    await page.getByRole('heading', { level: 1 }).hover();
     const foreign = page.locator('[data-remote="foreign"] [data-action="open"]');
     await expect(foreign).toHaveAttribute('aria-disabled', 'true');
     await expect(foreign).toHaveAttribute(
@@ -5908,9 +5907,13 @@ test('Home and TMT settings render in the shell and fit both sizes and themes', 
       'page',
     );
     await expect(rail.getByRole('link', { name: 'TMT settings', exact: true })).toHaveAttribute(
-      'aria-current',
-      'page',
+      'data-module-current',
+      '',
     );
+    await expect(rail.getByRole('link', { name: 'TMT settings', exact: true })).not.toHaveAttribute(
+      'aria-current',
+    );
+    await expect(rail.locator('[aria-current="page"]')).toHaveCount(1);
     await captureState(
       page,
       'tmt-settings-shell',
