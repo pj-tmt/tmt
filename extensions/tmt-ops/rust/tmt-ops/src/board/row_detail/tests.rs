@@ -257,7 +257,7 @@ fn exact_response_selection_attaches_to_a_retained_draft_without_acknowledging()
     app.key(KeyEvent::new(KeyCode::Backspace, KeyModifiers::ALT));
     assert_eq!(
         app.input.as_ref().unwrap().text.as_str(),
-        format!("{source}\ntwo ")
+        format!("{source}\n\ntwo ")
     );
     assert_eq!(
         app.input
@@ -283,7 +283,7 @@ fn exact_response_selection_attaches_to_a_retained_draft_without_acknowledging()
         std::time::Instant::now(),
     );
     assert!(app.input.as_ref().unwrap().exact_quotes().next().is_none());
-    assert_eq!(app.input.as_ref().unwrap().text.as_str(), "\ntwo ");
+    assert_eq!(app.input.as_ref().unwrap().text.as_str(), "two ");
 }
 
 #[test]
@@ -388,7 +388,7 @@ fn common_pool_response_quote_opens_talk_without_a_squad_note_or_acknowledgment(
     assert!(matches!(
         press(&mut app, KeyCode::Enter),
         Effect::Act(app::Request::Chat { recipient, text, .. })
-            if recipient == MEMBER && text == "> A **literal** response\n> 漢字 e\u{301}\n"
+            if recipient == MEMBER && text == "> A **literal** response\n> 漢字 e\u{301}\n\n"
     ));
 }
 

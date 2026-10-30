@@ -196,7 +196,7 @@ fn exact_passage_precedes_the_comment_in_the_delivered_row_message() {
     use crate::board::{response::Selection, row_detail::Target};
     const RAW: &str = "first \"raw\"\n\n漢字 e\u{301}\n";
     const EXPECTED: &str =
-        "[product · auth-fix]\n> first \"raw\"\n>\n> 漢字 e\u{301}\n  my comment\nnext  ";
+        "[product · auth-fix]\n> first \"raw\"\n>\n> 漢字 e\u{301}\n\n  my comment\nnext  ";
     for action in ["talk", "annotate lead", "annotate member"] {
         let mut app = fixture();
         let view = app.view.as_mut().unwrap();

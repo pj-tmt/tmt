@@ -41,7 +41,7 @@ fn exact_quote_label_uses_the_roster_name_at_insertion() {
     assert_eq!(quote.key.lead, MEMBER);
     assert_eq!(quote.range, 0..12);
     assert_eq!(quote.text, "exact source");
-    assert_eq!(input.quoted_message(), "> exact source\n");
+    assert_eq!(input.quoted_message(), "> exact source\n\n");
 }
 
 #[test]
@@ -130,7 +130,7 @@ fn reader_attachment_preserves_effect_notice_quote_and_limit_behavior() {
                 if case == "boundary" {
                     assert_eq!(
                         app.input.as_ref().unwrap().quoted_message(),
-                        "kept draft\n> exact source ending in CR\n"
+                        "kept draft\n> exact source ending in CR\n\n"
                     );
                     let target = app.conversation_target().unwrap();
                     assert!(app.response_quote_current(
@@ -365,7 +365,7 @@ fn pending_questions_quote_only_the_acquired_exact_body_and_revalidate_before_se
             );
             assert_eq!(
                 app.input.as_ref().unwrap().text.as_str(),
-                format!("{RAW}\nmy decision")
+                format!("{RAW}\n\nmy decision")
             );
             assert_eq!(
                 app.input
@@ -378,7 +378,7 @@ fn pending_questions_quote_only_the_acquired_exact_body_and_revalidate_before_se
         } else {
             let sent = app.key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
             assert!(
-                matches!(&sent, Effect::Act(Request::Annotate { text, .. }) if text == "[product · worker]\n> full question\n>\n> \"漢字\"\nmy decision"),
+                matches!(&sent, Effect::Act(Request::Annotate { text, .. }) if text == "[product · worker]\n> full question\n>\n> \"漢字\"\n\nmy decision"),
                 "effect={sent:?}; notice={:?}",
                 app.notice
             );
@@ -397,7 +397,7 @@ fn pending_questions_quote_only_the_acquired_exact_body_and_revalidate_before_se
                     to: "worker".into(),
                 });
                 let draft = app.input.as_ref().unwrap();
-                assert_eq!(draft.text.as_str(), format!("{RAW}\nmy decision"));
+                assert_eq!(draft.text.as_str(), format!("{RAW}\n\nmy decision"));
                 assert_eq!(draft.exact_quotes().collect::<Vec<_>>(), [selected]);
                 app.reconcile_row_details();
                 assert_eq!(
@@ -505,7 +505,7 @@ fn exact_and_literal_quotes_expand_in_place_with_the_existing_formats() {
         Some(raw)
     );
     let expected = format!(
-        "[product · worker]\n> exact **raw**\n> 漢字\nanswer one\n> \"{}…\"\nanswer two",
+        "[product · worker]\n> exact **raw**\n> 漢字\n\nanswer one\n> \"{}…\"\n\nanswer two",
         "語".repeat(199)
     );
     assert!(

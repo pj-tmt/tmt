@@ -930,7 +930,7 @@ fn removing_last_membership_restores_the_same_uuid_draft_in_pool_and_name_reuse_
     );
     assert_eq!(
         app.input.as_ref().unwrap().text.as_str(),
-        format!("{payload}\nkept source quote\n")
+        format!("{payload}\nkept source quote\n\n")
     );
     app.key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
     app.workspace.pool_expanded = true;
@@ -942,7 +942,7 @@ fn removing_last_membership_restores_the_same_uuid_draft_in_pool_and_name_reuse_
     assert_eq!(input.draft_key, key);
     assert_eq!(
         input.text.as_str(),
-        format!("{payload}\nkept source quote\n")
+        format!("{payload}\nkept source quote\n\n")
     );
     assert_eq!(input.text.folds().len(), 2);
     assert_eq!(input.exact_quotes().collect::<Vec<_>>(), vec![quote]);
@@ -977,7 +977,7 @@ fn removing_last_membership_restores_the_same_uuid_draft_in_pool_and_name_reuse_
             .unwrap()
             .text
             .as_str(),
-        format!("{payload}\nkept source quote\n")
+        format!("{payload}\nkept source quote\n\n")
     );
 }
 
@@ -1024,7 +1024,7 @@ fn colab_link_and_exact_source_context_survive_composer_reader_and_tab_transitio
     let input = app.input.as_ref().unwrap();
     assert_eq!(
         input.text.as_str(),
-        format!("Literal Colab reference {url}\n{url}\n")
+        format!("Literal Colab reference {url}\n{url}\n\n")
     );
     let quote = &input.exact_quotes().next().unwrap();
     assert_eq!(quote.key.request, request);
@@ -1059,7 +1059,7 @@ fn colab_link_and_exact_source_context_survive_composer_reader_and_tab_transitio
     app.key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
     assert_eq!(
         app.input.as_ref().unwrap().text.as_str(),
-        format!("Literal Colab reference {url}\n{url}\n")
+        format!("Literal Colab reference {url}\n{url}\n\n")
     );
     assert_eq!(
         app.input
@@ -1218,7 +1218,7 @@ fn blocking_owners_mask_only_the_passive_band_and_restore_the_exact_uuid_draft()
                     assert_eq!(draft.key.as_ref(), Some(&key));
                     assert_eq!(
                         draft.text.unwrap().as_str(),
-                        "retained message draft\nsource\n"
+                        "retained message draft\nsource\n\n"
                     );
                     assert_eq!(draft.inline_quotes.len(), 1);
                     assert_eq!(
@@ -1271,13 +1271,13 @@ fn literal_chat_chips_keep_text_and_survive_failed_send_without_source_identity(
     );
     assert_eq!(
         app.input.as_ref().unwrap().text.as_str(),
-        "my comment\nfirst\nsecond\n"
+        "my comment\nfirst\nsecond\n\n"
     );
     assert!(app.input.as_ref().unwrap().exact_quotes().next().is_none());
     let submitted = app.input.as_ref().unwrap().clone();
     let sent = app.key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
     assert!(matches!(sent, Effect::Act(Request::Chat { text, name, .. })
-        if name == "auth-fix" && text == "my comment\n> \"first second\"\n"));
+        if name == "auth-fix" && text == "my comment\n> \"first second\"\n\n"));
     app.sending_draft(&submitted);
     app.input.as_mut().unwrap().text.clear();
     app.input.as_mut().unwrap().inline_quotes.clear();
@@ -1288,8 +1288,76 @@ fn literal_chat_chips_keep_text_and_survive_failed_send_without_source_identity(
     );
     assert_eq!(
         app.input.as_ref().unwrap().text.as_str(),
-        "my comment\nfirst\nsecond\n"
+        "my comment\nfirst\nsecond\n\n"
     );
+}
+
+/// Whether `text` lies in a paragraph outside every blockquote of the Markdown `body`.
+fn outside_quote(body: &str, text: &str) -> bool {
+    use pulldown_cmark::{Event, Parser, Tag, TagEnd};
+    let mut depth = 0usize;
+    Parser::new(body).any(|event| match event {
+        Event::Start(Tag::BlockQuote(_)) => {
+            depth += 1;
+            false
+        }
+        Event::End(TagEnd::BlockQuote(_)) => {
+            depth -= 1;
+            false
+        }
+        Event::Text(found) => depth == 0 && found.contains(text),
+        _ => false,
+    })
+}
+
+#[test]
+fn text_typed_after_a_quote_is_sent_outside_it() {
+    let mut app = app();
+    open(&mut app, "auth-fix");
+    app.add_chat_quote("worker".into(), "quoted words".into());
+    let input = app.input.as_mut().unwrap();
+    // The draft ends the quote with an empty line, and the caret waits after it.
+    let fold = input.text.folds()[0].clone();
+    assert_eq!(&input.text.as_str()[fold.source.end..], "\n\n");
+    assert_eq!(input.text.cursor(), input.text.as_str().len());
+    assert!(input.text.insert("my reply", usize::MAX));
+    let body = input.quoted_message();
+    assert_eq!(body, "> \"quoted words\"\n\nmy reply");
+    assert!(outside_quote(&body, "my reply"), "{body}");
+
+    // Deleting the empty line still sends the reply as its own paragraph.
+    let end = input.text.folds()[0].source.end;
+    input.text.replace_range(end..end + 1, "", usize::MAX);
+    assert_eq!(&input.text.as_str()[end..], "\nmy reply");
+    let body = input.quoted_message();
+    assert!(outside_quote(&body, "my reply"), "{body}");
+    assert!(!outside_quote(&body, "quoted words"), "{body}");
+}
+
+#[test]
+fn removing_a_quote_takes_the_empty_line_it_added_while_that_line_is_empty() {
+    let mut app = app();
+    open(&mut app, "auth-fix");
+    for n in 1..=3 {
+        app.add_chat_quote("worker".into(), format!("Q{n}"));
+    }
+    let input = app.input.as_mut().unwrap();
+    assert_eq!(input.text.as_str(), "Q1\n\nQ2\n\nQ3\n\n");
+    let middle = input.text.folds()[1].clone();
+    input.remove_fold(middle.id, middle.source);
+    input.retain_quote_sources();
+    assert_eq!(input.text.as_str(), "Q1\n\nQ3\n\n");
+    assert_eq!(input.quoted_message(), "> \"Q1\"\n\n> \"Q3\"\n\n");
+    let last = input.text.folds()[1].clone();
+    input.remove_fold(last.id, last.source);
+    assert_eq!(input.text.as_str(), "Q1\n\n");
+
+    // Text typed on that line keeps it; only the fold goes.
+    let first = input.text.folds()[0].clone();
+    let line = first.source.end + 1;
+    assert!(input.text.replace_range(line..line, "kept", usize::MAX));
+    input.remove_fold(first.id, first.source);
+    assert_eq!(input.text.as_str(), "\nkept\n");
 }
 
 #[test]
@@ -1320,15 +1388,20 @@ fn chip_navigation_and_removal_keep_the_editor_draft() {
         80,
         usize::MAX,
     );
-    assert_eq!(input.text.as_str(), "quote 0\n\nquote 2\n");
+    assert_eq!(input.text.as_str(), "quote 0\n\n\n\nquote 2\n\n");
     input.retain_quote_sources();
     assert_eq!(input.inline_quotes.len(), 2);
-    assert_eq!(input.quoted_message(), "> \"quote 0\"\n\n> \"quote 2\"\n");
+    assert_eq!(
+        input.quoted_message(),
+        "> \"quote 0\"\n\n\n\n> \"quote 2\"\n\n"
+    );
 }
 
 #[test]
 fn chat_chips_paint_in_the_editor_and_remove_only_the_clicked_fold() {
-    use ratatui::crossterm::event::{KeyModifiers, MouseButton, MouseEvent, MouseEventKind};
+    use ratatui::crossterm::event::{
+        KeyCode, KeyEvent, KeyModifiers, MouseButton, MouseEvent, MouseEventKind,
+    };
     for width in [60, 100, 160] {
         let mut app = crate::board::app::workspace::tests::board();
         app.view.as_mut().unwrap().look = crate::look::Look {
@@ -1348,6 +1421,8 @@ fn chat_chips_paint_in_the_editor_and_remove_only_the_clicked_fold() {
         app.paste("my answer");
         app.add_chat_quote("other".into(), "second passage".into());
         app.add_chat_quote("third".into(), "third passage".into());
+        // The draft is taller than the input band at 60 columns; show it from the top.
+        app.key(KeyEvent::new(KeyCode::Home, KeyModifiers::CONTROL));
         let painted = draw(&mut app, width, 36);
         let editor_area = app.input_viewport.get().unwrap().0;
         let hits = app.composer.paste_hits.borrow().clone();
@@ -1371,7 +1446,7 @@ fn chat_chips_paint_in_the_editor_and_remove_only_the_clicked_fold() {
         let input = app.input.as_ref().unwrap();
         assert_eq!(
             input.text.as_str(),
-            "first passage\nmy answer\n\nthird passage\n"
+            "first passage\n\nmy answer\nthird passage\n\n"
         );
         assert_eq!(input.inline_quotes.len(), 2);
         assert!(
@@ -1402,8 +1477,8 @@ fn chat_chips_follow_uuid_drafts_and_success_clears_only_the_sent_revision() {
 fn inline_quote_inserts_below_caret_line_and_keeps_a_blank_answer_line() {
     use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
     for (source, steps, expected, cursor) in [
-        ("", 0, "full\nquote\n", 11),
-        ("aaaa", 0, "aaaa\nfull\nquote\n", 16),
+        ("", 0, "full\nquote\n\n", 12),
+        ("aaaa", 0, "aaaa\nfull\nquote\n\n", 17),
         ("aaaa\nlater", 7, "aaaa\nfull\nquote\n\nlater", 16),
     ] {
         let mut app = app();
@@ -1539,7 +1614,7 @@ fn inline_quotes_normalize_their_breaks_and_keep_existing_draft_crlf() {
     assert_eq!(input.text.folds().len(), 3);
     assert_eq!(
         input.quoted_message(),
-        "漢字 e\u{301}\n> \"first question\"\nanswer one\n> \"second\"\nanswer two\n> \"third\"\nanswer three\r\nlater\r\n"
+        "漢字 e\u{301}\n> \"first question\"\n\nanswer one\n> \"second\"\n\nanswer two\n> \"third\"\n\nanswer three\r\nlater\r\n"
     );
 }
 
@@ -1594,7 +1669,7 @@ fn terminal_cr_quotes_normalize_and_keep_the_existing_draft() {
         let after = app.input.as_ref().unwrap();
         assert_eq!(
             after.text.as_str(),
-            format!("{}\n{normalized}\n", before.text.as_str())
+            format!("{}\n{normalized}\n\n", before.text.as_str())
         );
         assert_eq!(after.text.folds().len(), 2);
         assert_eq!(after.inline_quotes.len(), 2);
@@ -1605,7 +1680,7 @@ fn terminal_cr_quotes_normalize_and_keep_the_existing_draft() {
         assert_eq!(after.draft_key, before.draft_key);
         assert_eq!(
             after.quoted_message(),
-            format!("> \"held quote\"\nmy text\n> \"{excerpt}\"\n")
+            format!("> \"held quote\"\n\nmy text\n> \"{excerpt}\"\n\n")
         );
     }
 }
@@ -1619,9 +1694,9 @@ fn a_quote_ending_in_a_break_is_still_one_visible_caret_line() {
     app.key(KeyEvent::new(KeyCode::Home, KeyModifiers::CONTROL));
     app.add_chat_quote("worker".into(), "second".into());
     let input = app.input.as_ref().unwrap();
-    assert_eq!(input.text.as_str(), "first\nsecond\n\n");
+    assert_eq!(input.text.as_str(), "first\nsecond\n\n\n");
     let layout = input.text.layout(100);
-    assert_eq!(layout.lines.len(), 4);
+    assert_eq!(layout.lines.len(), 5);
     assert!(layout.lines[layout.cursor.0].cells.is_empty());
     assert_eq!(layout.cursor.0, 2);
 }
@@ -1727,7 +1802,10 @@ pub(in crate::board) fn quote_capture_case(
         let hit = if scene == "quote-preview" {
             &hits[0]
         } else {
-            &hits[1]
+            // The first quote may be scrolled above the input band.
+            hits.iter()
+                .find(|hit| hit.label.contains("Question 2"))
+                .unwrap()
         };
         let area = if scene == "quote-preview" {
             hit.area

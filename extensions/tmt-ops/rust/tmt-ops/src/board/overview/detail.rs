@@ -314,7 +314,7 @@ mod tests {
         );
         assert_eq!(
             app.input.as_ref().unwrap().text.as_str(),
-            "kept draft\nquote\n"
+            "kept draft\nquote\n\n"
         );
         assert_eq!(app.workspace.selected, selected);
         assert_eq!(app.focus, focus);
@@ -488,7 +488,7 @@ mod tests {
         );
         assert_eq!(
             app.composer_projection().unwrap().text.unwrap().as_str(),
-            "retained draft\nsource\n"
+            "retained draft\nsource\n\n"
         );
     }
 }
