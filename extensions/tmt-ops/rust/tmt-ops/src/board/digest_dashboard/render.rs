@@ -245,12 +245,21 @@ fn detail(frame: &mut Frame, app: &App, area: Rect) {
 
 const BASIS: &str = "Estimate basis…";
 
-/// One chip per Details tab; the shown one is selected.
+/// One chip per Details tab; the shown one is selected and marked `▸`, since
+/// some looks tell a selected chip apart only by a nearby background shade.
 fn tabs(frame: &mut Frame, app: &App, area: Rect) {
     use crate::board::{app::Choice, buttons::Button, digest_dashboard::details::Tab};
+    let labels: Vec<String> = Tab::ALL
+        .iter()
+        .map(|tab| match *tab == app.digest_details {
+            true => format!("▸ {}", tab.label()),
+            false => tab.label().to_owned(),
+        })
+        .collect();
     let buttons: Vec<_> = Tab::ALL
         .iter()
-        .map(|tab| Button::secondary(tab.label()).selected(*tab == app.digest_details))
+        .zip(&labels)
+        .map(|(tab, label)| Button::secondary(label).selected(*tab == app.digest_details))
         .collect();
     let painted = crate::board::buttons::paint(
         app,

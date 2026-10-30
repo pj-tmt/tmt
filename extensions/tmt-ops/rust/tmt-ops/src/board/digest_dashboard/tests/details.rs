@@ -44,9 +44,10 @@ fn chips_and_the_bound_key_switch_tabs_and_the_tab_survives_a_new_selection() {
     let _no_commands = crate::runner::forbid_commands();
     let mut app = digest();
     let shown = paint(&mut app, 160, 44);
-    for label in ["Details · worker · 1d", "Impact", "Delivery", "Evidence"] {
+    for label in ["Details · worker · 1d", "▸ Impact", "Delivery", "Evidence"] {
         assert!(shown.contains(label), "{label}: {shown}");
     }
+    assert!(!shown.contains("▸ Delivery"), "only the shown tab is marked");
     assert!(shown.contains("Est. ctx avoided 18.2k"), "{shown}");
     assert_eq!(
         click(&mut app, &Choice::DigestDetails(Tab::Delivery)),
@@ -55,6 +56,7 @@ fn chips_and_the_bound_key_switch_tabs_and_the_tab_survives_a_new_selection() {
     assert_eq!(app.digest_details, Tab::Delivery);
     let shown = paint(&mut app, 160, 44);
     assert!(shown.contains("Digest: Auto"), "{shown}");
+    assert!(shown.contains("▸ Delivery") && !shown.contains("▸ Impact"));
     assert!(!shown.contains("Est. ctx avoided"), "{shown}");
 
     // `]` steps through the tabs and wraps.
