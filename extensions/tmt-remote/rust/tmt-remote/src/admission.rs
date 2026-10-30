@@ -247,6 +247,9 @@ pub(crate) enum RemoteOperation {
     MemberSending,
     MemberRevoke,
     RemoteNameSet,
+    InvitationCreate,
+    InvitationsList,
+    InvitationCancel,
     InvitationPending,
     InvitationConfirm,
 
@@ -286,6 +289,9 @@ impl RemoteOperation {
         ("remote.members.sending", Self::MemberSending),
         ("remote.members.revoke", Self::MemberRevoke),
         ("remote.name.set", Self::RemoteNameSet),
+        ("remote.invites.create", Self::InvitationCreate),
+        ("remote.invites.list", Self::InvitationsList),
+        ("remote.invites.cancel", Self::InvitationCancel),
         ("remote.invites.pending", Self::InvitationPending),
         ("remote.invites.confirm", Self::InvitationConfirm),
         ("agents.list", Self::AgentsList),
@@ -327,6 +333,8 @@ impl RemoteOperation {
             Self::MemberSending => OperationClass::Effect,
             Self::MemberRevoke => OperationClass::Effect,
             Self::RemoteNameSet => OperationClass::Effect,
+            Self::InvitationCreate | Self::InvitationCancel => OperationClass::Effect,
+            Self::InvitationsList => OperationClass::Read,
             Self::InvitationPending => OperationClass::Read,
             Self::InvitationConfirm => OperationClass::Effect,
 
@@ -364,6 +372,7 @@ impl RemoteOperation {
             Self::MemberSending => None,
             Self::MemberRevoke => None,
             Self::RemoteNameSet => None,
+            Self::InvitationCreate | Self::InvitationsList | Self::InvitationCancel => None,
             Self::InvitationPending => None,
             Self::InvitationConfirm => None,
 

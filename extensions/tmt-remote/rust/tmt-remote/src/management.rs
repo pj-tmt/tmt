@@ -667,7 +667,11 @@ pub(crate) fn append(
     let operation = envelope.operation;
     if matches!(
         operation,
-        "remote.invites.pending" | "remote.invites.confirm"
+        "remote.invites.pending"
+            | "remote.invites.confirm"
+            | "remote.invites.create"
+            | "remote.invites.list"
+            | "remote.invites.cancel"
     ) {
         return invitation_requests::append(permit, owner_invitations);
     }

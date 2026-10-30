@@ -1,3 +1,5 @@
+import { invitationDetails, invitationFromInput } from './invite-page.js';
+import { channelFor } from './session-channel.js';
 import type { Session } from './device.js';
 import { verifiedSessionRequest } from './operations.js';
 import { base64urlBytes } from './canonical-bytes.js';
@@ -54,10 +56,60 @@ export type InvitationOutcome =
       };
     }
   | Exclude<ManagementOutcome, { state: 'committed' }>;
+export interface IssuedInvitation {
+  offerId: string;
+  issuedAtMs: number;
+  expiresAtMs: number;
+  state:
+    | 'open'
+    | 'awaiting-owner'
+    | 'confirmed'
+    | 'refused'
+    | 'cancelled'
+    | 'expired'
+    | 'unconfirmed'
+    | 'interrupted';
+  localConfirmationKnown: boolean;
+  cleanup: 'not-requested' | 'acknowledged' | 'unconfirmed';
+}
+export interface IssuedInvitationPage {
+  remoteId: string;
+  invitations: IssuedInvitation[];
+  nextCursor: string | null;
+}
+export type InvitationIssueOutcome =
+  | {
+      operationId: string;
+      state: 'committed';
+      sessionEnded: false;
+      result: {
+        invitation:
+          | { offerId: string; state: 'created'; expiresAtMs: number }
+          | {
+              offerId: string;
+              state: 'cancelled' | 'not-active';
+              code: 'REMOTE_INVITATION_CANCELLED' | 'REMOTE_INVITATION_NOT_ACTIVE';
+            };
+      };
+    }
+  | Exclude<ManagementOutcome, { state: 'committed' }>;
+export type InvitationCreationOutcome =
+  | {
+      operationId: string;
+      state: 'committed';
+      sessionEnded: false;
+      result: { invitation: { offerId: string; state: 'created'; expiresAtMs: number } };
+      secret?: { code: string; link: string | null };
+    }
+  | Exclude<InvitationIssueOutcome, { state: 'committed' }>;
+export type InvitationOriginalOutcome = InvitationOutcome | InvitationIssueOutcome;
 export interface RemoteInvitations {
+  create(input: { operationId: string }): Promise<InvitationCreationOutcome>;
+  list(input: { cursor: string | null }): Promise<IssuedInvitationPage>;
+  cancel(input: { operationId: string; offerId: string }): Promise<InvitationIssueOutcome>;
   pending(): Promise<PendingInvitation>;
   decide(input: InvitationDecision): Promise<InvitationOutcome>;
-  operation(operationId: string): Promise<InvitationOutcome>;
+  operation(operationId: string): Promise<InvitationOriginalOutcome>;
 }
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 const id = (value: unknown): value is string => typeof value === 'string' && UUID.test(value);
@@ -149,13 +201,168 @@ export function parseInvitationOutcome(value: unknown, operationId: string): Inv
   }
   return row as unknown as InvitationOutcome;
 }
+export function parseIssuedInvitationPage(value: unknown, remoteId: string): IssuedInvitationPage {
+  const page = object(value);
+  exact(page, ['remoteId', 'invitations', 'nextCursor']);
+  valid(
+    page.remoteId === remoteId && Array.isArray(page.invitations) && page.invitations.length <= 50,
+  );
+  valid(
+    page.nextCursor === null ||
+      (typeof page.nextCursor === 'string' && /^[A-Za-z0-9_-]{1,128}$/.test(page.nextCursor)),
+  );
+  const ids = new Set<string>();
+  for (const value of page.invitations as unknown[]) {
+    const row = object(value);
+    exact(row, [
+      'offerId',
+      'issuedAtMs',
+      'expiresAtMs',
+      'state',
+      'localConfirmationKnown',
+      'cleanup',
+    ]);
+    valid(id(row.offerId) && !ids.has(row.offerId));
+    ids.add(row.offerId);
+    valid(
+      integer(row.issuedAtMs) &&
+        integer(row.expiresAtMs) &&
+        (row.expiresAtMs as number) > (row.issuedAtMs as number) &&
+        (row.expiresAtMs as number) - (row.issuedAtMs as number) <= 600_000,
+    );
+    valid(
+      [
+        'open',
+        'awaiting-owner',
+        'confirmed',
+        'refused',
+        'cancelled',
+        'expired',
+        'unconfirmed',
+        'interrupted',
+      ].includes(row.state as string),
+    );
+    valid(
+      typeof row.localConfirmationKnown === 'boolean' &&
+        ['not-requested', 'acknowledged', 'unconfirmed'].includes(row.cleanup as string),
+    );
+  }
+  return page as unknown as IssuedInvitationPage;
+}
+export function parseInvitationIssueOutcome(
+  value: unknown,
+  operationId: string,
+  creatingRemote: string,
+): InvitationCreationOutcome;
+export function parseInvitationIssueOutcome(
+  value: unknown,
+  operationId: string,
+): InvitationIssueOutcome;
+export function parseInvitationIssueOutcome(
+  value: unknown,
+  operationId: string,
+  creatingRemote?: string,
+): InvitationCreationOutcome | InvitationIssueOutcome {
+  const row = object(value);
+  if (row.state !== 'committed')
+    return parseManagementOutcome(value, operationId) as InvitationIssueOutcome;
+  const secret = Object.hasOwn(row, 'secret');
+  exact(row, ['operationId', 'state', 'sessionEnded', 'result', ...(secret ? ['secret'] : [])]);
+  valid(row.operationId === operationId && row.sessionEnded === false);
+  const result = object(row.result);
+  exact(result, ['invitation']);
+  const invite = object(result.invitation);
+  valid(id(invite.offerId));
+  if (creatingRemote !== undefined) valid(invite.state === 'created');
+  if (invite.state === 'created') {
+    exact(invite, ['offerId', 'state', 'expiresAtMs']);
+    valid(invite.offerId !== operationId && integer(invite.expiresAtMs));
+  } else {
+    exact(invite, ['offerId', 'state', 'code']);
+    valid(
+      (invite.state === 'cancelled' && invite.code === 'REMOTE_INVITATION_CANCELLED') ||
+        (invite.state === 'not-active' && invite.code === 'REMOTE_INVITATION_NOT_ACTIVE'),
+    );
+  }
+  if (secret) {
+    valid(creatingRemote !== undefined && invite.state === 'created');
+    const part = object(row.secret);
+    exact(part, ['code', 'link']);
+    valid(typeof part.code === 'string' && (part.link === null || typeof part.link === 'string'));
+    const details = invitationDetails(part.code as string);
+    valid(
+      details.owner === creatingRemote &&
+        details.offer === invite.offerId &&
+        details.expiry === invite.expiresAtMs,
+    );
+    if (part.link !== null) {
+      const linked = invitationFromInput(part.link as string);
+      valid(linked.token === part.code);
+    }
+  }
+  return row as unknown as InvitationCreationOutcome | InvitationIssueOutcome;
+}
+function parseOriginal(value: unknown, id: string): InvitationOriginalOutcome {
+  const row = object(value);
+  if (
+    row.state === 'committed' &&
+    ['created', 'cancelled', 'not-active'].includes(
+      object(object(row.result).invitation).state as string,
+    )
+  )
+    return parseInvitationIssueOutcome(value, id);
+  return parseInvitationOutcome(value, id);
+}
 /** A presenter over the current offer. No admission, provider call or retry is created here. */
 export function invitations(
   session: Session,
   options: { timeoutMs?: number } = {},
 ): RemoteInvitations {
   const call = verifiedSessionRequest(session, options);
+  const remoteId = channelFor(session)?.paired.machineId;
+  valid(typeof remoteId === 'string');
   return {
+    create: (value) => {
+      input(
+        Object.keys(value).length === 1 &&
+          Object.hasOwn(value, 'operationId') &&
+          id(value.operationId),
+      );
+      const frozen = { ...value };
+      return managementMutation(call, 'remote.invites.create', frozen, (reply) =>
+        parseInvitationIssueOutcome(reply, frozen.operationId, remoteId),
+      );
+    },
+    list: (value) => {
+      input(
+        Object.keys(value).length === 1 &&
+          Object.hasOwn(value, 'cursor') &&
+          (value.cursor === null ||
+            (typeof value.cursor === 'string' && /^[A-Za-z0-9_-]{1,128}$/.test(value.cursor))),
+      );
+      return call('remote.invites.list', crypto.randomUUID(), { ...value }, (reply) =>
+        parseIssuedInvitationPage(reply, remoteId),
+      );
+    },
+    cancel: (value) => {
+      input(
+        Object.keys(value).length === 2 &&
+          Object.hasOwn(value, 'operationId') &&
+          Object.hasOwn(value, 'offerId') &&
+          id(value.operationId) &&
+          id(value.offerId),
+      );
+      const frozen = { ...value };
+      return managementMutation(call, 'remote.invites.cancel', frozen, (reply) => {
+        const outcome = parseInvitationIssueOutcome(reply, frozen.operationId);
+        if (outcome.state === 'committed')
+          valid(
+            outcome.result.invitation.offerId === frozen.offerId &&
+              outcome.result.invitation.state !== 'created',
+          );
+        return outcome;
+      });
+    },
     pending: () => call('remote.invites.pending', crypto.randomUUID(), {}, parsePendingInvitation),
     decide: (value) => {
       input(
@@ -191,7 +398,7 @@ export function invitations(
     operation: (operationId) => {
       input(id(operationId));
       return call('remote.management.operation', crypto.randomUUID(), { operationId }, (value) =>
-        parseInvitationOutcome(value, operationId),
+        parseOriginal(value, operationId),
       );
     },
   };

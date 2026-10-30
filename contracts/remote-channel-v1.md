@@ -587,6 +587,7 @@ returned entry cursor, or to the input cursor on timeout; initially an empty str
 beginning cursor. The fixed observational operations (`capabilities`, `agents.list`, `identities.status`,
 `check`, `requests.show`, `result`, `dispatch.show`, `operation.show`, `remote.settings.show`,
 `remote.devices.list`, `remote.members.list`, `remote.members.machines`, `remote.members.summary`,
+`remote.invites.list`,
 `remote.management.operation`) return live signed results without adopting
 the read ID, observed-read metadata or new ownership rows. `operation.show` is recovery observation:
 stable or still-unresolved originals are pure reads; a definitive outcome learned for an unresolved
@@ -1031,6 +1032,9 @@ requests use a fresh envelope ID; original-operation lookup never adopts or exec
 | `remote.devices.remove-others`         | `{operationId,fingerprint}`                                                                                      | Management outcome; keeper is the authenticated caller                 |
 | `remote.devices.revoke`                | `{operationId,clientId}`                                                                                         | Management outcome                                                     |
 | `remote.management.operation`          | `{operationId}`                                                                                                  | Only the caller's original management outcome, with a live grant       |
+| `remote.invites.create`                | `{operationId}`                                                                                                  | Designated owner browser only; one-shot creating response below        |
+| `remote.invites.list`                  | `{cursor:null\|string}`                                                                                          | Designated owner browser only; metadata history, 50 rows per page      |
+| `remote.invites.cancel`                | `{operationId,offerId}`                                                                                          | Designated owner browser only; terminal/unknown offers are no-ops      |
 
 The member operations use the same channel, input bound, journal and exact-door browser
 admission; they add no agent scope. The local owner and the exact currently designated owner
@@ -1055,8 +1059,8 @@ no Remote selector is accepted. Only the exact currently designated owner browse
 these facts; other admitted browsers receive both nullable fields as null. The private
 local-owner control adapter does not expose this operation. `memberCount` counts non-revoked
 people, including the owner, once regardless of associated machine count. `lastActiveAtMs`
-is the latest durable accepted authenticated use recorded for an associated machine, including
-historical use by a now-revoked machine. Null means not recorded or not authorized, not
+is the latest durable accepted authenticated use across any associated machine of the current
+Remote, including historical use by now-revoked machines. Null means not recorded or not authorized, not
 zero people or never used. Neither field establishes presence or online status.
 Session counts, active probes and provider calls
 do not contribute. Current grant, Remote and designation disclosure boundaries are rechecked
@@ -2778,6 +2782,50 @@ owner decision already won. Only commit/rollback uncertainty remains `unknown`;
 publication failure after a recorded decision preserves that original outcome.
 `remote.management.operation` reads the original after Session
 reopen, without another confirmation. A new operation cannot claim a terminal winner.
+
+The same signed owner-browser path exposes `remote.invites.create` and
+`remote.invites.cancel` effects and the fixed `remote.invites.list` read. They add no
+authority, transport or ceremony. Create accepts exactly `{operationId}` and uses the
+current configured owned Remote/project selection; there is no wire selector. Its
+UUIDv4 envelope ID equals the operation ID; a distinct UUIDv4 identifies the offer,
+leaving the existing confirmation original namespace intact. The shared coordinator reserves
+metadata and settles the adopted original in one Store transaction before publishing.
+The committed result is `{invitation:{offerId,state:"created",expiresAtMs}}` with
+`sessionEnded:false`; `created` describes the local reservation, never provider delivery
+or completed enrollment. History carries the current phase.
+Create refusals are bounded to `REMOTE_INVITATION_BUSY`, `REMOTE_INVITATION_CAPACITY`,
+`REMOTE_INVITATION_STOPPED`, `REMOTE_INVITATION_UNAVAILABLE`,
+`REMOTE_MANAGEMENT_READ_ONLY` and `REMOTE_INTENT_CONFLICT`; an already-committed
+creation returns that committed original rather than being refused.
+
+Only the first creating response may additionally contain
+`secret:{code:string,link:null|string}`. The code is the unchanged native v2 carrier;
+a link is returned only from the existing verified publication. That response is
+`Cache-Control: no-store`. No secret or private link is included in a held/approved
+replay, durable receipt, recovery, history/list, log, audit or Firestore row. An identical
+adopted request or `remote.management.operation` reads only the immutable metadata
+original: it never recreates or redelivers the secret after a lost response. A fresh
+invitation requires an explicit new action. CLI and browser use the same code presenter,
+coordinator, confirmation sink, reservation and existing reconciliation worker.
+
+Cancel accepts exactly `{operationId,offerId}` and adopts that immutable intent before
+acting. Its committed `result.invitation` contains `offerId`, `state` (`cancelled` or
+`not-active`) and the corresponding bounded `code` (`REMOTE_INVITATION_CANCELLED` or
+`REMOTE_INVITATION_NOT_ACTIVE`). Unknown, terminal or uncertain locally committed offers
+are idempotent no-ops. Cancellation never rolls back membership or a confirmation.
+Current designation/key/origin/live Session/member/grant admission is rechecked before
+mutation and disclosure. Private control and non-browser grants do not expose these
+operations.
+
+List accepts exactly `{cursor:null|string}` and returns
+`{remoteId,invitations,nextCursor}` for the current Remote only. Pages contain at most
+50 metadata rows: `offerId`, `issuedAtMs`, `expiresAtMs`, `state`,
+`localConfirmationKnown`, and `cleanup`. State uses the current-offer phase names plus
+`interrupted`; cleanup retains its existing observation meanings. No code, words, key,
+principal or provider locator is stored. Terminal metadata is retained for seven days,
+with a hard 200-row bound; prune oldest terminal rows first and never evict an active
+offer. Opening the serving Store after a restart marks unfinished offers `interrupted`;
+no code or unconfirmed offer resumes. History is an observation and grants nothing.
 
 The first coordinator decision wins. When the browser wins, the terminal's word or
 sending prompt stops waiting for keyboard input, reports the actual original outcome

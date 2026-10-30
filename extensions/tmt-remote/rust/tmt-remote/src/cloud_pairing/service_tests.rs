@@ -11,6 +11,7 @@ use crate::{
 };
 use std::sync::{Weak, atomic::AtomicUsize, mpsc};
 mod browser_ceremony_tests;
+mod browser_issuance_tests;
 #[path = "invitation_backend_tests.rs"]
 mod invitation_backend_tests;
 #[path = "invitation_cutover_tests.rs"]

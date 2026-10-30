@@ -27,7 +27,10 @@ function hasControl(value: string): boolean {
 }
 const utf8 = new TextDecoder('utf-8', { fatal: true });
 /** Reads the native v2 carrier unchanged, with no network or authority inference. */
-function decodeExpiry(token: string, now: number): number {
+function decodeDetails(
+  token: string,
+  now: number,
+): { owner: string; offer: string; expiry: number } {
   valid(token.length > 0 && token.length <= Math.ceil((MAX_BYTES * 4) / 3));
   valid(/^[A-Za-z0-9_-]+$/.test(token));
   const encoded = token.replace(/-/g, '+').replace(/_/g, '/');
@@ -96,12 +99,24 @@ function decodeExpiry(token: string, now: number): number {
   valid(typeof config.apiKey === 'string' && /^[A-Za-z0-9_-]{1,256}$/.test(config.apiKey));
   valid(typeof config.appId === 'string' && /^1:[0-9]{1,32}:web:.+$/.test(config.appId));
   valid(config.authDomain === undefined || config.authDomain === `${project}.firebaseapp.com`);
-  return expiry;
+  return { owner: context.owner, offer: context.offer, expiry };
+}
+
+/** Public carrier facts only; these do not authenticate the inviter or grant access. */
+export function invitationDetails(
+  token: string,
+  now = Date.now(),
+): { owner: string; offer: string; expiry: number } {
+  try {
+    return decodeDetails(token, now);
+  } catch {
+    throw new Error('This invitation cannot be read. Ask its owner for a new code.');
+  }
 }
 
 export function invitationExpiry(token: string, now = Date.now()): number {
   try {
-    return decodeExpiry(token, now);
+    return invitationDetails(token, now).expiry;
   } catch {
     throw new Error('This invitation cannot be read. Ask its owner for a new code.');
   }

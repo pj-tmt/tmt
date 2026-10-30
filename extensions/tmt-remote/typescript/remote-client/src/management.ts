@@ -130,6 +130,8 @@ function device(value: unknown, activity = false): ManagementDevice {
   return row as unknown as ManagementDevice;
 }
 const refusalCodes = new Set<string>([
+  'REMOTE_INVITATION_BUSY',
+  'REMOTE_INVITATION_CAPACITY',
   'REMOTE_INVITATION_UNAVAILABLE',
   'REMOTE_INVITATION_INVALID',
   'REMOTE_INVITATION_STOPPED',

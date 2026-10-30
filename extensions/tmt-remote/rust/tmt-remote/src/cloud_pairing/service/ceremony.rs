@@ -33,7 +33,7 @@ impl Slot {
     }
 }
 
-struct Reservation<'a> {
+pub(super) struct Reservation<'a> {
     service: &'a Service,
     slot: Arc<Slot>,
 }
@@ -62,7 +62,7 @@ impl<'a> Reservation<'a> {
         *handle = Some(slot.clone());
         Ok(Self { service, slot })
     }
-    fn activate(&self, coordinator: Arc<Ceremony>) -> Result<(), RemoteError> {
+    pub(super) fn activate(&self, coordinator: Arc<Ceremony>) -> Result<(), RemoteError> {
         self.slot
             .coordinator
             .set(coordinator)
@@ -148,16 +148,15 @@ impl Service {
         )?;
         Ok((backend, sink, descriptor))
     }
-    pub(super) fn invite_selected(
+    pub(super) fn prepare_invitation(
         &self,
         project: &str,
-        config: Value,
-        mut emit: impl FnMut(Value) -> Result<Option<(bool, bool)>, RemoteError>,
-    ) -> Result<(), RemoteError> {
+        config: &Value,
+    ) -> Result<(Reservation<'_>, Arc<Provider>, Context, Arc<Ceremony>), RemoteError> {
         // The reservation owns preparation without retaining the composition
         // mutex through provider I/O. A failed preparation releases only itself.
         let reservation = Reservation::reserve(self)?;
-        let provider = Arc::new(self.provider(&config, &self.machine, true)?);
+        let provider = Arc::new(self.provider(config, &self.machine, true)?);
         if provider.identity().project != project {
             return Err(wire::invalid());
         }
@@ -165,7 +164,7 @@ impl Service {
         self.keys.maintain(now)?;
         let descriptor = self.keys.advertised(now)?;
         self.register(&provider, descriptor.bytes(), None, &self.io())?;
-        self.store()?.remember_cloud_owner(project, &config)?;
+        self.store()?.remember_cloud_owner(project, config)?;
         let _ = self.cleanup_invites(&provider, now, &self.io());
         let now = crate::pairing::now_ms()?;
         let mut nonce = [0; 16];
@@ -184,8 +183,56 @@ impl Service {
             expires_at_ms: now + crate::pairing::Timing::CONTRACT.lifetime.as_millis() as u64,
         };
         let (backend, sink, _) =
-            self.invitation_backend(provider.clone(), &context, &config, &[], &self.io())?;
+            self.invitation_backend(provider.clone(), &context, config, &[], &self.io())?;
         let coordinator = Arc::new(Coordinator::new(backend, sink));
+        Ok((reservation, provider, context, coordinator))
+    }
+    pub(super) fn invitation_event(
+        &self,
+        coordinator: &Ceremony,
+        actor: &OwnerActor,
+        config: &Value,
+        project: &str,
+    ) -> Result<Value, RemoteError> {
+        let delivery = coordinator.deliver(actor, crate::pairing::now_ms()?)?;
+        let owner_name = std::env::var("USER")
+            .ok()
+            .filter(|name| canonical::device_name(name))
+            .unwrap_or("Owner".into());
+        let invite = v2::Invite::from_delivery(
+            &delivery,
+            config.clone(),
+            owner_name,
+            crate::pairing::now_ms()?,
+        )?;
+        let token = invite.token()?;
+        let mut event = json!({"event":"invite","code":token});
+        let link = crate::deploy_record::read_project(&self.layout, project)
+            .ok()
+            .flatten()
+            .and_then(|record| crate::invite_page::link(&record, config, &token));
+        if let Some(link) = link {
+            event["link"] = json!(link);
+            // The code remains available even at the private control bound.
+            if serde_json::to_vec(&event)
+                .map_err(crate::store::database)?
+                .len()
+                + 1
+                > crate::limits::CLOUD_PAIR_CONTROL_BYTES
+            {
+                event.as_object_mut().expect("invite event").remove("link");
+            }
+        }
+        Ok(event)
+    }
+    pub(super) fn invite_selected(
+        &self,
+        project: &str,
+        config: Value,
+        mut emit: impl FnMut(Value) -> Result<Option<(bool, bool)>, RemoteError>,
+    ) -> Result<(), RemoteError> {
+        let (reservation, provider, context, coordinator) =
+            self.prepare_invitation(project, &config)?;
         let deadline = remaining(&context)?;
         let actor = OwnerActor::local_interactive();
         let io = IoBudget {
@@ -194,45 +241,13 @@ impl Service {
         };
         let mut browser_completed = false;
         let result = (|| {
-            let created = coordinator.create(&actor, context.clone(), now, &io);
+            let created =
+                coordinator.create(&actor, context.clone(), crate::pairing::now_ms()?, &io);
             // Keep the slot reserved until create has established its state.
             // Even a lost publication answer must remain observable afterward.
             reservation.activate(coordinator.clone())?;
             created?;
-            let delivery = coordinator.deliver(&actor, crate::pairing::now_ms()?)?;
-            let owner_name = std::env::var("USER")
-                .ok()
-                .filter(|name| canonical::device_name(name))
-                .unwrap_or("Owner".into());
-            let invite = v2::Invite::from_delivery(
-                &delivery,
-                config.clone(),
-                owner_name,
-                crate::pairing::now_ms()?,
-            )?;
-            let token = invite.token()?;
-            let mut event = json!({"event":"invite","code":token});
-            let link = crate::deploy_record::read_project(&self.layout, project)
-                .ok()
-                .flatten()
-                .and_then(|record| crate::invite_page::link(&record, &config, &token));
-            if let Some(link) = link {
-                event["link"] = json!(link);
-                // The code remains available even at the private control bound.
-                if serde_json::to_vec(&event)
-                    .map_err(crate::store::database)?
-                    .len()
-                    + 1
-                    > crate::limits::CLOUD_PAIR_CONTROL_BYTES
-                {
-                    event.as_object_mut().expect("invite event").remove("link");
-                }
-            }
-            emit(event)?;
-            // The presenter has its own clearing owner; the coordinator remains
-            // the sole memory owner of the live offer and its code.
-            drop(invite);
-            drop(delivery);
+            emit(self.invitation_event(&coordinator, &actor, &config, project)?)?;
             let mut selected = None;
             let mut terminal_decided = false;
             loop {

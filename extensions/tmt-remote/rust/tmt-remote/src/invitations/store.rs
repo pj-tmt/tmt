@@ -255,6 +255,21 @@ impl StoreConfirmation {
         if let Some(operation) = browser_operation {
             crate::management::invitation_outcomes::settle(tx, operation, &committed, &persisted)?;
         }
+        // Persist the authority observation with the member/receipt, not after
+        // provider publication. Restart must not label a committed member offer interrupted.
+        super::history::record(
+            tx,
+            &snapshot.context,
+            &super::service::Status {
+                offer: Some(snapshot.context.offer.clone()),
+                expires_at_ms: Some(snapshot.context.expires_at_ms),
+                state: super::service::State::ProviderOutcomeUnconfirmed,
+                local_confirmation_known: true,
+                cleanup: super::service::ProviderCleanup::NotRequested,
+            },
+            now,
+            false,
+        )?;
         // An expired/cancelled writer rolls back member, grant and both receipts alike.
         input.io.check().map_err(|_| invalid())?;
         if pairing::now_ms()? >= snapshot.context.expires_at_ms {
@@ -302,6 +317,50 @@ impl StoreConfirmation {
 }
 
 impl ConfirmationSink for StoreConfirmation {
+    fn begin_status(
+        &self,
+        context: &Context,
+        status: &super::service::Status,
+        actor: &OwnerActor,
+        now: u64,
+    ) -> Result<()> {
+        let persist = |store: &mut Store| -> Result<()> {
+            let tx = store
+                .connection
+                .transaction_with_behavior(TransactionBehavior::Immediate)
+                .map_err(database)?;
+            self.owner(&tx, context, actor, pairing::now_ms()?)?;
+            super::history::record(&tx, context, status, now, true)?;
+            if let Some(issuance) = &actor.issuance {
+                let Actor::OwnerBrowser { client, .. } = &actor.authority else {
+                    return Err(invalid());
+                };
+                crate::management::invitation_outcomes::issued(
+                    &tx,
+                    client,
+                    context,
+                    &issuance.id,
+                    &issuance.intent,
+                    now,
+                )?;
+            }
+            tx.commit().map_err(database)
+        };
+        if let Some(admission) = &actor.admission {
+            admission.with_store(persist)
+        } else {
+            let mut store = self.lock()?;
+            persist(&mut store)
+        }
+    }
+    fn record_status(
+        &self,
+        context: &Context,
+        status: &super::service::Status,
+        now: u64,
+    ) -> Result<()> {
+        self.lock()?.record_invitation(context, status, now, false)
+    }
     fn authorize(&self, context: &Context, actor: &OwnerActor) -> Result<()> {
         if let Some(admission) = &actor.admission {
             admission.with_store(|store| {

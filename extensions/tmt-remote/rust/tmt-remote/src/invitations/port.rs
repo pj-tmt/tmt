@@ -109,6 +109,7 @@ pub trait Backend: Send + Sync {
 pub struct OwnerActor {
     pub(super) authority: Actor,
     pub(super) operation: Option<OwnerOperation>,
+    pub(super) issuance: Option<OwnerIssuance>,
     pub(super) admission: Option<crate::admission::BrowserMessageFence>,
 }
 
@@ -123,6 +124,10 @@ pub(crate) struct OwnerOperation {
     pub(crate) sending: bool,
 }
 
+pub(super) struct OwnerIssuance {
+    pub(super) id: String,
+    pub(super) intent: [u8; 32],
+}
 pub(super) enum Actor {
     LocalInteractive,
     OwnerBrowser {
@@ -139,6 +144,7 @@ impl OwnerActor {
         Self {
             authority: Actor::LocalInteractive,
             operation: None,
+            issuance: None,
             admission: None,
         }
     }
@@ -150,8 +156,20 @@ impl OwnerActor {
                 revision,
             },
             operation: None,
+            issuance: None,
             admission: None,
         }
+    }
+    pub(crate) fn owner_browser_issuance(
+        grant: &Grant,
+        id: String,
+        intent: [u8; 32],
+    ) -> Result<Self, RemoteError> {
+        crate::canonical::uuid(&id).map_err(|_| super::invalid())?;
+        let mut actor =
+            Self::owner_browser(grant.client_id.clone(), grant.public_key, grant.revision);
+        actor.issuance = Some(OwnerIssuance { id, intent });
+        Ok(actor)
     }
     /// The signed management adapter must adopt this exact intent first. The
     /// writer independently verifies the adopted row and its member ownership.
@@ -198,16 +216,22 @@ impl OwnerActor {
             _ => false,
         };
         let envelope = permit.message.envelope();
-        let bound = match &self.operation {
-            Some(op) => {
-                envelope.operation == "remote.invites.confirm"
-                    && envelope.id == op.id
-                    && crate::journal::intent(&permit.message)? == op.intent
+        let bound = if let Some(issue) = &self.issuance {
+            envelope.operation == "remote.invites.create"
+                && envelope.id == issue.id
+                && crate::journal::intent(&permit.message)? == issue.intent
+        } else {
+            match &self.operation {
+                Some(op) => {
+                    envelope.operation == "remote.invites.confirm"
+                        && envelope.id == op.id
+                        && crate::journal::intent(&permit.message)? == op.intent
+                }
+                None => matches!(
+                    envelope.operation,
+                    "remote.invites.pending" | "remote.invites.confirm" | "remote.invites.cancel"
+                ),
             }
-            None => matches!(
-                envelope.operation,
-                "remote.invites.pending" | "remote.invites.confirm"
-            ),
         };
         if !matches || !bound {
             return Err(super::invalid());
@@ -219,6 +243,7 @@ impl OwnerActor {
         Self {
             authority: Actor::Automated,
             operation: None,
+            issuance: None,
             admission: None,
         }
     }
@@ -334,6 +359,27 @@ impl From<OwnerDecisionFailure> for RemoteError {
 /// and policy in ONE IMMEDIATE transaction. Publication claims also persist
 /// before I/O; an ambiguous attempt can only be observed, never repeated.
 pub trait ConfirmationSink: Send + Sync {
+    /// Reserve the metadata row once before any publication. Updates cannot
+    /// recreate a row that retention has already removed.
+    fn begin_status(
+        &self,
+        context: &Context,
+        status: &super::service::Status,
+        _actor: &OwnerActor,
+        now: u64,
+    ) -> Result<(), RemoteError> {
+        self.record_status(context, status, now)
+    }
+    /// Metadata-only observation; production sinks use the serving Store. No secret,
+    /// candidate words, principal, key or provider locator crosses this boundary.
+    fn record_status(
+        &self,
+        _context: &Context,
+        _status: &super::service::Status,
+        _now: u64,
+    ) -> Result<(), RemoteError> {
+        Ok(())
+    }
     fn authorize(&self, context: &Context, actor: &OwnerActor) -> Result<(), RemoteError>;
     fn confirm(&self, input: Confirmation<'_>) -> Result<Committed, ConfirmationFailure>;
     fn decline(

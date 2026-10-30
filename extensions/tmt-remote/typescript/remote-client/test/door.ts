@@ -302,6 +302,9 @@ export class Door {
         case 'remote.devices.remove-others.preview':
         case 'remote.devices.remove-others':
         case 'remote.devices.talk':
+        case 'remote.invites.create':
+        case 'remote.invites.list':
+        case 'remote.invites.cancel':
         case 'remote.invites.pending':
         case 'remote.invites.confirm':
         case 'remote.members.summary':

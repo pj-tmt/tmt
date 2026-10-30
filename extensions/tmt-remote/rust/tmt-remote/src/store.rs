@@ -97,6 +97,8 @@ impl Store {
         let layout = serving.layout();
         let mut connection = open_connection(serving, "remote.db")?;
         migrate(&mut connection)?;
+        // The held serving lease proves there is no surviving memory ceremony.
+        crate::invitations::history::interrupt(&connection, crate::pairing::now_ms()?)?;
         Ok(Self {
             connection,
             data_root: layout
@@ -188,7 +190,7 @@ pub(crate) fn machine_in(connection: &Connection) -> Result<Machine, RemoteError
 }
 /// Ordered schema history in the core `_migrations` shape. Append only; a
 /// recorded name must match, and a newer database than this build refuses.
-const MIGRATIONS: [(&str, &str); 16] = [
+const MIGRATIONS: [(&str, &str); 17] = [
     (
         "machine",
         "CREATE TABLE machine(
@@ -339,6 +341,15 @@ const MIGRATIONS: [(&str, &str); 16] = [
         desired BLOB, fingerprint BLOB, changed_ms INTEGER,
         sent_hash BLOB, sent_ms INTEGER, sent_summary BLOB, sequence INTEGER NOT NULL DEFAULT 0,
         active_id TEXT, active_payload BLOB, active_revision INTEGER, retry_ms INTEGER NOT NULL DEFAULT 0);"),
+    ("issued_invitations", "CREATE TABLE issued_invitations(
+        remote_id TEXT NOT NULL, offer_id TEXT NOT NULL,
+        issued_ms INTEGER NOT NULL CHECK(issued_ms BETWEEN 0 AND 9007199254740991), expires_ms INTEGER NOT NULL CHECK(expires_ms BETWEEN 1 AND 9007199254740991 AND expires_ms>issued_ms),
+        state TEXT NOT NULL CHECK(state IN ('open','awaiting-owner','confirmed','refused','cancelled','expired','unconfirmed','interrupted')),
+        confirmation_known INTEGER NOT NULL CHECK(confirmation_known IN (0,1)),
+        cleanup TEXT NOT NULL CHECK(cleanup IN ('not-requested','acknowledged','unconfirmed')),
+        terminal INTEGER NOT NULL CHECK(terminal IN (0,1)), updated_ms INTEGER NOT NULL,
+        PRIMARY KEY(remote_id,offer_id));
+     CREATE INDEX issued_invitations_page ON issued_invitations(remote_id,issued_ms DESC,offer_id DESC);"),
 ];
 fn read_port(connection: &Connection) -> Result<Option<u16>, RemoteError> {
     let port: Option<i64> = connection

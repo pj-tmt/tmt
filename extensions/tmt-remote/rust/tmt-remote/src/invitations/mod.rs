@@ -2,6 +2,7 @@
 //! owner consent: a verified candidate still requires an admitted confirmation.
 use crate::{canonical, crypto, error::RemoteError, limits};
 
+pub(crate) mod history;
 pub mod port;
 mod proof;
 pub mod service;

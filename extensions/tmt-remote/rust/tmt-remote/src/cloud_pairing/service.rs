@@ -668,6 +668,15 @@ impl Service {
         Ok(())
     }
     pub fn reconcile(&self) -> Result<(), RemoteError> {
+        let current = self
+            .invitation
+            .lock()
+            .map_err(crate::store::database)?
+            .as_ref()
+            .and_then(|slot| slot.current());
+        if let Some(current) = current {
+            current.observe(crate::pairing::now_ms()?, &self.io())?;
+        }
         let mut final_refusal = None;
         let configs = self.store()?.cloud_owner_configs()?;
         for config in configs {
