@@ -454,8 +454,8 @@ test('sidebar shortcuts reorder and delete survive a real served-page reload', a
     await expect(labels).toHaveText(['Second shortcut', 'First shortcut']);
     const row = rail
       .locator('li[data-menu-item^="shortcut:"]')
-      .filter({ has: rail.getByRole('link', { name: 'First shortcut', exact: true }) });
-    await row.hover();
+      .filter({ has: page.getByRole('link', { name: 'First shortcut', exact: true }) });
+    await row.hover({ timeout: 5000 });
     await row.getByRole('button', { name: 'Delete First shortcut' }).click();
     await expect(labels).toHaveText(['Second shortcut']);
     await page.reload();

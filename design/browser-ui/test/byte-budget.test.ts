@@ -2,11 +2,11 @@ import { expect, it } from 'vite-plus/test';
 import { readFileSync } from 'node:fs';
 import { gzipSync } from 'node:zlib';
 
-/** Shipped CSS, gzip level 9. GUI approved 21,727 B for the shared row controls and drop
- * indicator (+80 B over the 21,647 B v2 cap); no headroom or UI foundation budget change.
+/** Shipped CSS, gzip level 9. GUI approved 21,756 B for the 16px rail action icons and 14px add-row plus
+ * (+29 B over the 21,727 B cap); no headroom or UI foundation budget change.
  * Further increases require a lead decision. Raw sizes belong in the PR evidence.
  */
-const approvedGzipBytes = 21_727;
+const approvedGzipBytes = 21_756;
 
 it('keeps the shipped stylesheets within the approved gzip cap', () => {
   const size = ['static', 'ui']

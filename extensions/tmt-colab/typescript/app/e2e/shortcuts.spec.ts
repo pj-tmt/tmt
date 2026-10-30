@@ -380,7 +380,7 @@ test('the side menu lists the shortcuts, selects exactly one row and opens the l
   await expect(railShortcuts(page)).toHaveCount(0);
   await expect(selected(page)).toHaveAttribute('data-id', 'all');
   // + New shortcut opens the list's Save dialog.
-  await rail(page).getByRole('button', { name: '+ New shortcut', exact: true }).click();
+  await rail(page).getByRole('button', { name: 'New shortcut', exact: true }).click();
   const save = page.getByRole('dialog', { name: 'Save as shortcut', exact: true });
   await save.getByRole('textbox', { name: 'Name', exact: true }).fill('Mine');
   await save.getByRole('button', { name: 'Save', exact: true }).click();
@@ -493,7 +493,7 @@ test('sidebar edit, delete and keyboard reorder keep shortcut identity and focus
   await expect(row('Third').getByRole('link', { name: 'Third' })).toBeFocused();
   await row('Third').hover();
   await row('Third').getByRole('button', { name: 'Delete Third' }).click();
-  await expect(rail(page).getByRole('button', { name: '+ New shortcut' })).toBeFocused();
+  await expect(rail(page).getByRole('button', { name: 'New shortcut' })).toBeFocused();
 });
 
 test('a failed sidebar delete keeps the shortcut and reports the failure', async ({ page }) => {
@@ -594,6 +594,9 @@ for (const width of [390, 1440])
         .filter({ has: page.getByRole('link', { name: 'All work', exact: true }) });
       await expect(row).toBeVisible();
       await page.screenshot({ path: info.outputPath('idle.png') });
+      await row.hover();
+      await page.screenshot({ path: info.outputPath('hover.png') });
+      await page.mouse.move(width - 1, 899);
       await row.getByRole('link', { name: 'All work', exact: true }).focus();
       await expect(row.getByRole('button', { name: 'Edit All work' })).toBeVisible();
       await page.screenshot({ path: info.outputPath('focus.png') });

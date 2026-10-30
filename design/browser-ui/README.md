@@ -47,7 +47,7 @@ its original declarations and spelling. Only that generated distribution
 is excluded from formatting; authored CSS remains formatted. Source-level policy tests inspect
 the assembled source, byte checks inspect the distribution, and browser comparisons verify
 that compilation preserves computed paint and layout. The check compares expected bytes without writing. `test/byte-budget.test.ts` holds the gzip
-size (level 9) of `generated/static.css` plus `generated/ui.css` to 21,727 bytes. The GUI
+size (level 9) of `generated/static.css` plus `generated/ui.css` to 21,756 bytes. The GUI
 lead approved an exact 80-byte increase over the v2 cap of 21,647 bytes for the shared row
 controls and drop indicator, with no headroom or change to the UI foundation budget.
 Class encapsulation is retained, and further increases return to the lead. Each pull request
@@ -135,16 +135,16 @@ never changes the pill colours. Module rows show only nonzero attention counts.
 
 Each `ShellMenuGroup` has `items` and optional `label`, `action` and `add`. `action` is
 one icon button with `icon`, accessible `label` and host-owned `onActivate`. `add` is a
-trailing muted button with the full visible label (for example `+ New project`) and
-`onActivate`; it never navigates or becomes selected. Optional `ShellMenu.settings` is a
+trailing muted button with a decorative 14px plus and the visible, accessible label (for
+example `New project`) and `onActivate`; it never navigates or becomes selected. Optional `ShellMenu.settings` is a
 navigation row rendered last after a hairline starting at the same 36px child indent. Hosts own commands, navigation, current
 state and data; these presentation additions do not change the composed-shell wire format.
 Callbacks update without rebuilding an otherwise unchanged view or losing keyboard focus.
 
 A `ShellMenuItem.actions` list provides up to two labelled icon commands. They are siblings
 of the navigation link and never activate it. On hover or focus within the row, commands
-replace the visible pills in their reserved trailing area; labels and row geometry do not
-shift. The left reorder handle follows the same hover/focus rule.
+replace the visible pills in their reserved trailing area; their icons are 16px with 1.75
+stroke and the button targets are at least 28px. Labels and row geometry do not shift. The left reorder handle follows the same hover/focus rule.
 
 Optional `ShellMenuGroup.reorder(fromId, toId)` requests moving `fromId` to the position
 currently occupied by `toId` in that same group. Dragging the handle or pressing

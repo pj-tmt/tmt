@@ -879,7 +879,7 @@ export const text = {
     manage: 'Manage shortcuts',
     /** The side menu's group and its trailing add row. */
     group: 'Shortcuts',
-    addRow: '+ New shortcut',
+    addRow: 'New shortcut',
     edit: 'Edit shortcut',
     editRow: (name: string) => `Edit ${name}`,
     deleteRow: (name: string) => `Delete ${name}`,

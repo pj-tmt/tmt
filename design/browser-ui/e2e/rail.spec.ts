@@ -126,8 +126,12 @@ for (const renderer of ['native', 'react'])
         await page.keyboard.press('Enter');
         await expect(page.getByRole('status')).toHaveText('Manage 1');
         if (width === 390) await open.click();
-        const add = rail.getByRole('button', { name: '+ New project', exact: true });
+        const add = rail.getByRole('button', { name: 'New project', exact: true });
         await expect(add).not.toHaveAttribute('aria-current');
+        const plus = add.locator('svg');
+        await expect(plus).toHaveAttribute('aria-hidden', 'true');
+        await expect(plus).toHaveCSS('width', '14px');
+        await expect(plus).toHaveCSS('height', '14px');
         await add.focus();
         await page.keyboard.press('Enter');
         await expect(page.getByRole('status')).toHaveText('New 1');

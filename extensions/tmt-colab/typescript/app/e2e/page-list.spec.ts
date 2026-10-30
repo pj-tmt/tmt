@@ -901,7 +901,7 @@ test('the module menu is the fixed list: All pages, Shortcuts with its commands,
   await expect(menu.locator('a[data-id="all"]')).toHaveText(/All pages\s*4\s*1/);
   await expect(menu.locator('.tmt-ui-rail-sub-group')).toHaveText(['Shortcuts']);
   await expect(menu.getByRole('button', { name: 'Manage shortcuts' })).toBeVisible();
-  await expect(menu.getByRole('button', { name: '+ New shortcut' })).toBeVisible();
+  await expect(menu.getByRole('button', { name: 'New shortcut' })).toBeVisible();
   expect(
     await menu
       .locator('a[data-id]')
