@@ -354,13 +354,14 @@ and never starts a foreground handoff for this observation. Session shows
 full host coordinates, remembered driver/session and last activity when observed.
 “Session remembered · checked on launch” is not a resumability promise; stale,
 basic-driver or missing evidence stays unavailable, including scanned members whose
-sessions Core has not remembered. For other session observations, Resume here and Move here require a separate
+sessions Core has not remembered. Close leads the rows. For other session observations, Resume here and Move here require a separate
 confirmation naming the UUID, exact command and this board pane; the board closes
 before running Core in the foreground. Move may stop the verified old agent (one
 TERM, up to three seconds, no force). Core revalidates and may refuse; nothing is
 retried or freshly launched automatically. Drafts and pending actions block handoff
 with an explanation. In confirmation, `c copy command` copies one shell-quoted
-command line and keeps the board open; Esc cancels without starting anything. Authored sort changes the current
+command line and keeps the board open; the confirmation starts on Cancel, and Esc or Cancel
+closes just it without starting anything, back on Resume here or Move here. Authored sort changes the current
 layer within unread/waiting/other groups. Unreported data stays unknown.
 Usage sits above the body panes and shows
 the selected window and total. Independent Range and Time per bar dropdowns use Enter to
@@ -394,9 +395,9 @@ hidden or missing selected scopes still refuse to widen.
 
 Workspace settings → Panels previews each dashboard's visibility and its separate
 Conversation/Details switch. Agents sections have fixed positions; its picker
-exposes Usage, quota inside Usage, the list, and the side column (Talk / Measure). Digest uses fixed sections and keeps chart/list/details visibility. Save, Cancel
-or Reset through the same picker. Keep an interactive surface visible. Cancel
-discards preview; stale Save retains it with an error. Closing a pending save
+exposes Usage, quota inside Usage, the list, and the side column (Talk / Measure). Digest uses fixed sections and keeps chart/list/details visibility. Cancel (first),
+Reset or Save through the same picker. Keep an interactive surface visible. Cancel
+or Esc discards the preview and restores the saved panels; nothing is kept for a reopen; stale Save retains it with an error. Closing a pending save
 does not cancel the admitted write. A configured-off Agents side column opens
 on explicit message focus; Escape returns to rows and retains the draft.
 Retired Digest status/usage/report switches and ordering are reported without
@@ -881,7 +882,8 @@ tmt ops sq theme rm --squad product            # remove only its base override
 Set and remove keep token overrides and the rest of the user's TOML. They
 refuse if the file changed since it was read. On the board, the `,` settings menu's
 Theme row opens the theme picker (`theme` is also a bindable action, with no default key). Arrow keys or j/k preview in
-memory; Tab switches all-boards/this-squad scope, Enter saves, and Esc cancels.
+memory; ←→ switch all-boards/this-squad scope, Enter saves, and Esc cancels and restores the
+saved look (nothing is kept for a reopen; Tab does nothing).
 Common pool offers all-boards scope only. A squad's own base still wins
 over an all-boards preview; the picker names that masking setting. A failed
 save stays open with a notice; cancel and reopen to read a changed file.
@@ -1097,7 +1099,9 @@ retain prior jobs and their reason. `no clock` means due slots are not sent;
 `session:window` when available, otherwise its pane ID.
 
 The focused list owns Enter (open the job's squad), `n` new, `e` expand/collapse, `E` edit, `p`
-pause/resume, `x` send now, `o` reassign and `d` delete after confirmation. The
+pause/resume, `x` send now, `o` reassign and `d` delete after confirmation. The delete
+confirmation opens over the list on Cancel; Esc or Cancel returns to the same row, and `y`
+deletes only through the painted Delete. The
 workspace entry follows explicit bindings; the modal owns its scoped keys.
 Forms retain exact owner/message/schedule; Esc cancels. Before create, changed
 schedule or reassignment applies, Review shows the frozen operation, up to three
