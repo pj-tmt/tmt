@@ -307,9 +307,9 @@ impl App {
             if let Some(message) = attach {
                 self.new_member = None;
                 self.right_tab = super::shell::RightTab::Talk;
-                match typing_into {
-                    Some(identity) => self.terminal.show_typing(&identity),
-                    None => self.terminal.show(),
+                // Only a member has a terminal to show; any other target opens on its chat.
+                if let Some(identity) = typing_into {
+                    self.terminal.show_typing(&identity);
                 }
                 self.say(message);
             }

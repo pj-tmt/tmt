@@ -667,7 +667,11 @@ separate review. Display and Copy use `tmt` when PATH resolves to the board's Co
 otherwise its full path; execution keeps the exact executable. Temporary locks Squad to Common pool; returning to Saved restores the prior
 squad. No existing identity is reused deliberately, and Core rechecks every launch.
 A clean start on the built-in host closes the form, selects the member and shows
-its Terminal view. A failed or uncertain launch keeps the draft; never retry before checking public
+its Terminal view, typing into it. The Terminal view is chosen per member (`t` or the
+Terminal chip); every other member opens on its chat, where Enter composes as for a tmux
+member. A left drag over the screen selects its text and copies it with the chat's Copy;
+while typing into a program that asked for the mouse, the drag is the program's and
+Shift-drag (your terminal's bypass modifier) selects instead. A failed or uncertain launch keeps the draft; never retry before checking public
 state. A created member whose squad add fails remains visible in Common pool with
 its repair command.
 

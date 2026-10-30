@@ -14,7 +14,7 @@ use std::{
     time::Duration,
 };
 use tmt_pty_protocol::{Eviction, Exit, Refusal, Size};
-use tmt_tui::components::terminal::{Frame as Screenful, Modes};
+use tmt_tui::components::terminal::{Frame as Screenful, Modes, Occupant};
 
 /// How long a member with no stream is believed before core is asked again.
 const NO_STREAM_FOR_MS: u64 = 60_000;
@@ -74,7 +74,8 @@ struct Open {
 #[derive(Default)]
 pub(in crate::board) struct Tab {
     seen: HashMap<String, Seen>,
-    shown: bool,
+    /// The member whose terminal, not chat, was asked for. Every other member shows chat.
+    shown_for: Option<String>,
     connect: Option<Connect>,
     open: Option<Open>,
     epoch: u64,
@@ -92,6 +93,8 @@ pub(in crate::board) struct Tab {
     area: Cell<Option<Rect>>,
     /// Where the last frame put the real cursor for the program while typing.
     caret: Cell<Option<Caret>>,
+    /// A drag over the screen, anchor then head, in screen cells. It belongs to the open stream.
+    selection: Option<((u16, u16), (u16, u16))>,
 }
 
 /// The real cursor while typing: on the program's cursor cell, so an input method draws
@@ -155,19 +158,20 @@ impl Tab {
         );
     }
 
-    pub(in crate::board) fn shown(&self) -> bool {
-        self.shown
+    /// The terminal of `identity`, not its chat, was asked for.
+    pub(in crate::board) fn shown_for(&self, identity: &str) -> bool {
+        self.shown_for.as_deref() == Some(identity)
     }
 
-    /// Asks for the terminal rather than the chat; it shows once its member has a stream.
-    pub(in crate::board) fn show(&mut self) {
-        self.shown = true;
+    #[cfg(test)]
+    pub(in crate::board) fn shown(&self) -> bool {
+        self.shown_for.is_some()
     }
 
     /// Shows the terminal of `identity` and types into it once its stream opens, as a click
     /// would. Any other stream opening, a toggle, a reattach or core finding no stream drops it.
     pub(in crate::board) fn show_typing(&mut self, identity: &str) {
-        self.shown = true;
+        self.shown_for = Some(identity.to_owned());
         self.type_on_open = Some(identity.to_owned());
     }
 
@@ -185,15 +189,16 @@ impl Tab {
 
     /// The tab is on for `identity`: asked for, and a stream exists to show.
     pub(in crate::board) fn showing(&self, identity: &str) -> bool {
-        self.shown && self.address(identity).is_some()
+        self.shown_for(identity) && self.address(identity).is_some()
     }
 
-    /// Switches between the chat and the terminal. Coming back to a terminal whose stream ended
-    /// asks core again, since the program may have been started anew.
+    /// Switches `identity` between its chat and its terminal. Coming back to a terminal whose
+    /// stream ended asks core again, since the program may have been started anew.
     pub(in crate::board) fn toggle(&mut self, identity: &str) {
-        self.shown = !self.shown;
+        let show = !self.shown_for(identity);
+        self.shown_for = show.then(|| identity.to_owned());
         self.type_on_open = None;
-        if self.shown
+        if show
             && self.ended.remove(identity)
             && let Some(seen) = self.seen.get_mut(identity)
         {
@@ -232,7 +237,69 @@ impl Tab {
         });
         self.zoomed &= self.open.is_some();
         self.refit = false;
+        self.selection = None;
         true
+    }
+
+    /// A press on the screen at `at` starts a new selection there.
+    pub(in crate::board) fn select_from(&mut self, at: (u16, u16)) {
+        self.selection = Some((at, at));
+    }
+
+    /// A drag moves the selection's head to `at`.
+    pub(in crate::board) fn select_to(&mut self, at: (u16, u16)) {
+        if let Some((anchor, _)) = self.selection {
+            self.selection = Some((anchor, at));
+        }
+    }
+
+    /// The selection in reading order, first cell then last, both included; none for a press
+    /// that did not move.
+    fn selected_range(&self) -> Option<((u16, u16), (u16, u16))> {
+        let (anchor, head) = self.selection?;
+        if anchor == head {
+            return None;
+        }
+        let key = |(column, row): (u16, u16)| (row, column);
+        Some(if key(anchor) <= key(head) {
+            (anchor, head)
+        } else {
+            (head, anchor)
+        })
+    }
+
+    /// Whether the screen cell `(column, row)` is selected.
+    pub(in crate::board) fn cell_selected(&self, column: u16, row: u16) -> bool {
+        self.selected_range().is_some_and(|((c0, r0), (c1, r1))| {
+            (r0, c0) <= (row, column) && (row, column) <= (r1, c1)
+        })
+    }
+
+    /// The selected text of the last screen, rows joined by newlines and trailing blanks cut.
+    pub(in crate::board) fn selected_text(&self) -> Option<String> {
+        let ((c0, r0), (c1, r1)) = self.selected_range()?;
+        let screen = self.open.as_ref()?.view.screen.as_ref()?;
+        let mut rows = Vec::new();
+        for row in r0..=r1.min(screen.rows.saturating_sub(1)) {
+            let first = if row == r0 { c0 } else { 0 };
+            let last = if row == r1 {
+                c1
+            } else {
+                screen.cols.saturating_sub(1)
+            };
+            let mut text = String::new();
+            for column in first..=last.min(screen.cols.saturating_sub(1)) {
+                match screen.cell(column, row) {
+                    Some(cell) if cell.occupant == Occupant::Continuation => {}
+                    Some(cell) if cell.text.is_empty() => text.push(' '),
+                    Some(cell) => text.push_str(&cell.text),
+                    None => break,
+                }
+            }
+            rows.push(text.trim_end().to_owned());
+        }
+        let text = rows.join("\n");
+        (!text.trim().is_empty()).then_some(text)
     }
 
     /// Drops the open stream so the next [`Tab::sync`] opens a fresh one: `⏎` after the stream

@@ -187,6 +187,7 @@ pub(in crate::board) fn render(
         Some(screen) => {
             let live = view.condition == Condition::Live;
             cells(buffer, screen_area, screen, !live, look);
+            selection(buffer, screen_area, screen, app);
             let caret = (live && typing)
                 .then(|| caret(screen_area, screen))
                 .flatten();
@@ -210,6 +211,7 @@ pub(in crate::board) fn render(
             &view.condition,
             view.screen.is_some(),
             typing,
+            app.terminal.modes().mouse != tmt_tui::components::terminal::MouseMode::Off,
             app.terminal_zoomed(),
             name,
         );
@@ -236,8 +238,24 @@ fn say(buffer: &mut Buffer, area: Rect, text: &str, look: Look) {
 }
 
 /// The line under the screen.
-fn note(condition: &Condition, screen: bool, typing: bool, zoomed: bool, name: &str) -> String {
+/// `mouse`: the program being typed into asked for the mouse, so a drag is its own.
+fn note(
+    condition: &Condition,
+    screen: bool,
+    typing: bool,
+    mouse: bool,
+    zoomed: bool,
+    name: &str,
+) -> String {
     match condition {
+        Condition::Live if typing && mouse && zoomed => {
+            format!(" Typing into {name}'s terminal · Shift-drag selects · Ctrl-\\ back")
+        }
+        Condition::Live if typing && mouse => {
+            format!(
+                " Typing into {name}'s terminal · Shift-drag selects · Ctrl-\\ back to the list"
+            )
+        }
         Condition::Live if typing && zoomed => {
             format!(" Typing into {name}'s terminal · Ctrl-\\ back")
         }
@@ -247,7 +265,9 @@ fn note(condition: &Condition, screen: bool, typing: bool, zoomed: bool, name: &
         Condition::Live if zoomed => {
             format!(" Live view of {name}'s terminal · ⏎ type into it · Esc back")
         }
-        Condition::Live => format!(" Live view of {name}'s terminal · ⏎ type into it"),
+        Condition::Live => {
+            format!(" Live view of {name}'s terminal · ⏎ type into it")
+        }
         Condition::Connecting { attempt } if *attempt > 1 || screen => {
             format!(" Reconnecting to {name}'s terminal… (try {attempt})")
         }
@@ -275,6 +295,19 @@ fn note(condition: &Condition, screen: bool, typing: bool, zoomed: bool, name: &
         ),
         Condition::Lost(reason) => {
             format!(" The terminal could not be reached: {reason}. ⏎ tries again.")
+        }
+    }
+}
+
+/// A drag's selection shows as reversed cells, like the terminal's own selection.
+fn selection(buffer: &mut Buffer, area: Rect, screen: &Screenful, app: &App) {
+    for row in 0..screen.rows.min(area.height) {
+        for column in 0..screen.cols.min(area.width) {
+            if app.terminal.cell_selected(column, row) {
+                buffer[(area.x + column, area.y + row)]
+                    .modifier
+                    .toggle(Modifier::REVERSED);
+            }
         }
     }
 }
