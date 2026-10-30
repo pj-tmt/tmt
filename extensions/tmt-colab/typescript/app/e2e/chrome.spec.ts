@@ -404,7 +404,7 @@ for (const width of [1440, 390, 320])
   for (const theme of ['light', 'dark'] as const)
     test(`page header names the connection, shows no access words, and keeps its one fitting action: ${width}px ${theme}`, async ({
       page,
-    }) => {
+    }, info) => {
       await page.setViewportSize({ width, height: 800 });
       await page.emulateMedia({ colorScheme: theme });
       await page.addInitScript((value) => {
@@ -450,7 +450,7 @@ for (const width of [1440, 390, 320])
         await expect(button).toHaveClass(/tmt-ui-icon-action-control/);
       }
       expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(width);
-      await page.screenshot({ path: `/tmp/2314-${width}-${theme}-header.png` });
+      await page.screenshot({ path: info.outputPath(`2314-${width}-${theme}-header.png`) });
       const more = actions.getByRole('button', { name: 'More', exact: true });
       await more.click();
       const menu = actions.getByRole('menu');
@@ -467,8 +467,8 @@ for (const width of [1440, 390, 320])
       // A floating layer carries the one overlay shadow.
       await expect(surface).toHaveCSS('box-shadow', /60px/);
       await expect(surface).toHaveCSS('border-width', '1px');
-      await expect(surface).toHaveCSS('border-radius', tokens.browser.metric.radius);
-      await page.screenshot({ path: `/tmp/2314-${width}-${theme}-header-menu.png` });
+      await expect(surface).toHaveCSS('border-radius', tokens.browser.metric['radius-l']);
+      await page.screenshot({ path: info.outputPath(`2314-${width}-${theme}-header-menu.png`) });
       await page.keyboard.press('Escape');
       await expect(menu).toHaveCount(0);
       await expect(more).toBeFocused();
