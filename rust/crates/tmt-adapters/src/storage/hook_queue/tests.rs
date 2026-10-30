@@ -637,6 +637,10 @@ fn retired_identity_and_missing_batch_leave_durable_failure_receipts() {
         )
         .unwrap();
     assert_eq!(outcome, "missing_batch");
+    assert!(
+        w.visible_failures().is_empty(),
+        "a missing recorded batch never becomes unbatched"
+    );
     let mut retired = World::new();
     let event = retired.event("retired", false);
     retired
@@ -2191,16 +2195,9 @@ fn unpublished_failure_never_moves_to_a_newer_batch_or_another_binding_identity(
 }
 
 #[test]
-fn unpublished_diagnostics_require_text_a_recorded_batch_and_a_remaining_budget() {
-    for case in ["usage_only", "interrupted", "provisional", "expired"] {
+fn unpublished_diagnostics_require_text_and_a_remaining_budget() {
+    for case in ["usage_only", "interrupted", "expired"] {
         let mut w = World::new();
-        if case == "provisional" {
-            w.storage
-                .connection()
-                .unwrap()
-                .execute("DELETE FROM capture_batches", [])
-                .unwrap();
-        }
         let event = w.event("not a diagnostic authority by itself", false);
         let event = if case == "usage_only" {
             event.usage_only()
@@ -2319,4 +2316,356 @@ fn a_failed_flusher_start_keeps_the_accepted_event_and_bounded_startup_diagnosti
     );
     assert!(queue.next().unwrap().is_none());
     assert!(w.visible_failures().is_empty());
+}
+
+#[test]
+fn unbatched_refused_ends_have_standalone_failures_on_queued_and_direct_paths() {
+    for queued in [false, true] {
+        for refused in [CaptureResult::NoAdmittedStart, CaptureResult::NotApplicable] {
+            let mut w = World::new();
+            w.storage
+                .connection()
+                .unwrap()
+                .execute("DELETE FROM capture_batches", [])
+                .unwrap();
+            w.refuse_end(refused);
+            let event = w.event("unbatched verified final", false);
+            assert_eq!(event.admission(), refused);
+            assert!(serde_json::to_value(&event).unwrap()["capture"]["batch"].is_null());
+            let before = BindingRows(w.storage.connection().unwrap())
+                .session_preferences(&w.agent)
+                .unwrap();
+            for _ in 0..2 {
+                let outcome = if queued {
+                    w.storage.ingest_hook_capture(&event).unwrap()
+                } else {
+                    CaptureResult::from(w.direct_end(&event, "unbatched verified final"))
+                };
+                assert_eq!(outcome, refused);
+            }
+            let failures = w.visible_failures();
+            assert_eq!(
+                failures.len(),
+                1,
+                "a verified unbatched refusal must be visible exactly once"
+            );
+            assert!(failures[0].get("inputBatchId").is_none());
+            assert!(failures[0].get("requestId").is_none());
+            assert_eq!(failures[0]["failure"]["code"], "worker_error");
+            assert_eq!(w.final_count(), 0);
+            let db = w.storage.connection().unwrap();
+            assert_eq!(current(db, &w.agent).unwrap(), None);
+            assert_eq!(
+                db.query_row("SELECT COUNT(*) FROM capture_batches", [], |row| row
+                    .get::<_, i64>(0))
+                    .unwrap(),
+                0
+            );
+            assert_eq!(
+                BindingRows(db).session_preferences(&w.agent).unwrap(),
+                before
+            );
+            let receipt: (Option<String>, String) = db
+                .query_row(
+                    "SELECT batch_id,outcome FROM hook_capture_receipts WHERE event_id=?",
+                    [event.id()],
+                    |row| Ok((row.get(0)?, row.get(1)?)),
+                )
+                .unwrap();
+            assert_eq!(receipt, (None, refused.token().into()));
+        }
+    }
+}
+
+#[test]
+fn distinct_unbatched_misses_keep_separate_entries_even_for_the_same_text() {
+    for queued in [false, true] {
+        let mut w = World::new();
+        w.storage
+            .connection()
+            .unwrap()
+            .execute("DELETE FROM capture_batches", [])
+            .unwrap();
+        w.refuse_end(CaptureResult::NoAdmittedStart);
+        let first = w.event("same unassociated text", false);
+        let second = w.event("same unassociated text", false);
+        for event in [&first, &first, &second] {
+            if queued {
+                w.storage.ingest_hook_capture(event).unwrap();
+            } else {
+                w.direct_end(event, "same unassociated text");
+            }
+        }
+        let failures = w.visible_failures();
+        assert_eq!(failures.len(), 2);
+        assert_ne!(failures[0]["entryId"], failures[1]["entryId"]);
+        assert!(
+            failures.iter().all(
+                |entry| entry.get("inputBatchId").is_none() && entry.get("requestId").is_none()
+            )
+        );
+        assert_eq!(w.final_count(), 0);
+    }
+}
+
+#[test]
+fn an_unbatched_failure_does_not_borrow_a_newer_prompt_or_change_its_state() {
+    for queued in [false, true] {
+        let mut w = World::new();
+        w.storage
+            .connection()
+            .unwrap()
+            .execute("DELETE FROM capture_batches", [])
+            .unwrap();
+        w.refuse_end(CaptureResult::NoAdmittedStart);
+        let event = w.event("older unbatched miss", false);
+        let expected = Storage::context_by_identity(&w.path, &w.agent, w.now)
+            .unwrap()
+            .unwrap();
+        let newer = w.new_prompt();
+        let db = w.storage.connection().unwrap();
+        db.execute("INSERT INTO request_attempts(attempt_id,request_id,route_kind,recipient_identity_id,originator_kind,originator_identity_id,wait_active,status,inject_preamble,cadence_reserved,prepared_at_ms,expires_at_ms,retention_expires_at_ms) VALUES('new-input','new-input','inbox',?1,'explicit',?1,0,'sent',0,0,?2,?3,?3)",params![w.agent,w.now as i64,(w.now+60_000) as i64]).unwrap();
+        db.execute("INSERT INTO request_passthrough(request_id,delivered_at_ms,state,bound_session,bound_at_ms,folded) VALUES('new-input',?1,'bound','fixture-session',?1,1)",[w.now as i64]).unwrap();
+        let before = BindingRows(db).session_preferences(&w.agent).unwrap();
+        if queued {
+            w.storage.ingest_hook_capture(&event).unwrap();
+        } else {
+            w.direct_end_with_snapshot(&event, "older unbatched miss", &expected);
+        }
+        let failures = w.visible_failures();
+        assert_eq!(failures.len(), 1);
+        assert!(failures[0].get("inputBatchId").is_none());
+        assert!(failures[0].get("requestId").is_none());
+        let db = w.storage.connection().unwrap();
+        assert_eq!(
+            current(db, &w.agent).unwrap().as_deref(),
+            Some(newer.as_str())
+        );
+        assert_eq!(
+            BindingRows(db).session_preferences(&w.agent).unwrap(),
+            before
+        );
+        assert_eq!(
+            db.query_row("SELECT COUNT(*) FROM capture_batches", [], |row| row
+                .get::<_, i64>(0))
+                .unwrap(),
+            1
+        );
+        assert_eq!(
+            db.query_row(
+                "SELECT state FROM request_passthrough WHERE request_id='new-input'",
+                [],
+                |row| row.get::<_, String>(0)
+            )
+            .unwrap(),
+            "bound"
+        );
+        assert_eq!(w.final_count(), 0);
+    }
+}
+
+#[test]
+fn unbatched_failures_require_the_same_active_binding_session_and_process() {
+    for queued in [false, true] {
+        for change in [
+            "binding", "session", "pid", "start", "ended", "retired", "provider", "detached",
+        ] {
+            let mut w = World::new();
+            w.storage
+                .connection()
+                .unwrap()
+                .execute("DELETE FROM capture_batches", [])
+                .unwrap();
+            w.refuse_end(CaptureResult::NoAdmittedStart);
+            let event = w.event("verified before replacement", false);
+            let expected = Storage::context_by_identity(&w.path, &w.agent, w.now)
+                .unwrap()
+                .unwrap();
+            let db = w.storage.connection().unwrap();
+            let sql = match change {
+                "binding" => "UPDATE bindings SET id='22222222-2222-4222-8222-222222222222'",
+                "session" => {
+                    "UPDATE bindings SET observed_provider_session_id='replacement-session'"
+                }
+                "pid" => "UPDATE bindings SET runtime_pid=13",
+                "start" => "UPDATE bindings SET runtime_start_identity='replacement-start'",
+                "ended" => "UPDATE bindings SET runtime_state='ended'",
+                "retired" => "UPDATE identities SET retired_at_ms=1",
+                "provider" => "UPDATE identity_session_preferences SET remembered_harness='codex'",
+                "detached" => "DELETE FROM bindings",
+                _ => unreachable!(),
+            };
+            db.execute(sql, []).unwrap();
+            let before = BindingRows(db).entry_by_id(&w.agent).unwrap();
+            if queued {
+                w.storage.ingest_hook_capture(&event).unwrap();
+            } else {
+                w.direct_end_with_snapshot(&event, "verified before replacement", &expected);
+            }
+            assert!(w.visible_failures().is_empty(), "{queued} {change}");
+            assert_eq!(w.final_count(), 0);
+            let db = w.storage.connection().unwrap();
+            assert_eq!(BindingRows(db).entry_by_id(&w.agent).unwrap(), before);
+            assert_eq!(
+                db.query_row("SELECT COUNT(*) FROM capture_batches", [], |row| row
+                    .get::<_, i64>(0))
+                    .unwrap(),
+                0
+            );
+        }
+    }
+}
+
+#[test]
+fn an_unbatched_failure_and_its_receipt_roll_back_together() {
+    let mut w = World::new();
+    w.storage
+        .connection()
+        .unwrap()
+        .execute("DELETE FROM capture_batches", [])
+        .unwrap();
+    w.refuse_end(CaptureResult::NoAdmittedStart);
+    let event = w.event("atomic unbatched miss", false);
+    w.storage.connection().unwrap().execute_batch("CREATE TEMP TRIGGER reject_unbatched_receipt BEFORE INSERT ON hook_capture_receipts BEGIN SELECT RAISE(ABORT,'receipt failure'); END;").unwrap();
+    assert!(w.storage.ingest_hook_capture(&event).is_err());
+    assert!(w.visible_failures().is_empty());
+    assert_eq!(
+        w.storage
+            .connection()
+            .unwrap()
+            .query_row("SELECT COUNT(*) FROM hook_capture_receipts", [], |row| row
+                .get::<_, i64>(
+                0
+            ))
+            .unwrap(),
+        0
+    );
+    w.storage
+        .connection()
+        .unwrap()
+        .execute_batch("DROP TRIGGER reject_unbatched_receipt")
+        .unwrap();
+    w.storage.ingest_hook_capture(&event).unwrap();
+    assert_eq!(w.visible_failures().len(), 1);
+}
+
+#[test]
+fn confirmed_unpublished_unbatched_text_uses_the_existing_reason_and_event_fence() {
+    for provisional in [false, true] {
+        for code in [StorageErrorCode::Busy, StorageErrorCode::Unknown] {
+            let mut w = World::new();
+            w.storage
+                .connection()
+                .unwrap()
+                .execute("DELETE FROM capture_batches", [])
+                .unwrap();
+            if !provisional {
+                w.refuse_end(CaptureResult::NoAdmittedStart);
+            }
+            let event = w.event("never published", false);
+            assert!(event.recorded_batch().is_none());
+            let before = BindingRows(w.storage.connection().unwrap())
+                .session_preferences(&w.agent)
+                .unwrap();
+            let publication =
+                CapturePublication::Unpublished(StorageError::new(code, "fixture rejection"));
+            for _ in 0..2 {
+                publication
+                    .record_failure(&w.path, &event, Instant::now() + Duration::from_secs(2))
+                    .unwrap();
+            }
+            let failures = w.visible_failures();
+            assert_eq!(failures.len(), 1);
+            assert!(failures[0].get("inputBatchId").is_none());
+            assert_eq!(
+                failures[0]["failure"]["code"],
+                if code == StorageErrorCode::Busy {
+                    "budget_timeout"
+                } else {
+                    "storage_error"
+                }
+            );
+            let db = w.storage.connection().unwrap();
+            assert_eq!(
+                db.query_row(
+                    "SELECT batch_id FROM hook_capture_receipts WHERE event_id=?",
+                    [event.id()],
+                    |row| row.get::<_, Option<String>>(0)
+                )
+                .unwrap(),
+                None
+            );
+            assert_eq!(
+                db.query_row("SELECT COUNT(*) FROM capture_batches", [], |row| row
+                    .get::<_, i64>(0))
+                    .unwrap(),
+                0
+            );
+            assert_eq!(
+                BindingRows(db).session_preferences(&w.agent).unwrap(),
+                before
+            );
+            assert_eq!(w.final_count(), 0);
+        }
+    }
+}
+
+#[test]
+fn unbatched_text_never_turns_accepted_unknown_or_expired_publication_into_a_failure() {
+    for case in [
+        "queued",
+        "unknown",
+        "expired",
+        "usage_only",
+        "interrupted",
+        "replacement",
+    ] {
+        let mut w = World::new();
+        w.storage
+            .connection()
+            .unwrap()
+            .execute("DELETE FROM capture_batches", [])
+            .unwrap();
+        w.refuse_end(CaptureResult::NoAdmittedStart);
+        let mut event = w.event("not enough to claim nonpublication", false);
+        if case == "usage_only" {
+            event = event.usage_only();
+        }
+        if case == "interrupted" {
+            let mut wire = serde_json::to_value(&event).unwrap();
+            wire["capture"]["interrupted"] = serde_json::json!(true);
+            event = serde_json::from_value(wire).unwrap();
+        }
+        if case == "replacement" {
+            w.storage
+                .connection()
+                .unwrap()
+                .execute("UPDATE bindings SET runtime_start_identity='replaced'", [])
+                .unwrap();
+        }
+        let publication = match case {
+            "queued" => CapturePublication::Queued,
+            "unknown" => CapturePublication::Unknown {
+                publication: StorageError::new(StorageErrorCode::Unknown, "uncertain"),
+                readback: StorageError::new(StorageErrorCode::Busy, "unavailable"),
+            },
+            _ => CapturePublication::Unpublished(StorageError::new(
+                StorageErrorCode::Busy,
+                "fixture rejection",
+            )),
+        };
+        let deadline = if case == "expired" {
+            Instant::now() - Duration::from_secs(1)
+        } else {
+            Instant::now() + Duration::from_secs(2)
+        };
+        let result = publication.record_failure(&w.path, &event, deadline);
+        if case == "expired" {
+            assert_eq!(result.unwrap_err().code, StorageErrorCode::Busy);
+        } else {
+            result.unwrap();
+        }
+        assert!(w.visible_failures().is_empty(), "{case}");
+        assert_eq!(w.final_count(), 0);
+    }
 }
