@@ -216,6 +216,7 @@ class Element {
     this.children = [];
   }
   className = '';
+  style = { setProperty() {} };
   type = '';
   value = '';
   title = '';
@@ -235,6 +236,28 @@ class Element {
       child.parent = this;
       this.children.push(child);
     }
+  }
+  replaceWith(other: Element) {
+    if (!this.parent) return;
+    const parent = this.parent;
+    const index = parent.children.indexOf(this);
+    parent.children[index] = other;
+    other.parent = parent;
+    this.parent = undefined;
+  }
+  after(other: Element) {
+    if (!this.parent) return;
+    const parent = this.parent;
+    parent.children.splice(parent.children.indexOf(this) + 1, 0, other);
+    other.parent = parent;
+  }
+  prepend(child: Element) {
+    child.remove();
+    child.parent = this;
+    this.children.unshift(child);
+  }
+  get childNodes() {
+    return this.children;
   }
   replaceChildren(...children: Element[]) {
     for (const child of this.children) child.parent = undefined;
@@ -275,15 +298,19 @@ class Element {
   }
   querySelectorAll(selector: string): Element[] {
     return this.descendants().filter((node) =>
-      selector === '[data-remote]'
-        ? 'remote' in node.dataset
-        : selector === '[data-role]'
-          ? 'role' in node.dataset
-          : selector === '[data-action="open"]'
-            ? node.dataset.action === 'open'
-            : selector.startsWith('.')
-              ? node.className.split(' ').includes(selector.slice(1))
-              : node.tag === selector,
+      selector === '[data-summary=members]'
+        ? node.dataset.summary === 'members'
+        : selector === '[data-summary=active]'
+          ? node.dataset.summary === 'active'
+          : selector === '[data-remote]'
+            ? 'remote' in node.dataset
+            : selector === '[data-role]'
+              ? 'role' in node.dataset
+              : selector === '[data-action="open"]'
+                ? node.dataset.action === 'open'
+                : selector.startsWith('.')
+                  ? node.className.split(' ').includes(selector.slice(1))
+                  : node.tag === selector,
     );
   }
   querySelector(selector: string): Element | undefined {
@@ -300,11 +327,15 @@ async function registryPage() {
   const body = new Element('body', page);
   body.connected = true;
   const ids = new Map<string, Element>();
-  for (const id of ['remotes', 'remote-list', 'remote-status', 'remote-join']) {
+  for (const id of ['remotes', 'remote-list', 'remote-status', 'remote-join', 'remote-head']) {
     const node = new Element('section', page);
     ids.set(id, node);
     body.append(node);
   }
+  const headActions = new Element('div', page);
+  headActions.className = 'remote-head-actions';
+  ids.get('remote-head')!.append(headActions);
+  let tableBody: Element | undefined;
   vi.stubGlobal('document', {
     body,
     getElementById: (id: string) => ids.get(id) ?? null,
@@ -340,6 +371,35 @@ async function registryPage() {
     },
   }));
   vi.doMock('../src/remote-menu.js', () => ({ remoteMenu: () => () => {} }));
+  vi.doMock('@tmt/browser-ui/list-table', () => ({
+    createListTable: () => {
+      const root = new Element('div', page);
+      tableBody = new Element('div', page);
+      root.append(tableBody);
+      return {
+        root,
+        body: tableBody,
+        row: (cells: Element[]) => {
+          const row = new Element('div', page);
+          for (const cell of cells) {
+            const wrapper = new Element('div', page);
+            wrapper.append(cell);
+            row.append(wrapper);
+          }
+          return row;
+        },
+      };
+    },
+    createPageSubheader: ({ actions }: { actions: Element }) => {
+      const root = new Element('header', page);
+      root.className = 'tmt-ui-subheader';
+      const count = new Element('span', page);
+      count.className = 'tmt-ui-shell-count';
+      root.append(count, actions);
+      return root;
+    },
+  }));
+
   // Menu interactions/keyboard/focus use the real shared host in Chromium; this fixture owns
   // the registry dialog's validation lifetime and observation updates only.
   vi.doMock('@tmt/browser-ui/menu-host', () => ({
@@ -389,7 +449,7 @@ async function registryPage() {
   const entry = { name: 'alpha', kind: 'local', url: 'https://door.test/', project: null };
   return {
     page,
-    list: ids.get('remote-list')!,
+    list: tableBody!,
     observe,
     depart: () => lifetime.abort(),
     add: ids.get('remote-join')!.button('Remember a Remote'),
@@ -405,6 +465,7 @@ async function registryPage() {
 function cleanUp() {
   vi.doUnmock('../src/remote-registry.js');
   vi.doUnmock('../src/remote-menu.js');
+  vi.doUnmock('@tmt/browser-ui/list-table');
   vi.doUnmock('@tmt/browser-ui/menu-host');
   vi.unstubAllGlobals();
   vi.resetModules();
@@ -471,10 +532,10 @@ test('registry observations retain the focused row control and never guess a rol
     assert.equal(view.list.children[0], row);
     assert.equal(row.querySelector('[data-action="open"]'), open);
     assert.equal(view.page.focused, open);
-    assert.equal(row.querySelector('.tmt-ui-list-state')!.textContent, '✗ Offline');
+    assert.equal(row.querySelector('.tmt-ui-list-state')!.textContent, 'Offline');
     assert.equal(row.querySelector('[data-role]')!.textContent, 'Role unknown');
     view.observe('unreported');
-    assert.equal(row.querySelector('.tmt-ui-list-state')!.textContent, '? Status unknown');
+    assert.equal(row.querySelector('.tmt-ui-list-state')!.textContent, 'Status unknown');
   } finally {
     cleanUp();
   }
@@ -530,6 +591,35 @@ test('registry dialog departure removes its modal and fences late validation wit
     await view.settle();
     assert.equal(view.dialogs().length, 0);
     assert.equal(view.added.length, 0);
+  } finally {
+    cleanUp();
+  }
+});
+
+test('the current row shows only admitted, non-null summary observations', async () => {
+  const view = await registryPage();
+  try {
+    const row = view.list.children[0]!;
+    const members = row.querySelector('[data-summary=members]')!;
+    const active = row.querySelector('[data-summary=active]')!;
+    view.observe('Connected', undefined, 'owner');
+    view.observe.setSummary({
+      remoteId: '11111111-1111-4111-8111-111111111111',
+      memberCount: 3,
+      lastActiveAtMs: null,
+    });
+    assert.equal(members.textContent, '3');
+    assert.equal(active.textContent, '');
+    view.observe('Unconfirmed');
+    assert.equal(members.textContent, '');
+    view.observe.setSummary({
+      remoteId: '11111111-1111-4111-8111-111111111111',
+      memberCount: 9,
+      lastActiveAtMs: 1,
+    });
+    view.observe('Connected', undefined, 'user');
+    assert.equal(members.textContent, '');
+    assert.equal(active.textContent, '');
   } finally {
     cleanUp();
   }

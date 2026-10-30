@@ -18,7 +18,8 @@
     "./theme": "./src/theme.ts",
     "./search": "./src/search.ts",
     "./gallery/frames": "./gallery/frames.tsx",
-    "./test-fixtures/*": "./test/fixtures/*"
+    "./test-fixtures/*": "./test/fixtures/*",
+    "./list-table": "./src/list-table-host.ts"
   },
   "scripts": {
     "generate": "node scripts/generate-static-css.mjs --write && node scripts/generate-ui-css.mjs --write && node scripts/generate-brand.mjs --write",

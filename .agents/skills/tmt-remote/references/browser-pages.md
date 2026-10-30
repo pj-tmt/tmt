@@ -150,7 +150,7 @@ from `assets/*.html` and loading Colab's module from the composed shell's `entry
 page stays its own document and mounts the rail only.
 Remote’s `remote-routes.ts` is the one browser route/menu declaration. My Remotes is the global
 origin-local list; its Open enters the selected door’s Overview. One current-door frame owns the
-Overview, People, My devices, Settings and Service & upgrade tabs, with no Remote ID in
+Overview, People, My devices, Service & upgrade and Settings tabs, with no Remote ID in
 the path. The native page allowlist mirrors that explicit set, and old machine/devices/connect/invites
 paths have no shims. The [public route contract](../../../../contracts/remote-channel-v1.md#public-browser-routes)
 owns the exact paths. `remote-menu.ts` maps Create/Join to My Remotes and Service to Remote settings;
