@@ -5,6 +5,7 @@ import {
   shellCount,
   type ShellControls,
   type ShellView,
+  type ShellMenuItem,
   type ShellCommonControls,
 } from '../src/shell.js';
 
@@ -54,12 +55,18 @@ function NativeRail({
 
 /** Sample domain data; only the shared rail is under review, not a product menu adoption. */
 export function RailFrame({ params }: { params: URLSearchParams }) {
-  const [selected, setSelected] = useState('all');
+  const interactive = params.get('interactive') === 'true';
+  const [selected, setSelected] = useState(interactive ? 'project' : 'all');
+  const [order, setOrder] = useState(['project', 'empty', 'notes']);
+  const [holdMoves, setHoldMoves] = useState(false);
+  const [reorderEnabled, setReorderEnabled] = useState(true);
+  const [actionCalls, setActionCalls] = useState(0);
+  const [reorderRequests, setReorderRequests] = useState(0);
   const [revision, setRevision] = useState(0);
   const [status, setStatus] = useState('Ready');
   const [mounted, setMounted] = useState(true);
-  const view = useMemo<ShellView>(
-    () => ({
+  const view = useMemo<ShellView>(() => {
+    const result: ShellView = {
       rail: {
         main: [
           {
@@ -149,9 +156,70 @@ export function RailFrame({ params }: { params: URLSearchParams }) {
           current: selected === 'colab-settings',
         },
       },
-    }),
-    [selected, revision],
-  );
+    };
+    if (interactive) {
+      const group = result.menu!.groups[1]!;
+      group.label = 'Shortcuts';
+      const entries = new Map(group.items.map((item) => [item.id, item]));
+      entries.get('project')!.label = 'Colab v1 · In progress';
+      entries.get('empty')!.label = 'Remote';
+      entries.get('empty')!.total = 4;
+      entries.set('notes', {
+        id: 'notes',
+        label: 'Needs my sign-off',
+        href: '/colab/signoff',
+        current: selected === 'notes',
+        total: 2,
+      });
+      group.items = order.map((id): ShellMenuItem => {
+        const item = entries.get(id)!;
+        return {
+          ...item,
+          actions: [
+            {
+              label: `Edit ${item.label}`,
+              icon: 'pencil',
+              onActivate: () => {
+                setActionCalls((n) => n + 1);
+                setStatus(`Edit ${id} ${revision}`);
+              },
+            },
+            {
+              label: `Delete ${item.label}`,
+              icon: 'trash-2',
+              onActivate: () => {
+                setActionCalls((n) => n + 1);
+                setStatus(`Delete ${id} ${revision}`);
+              },
+            },
+          ],
+        };
+      });
+      group.action = {
+        label: 'Manage shortcuts',
+        icon: 'settings',
+        onActivate: () => setStatus(`Manage ${revision}`),
+      };
+      group.add = { label: '+ New shortcut', onActivate: () => setStatus(`New ${revision}`) };
+      group.reorder = reorderEnabled
+        ? (from, to) => {
+            setReorderRequests((n) => n + 1);
+            setStatus(`Reorder ${from} to ${to} ${revision}`);
+            if (!holdMoves)
+              setOrder((before) => {
+                const moved = [...before];
+                const fromIndex = moved.indexOf(from),
+                  toIndex = moved.indexOf(to);
+                if (fromIndex < 0 || toIndex < 0) return before;
+                moved.splice(fromIndex, 1);
+                moved.splice(toIndex, 0, from);
+                return moved;
+              });
+          }
+        : undefined;
+    }
+    return result;
+  }, [selected, revision, interactive, order, holdMoves, reorderEnabled]);
   const select = (id: string) => {
     setSelected(id);
     return true;
@@ -162,13 +230,38 @@ export function RailFrame({ params }: { params: URLSearchParams }) {
         Shared rail with sample counts and host-owned commands. Main area is a fixture, not a
         product adoption.
       </p>
-      <p role="status">{status}</p>
+      <p role="status" data-host-status>
+        {status}
+      </p>
+      {interactive && (
+        <>
+          <p
+            data-host-order={order.join(',')}
+            data-action-calls={actionCalls}
+            data-reorder-requests={reorderRequests}
+          >
+            Host order: {order.join(', ')}
+          </p>
+          <button onClick={() => setOrder(['project', 'empty', 'notes'])}>Reset host order</button>
+          <button onClick={() => setHoldMoves((value) => !value)}>
+            Toggle held reorder requests
+          </button>
+          <button onClick={() => setReorderEnabled((value) => !value)}>
+            Toggle reorder availability
+          </button>
+        </>
+      )}
       <button onClick={() => setRevision((n) => n + 1)}>Refresh command bindings</button>
       <button onClick={() => setSelected('module')}>Select module</button>
       <button onClick={() => setMounted(false)}>Unmount rail</button>
     </div>
   );
-  if (!mounted) return <p>Rail unmounted</p>;
+  if (!mounted)
+    return (
+      <p data-action-calls={actionCalls} data-reorder-requests={reorderRequests}>
+        Rail unmounted
+      </p>
+    );
   return params.get('renderer') === 'native' ? (
     <NativeRail view={view} select={select}>
       {content}
