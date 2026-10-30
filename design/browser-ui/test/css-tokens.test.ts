@@ -46,7 +46,7 @@ describe('browser-ui CSS tokens', () => {
       ),
     );
     // ListTable hosts define this layout value in their own stylesheets.
-    const hostValues = new Set(['--tmt-ui-list-tracks']);
+    const hostValues = new Set(['--tmt-ui-list-tracks', '--tmt-ui-list-tracks-compact']);
     const undefinedTokens = new Map<string, string[]>();
     for (const file of readdirSync(new URL('src/', root)).filter((name) => name.endsWith('.css'))) {
       for (const [, token] of read(`src/${file}`).matchAll(/var\((--tmt-ui-[a-z0-9-]+)/g)) {

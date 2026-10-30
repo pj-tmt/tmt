@@ -1159,16 +1159,12 @@ repair. CI selection and gate ownership live in the
 
 ### List table and page subheader
 
-`BrowserListTable` and the framework-free `createListTable` render caller-supplied columns and rows without owning navigation, selection, data, or keyboard state. Columns supply `id`, `label` and optionally `hideBelow: 'phone'`. The host passes a root `className` (the third argument to `createListTable`) and sets `--tmt-ui-list-tracks` in its stylesheet; no inline style is emitted. The fallback is a single `minmax(0, 1fr)` column. The host supplies one cell per column and owns links and row actions. Phone layouts hide headers and marked cells; redefine the tracks in a phone query so the remaining cells align:
+`BrowserListTable` and the framework-free `createListTable` render caller-supplied columns and rows without owning navigation, selection, data, or keyboard state. Columns supply `id`, `label` and optionally `hideBelow: 'phone'`. The host passes a root `className` (the third argument to `createListTable`) and sets `--tmt-ui-list-tracks` and optionally `--tmt-ui-list-tracks-compact` in its stylesheet; no inline style is emitted. Shared CSS selects compact tracks at the shared compact breakpoint, falling back to the regular tracks and then a single `minmax(0, 1fr)` column. The host supplies one cell per column and owns links and row actions. Compact layouts hide headers and marked cells; supply compact tracks so the remaining cells align:
 
 ```css
 .people-table {
   --tmt-ui-list-tracks: 2fr 1fr;
-}
-@media (max-width: 760px) {
-  .people-table {
-    --tmt-ui-list-tracks: minmax(0, 1fr);
-  }
+  --tmt-ui-list-tracks-compact: minmax(0, 1fr);
 }
 ```
 

@@ -397,9 +397,5 @@
 
 .gallery-people-table {
   --tmt-ui-list-tracks: 2fr 1fr;
-}
-@media (max-width: 760px) {
-  .gallery-people-table {
-    --tmt-ui-list-tracks: minmax(0, 1fr);
-  }
+  --tmt-ui-list-tracks-compact: minmax(0, 1fr);
 }
