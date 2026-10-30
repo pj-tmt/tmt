@@ -189,12 +189,6 @@ impl Input {
         })
     }
 
-    /// The sent body with each mention as typed; tests read quote folds through it.
-    #[cfg(test)]
-    pub(in crate::board) fn quoted_message(&self) -> String {
-        self.quoted_message_named(&|_| None)
-    }
-
     /// The sent body. A chosen mention is written with its agent's current name, when
     /// `name` knows it, so a rename between insert and send names the same agent.
     pub(in crate::board) fn quoted_message_named(
