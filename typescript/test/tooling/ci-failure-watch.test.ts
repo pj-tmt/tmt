@@ -26,7 +26,6 @@ import {
   type WatchRun,
   type WatchState,
   type WatchApi,
-  type WatchAlert,
 } from '../../scripts/ci-failure-watch.mjs';
 
 const now = Date.parse('2026-10-24T07:20:00Z');
@@ -80,12 +79,6 @@ function effects() {
     findIssues(signature: string) {
       calls.push('search');
       return issues.has(signature) ? [issues.get(signature)!] : [];
-    },
-    createIssue(alert: WatchAlert) {
-      calls.push('create');
-      const url = `https://github.com/pj-tmt/tmt/issues/${issues.size + 1}`;
-      issues.set(alert.signature, url);
-      return url;
     },
     talk(message: string) {
       calls.push(`talk:${message}`);
@@ -247,7 +240,7 @@ describe('signature recovery, deduplication and routing', () => {
     expect(routeFailure(routing, '.github/workflows/other.yml', 'other').squad).toBe('unmapped');
     expect(() => validateRouting({ source: 'unreviewed', rules: [] })).toThrow('WATCH_ROUTING');
   });
-  it('updates one signature inside six hours without another notification or issue', () => {
+  it('updates one signature inside six hours without another notification', () => {
     const state = newWatchState(now);
     const e = effects();
     observeRun(state, run(), jobs, routing, now);
@@ -255,9 +248,8 @@ describe('signature recovery, deduplication and routing', () => {
     observeRun(state, run({ id: 2 }), jobs, routing, now + 60_000);
     deliverWatchAlerts(state, e, now + 60_000);
     expect(Object.values(state.alerts)[0].count).toBe(2);
-    expect(e.calls.filter((c) => c === 'create')).toHaveLength(1);
+    expect(e.calls.filter((c) => c === 'search')).toHaveLength(1);
     expect(e.calls.filter((c) => c.startsWith('talk:'))).toHaveLength(1);
-    expect(e.calls.indexOf('search')).toBeLessThan(e.calls.indexOf('create'));
     expect(e.saves.some((s) => s.delivery && s.notifications.length === 1)).toBe(true);
   });
   it('re-arms after green on the same event, never a green on another event', () => {
@@ -285,9 +277,9 @@ describe('signature recovery, deduplication and routing', () => {
     observeRun(state, run({ id: 5, updated_at: iso(now + 4000) }), jobs, routing, now + 4000);
     deliverWatchAlerts(state, e, now + 4000);
     expect(e.calls.filter((c) => c.startsWith('talk:'))).toHaveLength(2);
-    expect(e.calls.filter((c) => c === 'create')).toHaveLength(1);
+    expect(e.calls.filter((c) => c === 'search')).toHaveLength(2);
   });
-  it('reuses the issue after six hours and ignores a previously observed failed attempt', () => {
+  it('searches again after six hours and ignores a previously observed failed attempt', () => {
     const state = newWatchState(now);
     const e = effects();
     const failed = run();
@@ -304,7 +296,7 @@ describe('signature recovery, deduplication and routing', () => {
     );
     deliverWatchAlerts(state, e, now + WATCH_LIMITS.dedupMs);
     expect(e.calls.filter((c) => c.startsWith('talk:'))).toHaveLength(2);
-    expect(e.calls.filter((c) => c === 'create')).toHaveLength(1);
+    expect(e.calls.filter((c) => c === 'search')).toHaveLength(2);
     expect(failureSignature(failed, jobs[0].name)).not.toBe(
       failureSignature(failed, 'different job')
     );
@@ -338,7 +330,7 @@ describe('notification and crash boundaries', () => {
     expect(notificationGroups(state, now)).toEqual([]);
     expect(notificationGroups(state, now + 3600_000)).toHaveLength(1);
   });
-  it('uses the existing searched issue rather than creating a second one', () => {
+  it('links an existing searched issue in the notification', () => {
     const state = newWatchState(now);
     const e = effects();
     observeRun(state, run(), jobs, routing, now);
@@ -346,7 +338,7 @@ describe('notification and crash boundaries', () => {
     e.issues.set(a.signature, 'https://github.com/pj-tmt/tmt/issues/4758');
     deliverWatchAlerts(state, e, now);
     expect(a.issueUrl).toContain('4758');
-    expect(e.calls).not.toContain('create');
+    expect(formatNotification([a])).toContain('https://github.com/pj-tmt/tmt/issues/4758');
     expect(formatNotification([a])).toContain('suggested tmt-core');
   });
   it('does not replay an uncertain talk after a crash or transport refusal', () => {
@@ -361,25 +353,6 @@ describe('notification and crash boundaries', () => {
     expect(() => deliverWatchAlerts(state, effects(), now + 60_000)).toThrow(
       'WATCH_DELIVERY_UNCERTAIN'
     );
-  });
-  it('searches an uncertain issue create on restart and never blindly creates again', () => {
-    const state = newWatchState(now);
-    const e = effects();
-    observeRun(state, run(), jobs, routing, now);
-    e.createIssue = () => {
-      throw new Error('unknown POST result');
-    };
-    expect(() => deliverWatchAlerts(state, e, now)).toThrow('unknown POST');
-    expect(state.issueIntent).toBeTruthy();
-    expect(() => deliverWatchAlerts(state, effects(), now + 60_000)).toThrow(
-      'WATCH_ISSUE_UNCERTAIN'
-    );
-    const recovered = effects();
-    recovered.issues.set(state.issueIntent!, 'https://github.com/pj-tmt/tmt/issues/1');
-    deliverWatchAlerts(state, recovered, now + 120_000);
-    expect(recovered.calls).not.toContain('create');
-    expect(state.issueIntent).toBeNull();
-    expect(state.delivery).toBeNull();
   });
   it('returns a dry-run plan without any effect port or mutation of the supplied state', () => {
     const state = newWatchState(now);
@@ -570,9 +543,7 @@ it('leaves a budget-deferred delivery pending without falsely marking it uncerta
   };
   expect(() => deliverWatchAlerts(state, limited, now)).toThrow('WATCH_BUDGET');
   expect(state.delivery).toBeNull();
-  expect(state.issueIntent).toBeNull();
   expect(Object.values(state.alerts)[0].pending).toBe(true);
-  expect(e.calls).not.toContain('create');
   expect(e.calls.some((c) => c.startsWith('talk:'))).toBe(false);
 });
 
@@ -807,7 +778,7 @@ describe('one run failure alert (#4951)', () => {
     },
     { id: 10, name: 'Remote root worker', conclusion: 'failure', started_at: iso(now - 6000) },
   ];
-  it('opens one issue and submits once for one root plus three dependent failures', () => {
+  it('submits once for one root plus three dependent failures', () => {
     const state = newWatchState(now);
     const out = effects();
     observeRun(state, run(), cascade, routing, now);
@@ -822,7 +793,7 @@ describe('one run failure alert (#4951)', () => {
       'Native package matrix',
     ]);
     deliverWatchAlerts(state, out, now);
-    expect(out.calls.filter((c) => c === 'create')).toHaveLength(1);
+    expect(out.calls.filter((c) => c === 'search')).toHaveLength(1);
     expect(out.calls.filter((c) => c.startsWith('talk:'))).toHaveLength(1);
     for (const job of cascade) expect(formatNotification([alert])).toContain(job.name);
   });
@@ -833,24 +804,19 @@ describe('one run failure alert (#4951)', () => {
     deliverWatchAlerts(state, out, now);
     observeRun(state, run({ id: 2 }), [...cascade].reverse(), routing, now + 60_000);
     deliverWatchAlerts(state, out, now + 60_000);
-    expect(out.calls.filter((c) => c === 'create')).toHaveLength(1);
+    expect(out.calls.filter((c) => c === 'search')).toHaveLength(1);
     expect(out.calls.filter((c) => c.startsWith('talk:'))).toHaveLength(1);
     observeRun(state, run({ id: 3 }), cascade.slice(1), routing, now + 120_000);
     deliverWatchAlerts(state, out, now + 120_000);
-    expect(out.calls.filter((c) => c === 'create')).toHaveLength(2);
+    expect(out.calls.filter((c) => c === 'search')).toHaveLength(2);
     expect(out.calls.filter((c) => c.startsWith('talk:'))).toHaveLength(2);
   });
-  it('revalidates an old URL and opens a fresh issue when the signature issue closed', () => {
+  it('drops a closed issue URL and re-arms with the run URL only', () => {
     const state = newWatchState(now);
     const out = effects();
-    let next = 100;
-    out.createIssue = (alert) => {
-      out.calls.push('create');
-      const url = `https://github.com/pj-tmt/tmt/issues/${next++}`;
-      out.issues.set(alert.signature, url);
-      return url;
-    };
     observeRun(state, run(), jobs, routing, now);
+    const alert = Object.values(state.alerts)[0];
+    out.issues.set(alert.signature, 'https://github.com/pj-tmt/tmt/issues/100');
     deliverWatchAlerts(state, out, now);
     out.issues.clear(); // Only open matches remain visible to the search port.
     observeRun(
@@ -862,17 +828,23 @@ describe('one run failure alert (#4951)', () => {
     );
     observeRun(state, run({ id: 3, updated_at: iso(now + 2000) }), jobs, routing, now + 2000);
     deliverWatchAlerts(state, out, now + 2000);
-    expect(out.calls.filter((c) => c === 'create')).toHaveLength(2);
     const notices = out.calls.filter((c) => c.startsWith('talk:'));
     expect(notices).toHaveLength(2);
-    expect(notices[1]).toContain('/issues/101');
-    expect(notices[1]).not.toContain('/issues/100');
+    expect(notices[0]).toContain('/issues/100');
+    expect(notices[1]).toContain('/actions/runs/3');
+    expect(notices[1]).not.toContain('/issues/');
+    expect(Object.values(state.alerts)[0].issueUrl).toBeUndefined();
   });
   it('does not notify against a cached issue when its fresh open-issue search refuses', () => {
     const state = newWatchState(now);
     const out = effects();
     observeRun(state, run(), jobs, routing, now);
+    out.issues.set(
+      Object.values(state.alerts)[0].signature,
+      'https://github.com/pj-tmt/tmt/issues/100'
+    );
     deliverWatchAlerts(state, out, now);
+    expect(Object.values(state.alerts)[0].issueUrl).toContain('/issues/100');
     observeRun(state, run({ run_attempt: 2 }), jobs, routing, now + WATCH_LIMITS.dedupMs);
     out.findIssues = () => {
       throw new Error('search unavailable');
@@ -881,24 +853,6 @@ describe('one run failure alert (#4951)', () => {
       'search unavailable'
     );
     expect(out.calls.filter((c) => c.startsWith('talk:'))).toHaveLength(1);
-  });
-  it('retains one uncertain issue-create intent for the aggregate across restart', () => {
-    const state = newWatchState(now);
-    const out = effects();
-    observeRun(state, run(), cascade, routing, now);
-    out.createIssue = () => {
-      throw new Error('unknown POST result');
-    };
-    expect(() => deliverWatchAlerts(state, out, now)).toThrow('unknown POST result');
-    const recovered = effects();
-    let searches = 0;
-    recovered.findIssues = () =>
-      ++searches === 1 ? ['https://github.com/pj-tmt/tmt/issues/123'] : [];
-    deliverWatchAlerts(state, recovered, now + 1000);
-    expect(searches).toBe(1);
-    expect(recovered.calls).not.toContain('create');
-    expect(recovered.calls.filter((c) => c.startsWith('talk:'))).toHaveLength(1);
-    expect(state.issueIntent).toBeNull();
   });
 });
 
@@ -956,7 +910,7 @@ it('preserves complete job names and defers folded notices that would exceed the
   expect(out.calls.filter((c) => c.startsWith('talk:'))).toHaveLength(1);
 });
 
-it('loads v1 history and delivers one aggregate through fake gh/tmt CLI ports', () => {
+it('notifies a new signature with its run URL and no POST while preserving v1 history', () => {
   const root = mkdtempSync(path.join(tmpdir(), 'tmt-watch-aggregate-'));
   try {
     const bin = path.join(root, 'bin');
@@ -979,7 +933,6 @@ it('loads v1 history and delivers one aggregate through fake gh/tmt CLI ports', 
     const map = path.join(root, 'routing.json');
     writeFileSync(map, JSON.stringify(routing));
     const calls = path.join(root, 'calls.jsonl');
-    const created = path.join(root, 'created.json');
     const sample = run({ id: 123, created_at: iso(time - 60_000), updated_at: iso(time - 1000) });
     const failures = [
       'Remote root',
@@ -995,22 +948,17 @@ it('loads v1 history and delivers one aggregate through fake gh/tmt CLI ports', 
     writeExecutable(
       path.join(bin, 'gh'),
       String.raw`#!/usr/bin/env node
-import {appendFileSync, readFileSync, writeFileSync} from 'node:fs';
+import {appendFileSync} from 'node:fs';
 const args = process.argv.slice(2);
 appendFileSync(${JSON.stringify(calls)}, JSON.stringify(['gh',...args])+'\n');
-if (args.includes('POST')) {
- if (!args.includes('repos/pj-tmt/tmt/issues')) process.exit(77);
- writeFileSync(${JSON.stringify(created)}, readFileSync(args[args.indexOf('--input')+1]));
- console.log(JSON.stringify({html_url:'https://github.com/pj-tmt/tmt/issues/201'}));
- process.exit(0);
-}
+if (args.includes('POST')) process.exit(77);
 const endpoint = args[args.indexOf('--include')+1];
 const url = new URL('https://fixture/'+endpoint);
 let body;
 if (endpoint === 'rate_limit') body = {resources:{core:{remaining:4000}}};
 else if (endpoint.startsWith('search/issues?')) {
  if (!url.searchParams.get('q').includes('is:open')) process.exit(78);
- body = {incomplete_results:false,total_count:1,items:[{state:'closed',html_url:'https://github.com/pj-tmt/tmt/issues/100',body:url.searchParams.get('q')}]};
+ body = {incomplete_results:false,total_count:0,items:[]};
 } else if (endpoint.includes('/jobs?')) body = {total_count:4,jobs:${JSON.stringify(failures)}};
 else if (endpoint.startsWith('repos/pj-tmt/tmt/actions/runs?')) {
  const rows = url.searchParams.get('event') === 'merge_group' ? [${JSON.stringify(sample)}] : [];
@@ -1060,17 +1008,13 @@ console.log(JSON.stringify({status:'sent',requestId:'fixture-request'}));
       .trim()
       .split('\n')
       .map((line) => JSON.parse(line) as string[]);
-    expect(commands.filter((args) => args.includes('POST'))).toHaveLength(1);
+    expect(commands.filter((args) => args.includes('POST'))).toHaveLength(0);
     const notices = commands.filter((args) => args[0] === 'tmt');
     expect(notices).toHaveLength(1);
     expect(notices[0].slice(1, 3)).toEqual(['talk', 'tmt-infra-lead']);
-    const body = JSON.parse(readFileSync(created, 'utf8')).body;
-    for (const failure of failures) {
-      expect(body).toContain(failure.name);
-      expect(notices[0][3]).toContain(failure.name);
-    }
-    expect(notices[0][3]).toContain('/issues/201');
-    expect(notices[0][3]).not.toContain('/issues/100');
+    for (const failure of failures) expect(notices[0][3]).toContain(failure.name);
+    expect(notices[0][3]).toContain(sample.html_url);
+    expect(notices[0][3]).not.toContain('/issues/');
     const saved = JSON.parse(
       readFileSync(path.join(directory, 'state.json'), 'utf8')
     ) as WatchState;
@@ -1083,7 +1027,7 @@ console.log(JSON.stringify({status:'sent',requestId:'fixture-request'}));
   }
 });
 
-it('refuses an oversized complete notice before issue or delivery effects', () => {
+it('refuses an oversized complete notice before search or delivery effects', () => {
   const state = newWatchState(now);
   observeRun(
     state,
