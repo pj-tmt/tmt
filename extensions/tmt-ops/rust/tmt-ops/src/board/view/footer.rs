@@ -363,6 +363,20 @@ fn agents_legend(app: &App) -> Option<Hints> {
         ]
     } else {
         match app.workspace.selected {
+            // A hidden squad, listed inside the unfolded Hidden group, offers Show instead.
+            Some(OpsTarget::Squad(ref room))
+                if app
+                    .workspace_snapshot()
+                    .is_some_and(|snapshot| snapshot.preferences.hidden.contains(room)) =>
+            {
+                &[
+                    (Ui::NewMember, "n", "new"),
+                    (Ui::IdleAlert, "i", "idle alert"),
+                    (Ui::Manage, "m", "manage"),
+                    (Ui::CreateSquad, "N", "create squad"),
+                    (Ui::ShowSquad, "S", ""),
+                ]
+            }
             Some(OpsTarget::Squad(_)) => &[
                 (Ui::NewMember, "n", "new"),
                 (Ui::IdleAlert, "i", "idle alert"),
@@ -840,6 +854,24 @@ mod tests {
                     .contains("  n new  i idle alert  m manage  N create squad  H Hide squad  ")
                 && squad.ends_with("/ search  ? help  q quit"),
             "{squad}"
+        );
+        let mut hidden = selected(OpsTarget::Squad(ROOM.into()));
+        hidden
+            .view
+            .as_mut()
+            .unwrap()
+            .home
+            .as_mut()
+            .unwrap()
+            .workspace
+            .preferences
+            .hidden
+            .insert(ROOM.into());
+        hidden.workspace.visibility.reveal_hidden = true;
+        let hidden = agents_hints(&hidden, 1000).unwrap();
+        assert!(
+            hidden.contains("  S Show squad  ") && !hidden.contains("Hide squad"),
+            "a hidden squad inside the Hidden group offers Show: {hidden}"
         );
         let pool = agents_hints(&selected(OpsTarget::Pool), 1000).unwrap();
         assert!(

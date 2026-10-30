@@ -373,7 +373,9 @@ fn the_legend_names_the_other_view() {
     shown(&mut app);
     assert!(text(&app).contains("chat view"), "t leads back to the chat");
     press_t(&mut app);
-    assert!(text(&app).contains("terminal"));
+    // Back in the chat view the focused reader's guidance takes the one footer line; `t`
+    // stays listed in `?`.
+    assert!(crate::board::app::workspace::tests::help_lists(&app, "t"));
 }
 
 #[test]
@@ -903,13 +905,11 @@ fn the_key_is_a_keycap_right_before_terminal_and_its_hit_covers_both() {
 }
 
 #[test]
-fn the_footer_names_t_terminal_only_while_the_selected_member_has_a_stream() {
+fn t_stays_out_of_the_one_line_footer_and_is_listed_in_help() {
     let mut app = reader();
-    assert!(!text(&app).contains("t terminal"));
     with_stream(&mut app);
-    assert!(text(&app).contains("t terminal"));
-    app.apply_terminal_located(MEMBER, Located::NoStream);
     assert!(!text(&app).contains("t terminal"));
+    assert!(crate::board::app::workspace::tests::help_lists(&app, "t"));
 }
 
 #[test]
