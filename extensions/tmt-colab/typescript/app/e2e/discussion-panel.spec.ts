@@ -388,6 +388,11 @@ test('Escape returns focus to the marker that opened Discussion', async ({ page 
   await page.keyboard.press('Escape');
   await expect(commentsRegion(page)).toHaveCount(0);
   await expect(marker).toBeFocused();
+  await marker.click();
+  await expect(commentsRegion(page)).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(commentsRegion(page)).toHaveCount(0);
+  await expect(marker).toBeFocused();
 });
 
 test('Escape returns focus to the grouped marker that opened Discussion', async ({ page }) => {

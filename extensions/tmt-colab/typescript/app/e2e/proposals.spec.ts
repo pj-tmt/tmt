@@ -425,7 +425,7 @@ test('a resolved proposal stays unseen until the dock explicitly opens its expan
   expect(await run(page, 'seenProof')).toBe(0);
   await (await pageAction(page.locator('#ask-page-fixture'), 'Comments')).click();
   const panel = commentsRegion(page);
-  await expect(panel.getByTestId('discussion-state')).toHaveText('Resolved by Atlas');
+  await expect(panel.getByTestId('discussion-state')).toHaveText(/^Resolved by Atlas · .+$/);
   await expect(panel.locator('.proposal-body')).toBeVisible();
   await expect(panel.getByRole('tab')).toHaveCount(0);
   expect(await run(page, 'seenProof')).toBe(1);

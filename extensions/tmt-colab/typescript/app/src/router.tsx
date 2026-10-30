@@ -1322,7 +1322,7 @@ function OpenPage({
   } = panels;
   const floatingChat = useRef<HTMLButtonElement>(null);
   const floatingComments = useRef<HTMLButtonElement>(null);
-  const discussionMarkerOpener = useRef<{ id: string | null } | null>(null);
+  const discussionMarkerOpener = useRef<string | null>(null);
   useEffect(() => {
     if (panel !== 'comments') discussionMarkerOpener.current = null;
   }, [panel]);
@@ -1347,7 +1347,7 @@ function OpenPage({
     close();
     if (marker)
       requestAnimationFrame(() => {
-        if (panelsRef.current.panel === null) currentRenderer?.focusThread(marker.id);
+        if (panelsRef.current.panel === null) currentRenderer?.focusThread(marker);
       });
   };
   useDockMotion(dockPanel(panel), panelMode);
@@ -1772,12 +1772,12 @@ function OpenPage({
           (value) => `${value.ref.writer}:${value.threadId}` === id && !value.deleted,
         );
         if (thread) {
-          if (panelsRef.current.panel !== 'comments') discussionMarkerOpener.current = { id };
+          if (panelsRef.current.panel !== 'comments') discussionMarkerOpener.current = id;
           openThread(thread.ref);
         }
       },
-      onOpenList: () => {
-        if (panelsRef.current.panel !== 'comments') discussionMarkerOpener.current = { id: null };
+      onOpenList: (id) => {
+        if (panelsRef.current.panel !== 'comments') discussionMarkerOpener.current = id;
         if (annotationRef.current) closeRef.current(false);
         panelsRef.current.show('comments');
       },

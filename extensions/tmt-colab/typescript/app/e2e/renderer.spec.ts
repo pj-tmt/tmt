@@ -2580,14 +2580,32 @@ test('focus restoration admits only a current rendered thread marker', async ({ 
   const barrier = '00000000-0000-4000-8000-0000000000a2';
   await requestHighlight(page, id, renderId, request, anchors);
   const frame = page.frameLocator(`#${id}`);
+  await page.evaluate((id) => {
+    const bound = (window as unknown as PortWindow)[`port_${id}`]!;
+    const receive = bound.port.onmessage!;
+    const opened: string[] = [];
+    Reflect.set(window, '__scriptOpens', opened);
+    bound.port.onmessage = (event) => {
+      if (
+        event.data?.type === 'colab.render.open-thread' ||
+        event.data?.type === 'colab.render.open-list'
+      )
+        opened.push(event.data.type);
+      receive.call(bound.port, event);
+    };
+  }, id);
   await frame.locator('html').evaluate(() => {
     const events: string[] = [];
+    const messages: string[] = [];
     Reflect.set(window, '__focusThreads', events);
+    Reflect.set(window, '__focusMessages', messages);
+    window.addEventListener('message', (event) => messages.push(String(event.data?.type)));
     document.addEventListener('focusin', (event) => {
       const target = event.target as HTMLElement;
       if (target.dataset.colabThread) events.push(target.dataset.colabThread);
     });
   });
+  await frame.locator('[data-colab-thread="second"]').evaluate((node: HTMLElement) => node.click());
   await sendToFrame(page, id, {
     type: 'colab.render.focus-thread',
     renderId,
@@ -2595,6 +2613,13 @@ test('focus restoration admits only a current rendered thread marker', async ({ 
     id: 'first',
   });
   await expect(frame.locator('[data-colab-thread="first"]')).toBeFocused();
+  await frame.locator('[data-colab-thread="second"]').focus();
+  await sendToFrame(page, id, {
+    type: 'colab.render.focus-thread',
+    renderId,
+    requestId: request,
+    id: 'first',
+  });
   for (const message of [
     { type: 'colab.render.focus-thread', renderId, requestId: barrier, id: 'second' },
     { type: 'colab.render.focus-thread', renderId: 'other', requestId: request, id: 'second' },
@@ -2605,10 +2630,14 @@ test('focus restoration admits only a current rendered thread marker', async ({ 
   ])
     await sendToFrame(page, id, message);
   await requestHighlight(page, id, renderId, barrier, anchors);
+  expect(await page.evaluate(() => Reflect.get(window, '__scriptOpens'))).toEqual([]);
+  expect(
+    await frame.locator('html').evaluate(() => Reflect.get(window, '__focusMessages')),
+  ).toEqual([]);
   expect(await frame.locator('html').evaluate(() => Reflect.get(window, '__focusThreads'))).toEqual(
-    ['first', 'first'],
+    ['first', 'second', 'second'],
   );
-  await expect(frame.locator('[data-colab-thread="first"]')).toBeFocused();
+  await expect(frame.locator('[data-colab-thread="second"]')).toBeFocused();
   await page.evaluate(() => {
     document.body.tabIndex = -1;
     document.body.focus();

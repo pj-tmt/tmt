@@ -2960,15 +2960,16 @@ tall and at least 16 px wide with 4 px inside each end, in the same 24 px target
 shows the bounded quoted text. Comment first-line tooltips stay in parent chrome. A marker posts exactly `type:"colab.render.open-thread"`,
 `renderId`, `requestId`, `id` on the bound port; the parent accepts only a known ID in
 its current highlight request and opens that thread's Discussion view in the Comments panel. A `+n` marker
-posts exactly `type:"colab.render.open-list"`, `renderId`, `requestId`; the parent accepts the
-current render and request only and opens Comments (closing an open annotation
-window). On closing a Discussion opened by a marker, the parent can request focus for the
-current marker with exactly `type:"colab.render.focus-thread"`, `renderId`, `requestId` and
-`id`; for an individual opener the ID must be in the current highlight request, while `null`
-means the last trusted grouped-marker opener. The frame focuses its current marker or the same
-shared `+n` group when present. A missing, detached, changed or stale marker is a no-op. This is
-cosmetic focus restoration and cannot publish, sign or send. The message carries no thread ID; the parent retains its selected
-Discussion or chooses the first matching thread from its verified filter sequence. Forging either view-only
+posts exactly `type:"colab.render.open-list"`, `renderId`, `requestId`, and one current grouped
+thread `id`; the parent admits only a known ID in the current highlight request and opens Comments
+(closing an open annotation window). The ID identifies the opener for focus, not the selected
+Discussion: the parent retains its selection or chooses the first matching thread from its verified
+filter sequence. On closing a Discussion opened by a marker, the parent can request focus with
+exactly `type:"colab.render.focus-thread"`, `renderId`, `requestId` and a known `id`; the frame
+accepts only the current render/request and an ID in its current highlight batch, and focuses its
+current individual or grouped marker when present. Duplicate requests for that ID before the
+next trusted marker or passage activation are ignored. A missing, detached, changed or stale
+marker is a no-op. This cosmetic focus restoration cannot publish, sign or send. Forging either view-only
 action cannot publish, sign or send. The passage of the thread whose anchored window or Discussion view is open
 takes a selected look: the deepest tint (28 %) and a solid 2 px underline in the accent
 (`color.annotation-rule-selected`), above the hover look, and its

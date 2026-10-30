@@ -486,7 +486,7 @@
           const anchorRanges = new Map();
           // The thread ids each lane marker stands for, so the open thread's marker can wear its ring.
           const markerThreads = new WeakMap();
-          let lastOpenedMarkerIds = [];
+          let focusRestoredId = null;
           const readingRanges = new Map();
           const sheet = document.createElement('style');
           // BEGIN GENERATED ANNOTATION TOKENS
@@ -762,6 +762,7 @@
             if (hit) {
               event.preventDefault();
               event.stopImmediatePropagation();
+              focusRestoredId = null;
               port.postMessage({
                 type: 'colab.render.open-thread',
                 renderId,
@@ -1746,11 +1747,11 @@
                   marker.style.cssText = `position:absolute;top:${top - origin.top}px;pointer-events:auto;cursor:pointer`;
                   marker.addEventListener('click', (event) => {
                     if (event.isTrusted) {
-                      lastOpenedMarkerIds = items.map((item) => item.id);
+                      focusRestoredId = null;
                       port.postMessage(
                         items.length === 1
                           ? { type: 'colab.render.open-thread', renderId, requestId, id: only.id }
-                          : { type: 'colab.render.open-list', renderId, requestId },
+                          : { type: 'colab.render.open-list', renderId, requestId, id: only.id },
                       );
                     }
                   });
@@ -2198,17 +2199,18 @@
               v.type === 'colab.render.focus-thread' &&
               v.renderId === renderId &&
               v.requestId === requestId &&
-              ((typeof v.id === 'string' && batch.some((item) => item.id === v.id)) ||
-                (v.id === null && lastOpenedMarkerIds.length > 1))
+              typeof v.id === 'string' &&
+              v.id !== '' &&
+              v.id !== focusRestoredId &&
+              batch.some((item) => item.id === v.id)
             ) {
-              const marker = [...(markers?.children ?? [])].find((node) => {
-                const ids = markerThreads.get(node) ?? [];
-                return v.id === null
-                  ? ids.length === lastOpenedMarkerIds.length &&
-                      ids.every((id) => lastOpenedMarkerIds.includes(id))
-                  : ids.includes(v.id);
-              });
-              marker?.focus({ preventScroll: true });
+              const marker = [...(markers?.children ?? [])].find((node) =>
+                markerThreads.get(node)?.includes(v.id),
+              );
+              if (marker) {
+                focusRestoredId = v.id;
+                marker.focus({ preventScroll: true });
+              }
               return;
             }
             if (
