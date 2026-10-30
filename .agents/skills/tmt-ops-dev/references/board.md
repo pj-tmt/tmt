@@ -29,7 +29,12 @@ not on the alternate screen). The session
 re-sends it (`reassert_mouse`, idempotent) at the end of the turn after a
 resize, regained focus (focus reporting is part of entry), a closed overlay or
 menu, and each periodic refresh (no frame, so an idle board repairs itself; with
-refresh off it relies on the other moments). `terminal::Backend` is ratatui's crossterm backend plus one rule: a frame that
+refresh off it relies on the other moments). A custom root `WheelUpPane` binding
+that tests neither `alternate_on` nor `mouse_any_flag` still sends wheel-up to
+copy-mode, which no re-send repairs: inside tmux, `board::wheel_hint` reads that
+binding once on its own thread (`effects::tmux_root_binding`, `list-keys` only on
+the invoker socket; a slow or failed read stays silent) and, while no other notice
+holds the line, names the tmt-ops skill's "tmux wheel" fix. `terminal::Backend` is ratatui's crossterm backend plus one rule: a frame that
 writes cells hides a visible caret first and shows it again once placed, so
 the input caret never hops over the changed rows. The session loop applies a
 queued burst of wheel steps and pointer moves in order (at most 64, stopping at the

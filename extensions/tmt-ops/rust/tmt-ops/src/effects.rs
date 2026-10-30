@@ -424,6 +424,14 @@ pub fn tmux_passes_hyperlinks(socket: &str) -> bool {
         .is_ok_and(|features| features.split(',').any(|feature| feature == "hyperlinks"))
 }
 
+/// One bounded `list-keys -T root <key>` on the invoker's server, read only: the
+/// root binding's listing. Any failure, a missing tmux or an unbound key is `None`.
+pub fn tmux_root_binding(program: &Path, socket: &str, key: &str) -> Option<String> {
+    tmux(program, socket, &["list-keys", "-T", "root", key], b"")
+        .ok()
+        .filter(|listing| !listing.is_empty())
+}
+
 /// Whether tmux sends Shift+Enter as `CSI 13;2 u` once the board asks for
 /// modifyOtherKeys. The reader parses only that `csi-u` form; tmux's default
 /// `xterm` form (`CSI 27;2;13 ~`) would be dropped, so nothing is requested then.
@@ -755,6 +763,36 @@ if [ -e "$root/fail" ]; then exit 1; fi
                 format!("Copy failed: {cause} (clip)")
             );
         }
+    }
+
+    #[test]
+    fn the_root_binding_is_one_read_only_list_keys_on_the_invoker_socket() {
+        let dir = std::env::temp_dir().join(format!("tmt-ops-tmux-keys-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let fake = dir.join("tmux");
+        let calls = dir.join("calls");
+        // Records "-S <socket> <command>" per call; prints the listing, or fails on demand.
+        let script = format!(
+            "#!/bin/sh\necho \"$*\" >> '{calls}'\n[ -f '{dir}/fail' ] && exit 1\ncat '{dir}/listing'\n",
+            calls = calls.display(),
+            dir = dir.display()
+        );
+        crate::test_support::write_ready_executable(&fake, &script);
+        let listing = "bind-key -T root WheelUpPane copy-mode -e\n";
+        std::fs::write(dir.join("listing"), listing).unwrap();
+        assert_eq!(
+            tmux_root_binding(&fake, "/sock/a", "WheelUpPane").as_deref(),
+            Some(listing.trim())
+        );
+        std::fs::write(dir.join("listing"), "").unwrap();
+        assert_eq!(tmux_root_binding(&fake, "/sock/a", "WheelUpPane"), None);
+        std::fs::write(dir.join("fail"), "").unwrap();
+        assert_eq!(tmux_root_binding(&fake, "/sock/a", "WheelUpPane"), None);
+        assert_eq!(
+            std::fs::read_to_string(&calls).unwrap(),
+            "-S /sock/a list-keys -T root WheelUpPane\n".repeat(3)
+        );
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 
     #[test]
