@@ -2793,6 +2793,10 @@ metadata and settles the adopted original in one Store transaction before publis
 The committed result is `{invitation:{offerId,state:"created",expiresAtMs}}` with
 `sessionEnded:false`; `created` describes the local reservation, never provider delivery
 or completed enrollment. History carries the current phase.
+Create refusals are bounded to `REMOTE_INVITATION_BUSY`, `REMOTE_INVITATION_CAPACITY`,
+`REMOTE_INVITATION_STOPPED`, `REMOTE_INVITATION_UNAVAILABLE`,
+`REMOTE_MANAGEMENT_READ_ONLY` and `REMOTE_INTENT_CONFLICT`; an already-committed
+creation returns that committed original rather than being refused.
 
 Only the first creating response may additionally contain
 `secret:{code:string,link:null|string}`. The code is the unchanged native v2 carrier;
