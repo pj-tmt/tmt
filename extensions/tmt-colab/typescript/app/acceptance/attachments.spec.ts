@@ -485,7 +485,7 @@ test('files added to the page reach another device and a read-only link byte-ide
     await check(second, true);
 
     const reader = await openReaderLink(world, door, readerPath, 'files-reader');
-    await expect(await pageAction(reader.page, 'Files')).toHaveText(`${text.files} 3`, {
+    await expect(await pageAction(reader.page, 'Files')).toHaveAccessibleName(`${text.files} 3`, {
       timeout: 30_000,
     });
     await (await pageAction(reader.page, 'Files')).click();
