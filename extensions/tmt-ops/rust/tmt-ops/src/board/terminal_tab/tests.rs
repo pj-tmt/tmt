@@ -1143,6 +1143,37 @@ fn a_zoomed_watcher_gets_the_whole_room_and_unzoom_gives_the_normal_area_back() 
 }
 
 #[test]
+fn unzoom_while_typing_leaves_no_refit_for_after_typing_ends() {
+    let mut attached = Attached::new(b"hi");
+    text(&attached.app);
+    let normal = window(&attached.app);
+    attached
+        .app
+        .key(key(KeyCode::Char('z'), KeyModifiers::NONE));
+    text(&attached.app);
+    attached.app.terminal.fit_window();
+    let zoomed = window(&attached.app);
+    assert_eq!(attached.peer.expect(), ClientMessage::Resize(zoomed));
+    attached.app.key(key(KeyCode::Enter, KeyModifiers::NONE));
+    assert!(attached.app.terminal.typing());
+    attached.app.toggle_terminal_zoom();
+    text(&attached.app);
+    attached.app.terminal_sync();
+    assert_eq!(
+        attached.peer.expect(),
+        ClientMessage::Resize(normal),
+        "typing keeps the program at the normal area"
+    );
+    attached
+        .app
+        .key(key(KeyCode::Char('\\'), KeyModifiers::CONTROL));
+    assert!(!attached.app.terminal.typing());
+    text(&attached.app);
+    attached.app.terminal_sync();
+    assert!(attached.peer.quiet(), "a watcher asks for nothing more");
+}
+
+#[test]
 fn a_board_resize_while_zoomed_resizes_the_program_both_ways() {
     let mut attached = Attached::new(b"hi");
     attached

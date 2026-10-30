@@ -330,6 +330,8 @@ impl Tab {
     /// began, and again whenever the area changes. After zoom ends it is given the normal area
     /// once. A viewer that only watches, unzoomed, never asks.
     pub(in crate::board) fn fit_window(&mut self) {
+        // Typing fits the window itself and stopping releases it, so no refit is left owed.
+        self.refit &= !self.typing;
         if !self.typing && !self.zoomed && !self.refit {
             return;
         }
