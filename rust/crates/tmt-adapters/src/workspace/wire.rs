@@ -99,6 +99,22 @@ pub fn decode_command(text: &str) -> Option<ExternalCommand> {
     command(&crate::json_document::parse(std::str::from_utf8(&bytes).ok()?).ok()?).ok()
 }
 
+fn identity_value(value: &WorkspaceIdentity) -> Value {
+    json!({"id": value.id, "name": value.name, "lifetime": value.lifetime, "binding": value.binding, "harness": value.harness, "session": value.session, "mode": value.mode, "channel": value.channel})
+}
+fn identity(value: &Value) -> io::Result<WorkspaceIdentity> {
+    Ok(WorkspaceIdentity {
+        id: text(value, "id")?,
+        name: text(value, "name")?,
+        lifetime: text(value, "lifetime")?,
+        binding: text(value, "binding")?,
+        harness: optional_text(value, "harness")?,
+        session: optional_text(value, "session")?,
+        mode: optional_text(value, "mode")?,
+        channel: optional_bool(value, "channel")?,
+    })
+}
+
 pub fn encode(snapshot: &WorkspaceSnapshot) -> io::Result<Vec<u8>> {
     let document = json!({
         "version": VERSION, "capturedAtMs": snapshot.captured_at_ms,
@@ -106,7 +122,7 @@ pub fn encode(snapshot: &WorkspaceSnapshot) -> io::Result<Vec<u8>> {
         "sessions": snapshot.sessions.iter().map(|session| json!({ "id": session.id, "name": session.name, "windows": session.windows.iter().map(|link| json!({ "index": link.index, "window": link.window, "active": link.active })).collect::<Vec<_>>() })).collect::<Vec<_>>(),
         "windows": snapshot.windows.iter().map(|window| json!({ "id": window.id, "name": window.name, "layout": window.layout, "visibleLayout": window.visible_layout, "width": window.width, "height": window.height, "activePane": window.active_pane })).collect::<Vec<_>>(),
         "panes": snapshot.panes.iter().map(|pane| json!({ "id": pane.id, "window": pane.window, "index": pane.index, "left": pane.left, "top": pane.top, "width": pane.width, "height": pane.height, "cwd": pane.cwd,
-            "identity": pane.identity.as_ref().map(|value| json!({"id": value.id, "name": value.name, "lifetime": value.lifetime, "binding": value.binding, "harness": value.harness, "session": value.session, "mode": value.mode, "channel": value.channel})),
+            "identity": pane.identity.as_ref().map(identity_value),
             "command": pane.command.as_ref().map(command_value) })).collect::<Vec<_>>(),
     });
     let bytes = serde_json::to_vec(&document).map_err(io::Error::other)?;
@@ -181,16 +197,7 @@ pub fn decode(bytes: &[u8]) -> io::Result<WorkspaceSnapshot> {
                     cwd: text(value, "cwd")?,
                     identity: match value.get("identity") {
                         Some(Value::Null) => None,
-                        Some(identity) => Some(WorkspaceIdentity {
-                            id: text(identity, "id")?,
-                            name: text(identity, "name")?,
-                            lifetime: text(identity, "lifetime")?,
-                            binding: text(identity, "binding")?,
-                            harness: optional_text(identity, "harness")?,
-                            session: optional_text(identity, "session")?,
-                            mode: optional_text(identity, "mode")?,
-                            channel: optional_bool(identity, "channel")?,
-                        }),
+                        Some(value) => Some(identity(value)?),
                         None => return Err(invalid()),
                     },
                     command: match value.get("command") {
@@ -209,6 +216,51 @@ pub fn decode(bytes: &[u8]) -> io::Result<WorkspaceSnapshot> {
 fn validate(snapshot: &WorkspaceSnapshot) -> io::Result<()> {
     if snapshot.is_consistent() {
         Ok(())
+    } else {
+        Err(invalid())
+    }
+}
+
+/// The built-in host's document names its host, so neither codec admits the other's bytes.
+fn builtin_host() -> tmt_core::host::HostKind {
+    tmt_core::host::HostKind::pty()
+}
+
+pub fn encode_builtin(snapshot: &builtin::BuiltinSnapshot) -> io::Result<Vec<u8>> {
+    let document = json!({
+        "version": VERSION, "host": builtin_host().as_str(), "capturedAtMs": snapshot.captured_at_ms,
+        "members": snapshot.members.iter().map(|member| json!({ "cwd": member.cwd, "identity": identity_value(&member.identity) })).collect::<Vec<_>>(),
+    });
+    let bytes = serde_json::to_vec(&document).map_err(io::Error::other)?;
+    decode_builtin(&bytes)?;
+    Ok(bytes)
+}
+
+pub fn decode_builtin(bytes: &[u8]) -> io::Result<builtin::BuiltinSnapshot> {
+    if bytes.len() > MAX_BYTES {
+        return Err(invalid());
+    }
+    let document = crate::json_document::parse(std::str::from_utf8(bytes).map_err(|_| invalid())?)
+        .map_err(|_| invalid())?;
+    if number(&document, "version")? != VERSION
+        || text(&document, "host")? != builtin_host().as_str()
+    {
+        return Err(invalid());
+    }
+    let snapshot = builtin::BuiltinSnapshot {
+        captured_at_ms: number(&document, "capturedAtMs")?,
+        members: array(&document, "members")?
+            .iter()
+            .map(|value| {
+                Ok(builtin::BuiltinMember {
+                    cwd: optional_text(value, "cwd")?,
+                    identity: identity(value.get("identity").ok_or_else(invalid)?)?,
+                })
+            })
+            .collect::<io::Result<_>>()?,
+    };
+    if snapshot.is_consistent() {
+        Ok(snapshot)
     } else {
         Err(invalid())
     }

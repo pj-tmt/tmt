@@ -12,22 +12,125 @@ mod wire;
 
 use crate::{
     config::{ConfigFiles, ConfigPaths},
-    host::{CallerEnvironment, Host},
+    host::{CallerEnvironment, Host, OperationOptions},
     process::{CommandRunner, UnixCommandRunner, runtime::observe_starts},
     storage::Storage,
 };
 use std::{
     fs, io,
     os::unix::fs::{DirBuilderExt, MetadataExt},
-    path::Path,
+    path::{Path, PathBuf},
     time::{Duration, Instant},
 };
 use tmt_core::{
     endpoint::ServerEvidence,
-    workspace::{ExternalCommand, MAX_BYTES, WorkspaceSnapshot, identity_for_pane},
+    host::HostKind,
+    workspace::{
+        ExternalCommand, MAX_BYTES, WorkspaceSnapshot,
+        builtin::{BuiltinMember, BuiltinSnapshot},
+        generations::WorkspaceGeneration,
+        identity_for_pane,
+    },
 };
 
-pub use wire::{decode, decode_command, encode, encode_command};
+pub use wire::{decode, decode_builtin, decode_command, encode, encode_builtin, encode_command};
+
+/// Which recovery store an operation addresses: one per tmux socket, or the built-in host's.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Store<'a> {
+    Socket(&'a str),
+    Builtin,
+}
+
+impl Store<'_> {
+    pub fn directory(&self, paths: &ConfigPaths) -> PathBuf {
+        match self {
+            Self::Socket(socket) => paths.workspace_directory(socket),
+            Self::Builtin => paths.builtin_workspace_directory(),
+        }
+    }
+}
+
+/// One kind of recovery document. The store's publication, retention and selection are
+/// shared; only the codec, the counts and the shrink rule differ.
+pub trait Recovery: Clone + PartialEq + Sized {
+    /// Whether this capture (`entry`) is a shrink against the baseline generation and its
+    /// document. A shrink never moves the protected baseline.
+    fn shrinks(
+        &self,
+        entry: &WorkspaceGeneration,
+        baseline: &Self,
+        baseline_entry: &WorkspaceGeneration,
+    ) -> bool;
+    fn decode(bytes: &[u8]) -> io::Result<Self>;
+    fn encode(&self) -> io::Result<Vec<u8>>;
+    fn captured_at_ms(&self) -> u64;
+    fn set_captured_at_ms(&mut self, captured_at_ms: u64);
+    /// Panes (built-in members) and distinct annotated identities.
+    fn counts(&self) -> (usize, usize);
+    /// Whether these bytes belong to the store they were read from.
+    fn belongs_to(&self, store: Store<'_>) -> bool;
+    /// The document to publish for this capture against the baseline document.
+    fn against(self, _baseline: &Self) -> Self {
+        self
+    }
+}
+
+impl Recovery for WorkspaceSnapshot {
+    fn shrinks(
+        &self,
+        entry: &WorkspaceGeneration,
+        _: &Self,
+        baseline_entry: &WorkspaceGeneration,
+    ) -> bool {
+        entry.loses_half(baseline_entry)
+    }
+    fn decode(bytes: &[u8]) -> io::Result<Self> {
+        decode(bytes)
+    }
+    fn encode(&self) -> io::Result<Vec<u8>> {
+        encode(self)
+    }
+    fn captured_at_ms(&self) -> u64 {
+        self.captured_at_ms
+    }
+    fn set_captured_at_ms(&mut self, captured_at_ms: u64) {
+        self.captured_at_ms = captured_at_ms;
+    }
+    fn counts(&self) -> (usize, usize) {
+        (self.panes.len(), self.agent_count())
+    }
+    fn belongs_to(&self, store: Store<'_>) -> bool {
+        store == Store::Socket(&self.server.socket)
+    }
+}
+
+impl Recovery for BuiltinSnapshot {
+    fn shrinks(&self, _: &WorkspaceGeneration, baseline: &Self, _: &WorkspaceGeneration) -> bool {
+        !self.covers(baseline)
+    }
+    fn decode(bytes: &[u8]) -> io::Result<Self> {
+        decode_builtin(bytes)
+    }
+    fn encode(&self) -> io::Result<Vec<u8>> {
+        encode_builtin(self)
+    }
+    fn captured_at_ms(&self) -> u64 {
+        self.captured_at_ms
+    }
+    fn set_captured_at_ms(&mut self, captured_at_ms: u64) {
+        self.captured_at_ms = captured_at_ms;
+    }
+    fn counts(&self) -> (usize, usize) {
+        (self.members.len(), self.agent_count())
+    }
+    fn belongs_to(&self, store: Store<'_>) -> bool {
+        store == Store::Builtin
+    }
+    fn against(self, baseline: &Self) -> Self {
+        BuiltinSnapshot::against(self, baseline)
+    }
+}
 pub const CAPTURE_BUDGET: Duration = Duration::from_millis(200);
 /// Includes the subprocess owner's maximum cleanup time.
 pub const HOOK_CAPTURE_BOUND: Duration =
@@ -59,6 +162,14 @@ pub fn publish_event(
     socket: &str,
     capture: impl FnOnce() -> io::Result<WorkspaceSnapshot>,
 ) -> io::Result<bool> {
+    publish_store_event(paths, Store::Socket(socket), capture)
+}
+
+fn publish_store_event<D: Recovery>(
+    paths: &ConfigPaths,
+    store: Store<'_>,
+    capture: impl FnOnce() -> io::Result<D>,
+) -> io::Result<bool> {
     if !(ConfigFiles {
         paths: paths.clone(),
     })
@@ -67,7 +178,139 @@ pub fn publish_event(
     {
         return Ok(false);
     }
-    publish(paths, socket, |_| true, capture)
+    publish(paths, store, |_| true, capture)
+}
+
+/// A built-in launch, binding or lifecycle event. This is what creates the built-in
+/// store: the launcher calls it once its member's marker is committed and ready.
+pub fn capture_builtin_event(paths: &ConfigPaths, deadline: Instant) -> io::Result<bool> {
+    publish_store_event(paths, Store::Builtin, || capture_builtin(paths, deadline))
+}
+
+/// A built-in member stopped or removed on purpose leaves the protected baseline, so the
+/// default restore no longer brings it back; logout, reboot and crashes never call this.
+/// Only an existing store changes. A busy publisher is waited for briefly, since dropping
+/// an explicit stop would restore that member later.
+pub fn forget_builtin_member(paths: &ConfigPaths, identity: &str) -> io::Result<bool> {
+    let directory = paths.builtin_workspace_directory();
+    match fs::symlink_metadata(&directory) {
+        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(false),
+        other => {
+            other?;
+        }
+    }
+    private_directory(&directory)?;
+    let deadline = Instant::now() + Duration::from_secs(1);
+    let _lock = loop {
+        match crate::file_lock::exclusive(&directory.join("publication.lock")) {
+            Ok(lock) => break lock,
+            Err(error)
+                if error.kind() == io::ErrorKind::WouldBlock && Instant::now() < deadline =>
+            {
+                std::thread::sleep(Duration::from_millis(25));
+            }
+            Err(error) => return Err(error),
+        }
+    };
+    let Some(catalogue) = generations::read(&directory)? else {
+        return Ok(false);
+    };
+    let Some(protected) = catalogue.protected() else {
+        return Ok(false);
+    };
+    let baseline = decode_builtin(&generations::acquire::<BuiltinSnapshot>(
+        &directory, protected,
+    )?)?;
+    let Some(next) = baseline.without(identity, crate::request_runtime::wall_time_ms()) else {
+        return Ok(false);
+    };
+    generations::publish_baseline(&directory, &next, catalogue)?;
+    Ok(true)
+}
+
+/// The built-in members whose binding, supervisor and program incarnation agree, as the
+/// tmux capture admits an annotation. Unverified members are left out; nothing is
+/// started, stopped or repaired. A spent budget fails rather than publish a partial set.
+fn capture_builtin(paths: &ConfigPaths, deadline: Instant) -> io::Result<BuiltinSnapshot> {
+    Ok(BuiltinSnapshot {
+        members: live_builtin_members(paths, deadline)?,
+        captured_at_ms: crate::request_runtime::wall_time_ms(),
+    })
+}
+
+/// A built-in preview's input: current durable records for the recorded UUIDs, and the UUIDs
+/// running on the built-in host now. Read only; it grants no restore authority.
+pub fn builtin_plan_input(
+    paths: &ConfigPaths,
+    snapshot: &BuiltinSnapshot,
+    deadline: Instant,
+) -> io::Result<(
+    Vec<tmt_core::workspace::StoredIdentity>,
+    std::collections::HashSet<String>,
+)> {
+    if !paths.database.exists() {
+        return Ok(Default::default());
+    }
+    let ids = snapshot
+        .members
+        .iter()
+        .map(|member| member.identity.id.as_str())
+        .collect::<Vec<_>>();
+    let identities =
+        Storage::workspace_plan_identities(&paths.database, &ids).map_err(io::Error::other)?;
+    let live = live_builtin_members(paths, deadline)?
+        .into_iter()
+        .map(|member| member.identity.id)
+        .collect();
+    Ok((identities, live))
+}
+
+fn live_builtin_members(paths: &ConfigPaths, deadline: Instant) -> io::Result<Vec<BuiltinMember>> {
+    let records = if paths.database.exists() {
+        Storage::builtin_workspace_identities(&paths.database).map_err(io::Error::other)?
+    } else {
+        Vec::new()
+    };
+    let mut members = Vec::new();
+    for binding in records
+        .iter()
+        .filter_map(|record| record.entry.binding.as_ref())
+    {
+        if Instant::now() >= deadline {
+            break;
+        }
+        let Ok(snapshot) = Host::for_server(&binding.server).observe_snapshot(OperationOptions {
+            deadline: Some(deadline),
+            pane_ids: Some(std::slice::from_ref(&binding.pane_id)),
+        }) else {
+            continue;
+        };
+        members.extend(snapshot.panes.iter().filter_map(|pane| {
+            Some(BuiltinMember {
+                cwd: pane.cwd.clone(),
+                identity: identity_for_pane(
+                    &records,
+                    &snapshot.server,
+                    &pane.id,
+                    pane.pane_pid,
+                    pane.pane_incarnation.as_deref(),
+                    pane.marker.as_ref(),
+                )?,
+            })
+        }));
+    }
+    if Instant::now() >= deadline {
+        return Err(io::Error::new(
+            io::ErrorKind::TimedOut,
+            "Workspace budget exhausted.",
+        ));
+    }
+    // Storage order is not recovery content; an unchanged set must compare equal.
+    members.sort_by(|left, right| {
+        (&left.identity.id, &left.identity.binding)
+            .cmp(&(&right.identity.id, &right.identity.binding))
+    });
+    Ok(members)
 }
 
 /// One previous-document read gates optional capture under the publication lock.
@@ -87,31 +330,31 @@ fn publish_refresh(
     }
     publish(
         paths,
-        socket,
+        Store::Socket(socket),
         |previous| tmt_core::workspace::command_refresh_due(previous, now_ms, interval_ms),
         capture,
     )
 }
 
-fn publish(
+fn publish<D: Recovery>(
     paths: &ConfigPaths,
-    socket: &str,
+    store: Store<'_>,
     due: impl FnOnce(Option<u64>) -> bool,
-    capture: impl FnOnce() -> io::Result<WorkspaceSnapshot>,
+    capture: impl FnOnce() -> io::Result<D>,
 ) -> io::Result<bool> {
-    publish_gated(paths, socket, |_| Ok(true), due, capture)
+    publish_gated(paths, store, |_| Ok(true), due, capture)
 }
 
-fn publish_gated(
+fn publish_gated<D: Recovery>(
     paths: &ConfigPaths,
-    socket: &str,
+    store: Store<'_>,
     admit: impl FnOnce(&Path) -> io::Result<bool>,
     due: impl FnOnce(Option<u64>) -> bool,
-    capture: impl FnOnce() -> io::Result<WorkspaceSnapshot>,
+    capture: impl FnOnce() -> io::Result<D>,
 ) -> io::Result<bool> {
     fs::create_dir_all(&paths.global_dir)?;
     private_directory(&paths.global_dir.join("workspace"))?;
-    let directory = paths.workspace_directory(socket);
+    let directory = store.directory(paths);
     private_directory(&directory)?;
     let _lock = match crate::file_lock::exclusive(&directory.join("publication.lock")) {
         Ok(lock) => lock,
@@ -126,7 +369,7 @@ fn publish_gated(
     // even when a separately committed catalogue still permits recovery.
     let legacy = match crate::bounded_file::read_no_follow(&destination, MAX_BYTES) {
         Ok(bytes) => {
-            decode(&bytes)?;
+            D::decode(&bytes)?;
             Some(bytes)
         }
         Err(crate::bounded_file::FileReadError::Io(error))
@@ -138,26 +381,27 @@ fn publish_gated(
     };
     let catalogue = generations::read(&directory)?;
     let previous = match &catalogue {
-        Some(catalogue) => Some(generations::acquire(
+        Some(catalogue) => Some(generations::acquire::<D>(
             &directory,
             catalogue.latest().expect("nonempty catalogue"),
         )?),
         None => legacy,
     };
-    let previous_snapshot = previous.as_ref().map(|bytes| decode(bytes)).transpose()?;
-    let previous_ms = previous_snapshot
+    let previous_snapshot = previous
         .as_ref()
-        .map(|snapshot| snapshot.captured_at_ms);
+        .map(|bytes| D::decode(bytes))
+        .transpose()?;
+    let previous_ms = previous_snapshot.as_ref().map(D::captured_at_ms);
     if !due(previous_ms) {
         return Ok(false);
     }
     let snapshot = capture()?;
-    if snapshot.server.socket != socket {
+    if !snapshot.belongs_to(store) {
         return Err(io::Error::other("Workspace socket changed."));
     }
-    let bytes = encode(&snapshot)?;
+    let bytes = snapshot.encode()?;
     if previous_snapshot.is_some_and(|mut previous| {
-        previous.captured_at_ms = snapshot.captured_at_ms;
+        previous.set_captured_at_ms(snapshot.captured_at_ms());
         previous == snapshot
     }) {
         return Ok(false);
@@ -180,6 +424,9 @@ pub fn capture_event<R: CommandRunner + Clone>(
     caller: Option<&CallerEnvironment>,
     deadline: Instant,
 ) -> io::Result<bool> {
+    if server.is_some_and(|server| server.host == HostKind::pty()) {
+        return capture_builtin_event(paths, deadline);
+    }
     let socket = match server {
         Some(server) => server.socket_path.as_str(),
         None => match caller.and_then(|caller| caller.selected_server_socket().ok().flatten()) {

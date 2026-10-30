@@ -151,6 +151,7 @@ pub struct StoredIdentity {
     pub preferences: SessionPreferences,
 }
 
+pub mod builtin;
 pub mod generations;
 pub mod layout;
 pub mod plan;

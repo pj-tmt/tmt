@@ -1,5 +1,5 @@
 //! Immutable recovery bytes precede the atomic catalogue commit. Pruning follows it.
-use super::{decode, saved};
+use super::{Recovery, saved};
 use crate::bounded_file;
 use std::{
     fs, io,
@@ -9,7 +9,7 @@ use std::{
 use tmt_core::{
     content_digest::sha256,
     workspace::{
-        MAX_BYTES, WorkspaceSnapshot,
+        MAX_BYTES,
         generations::{Catalogue, GenerationId, WorkspaceGeneration},
     },
 };
@@ -132,11 +132,11 @@ pub(super) fn accept(
     crate::private_file::replace(&directory.join(INDEX), &index_bytes(&catalogue)?)?;
     Ok(true)
 }
-pub fn acquire(directory: &Path, entry: &WorkspaceGeneration) -> io::Result<Vec<u8>> {
+pub fn acquire<D: Recovery>(directory: &Path, entry: &WorkspaceGeneration) -> io::Result<Vec<u8>> {
     let filename = path(directory, &entry.id);
     owned_file(&filename)?;
     let bytes = bounded_file::read_no_follow(&filename, MAX_BYTES).map_err(io::Error::other)?;
-    let snapshot = decode(&bytes)?;
+    let snapshot = D::decode(&bytes)?;
     if sha256(&bytes) != entry.id.digest()
         || record(&snapshot, &bytes)
             != (WorkspaceGeneration {
@@ -148,27 +148,28 @@ pub fn acquire(directory: &Path, entry: &WorkspaceGeneration) -> io::Result<Vec<
     }
     Ok(bytes)
 }
-fn record(snapshot: &WorkspaceSnapshot, bytes: &[u8]) -> WorkspaceGeneration {
+fn record<D: Recovery>(snapshot: &D, bytes: &[u8]) -> WorkspaceGeneration {
+    let (panes, agents) = snapshot.counts();
     WorkspaceGeneration {
         id: format!("g:{}", sha256(bytes))
             .parse()
             .expect("sha256 selector"),
-        captured_at_ms: snapshot.captured_at_ms,
-        panes: snapshot.panes.len(),
-        agents: snapshot.agent_count(),
+        captured_at_ms: snapshot.captured_at_ms(),
+        panes,
+        agents,
         shrink: false,
     }
 }
-fn retain_bytes(
+fn retain_bytes<D: Recovery>(
     directory: &Path,
-    snapshot: &WorkspaceSnapshot,
+    snapshot: &D,
     bytes: &[u8],
 ) -> io::Result<WorkspaceGeneration> {
     let entry = record(snapshot, bytes);
     let filename = path(directory, &entry.id);
     match saved::publish_new(&filename, bytes) {
         Ok(()) => (),
-        Err(saved::Error::Exists) if acquire(directory, &entry)? == bytes => (),
+        Err(saved::Error::Exists) if acquire::<D>(directory, &entry)? == bytes => (),
         Err(error) => return Err(io::Error::other(error)),
     }
     Ok(entry)
@@ -176,10 +177,10 @@ fn retain_bytes(
 
 /// Caller owns publication.lock. The catalogue is the one authoritative pointer;
 /// latest.json remains a complete legacy projection, never the retention owner.
-pub(super) fn publish(
+pub(super) fn publish<D: Recovery>(
     directory: &Path,
     previous: Option<&[u8]>,
-    snapshot: &WorkspaceSnapshot,
+    snapshot: &D,
     bytes: &[u8],
     catalogue: Option<Catalogue>,
 ) -> io::Result<()> {
@@ -187,10 +188,10 @@ pub(super) fn publish(
         crate::private_file::replace(&directory.join(INDEX), bytes)
     })
 }
-fn publish_with(
+fn publish_with<D: Recovery>(
     directory: &Path,
     previous: Option<&[u8]>,
-    snapshot: &WorkspaceSnapshot,
+    snapshot: &D,
     bytes: &[u8],
     catalogue: Option<Catalogue>,
     commit: impl FnOnce(&[u8]) -> io::Result<()>,
@@ -202,28 +203,64 @@ fn publish_with(
                 owned_file(&path(directory, &entry.id))?;
             }
             if let Some(protected) = catalogue.protected() {
-                acquire(directory, protected)?;
+                acquire::<D>(directory, protected)?;
             }
             catalogue
         }
         None => {
             let mut catalogue = Catalogue::default();
             if let Some(bytes) = previous {
-                catalogue.append(retain_bytes(directory, &decode(bytes)?, bytes)?);
+                catalogue.append(retain_bytes(directory, &D::decode(bytes)?, bytes)?);
             }
             catalogue
         }
     };
+    let baseline = catalogue
+        .protected()
+        .or_else(|| catalogue.latest())
+        .map(|entry| D::decode(&acquire::<D>(directory, entry)?))
+        .transpose()?;
+    // The document kind may publish a capture merged with its baseline instead (built-in
+    // members started after an unexplained end); tmux always publishes the capture.
+    let merged = match &baseline {
+        Some(baseline) => snapshot.clone().against(baseline),
+        None => snapshot.clone(),
+    };
+    let merged_bytes;
+    let (snapshot, bytes) = if merged == *snapshot {
+        (snapshot, bytes)
+    } else {
+        merged_bytes = merged.encode()?;
+        (&merged, merged_bytes.as_slice())
+    };
     let entry = retain_bytes(directory, snapshot, bytes)?;
-    catalogue.append(entry);
+    catalogue.append_judged(entry, |next, previous| {
+        baseline
+            .as_ref()
+            .is_some_and(|baseline| snapshot.shrinks(next, baseline, previous))
+    });
     commit(&index_bytes(&catalogue)?)?;
     crate::private_file::replace(&directory.join("latest.json"), bytes)?;
-    prune(directory, &catalogue)
+    prune::<D>(directory, &catalogue)
+}
+
+/// Caller owns publication.lock. A document derived from the protected baseline by an
+/// explicit stop or removal becomes the new baseline; it is never judged a shrink.
+pub(super) fn publish_baseline<D: Recovery>(
+    directory: &Path,
+    snapshot: &D,
+    mut catalogue: Catalogue,
+) -> io::Result<()> {
+    let bytes = snapshot.encode()?;
+    catalogue.append_judged(retain_bytes(directory, snapshot, &bytes)?, |_, _| false);
+    crate::private_file::replace(&directory.join(INDEX), &index_bytes(&catalogue)?)?;
+    crate::private_file::replace(&directory.join("latest.json"), &bytes)?;
+    prune::<D>(directory, &catalogue)
 }
 
 /// Only complete, owned files with an exact content-addressed automatic name.
 /// A crash orphan is safe to remove only after a valid index is committed.
-fn prune(directory: &Path, catalogue: &Catalogue) -> io::Result<()> {
+fn prune<D: Recovery>(directory: &Path, catalogue: &Catalogue) -> io::Result<()> {
     for (index, entry) in fs::read_dir(directory)?.enumerate() {
         if index >= 256 {
             return Err(invalid());
@@ -246,7 +283,7 @@ fn prune(directory: &Path, catalogue: &Catalogue) -> io::Result<()> {
         let Ok(bytes) = bounded_file::read_no_follow(&entry.path(), MAX_BYTES) else {
             continue;
         };
-        if sha256(&bytes) == digest && decode(&bytes).is_ok() {
+        if sha256(&bytes) == digest && D::decode(&bytes).is_ok() {
             fs::remove_file(entry.path())?;
         }
     }
@@ -257,6 +294,7 @@ fn prune(directory: &Path, catalogue: &Catalogue) -> io::Result<()> {
 mod tests {
     use super::super::encode;
     use super::*;
+    use tmt_core::workspace::WorkspaceSnapshot;
     #[test]
     fn existing_v1_history_stays_readable_and_trims_only_on_changed_publication() {
         use std::os::unix::fs::MetadataExt;
@@ -319,7 +357,7 @@ mod tests {
         assert_eq!(admitted.entries.len(), 35);
         assert_eq!(admitted.preferred(), Some(&protected_entry));
         assert_eq!(
-            acquire(&directory, admitted.protected().unwrap()).unwrap(),
+            acquire::<WorkspaceSnapshot>(&directory, admitted.protected().unwrap()).unwrap(),
             protected_bytes
         );
         assert_eq!(
@@ -340,11 +378,11 @@ mod tests {
         assert_eq!(trimmed.entries.len(), 6);
         assert_eq!(trimmed.preferred(), Some(&protected_entry));
         assert_eq!(
-            acquire(&directory, trimmed.protected().unwrap()).unwrap(),
+            acquire::<WorkspaceSnapshot>(&directory, trimmed.protected().unwrap()).unwrap(),
             protected_bytes
         );
         for entry in &trimmed.entries {
-            acquire(&directory, entry).unwrap();
+            acquire::<WorkspaceSnapshot>(&directory, entry).unwrap();
         }
         let automatic = fs::read_dir(&directory)
             .unwrap()
@@ -353,7 +391,7 @@ mod tests {
             .count();
         assert_eq!(automatic, 6);
         assert_eq!(
-            acquire(&directory, trimmed.latest().unwrap()).unwrap(),
+            acquire::<WorkspaceSnapshot>(&directory, trimmed.latest().unwrap()).unwrap(),
             encode(&latest).unwrap()
         );
     }
@@ -382,7 +420,7 @@ mod tests {
         assert_eq!(fs::read(directory.join(INDEX)).unwrap(), index);
         let current = read(directory).unwrap().unwrap();
         assert_eq!(
-            acquire(directory, current.latest().unwrap()).unwrap(),
+            acquire::<WorkspaceSnapshot>(directory, current.latest().unwrap()).unwrap(),
             bytes
         );
         assert_eq!(fs::read(directory.join("latest.json")).unwrap(), bytes);
@@ -414,7 +452,7 @@ mod tests {
 
 #[cfg(test)]
 mod crash_tests {
-    use super::super::encode;
+    use super::super::{decode, encode};
     use super::*;
     use crate::test_support::{TestChild, TestDirectory};
     use std::{
@@ -423,6 +461,7 @@ mod crash_tests {
         process::{Command, Stdio},
         time::Duration,
     };
+    use tmt_core::workspace::WorkspaceSnapshot;
     const ROOT: &str = "TMT_WORKSPACE_CRASH_ROOT";
     const MODE: &str = "TMT_WORKSPACE_CRASH_MODE";
     fn barrier(directory: &Path) {
@@ -518,10 +557,12 @@ mod crash_tests {
             assert_eq!(status.signal(), Some(9));
             let catalogue = read(&root.path).unwrap().unwrap();
             for entry in &catalogue.entries {
-                acquire(&root.path, entry).unwrap();
+                acquire::<WorkspaceSnapshot>(&root.path, entry).unwrap();
             }
-            let latest =
-                decode(&acquire(&root.path, catalogue.latest().unwrap()).unwrap()).unwrap();
+            let latest = decode(
+                &acquire::<WorkspaceSnapshot>(&root.path, catalogue.latest().unwrap()).unwrap(),
+            )
+            .unwrap();
             assert_eq!(
                 latest.windows[0].name,
                 if mode == "committed-index" {
@@ -545,7 +586,7 @@ mod crash_tests {
             )
             .unwrap();
             for entry in &read(&root.path).unwrap().unwrap().entries {
-                acquire(&root.path, entry).unwrap();
+                acquire::<WorkspaceSnapshot>(&root.path, entry).unwrap();
             }
         }
     }

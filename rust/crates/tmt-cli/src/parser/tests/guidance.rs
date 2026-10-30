@@ -41,6 +41,7 @@ fn workspace_restore_defaults_to_revival_and_has_no_provider_flags() {
             name: None,
             expect: None,
             socket: Some("/tmp/exact".into()),
+            builtin: false,
             layout_only: true
         }
     );
@@ -50,6 +51,7 @@ fn workspace_restore_defaults_to_revival_and_has_no_provider_flags() {
             name: None,
             expect: None,
             socket: None,
+            builtin: false,
             layout_only: true
         }
     );
@@ -59,6 +61,7 @@ fn workspace_restore_defaults_to_revival_and_has_no_provider_flags() {
             name: None,
             expect: None,
             socket: None,
+            builtin: false,
             layout_only: false
         }
     );
@@ -73,15 +76,48 @@ fn workspace_restore_defaults_to_revival_and_has_no_provider_flags() {
 }
 
 #[test]
+fn workspace_host_pty_selects_the_built_in_store_and_excludes_a_socket() {
+    assert_eq!(
+        parsed(&["workspace", "ls", "--host", "pty"]).invocation,
+        Invocation::WorkspaceList {
+            socket: None,
+            builtin: true
+        }
+    );
+    assert_eq!(
+        parsed(&["workspace", "save", "work-1", "--host", "pty"]).invocation,
+        Invocation::WorkspaceSave {
+            socket: None,
+            builtin: true,
+            name: "work-1".parse().unwrap()
+        }
+    );
+    for args in [
+        vec!["workspace", "ls", "--host", "pty", "--socket", "/tmp/exact"],
+        vec!["workspace", "show", "--host", "tmux"],
+        vec!["workspace", "show", "--host", "herdr"],
+    ] {
+        assert_eq!(parse_error(&args).code, "USAGE_ERROR", "{args:?}");
+    }
+}
+
+#[test]
 fn workspace_snapshot_selection_and_digest_are_parsed_before_effects() {
     let name = "work-1".parse().unwrap();
     assert_eq!(
         parsed(&["workspace", "save", "work-1"]).invocation,
-        Invocation::WorkspaceSave { socket: None, name }
+        Invocation::WorkspaceSave {
+            socket: None,
+            builtin: false,
+            name
+        }
     );
     assert_eq!(
         parsed(&["workspace", "ls"]).invocation,
-        Invocation::WorkspaceList { socket: None }
+        Invocation::WorkspaceList {
+            socket: None,
+            builtin: false
+        }
     );
     assert_eq!(
         parsed(&["workspace", "list"]).invocation,
@@ -91,6 +127,7 @@ fn workspace_snapshot_selection_and_digest_are_parsed_before_effects() {
         parsed(&["workspace", "show", "work-1"]).invocation,
         Invocation::WorkspaceShow {
             socket: None,
+            builtin: false,
             name: Some("work-1".parse().unwrap())
         }
     );
@@ -99,6 +136,7 @@ fn workspace_snapshot_selection_and_digest_are_parsed_before_effects() {
         parsed(&["workspace", "restore", "work-1", "--expect", &digest]).invocation,
         Invocation::WorkspaceRestore {
             socket: None,
+            builtin: false,
             name: Some("work-1".parse().unwrap()),
             expect: Some(digest),
             layout_only: false

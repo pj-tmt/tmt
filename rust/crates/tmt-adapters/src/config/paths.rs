@@ -49,6 +49,12 @@ impl ConfigPaths {
             .join(tmt_core::content_digest::sha256(socket.as_bytes()))
     }
 
+    /// The built-in host's recovery store. Its fixed name never collides with a
+    /// socket directory, which is always 64 hexadecimal digits.
+    pub fn builtin_workspace_directory(&self) -> PathBuf {
+        self.global_dir.join("workspace").join("pty")
+    }
+
     /// Disposable, private per-provider session restart advisory markers.
     pub fn hook_notice_directory(&self) -> PathBuf {
         self.global_dir.join("hook-notices")

@@ -191,7 +191,7 @@ nothing.
 The [grammar](rust/crates/tmt-cli/src/grammar.rs) owns primary names, aliases and
 the public help surface; core reserves its names before external dispatch.
 Core owns [workspace geometry/codecs](contracts/workspace-v1.md#restore-authority) and generations; adapters, atomic publication/fenced
-creation; CLI, consent/output. Restore pins bytes; full restore uses ordinary
+creation; CLI, consent/output. The built-in host's store records running members ([built-in snapshots](contracts/workspace-v1.md#built-in-host-snapshots)). Restore pins bytes; full restore uses ordinary
 resume/external dispatch in created panes. Layout-only grants no launch authority.
 One typed result serves human and JSON output; `identity show`
 without a name uses the shared verified-caller selector and never falls back to
@@ -581,7 +581,7 @@ Hosted links reuse Remote's SDK, joined interests and Colab admission/own sealin
   This contains author code; page self-navigation can still leak a request.
 - **Attachments.** [Grammar](extensions/tmt-colab/contracts/attachment-v1.md) and [staging](extensions/tmt-colab/contracts/colab-v1.md#native-attach-command-2291) use crypto, authenticated cuts, fold metadata and Saves.
   The mount-owned object adapter joins generation-scoped callbacks, original uploads, committed reads and detached history; root-local reads need an established channel.
-  Remote owns backend/quota/origin; Colab owns crypto/admission. Remote declares Colab Local; snapshot/retained-reference persistence remain planned in the [storage proposal](extensions/tmt-colab/contracts/storage-v1-proposal.md).
+  Remote owns backend/quota/origin; Colab owns crypto/admission. Remote declares Colab Local; snapshot/retained-reference persistence remains planned in the [storage proposal](extensions/tmt-colab/contracts/storage-v1-proposal.md).
 - **Firestore admission.** Hidden `tmt colab deploy-declaration --json`; the [declaration subsection](extensions/tmt-colab/contracts/colab-v1.md#firestore-deployment-declaration) owns admission and codecs. Hosted folds verify log anchors before checkpoint pairs. ([native opening](.agents/skills/tmt-colab/references/architecture-state.md#native-opening-and-admission))
 - **Plaintext.** Source, shell, discussion reads and export are root-local: only the isolated decoder
   child decodes Yjs, no browser route serves plaintext (bar owner-only local titles in `/api/pages`; [detail](.agents/skills/tmt-colab/references/architecture-state.md#native-opening-and-admission)), and the Worker is resource

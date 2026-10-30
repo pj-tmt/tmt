@@ -8,7 +8,11 @@ use std::io::{self, Write};
 use tmt_adapters::{
     config::ConfigPaths,
     host::{CallerEnvironment, Host},
-    workspace::saved,
+    workspace::{Store, saved},
+};
+use tmt_core::{
+    host::HostKind,
+    workspace::{WorkspaceSnapshot, builtin::BuiltinSnapshot},
 };
 
 pub fn eligible(invocation: &Invocation) -> bool {
@@ -57,14 +61,30 @@ fn entry(entry: &saved::SnapshotEntry) -> serde_json::Value {
 
 pub fn execute(invocation: &Invocation, mode: OutputMode) -> io::Result<u8> {
     match invocation {
-        Invocation::WorkspaceShow { socket, name } => {
+        Invocation::WorkspaceShow {
+            socket,
+            builtin,
+            name,
+        } => {
+            if *builtin {
+                return crate::workspace_show_command::execute_builtin(name.as_ref(), mode);
+            }
             return crate::workspace_show_command::execute(socket.as_deref(), name.as_ref(), mode);
+        }
+        Invocation::WorkspaceRestore { builtin: true, .. } => {
+            return Failure::new(
+                "WORKSPACE_HOST_UNSUPPORTED",
+                "Restoring built-in members is not available yet; tmt workspace show --host pty previews them.",
+                1,
+            )
+            .publish(mode);
         }
         Invocation::WorkspaceRestore {
             socket,
             name,
             expect,
             layout_only,
+            ..
         } => {
             return crate::workspace_restore_command::execute(
                 socket.as_deref(),
@@ -77,29 +97,52 @@ pub fn execute(invocation: &Invocation, mode: OutputMode) -> io::Result<u8> {
         _ => (),
     }
     let outcome: Result<_, Failure> = (|| {
-        let (socket, name, unavailable) = match invocation {
-            Invocation::WorkspaceSave { socket, name } => {
-                (socket, Some(name), "WORKSPACE_SAVE_UNAVAILABLE")
+        let (socket, builtin, name, unavailable) = match invocation {
+            Invocation::WorkspaceSave {
+                socket,
+                builtin,
+                name,
+            } => (socket, *builtin, Some(name), "WORKSPACE_SAVE_UNAVAILABLE"),
+            Invocation::WorkspaceRemove {
+                socket,
+                builtin,
+                name,
+            } => (socket, *builtin, Some(name), "WORKSPACE_REMOVE_UNAVAILABLE"),
+            Invocation::WorkspaceList { socket, builtin } => {
+                (socket, *builtin, None, "WORKSPACE_LIST_UNAVAILABLE")
             }
-            Invocation::WorkspaceRemove { socket, name } => {
-                (socket, Some(name), "WORKSPACE_REMOVE_UNAVAILABLE")
-            }
-            Invocation::WorkspaceList { socket } => (socket, None, "WORKSPACE_LIST_UNAVAILABLE"),
             _ => unreachable!("workspace commands only"),
         };
-        let (paths, socket, _) = context(socket.as_deref())?;
-        let mut document = serde_json::json!({"version":1,"socket":socket});
+        // The built-in store needs no host or socket: its members are read only by capture.
+        let (paths, socket) = if builtin {
+            (ConfigPaths::discover().map_err(Failure::from)?, None)
+        } else {
+            let (paths, socket, _) = context(socket.as_deref())?;
+            (paths, Some(socket))
+        };
+        let store = socket.as_deref().map_or(Store::Builtin, Store::Socket);
+        let mut document = match &socket {
+            Some(socket) => {
+                serde_json::json!({"version":1,"host":HostKind::Tmux.as_str(),"socket":socket})
+            }
+            None => serde_json::json!({"version":1,"host":HostKind::pty().as_str()}),
+        };
         let human = match invocation {
             Invocation::WorkspaceSave { .. } => {
-                let saved = saved::save(&paths, &socket, name.expect("save name"))
-                    .map_err(|error| failure(error, unavailable, false))?;
+                let name = name.expect("save name");
+                let saved = if builtin {
+                    saved::save::<BuiltinSnapshot>(&paths, store, name)
+                } else {
+                    saved::save::<WorkspaceSnapshot>(&paths, store, name)
+                }
+                .map_err(|error| failure(error, unavailable, false))?;
                 document
                     .as_object_mut()
                     .expect("object")
                     .extend(entry(&saved).as_object().expect("entry object").clone());
                 format!(
                     "Saved workspace {:?} (captured {}).",
-                    name.expect("save name").as_str(),
+                    name.as_str(),
                     tmt_cli_style::value::relative_time(
                         tmt_adapters::request_runtime::wall_time_ms()
                             .saturating_sub(saved.captured_at_ms)
@@ -108,20 +151,31 @@ pub fn execute(invocation: &Invocation, mode: OutputMode) -> io::Result<u8> {
             }
             Invocation::WorkspaceRemove { .. } => {
                 let name = name.expect("remove name");
-                saved::remove(&paths, &socket, name)
-                    .map_err(|error| failure(error, unavailable, false))?;
+                if builtin {
+                    saved::remove::<BuiltinSnapshot>(&paths, store, name)
+                } else {
+                    saved::remove::<WorkspaceSnapshot>(&paths, store, name)
+                }
+                .map_err(|error| failure(error, unavailable, false))?;
                 document["name"] = name.as_str().into();
                 document["removed"] = true.into();
                 format!("Removed workspace {:?}.", name.as_str())
             }
             Invocation::WorkspaceList { .. } => {
-                let entries = saved::list_snapshots(&paths, &socket)
-                    .map_err(|error| failure(error, unavailable, false))?;
+                let entries = if builtin {
+                    saved::list_snapshots::<BuiltinSnapshot>(&paths, store)
+                } else {
+                    saved::list_snapshots::<WorkspaceSnapshot>(&paths, store)
+                }
+                .map_err(|error| failure(error, unavailable, false))?;
                 document["snapshots"] = entries.iter().map(entry).collect::<Vec<_>>().into();
-                let mut lines = vec![format!("Workspace snapshots on {socket}:")];
+                let mut lines = vec![match &socket {
+                    Some(socket) => format!("Workspace snapshots on {socket}:"),
+                    None => "Built-in member snapshots:".to_owned(),
+                }];
                 for saved in entries {
                     lines.push(format!(
-                        "  {} (captured {}; {} panes, {} agents{})",
+                        "  {} (captured {}; {} {}, {} agents{})",
                         saved
                             .name
                             .as_ref()
@@ -136,6 +190,7 @@ pub fn execute(invocation: &Invocation, mode: OutputMode) -> io::Result<u8> {
                                 .saturating_sub(saved.captured_at_ms)
                         ),
                         saved.panes,
+                        if builtin { "members" } else { "panes" },
                         saved.agents,
                         if saved.protected {
                             ", protected"
@@ -168,3 +223,12 @@ pub fn execute(invocation: &Invocation, mode: OutputMode) -> io::Result<u8> {
     }
     Ok(0)
 }
+
+#[cfg(test)]
+pub(crate) const PRINTED_HINTS: &[crate::cli_style_tests::HintSpec] = &[
+    crate::cli_style_tests::HintSpec::core(
+        "Restoring built-in members is not available yet; tmt workspace show --host pty previews them.",
+        &[" previews them."],
+        &[],
+    ),
+];

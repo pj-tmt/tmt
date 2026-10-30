@@ -890,10 +890,21 @@ pub(super) fn run_bound(
         binding,
         Instant::now() + Duration::from_secs(1),
     );
-    if startup_live && let Err(error) = host.notify_launch_ready(binding) {
-        diagnostic(&format!(
-            "the agent was launched, but its background readiness receipt failed: {error}"
-        ));
+    if startup_live {
+        match host.notify_launch_ready(binding) {
+            Err(error) => diagnostic(&format!(
+                "the agent was launched, but its background readiness receipt failed: {error}"
+            )),
+            // A built-in member first becomes recoverable here, with its marker committed
+            // and ready. This event, not the backstop, creates the built-in store.
+            Ok(()) if host.kind() == tmt_core::host::HostKind::pty() => {
+                let _ = tmt_adapters::workspace::capture_builtin_event(
+                    paths,
+                    Instant::now() + tmt_adapters::workspace::CAPTURE_BUDGET,
+                );
+            }
+            Ok(()) => (),
+        }
     }
     // Only committed observations reach hooks, with SQLite closed before any
     // subscriber runs. A fast exit emits both events without persisting Running.

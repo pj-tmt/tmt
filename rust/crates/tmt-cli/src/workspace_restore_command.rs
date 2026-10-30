@@ -412,7 +412,13 @@ pub fn execute(
     let outcome: Result<_, Failure> = (|| {
         let (paths, socket, host) = context?;
         let document =
-            workspace::saved::acquire_selected(&paths, &socket, name, expect).map_err(|error| {
+            workspace::saved::acquire_selected::<tmt_core::workspace::WorkspaceSnapshot>(
+                &paths,
+                workspace::Store::Socket(&socket),
+                name,
+                expect,
+            )
+            .map_err(|error| {
                 crate::workspace_snapshot_command::failure(
                     error,
                     "WORKSPACE_RESTORE_UNAVAILABLE",
@@ -535,7 +541,7 @@ pub fn execute(
             && let Some(selected) = accepted_generation
             && let Err(error) = workspace::saved::accept_generation(
                 &paths,
-                &socket,
+                workspace::Store::Socket(&socket),
                 &selected,
                 document.baseline.as_ref().map(|generation| &generation.id),
             )

@@ -183,6 +183,11 @@ fn stop(
     } else {
         Outcome::AlreadyEnded
     };
+    // Stopped on purpose, so the default built-in restore no longer brings it back.
+    // Advisory: the stop already happened and keeps its result.
+    if old.server.host == tmt_core::host::HostKind::pty() {
+        let _ = tmt_adapters::workspace::forget_builtin_member(paths, &identity.id);
+    }
     // The pane is closed only after the stop succeeded or the agent had already
     // ended, on a fresh host session so the stop's wait does not eat its budget.
     let pane = if !close {

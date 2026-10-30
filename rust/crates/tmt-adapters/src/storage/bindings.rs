@@ -670,6 +670,14 @@ impl Storage {
         workspace_projection(path, "b.socket_path = ?", &[socket])
     }
 
+    /// Unretired identities bound on the built-in host, read only. A missing database is
+    /// handled by the caller; this never creates one.
+    pub fn builtin_workspace_identities(
+        path: &std::path::Path,
+    ) -> Result<Vec<tmt_core::workspace::StoredIdentity>, StorageError> {
+        workspace_projection(path, "b.transport = ?", &[HostKind::pty().as_str()])
+    }
+
     /// Resolve exact snapshot UUIDs, including saved identities now unbound.
     /// A missing database is handled by the caller; this never creates one.
     pub fn workspace_plan_identities(
