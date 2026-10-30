@@ -278,28 +278,21 @@ impl State {
             ))
         }))
     }
+    /// A plain row's member names and bare web links, from one cached entry.
     fn plain(
         &mut self,
         text: &str,
         look: crate::look::Look,
         inventory: &Inventory,
-    ) -> std::rc::Rc<[Resolved]> {
+    ) -> (std::rc::Rc<[Resolved]>, std::rc::Rc<[Range<usize>]>) {
         let entry = self.cached(text, usize::MAX, look, inventory);
-        std::rc::Rc::clone(
+        let resolved = std::rc::Rc::clone(
             entry
                 .resolved
                 .get_or_insert_with(|| resolve(text, inventory).into()),
-        )
-    }
-    /// The bare web links of a plain row's complete text, cached with its member names.
-    fn plain_urls(
-        &mut self,
-        text: &str,
-        look: crate::look::Look,
-        inventory: &Inventory,
-    ) -> std::rc::Rc<[Range<usize>]> {
-        let entry = self.cached(text, usize::MAX, look, inventory);
-        std::rc::Rc::clone(entry.urls.get_or_insert_with(|| bare_urls(text).into()))
+        );
+        let urls = std::rc::Rc::clone(entry.urls.get_or_insert_with(|| bare_urls(text).into()));
+        (resolved, urls)
     }
     pub(super) fn move_pointer(&mut self, point: ratatui::layout::Position, active: bool) -> bool {
         let next = active
@@ -916,7 +909,7 @@ pub(super) fn paint_plain_hits(
     displayed: &str,
     reader: bool,
 ) {
-    let resolved = app
+    let (resolved, urls) = app
         .member_links
         .borrow_mut()
         .plain(source, app.look(), &app.references);
@@ -940,10 +933,6 @@ pub(super) fn paint_plain_hits(
     }
     // A bare web link opens its complete source address; when the row is cut, only its
     // painted part is the hit.
-    let urls = app
-        .member_links
-        .borrow_mut()
-        .plain_urls(source, app.look(), &app.references);
     for (index, range) in urls.iter().enumerate() {
         let before = &source[..range.start];
         let Some(start) = displayed.find(before) else {
