@@ -1864,7 +1864,31 @@ describe('Claude channel delivery', { concurrent: false }, () => {
           expect((await fixture.runJsonCli(['rename', name, renamed])).code).toBe(0);
           expect(identityId(fixture, renamed)).toBe(id);
           fs.appendFileSync(transcript, records.slice(1).join('\n') + '\n');
-          fs.writeFileSync(`${worker.log}.stop-turn`, '');
+          // A held main writer keeps the queued Stop unapplied. Keep this short:
+          // the mock's acknowledgment wait gives up after 5 s.
+          const writer = new Database(path.join(fixture.globalDir, 'tmt.db'));
+          try {
+            writer.exec('BEGIN IMMEDIATE');
+            fs.writeFileSync(`${worker.log}.stop-turn`, '');
+            await waitForEvent(fixture, worker, 'stop-hook-exited');
+            const queue = new Database(path.join(fixture.globalDir, 'hook-writes.db'), {
+              readonly: true,
+              fileMustExist: true,
+            });
+            try {
+              const pending = queue.prepare('SELECT count(*) AS n FROM hook_writes').get() as {
+                n: number;
+              };
+              expect(pending.n).toBeGreaterThan(0);
+            } finally {
+              queue.close();
+            }
+            // Hook exit is not application: this fails if the mock stops waiting.
+            expect(named(worker, 'turn-recorded')).toEqual([]);
+          } finally {
+            if (writer.inTransaction) writer.exec('ROLLBACK');
+            writer.close();
+          }
           await waitForEvent(fixture, worker, 'turn-recorded');
           const observed = await listed();
           expect(observed.name).toBe(renamed);
