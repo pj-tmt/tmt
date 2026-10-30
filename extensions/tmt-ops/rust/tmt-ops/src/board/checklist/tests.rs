@@ -897,3 +897,27 @@ fn down_past_the_last_row_reaches_the_chips_and_up_returns() {
     c.input(&key(KeyCode::Up), None);
     assert_eq!(c.focus, 0);
 }
+#[test]
+fn reopen_keeps_the_chosen_form_action_when_discard_joins_the_rows() {
+    let f = Fixture::new();
+    let mut c = controller(&f);
+    c.screen = Screen::Form;
+    c.draft = Some(forms::Draft::create(
+        c.preview.as_ref().unwrap(),
+        (id(CHECKLIST), id(ITEM)),
+    ));
+    render(&c, 120, 30);
+    c.panel.borrow_mut().select("apply");
+    c.input(&key(KeyCode::Esc), None);
+    assert!(!c.active);
+    // The App reopen marks a hidden Form as reopened; Discard joins after Back.
+    c.form_reopened = true;
+    c.active = true;
+    render(&c, 120, 30);
+    assert!(c.choice_rows().iter().any(|row| row.id == "discard"));
+    assert_eq!(
+        c.panel.borrow().picker.list.selected(),
+        Some("apply"),
+        "rows are chosen by id, so Discard does not take the cursor"
+    );
+}

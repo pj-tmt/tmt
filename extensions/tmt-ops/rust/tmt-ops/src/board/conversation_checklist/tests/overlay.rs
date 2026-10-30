@@ -1637,3 +1637,27 @@ fn a_kept_draft_reopens_with_discard_reached_by_arrows() {
         "Discard drops the kept draft"
     );
 }
+
+#[test]
+fn reopen_keeps_the_focused_field_when_the_discard_line_appears() {
+    let (mut app, key) = opened(vec![]);
+    press(&mut app, KeyCode::Char('a'));
+    type_text(&mut app, "half");
+    press(&mut app, KeyCode::Down);
+    assert_eq!(app.notes.draft(&key).unwrap().field(), Some(1), "on Link");
+    press(&mut app, KeyCode::Esc);
+    app.open_notes();
+    let draft = app.notes.draft(&key).unwrap();
+    assert!(draft.reopened);
+    assert_eq!(
+        draft.field(),
+        Some(1),
+        "still on Link: Discard follows the fields"
+    );
+    assert!(!draft.on_discard());
+    assert_ne!(
+        press(&mut app, KeyCode::Enter),
+        Effect::None,
+        "Enter saves; it never discards"
+    );
+}
