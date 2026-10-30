@@ -119,10 +119,7 @@ fn frozen_operation_names_the_whole_confirm_and_survives_changed_selection() {
         let mut cancel = review(kind, operation.clone());
         draw(&cancel, 160, 36);
         assert_eq!(key(&mut cancel, KeyCode::Enter), Effect::None);
-        assert!(
-            cancel.workspace_form.is_none(),
-            "initial Enter cancels {expected}"
-        );
+        assert!(hidden(&cancel), "initial Enter cancels {expected}");
         for width in [60, 100, 160] {
             let mut app = review(kind, operation.clone());
             let buffer = draw(&app, width, 36);
@@ -382,7 +379,7 @@ fn remove_member_is_copy_only_cancel_default_and_frozen_to_the_displayed_name() 
     };
     assert!(text.ends_with("tmt rm --force -- worker"));
     assert_eq!(key(&mut app, KeyCode::Enter), Effect::None);
-    assert!(app.workspace_form.is_none(), "initial Enter cancels");
+    assert!(hidden(&app), "initial Enter cancels");
 }
 
 #[test]
@@ -406,11 +403,14 @@ fn removal_quoting_is_literal_and_never_leaks_into_other_scopes() {
     };
     assert!(text.ends_with("'worker'\\''s-name'"));
     key(&mut app, KeyCode::Esc);
-    assert!(app.workspace_form.is_none());
+    assert!(hidden(&app));
     app.shell.tab = OpsTab::Digest;
     assert!(!app.bindings().values().any(|a| a.text == "remove-member"));
     app.workspace_begin(Kind::RemoveMember);
-    assert!(app.workspace_form.is_none());
+    assert!(
+        hidden(&app),
+        "the kept draft does not reopen outside the Agents list"
+    );
     app.shell.tab = OpsTab::Agents;
     app.focus = 1;
     assert!(!app.bindings().values().any(|a| a.text == "remove-member"));
@@ -448,6 +448,7 @@ pub(in crate::board) const CRUD_SCENES: &[&str] = &[
     "crud-squad",
     "crud-pool",
     "crud-rename-fields",
+    "crud-rename-reopened",
     "crud-rename-review",
     "crud-rename-pending",
     "crud-rename-success",
@@ -497,6 +498,15 @@ pub(in crate::board) fn crud_capture_case(scene: &str, look: crate::look::Look) 
         }
         "crud-leave-squad" => {
             app.workspace_begin(Kind::Remove);
+        }
+        // A kept Rename draft opened again: its title names the agent and Discard joins Cancel.
+        // The fixture has one agent, so it reopens from the same row; the title rule holds on
+        // every reopen.
+        "crud-rename-reopened" => {
+            app.workspace_begin(Kind::RenameMember);
+            app.input.as_mut().unwrap().text = "worker-tw".into();
+            key(&mut app, KeyCode::Esc);
+            app.workspace_begin(Kind::RenameMember);
         }
         scene if scene.starts_with("crud-rename-") => {
             app.workspace_begin(Kind::RenameMember);

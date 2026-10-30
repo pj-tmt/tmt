@@ -1033,8 +1033,14 @@ impact. Non-destructive reviews open on the apply button, so Enter applies what 
 reviewed; Leave squad and Remove member open on Cancel. ←→ move between Cancel and
 Apply, ↑↓ and the page keys read, and Tab does nothing. Clipped or stale Apply controls
 cannot submit. Pending prevents repeated applies.
+Esc, Cancel or a click outside hides a management form and keeps what you typed or
+reviewed; the same key reopens it, titled with its target, with Discard beside Cancel to
+drop it. ↓ past a field's last line reaches those buttons, ←→ move between them and ↑
+goes back. Member actions reopen only from the Agents list. One draft is kept at a time:
+starting a different management form drops it, and the status line says
+`Dropped the kept <form> draft.`
 Results retain per-item success/failure and explicit repair guidance, with no
-automatic retry. `x` removes membership, not an identity, process, draft or history.
+automatic retry; Enter or Esc closes a result. `x` removes membership, not an identity, process, draft or history.
 Source timers pause before leave; re-add/reassign never resumes them. Explicit
 Resume is separate.
 
@@ -1312,7 +1318,8 @@ when disabled; Common pool has no setting. Hover highlights the editable cell. C
 press `i` on a squad or member, to open `Idle alert · <squad>`. A flat-list member in several
 squads first chooses one. Authored bindings take precedence. Use On/Off chips, type After or
 choose 15m/30m/1h/2h; ↑↓ changes rows and ←→ changes choices. The dialog previews who would
-no longer count as over. Invalid times refuse Save; Esc/Cancel changes nothing. Esc during a save hides the dialog;
+no longer count as over. Invalid times refuse Save; Esc/Cancel saves nothing and keeps an
+unsaved change, which the same key reopens with Discard to drop it. Esc during a save hides the dialog;
 the save goes on and the status line shows its result and the key that reopens it. Save uses the
 same settings writer as Settings, After first and then Alert. If only After saves, the dialog
 reports `After saved, Alert not changed` and keeps the draft. Settings remains available through

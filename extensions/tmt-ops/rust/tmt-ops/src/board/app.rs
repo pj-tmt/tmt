@@ -3817,30 +3817,14 @@ impl App {
             self.overlay_focus.close();
             return None;
         };
-        let mut id = overlay.id();
-        if overlay == Overlay::Workspace
-            && let Some(draft) = &self.workspace_form
-        {
-            id.push(draft.stage_id());
-        }
+        let id = overlay.id();
         let mut focus = std::mem::take(&mut self.overlay_focus);
         if focus.overlay() != Some(&id) {
             focus.reconcile_base(vec![vec![self.focused().title().into()]]);
-            let fields = match overlay {
-                Overlay::Workspace => self
-                    .workspace_form
-                    .as_ref()
-                    .map_or_else(Vec::new, |draft| draft.focus_fields()),
-                Overlay::Theme => vec![vec!["theme-picker".into(), "choices".into()]],
-                Overlay::Panels => vec![vec!["panels-picker".into(), "choices".into()]],
-                Overlay::Settings => vec![vec!["settings".into(), "content".into()]],
-                Overlay::CronList => vec![vec!["cron-list".into(), "choices".into()]],
-                _ => vec![],
-            };
-            focus.open(id, fields);
+            focus.open(id);
         }
-        let routed = route(&mut focus, event, |field, event| {
-            self.overlay_input(overlay, field, event)
+        let routed = route(&mut focus, event, |_, event| {
+            self.overlay_input(overlay, event)
         });
         // Applying a close must never replay this event into the restored base.
         if self.overlay() != Some(overlay) {
@@ -3924,15 +3908,10 @@ impl App {
         }
     }
 
-    fn overlay_input(
-        &mut self,
-        overlay: Overlay,
-        field: &tmt_tui::app::ComponentId,
-        event: &Event,
-    ) -> Option<Effect> {
+    fn overlay_input(&mut self, overlay: Overlay, event: &Event) -> Option<Effect> {
         match overlay {
             Overlay::PastePreview => Some(self.paste_preview_event(event)),
-            Overlay::Workspace => self.workspace_form_event(field, event),
+            Overlay::Workspace => self.workspace_form_event(event),
             Overlay::Panels => self.panels_event(event),
             Overlay::Recovery => self.recovery_event(event),
             Overlay::ReplyReader => Some(self.reader_event(event)),

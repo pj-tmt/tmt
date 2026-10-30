@@ -1311,7 +1311,7 @@ pub(in crate::board) fn dialog(frame: &mut Frame, app: &App, body: Rect) {
     let Some(draft) = app.workspace_form.as_ref().filter(|draft| draft.shown) else {
         return;
     };
-    draft.controls.set([None, None]);
+    draft.controls.set([None; 3]);
     let look = app.look();
     let short = body.height < 8;
     let crud = matches!(
@@ -1448,31 +1448,22 @@ pub(in crate::board) fn dialog(frame: &mut Frame, app: &App, body: Rect) {
                 areas.position,
                 Line::styled(
                     format!("Read · {}", scroll.position()),
-                    if app
-                        .overlay_focus
-                        .focused()
-                        .and_then(|field| field.last())
-                        .is_some_and(|field| field == "read")
-                    {
-                        look.selection()
-                    } else {
-                        look.role(Role::Muted)
-                    },
+                    // The text always reads with ↑↓; there is no read focus to highlight.
+                    look.role(Role::Muted),
                 ),
             );
         }
     }
-    let focused = if draft.stage == Stage::Review {
-        Some(match draft.review.focus {
-            tmt_tui::components::Focus::Buttons(1) => "apply",
-            _ => "cancel",
-        })
-    } else {
-        app.overlay_focus
-            .focused()
-            .and_then(|field| field.last())
-            .map(String::as_str)
-            .or(Some("cancel"))
+    // Fields keep focus in the editor; Pending and Result have one button, which Enter chooses.
+    let focused = match draft.stage {
+        // Review paints its focus from `draft.review` with its button order.
+        Stage::Review => None,
+        Stage::Pending | Stage::Result(_) => Some("cancel"),
+        Stage::Fields => match draft.fields_button {
+            Some(super::manage::ReviewButton::Cancel) => Some("cancel"),
+            Some(super::manage::ReviewButton::Discard) => Some("discard"),
+            _ => None,
+        },
     };
     if draft.stage == Stage::Review {
         let removal = draft.kind == super::manage::Kind::RemoveMember;
@@ -1494,14 +1485,29 @@ pub(in crate::board) fn dialog(frame: &mut Frame, app: &App, body: Rect) {
             && (draft.kind != super::manage::Kind::RenameMember
                 || (draft.scroll.borrow().offset() == 0
                     && lines.len() <= usize::from(areas.content.height)));
-        let buttons = [
-            crate::board::buttons::Button::secondary("Cancel")
-                .focused(focused == Some("cancel"))
-                .enabled(areas.content.height > 1),
-            crate::board::buttons::Button::primary(apply_label)
-                .focused(focused == Some("apply"))
-                .enabled(apply_enabled),
-        ];
+        use super::manage::ReviewButton;
+        let order = super::manage::review_buttons(draft.reopened);
+        let cursor = match draft.review.focus {
+            tmt_tui::components::Focus::Buttons(index) => order.get(index).copied(),
+            tmt_tui::components::Focus::Field(_) => None,
+        };
+        let readable = areas.content.height > 1;
+        let buttons: Vec<_> = order
+            .iter()
+            .map(|slot| {
+                let (label, enabled) = match slot {
+                    ReviewButton::Cancel => ("Cancel", readable),
+                    ReviewButton::Discard => ("Discard", readable),
+                    ReviewButton::Apply => (apply_label, apply_enabled),
+                };
+                let button = if *slot == ReviewButton::Apply {
+                    crate::board::buttons::Button::primary(label)
+                } else {
+                    crate::board::buttons::Button::secondary(label)
+                };
+                button.focused(cursor == Some(*slot)).enabled(enabled)
+            })
+            .collect();
         let painted = crate::board::buttons::paint(
             app,
             frame.buffer_mut(),
@@ -1510,10 +1516,11 @@ pub(in crate::board) fn dialog(frame: &mut Frame, app: &App, body: Rect) {
             tmt_cli_style::grid::Align::Left,
             Some(crate::board::app::Overlay::Workspace),
         );
-        draft.controls.set([
-            painted[0].filter(|_| areas.content.height > 1),
-            painted[1].filter(|_| apply_enabled),
-        ]);
+        let mut controls = [None; 3];
+        for ((slot, button), rect) in order.iter().zip(&buttons).zip(&painted) {
+            controls[*slot as usize] = rect.filter(|_| button.is_enabled());
+        }
+        draft.controls.set(controls);
         let start = painted
             .iter()
             .flatten()
@@ -1555,16 +1562,35 @@ pub(in crate::board) fn dialog(frame: &mut Frame, app: &App, body: Rect) {
         } else {
             "Close"
         };
-        let area = crate::board::buttons::paint(
+        // A reopened form offers Discard beside Cancel while it is still being filled in.
+        let discard = draft.reopened && draft.stage == Stage::Fields;
+        let mut buttons = vec![
+            crate::board::buttons::Button::secondary(label).focused(focused == Some("cancel")),
+        ];
+        if discard {
+            buttons.push(
+                crate::board::buttons::Button::secondary("Discard")
+                    .focused(focused == Some("discard")),
+            );
+        }
+        let painted = crate::board::buttons::paint(
             app,
             frame.buffer_mut(),
             areas.footer,
-            &[crate::board::buttons::Button::secondary(label).focused(focused == Some("cancel"))],
+            &buttons,
             tmt_cli_style::grid::Align::Left,
             Some(crate::board::app::Overlay::Workspace),
-        )[0];
-        let width = area.map_or(0, |area| area.width + 1);
-        draft.controls.set([area, None]);
+        );
+        let width = painted
+            .iter()
+            .flatten()
+            .map(|area| area.right() + 1 - areas.footer.x)
+            .max()
+            .unwrap_or(0);
+        let mut controls = [None; 3];
+        controls[super::manage::ReviewButton::Cancel as usize] = painted[0];
+        controls[super::manage::ReviewButton::Discard as usize] = painted.get(1).copied().flatten();
+        draft.controls.set(controls);
         let hints: &[(&str, &str)] = if draft.stage == Stage::Fields {
             &[("Esc", "cancel"), ("Enter", "next")]
         } else {

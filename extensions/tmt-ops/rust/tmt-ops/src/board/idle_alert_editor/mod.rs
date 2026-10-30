@@ -26,8 +26,10 @@ pub(in crate::board) struct Controller {
     focus: usize,
     choice: usize,
     pending: bool,
-    /// False while a save runs behind a closed editor; reopening shows it.
+    /// False while the editor is closed with a kept draft or a running save; reopening shows it.
     shown: bool,
+    /// Opened again from a kept draft: Discard drops it.
+    reopened: bool,
     notice: Option<String>,
     readable: Cell<bool>,
     hits: RefCell<Vec<(Rect, Control)>>,
@@ -40,10 +42,27 @@ enum Control {
     Preset(usize),
     Save,
     Cancel,
+    Discard,
 }
 const PRESETS: [&str; 4] = ["15m", "30m", "1h", "2h"];
 const INVALID: &str = "✗ invalid · use a time like 20m or 2h";
 impl Controller {
+    /// A loaded editor whose On/Off or After differs from the saved setting.
+    fn unsaved(&self) -> bool {
+        let Some(saved) = self
+            .config
+            .as_ref()
+            .and_then(|config| config.idle_alert(&self.name).ok())
+        else {
+            return false;
+        };
+        self.enabled != saved.enabled
+            || self.after.as_str() != crate::idle_alert::threshold(saved.after)
+    }
+    /// Save and Cancel, then Discard on a reopened draft.
+    fn buttons(&self) -> usize {
+        2 + usize::from(self.reopened)
+    }
     pub fn invalidate(&self) {
         self.hits.borrow_mut().clear();
         self.readable.set(false);
@@ -190,13 +209,20 @@ impl App {
             "Idle alert on a squad row",
         )
     }
-    /// A running save hides and keeps going; a load or a finished editor closes.
+    /// Esc, Cancel or an outside press. A running save hides and keeps going; unsaved changes
+    /// hide and come back on the next open; a load or an editor with nothing unsaved closes.
     pub(in crate::board) fn idle_alert_close(&mut self) -> Effect {
         let reopen = self.idle_alert_reopen_hint();
         let Some(c) = &mut self.idle_alert_editor else {
             return Effect::None;
         };
-        if !(c.pending && c.config.is_some()) {
+        let saving = c.pending && c.config.is_some();
+        if !c.pending && c.unsaved() {
+            c.shown = false;
+            c.invalidate();
+            return Effect::None;
+        }
+        if !saving {
             self.idle_alert_editor = None;
             return Effect::None;
         }
@@ -210,6 +236,8 @@ impl App {
             && !c.shown
         {
             c.shown = true;
+            // A kept draft names its squad in the title and offers Discard; a save shows its result.
+            c.reopened = !c.pending && c.unsaved();
             c.invalidate();
             self.menu = None;
             return Effect::None;
@@ -287,6 +315,7 @@ impl App {
             choice: 0,
             pending: true,
             shown: true,
+            reopened: false,
             notice: None,
             readable: Cell::new(false),
             hits: RefCell::new(Vec::new()),
@@ -354,11 +383,11 @@ impl App {
                     return Some(Effect::None);
                 }
                 match key.code {
-                    KeyCode::Up | KeyCode::BackTab => {
+                    KeyCode::Up => {
                         c.focus = (c.focus + 2) % 3;
                         c.choice = 0;
                     }
-                    KeyCode::Down | KeyCode::Tab => {
+                    KeyCode::Down => {
                         c.focus = (c.focus + 1) % 3;
                         c.choice = 0;
                     }
@@ -375,14 +404,17 @@ impl App {
                                     c.after = Editor::from(PRESETS[c.choice - 1]);
                                 }
                             }
-                            _ => c.choice = 1 - c.choice.min(1),
+                            _ => {
+                                let n = c.buttons();
+                                c.choice = (c.choice.min(n - 1) + if back { n - 1 } else { 1 }) % n;
+                            }
                         }
                     }
                     KeyCode::Enter => {
-                        action = Some(if c.focus != 2 || c.choice == 0 {
-                            Control::Save
-                        } else {
-                            Control::Cancel
+                        action = Some(match (c.focus, c.choice) {
+                            (2, 1) => Control::Cancel,
+                            (2, 2) => Control::Discard,
+                            _ => Control::Save,
                         })
                     }
                     _ if c.focus == 1 => {
@@ -422,6 +454,10 @@ impl App {
         if let Some(action) = action {
             match action {
                 Control::Cancel => return Some(self.idle_alert_close()),
+                Control::Discard => {
+                    self.idle_alert_editor = None;
+                    return Some(Effect::None);
+                }
                 Control::On(on) => {
                     c.notice = None;
                     c.enabled = on;

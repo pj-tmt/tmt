@@ -74,7 +74,7 @@ fn flat_lists_remove_the_only_membership_and_keep_the_selected_uuid() {
         let text = paint(&app, 100, 24).join("\n");
         assert!(text.contains("From squad: product"), "{text}");
         assert_eq!(key(&mut app, KeyCode::Esc), Effect::None);
-        assert!(app.workspace_form.is_none());
+        assert!(hidden(&app));
         assert_eq!(app.workspace.selected, selected);
     }
 }

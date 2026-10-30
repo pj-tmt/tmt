@@ -1373,7 +1373,7 @@ fn removal_review_is_scrollable_frozen_and_cancel_is_the_initial_action() {
     assert_eq!(app.workspace_form.as_ref().unwrap().operation, frozen);
     assert_eq!(key(&mut app, KeyCode::Enter), Effect::None);
     assert!(
-        app.workspace_form.is_none(),
+        hidden(&app),
         "Enter initially cancels, never applies a row below"
     );
 }
@@ -1418,7 +1418,7 @@ fn resized_or_clipped_confirmation_has_no_stale_pointer_or_key_authority() {
     assert_eq!(app.workspace_confirm(), Effect::None);
     assert_eq!(app.workspace_form.as_ref().unwrap().stage, Stage::Review);
     key(&mut app, KeyCode::Esc);
-    assert!(app.workspace_form.is_none());
+    assert!(hidden(&app));
     assert_eq!(
         app.workspace.selected,
         Some(OpsTarget::Member {
@@ -1449,7 +1449,7 @@ fn short_terminal_review_uses_the_screen_and_scrolls_the_frozen_operation() {
     assert!(last.contains("Read"));
     assert_eq!(app.workspace_form.as_ref().unwrap().stage, Stage::Review);
     key(&mut app, KeyCode::Esc);
-    assert!(app.workspace_form.is_none());
+    assert!(hidden(&app));
 }
 #[test]
 fn alt_enter_confirms_non_message_form_fields() {
@@ -1532,8 +1532,14 @@ fn partial_item_result_survives_as_readable_evidence_with_no_automatic_retry() {
     assert!(text.contains("Applied: one"));
     assert!(text.contains("Unknown or not applied: two"));
     assert!(text.contains("rename product next --repair"));
+    // Reading never retries; Close (Enter) drops the result for good.
+    assert_eq!(key(&mut app, KeyCode::Down), Effect::None);
+    assert!(matches!(
+        app.workspace_form.as_ref().unwrap().stage,
+        Stage::Result(_)
+    ));
     assert_eq!(key(&mut app, KeyCode::Enter), Effect::None);
-    assert!(app.workspace_form.is_some());
+    assert!(app.workspace_form.is_none());
 }
 #[test]
 fn squad_actions_keep_metadata_inert_and_refuse_unobserved_targets() {
@@ -6244,6 +6250,13 @@ fn agents_group_glyphs_use_core_activity_and_room_attention_instead_of_task_stat
 }
 pub(in crate::board) mod review_modal;
 
+/// Esc, an outside press or Cancel hides the form and keeps its draft for the same key.
+pub(super) fn hidden(app: &App) -> bool {
+    app.workspace_form
+        .as_ref()
+        .is_some_and(|draft| !draft.shown)
+}
+
 pub(in crate::board) fn assert_list_input_owner(app: &App) {
     assert_eq!(
         app.workspace_input_owner(),
@@ -6263,6 +6276,17 @@ fn only_a_removal_review_starts_on_cancel() {
         (Kind::RenameSquad, 1),
         (Kind::RenameMember, 1),
     ] {
-        assert_eq!(review_start(kind).focus, Focus::Buttons(start), "{kind:?}");
+        assert_eq!(
+            review_start(kind, false).focus,
+            Focus::Buttons(start),
+            "{kind:?}"
+        );
+        // A reopened review adds Discard between Cancel and Apply.
+        let reopened = if start == 0 { 0 } else { 2 };
+        assert_eq!(
+            review_start(kind, true).focus,
+            Focus::Buttons(reopened),
+            "{kind:?}"
+        );
     }
 }

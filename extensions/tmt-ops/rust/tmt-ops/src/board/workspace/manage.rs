@@ -84,16 +84,50 @@ pub struct Draft {
     pub shown: bool,
     pub timer_impact: Option<usize>,
     pub scroll: RefCell<ScrollState>,
-    pub controls: Cell<[Option<Rect>; 2]>,
+    /// Painted Cancel / Close, apply and Discard, indexed by `ReviewButton`.
+    pub controls: Cell<[Option<Rect>; 3]>,
+    /// The current field's unsent text while the form is hidden; the editor holds it otherwise.
+    pub typed: String,
+    /// Opened again from a kept draft: its title names the target and Discard drops it.
+    pub reopened: bool,
     /// The Review stage's Cancel / apply cursor (`review_start`).
     pub review: tmt_tui::components::DialogState,
+    /// The Fields stage's chosen button: ↓ on the editor's last line reaches Cancel, ←→ Discard
+    /// when reopened, ↑ goes back to the editor (`None`).
+    pub fields_button: Option<ReviewButton>,
 }
 /// Review of a removal starts on Cancel, so a stray Enter never takes an agent out of a squad;
 /// any other review starts on its apply button, so Enter applies what was just reviewed.
-pub(in crate::board) fn review_start(kind: Kind) -> tmt_tui::components::DialogState {
+pub(in crate::board) fn review_start(
+    kind: Kind,
+    reopened: bool,
+) -> tmt_tui::components::DialogState {
     let destructive = matches!(kind, Kind::Remove | Kind::RemoveMember);
+    let apply = review_buttons(reopened)
+        .iter()
+        .position(|button| *button == ReviewButton::Apply)
+        .unwrap_or_default();
     tmt_tui::components::DialogState {
-        focus: tmt_tui::components::Focus::Buttons(usize::from(!destructive)),
+        focus: tmt_tui::components::Focus::Buttons(if destructive { 0 } else { apply }),
+    }
+}
+/// A form's buttons, also the slots of `Draft::controls`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(in crate::board) enum ReviewButton {
+    Cancel,
+    Apply,
+    Discard,
+}
+/// The Review row: Discard sits between Cancel and the apply button on a reopened form.
+pub(in crate::board) fn review_buttons(reopened: bool) -> &'static [ReviewButton] {
+    if reopened {
+        &[
+            ReviewButton::Cancel,
+            ReviewButton::Discard,
+            ReviewButton::Apply,
+        ]
+    } else {
+        &[ReviewButton::Cancel, ReviewButton::Apply]
     }
 }
 impl Draft {
@@ -234,8 +268,18 @@ impl Draft {
             Kind::Add => format!("Add member · {name}"),
             Kind::Lead => format!("Set/clear lead · {name}"),
             Kind::RenameSquad => format!("Rename squad · {name}"),
-            Kind::RenameMember => "Rename agent".into(),
-            Kind::RemoveMember => "Remove member".into(),
+            Kind::RenameMember | Kind::RemoveMember => {
+                let label = if self.kind == Kind::RenameMember {
+                    "Rename agent"
+                } else {
+                    "Remove member"
+                };
+                // A reopened draft names the agent it was opened for.
+                match self.member.as_ref().filter(|_| self.reopened) {
+                    Some(member) => format!("{label} · {}", member.name),
+                    None => label.into(),
+                }
+            }
             Kind::Remove => format!("Leave squad · {name}"),
         }
     }
@@ -411,30 +455,10 @@ impl Draft {
         lines.push("Source timers stay in their original squad. Re-adding or reassigning the owner never resumes them; only explicit Resume does.".into());
     }
     pub fn invalidate(&self) {
-        self.controls.set([None, None]);
+        self.controls.set([None; 3]);
         let mut scroll = self.scroll.borrow_mut();
         let content = scroll.content();
         scroll.update(Rect::default(), content, None);
-    }
-    pub fn focus_fields(&self) -> Vec<tmt_tui::app::ComponentId> {
-        let fields: &[&str] = match self.stage {
-            Stage::Fields => &["input"],
-            Stage::Review => &[],
-            Stage::Pending | Stage::Result(_) => &["read", "close"],
-        };
-        fields
-            .iter()
-            .map(|field| vec!["workspace-form".into(), (*field).into()])
-            .collect()
-    }
-    pub fn stage_id(&self) -> String {
-        match self.stage {
-            Stage::Fields => "fields",
-            Stage::Review => "review",
-            Stage::Pending => "pending",
-            Stage::Result(_) => "result",
-        }
-        .into()
     }
 }
 pub(super) fn room(app: &App, id: &str) -> Option<RoomTarget> {
@@ -532,7 +556,6 @@ impl App {
     }
     pub(in crate::board) fn workspace_form_event(
         &mut self,
-        field: &tmt_tui::app::ComponentId,
         event: &ratatui::crossterm::event::Event,
     ) -> Option<Effect> {
         use ratatui::crossterm::event::{
@@ -547,12 +570,17 @@ impl App {
         }
         if let Event::Mouse(mouse) = event
             && mouse.kind == MouseEventKind::Down(MouseButton::Left)
-            && draft.controls.get()[0]
-                .is_some_and(|area| area.contains((mouse.column, mouse.row).into()))
         {
-            self.workspace_close();
-            self.input = None;
-            return Some(Effect::None);
+            let at = (mouse.column, mouse.row).into();
+            let controls = draft.controls.get();
+            if controls[ReviewButton::Cancel as usize].is_some_and(|area| area.contains(at)) {
+                self.workspace_close();
+                return Some(Effect::None);
+            }
+            if controls[ReviewButton::Discard as usize].is_some_and(|area| area.contains(at)) {
+                self.workspace_discard();
+                return Some(Effect::None);
+            }
         }
         match event {
             Event::Key(key)
@@ -566,29 +594,71 @@ impl App {
             {
                 Some(self.workspace_copy_command())
             }
+            Event::Key(key) if editing && draft.fields_button.is_some() => {
+                let reopened = draft.reopened;
+                let draft = self.workspace_form.as_mut()?;
+                match key.code {
+                    KeyCode::Up => draft.fields_button = None,
+                    KeyCode::Left | KeyCode::Right if reopened => {
+                        draft.fields_button = Some(match draft.fields_button {
+                            Some(ReviewButton::Cancel) => ReviewButton::Discard,
+                            _ => ReviewButton::Cancel,
+                        });
+                    }
+                    KeyCode::Enter => {
+                        if draft.fields_button == Some(ReviewButton::Discard) {
+                            self.workspace_discard();
+                        } else {
+                            self.workspace_close();
+                            self.input = None;
+                        }
+                    }
+                    _ => {}
+                }
+                Some(Effect::None)
+            }
             Event::Key(key) if editing => {
                 self.update_mentions();
-                let effect = self
-                    .mention_key(*key)
-                    .unwrap_or_else(|| self.input_key(*key));
+                let effect = match self.mention_key(*key) {
+                    Some(effect) => effect,
+                    None if key.code == KeyCode::Down
+                        && key.modifiers.is_empty()
+                        && self.input_on_last_line() =>
+                    {
+                        // ↑↓ change rows: past the field's last line is the button row.
+                        self.workspace_form.as_mut()?.fields_button = Some(ReviewButton::Cancel);
+                        Effect::None
+                    }
+                    None => self.input_key(*key),
+                };
                 self.update_mentions();
                 Some(effect)
             }
             Event::Key(key) if draft.stage == Stage::Review => {
                 use tmt_tui::components::{Button, DialogInput, DialogKind};
                 let controls = draft.controls.get();
-                let buttons = [
-                    Button::secondary("Cancel").enabled(controls[0].is_some()),
-                    Button::primary("Apply").enabled(controls[1].is_some()),
-                ];
+                let order = review_buttons(draft.reopened);
+                let buttons: Vec<_> = order
+                    .iter()
+                    .map(|slot| Button::secondary("").enabled(controls[*slot as usize].is_some()))
+                    .collect();
                 let draft = self.workspace_form.as_mut()?;
                 match draft.review.key(DialogKind::Confirm, key, &[], &buttons) {
-                    DialogInput::Cancel | DialogInput::Choose(0) => {
+                    DialogInput::Cancel => {
                         self.workspace_close();
-                        self.input = None;
                         Some(Effect::None)
                     }
-                    DialogInput::Choose(_) => Some(self.workspace_confirm()),
+                    DialogInput::Choose(index) => match order[index] {
+                        ReviewButton::Cancel => {
+                            self.workspace_close();
+                            Some(Effect::None)
+                        }
+                        ReviewButton::Discard => {
+                            self.workspace_discard();
+                            Some(Effect::None)
+                        }
+                        ReviewButton::Apply => Some(self.workspace_confirm()),
+                    },
                     DialogInput::Moved => Some(Effect::None),
                     _ => {
                         draft.scroll.borrow_mut().input(event);
@@ -596,16 +666,10 @@ impl App {
                     }
                 }
             }
-            Event::Key(key) if matches!(key.code, KeyCode::Tab | KeyCode::BackTab) => None,
+            // Pending and Result read with ↑↓ and the page keys; Enter chooses their one button.
             Event::Key(key) if key.code == KeyCode::Enter && !editing => {
-                match field.last().map(String::as_str) {
-                    Some("apply") if draft.stage == Stage::Review => Some(self.workspace_confirm()),
-                    Some("cancel" | "close") => {
-                        self.workspace_close();
-                        Some(Effect::None)
-                    }
-                    _ => Some(Effect::None),
-                }
+                self.workspace_close();
+                Some(Effect::None)
             }
             Event::Mouse(mouse) if editing => {
                 if self.mention_mouse(*mouse) {
@@ -620,6 +684,9 @@ impl App {
                     )
                     && let Some(input) = self.input.as_mut()
                 {
+                    if let Some(draft) = self.workspace_form.as_mut() {
+                        draft.fields_button = None;
+                    }
                     input.text.place(
                         area.width,
                         skip + usize::from(mouse.row - area.y),
@@ -632,35 +699,57 @@ impl App {
                 Some(Effect::None)
             }
             Event::Mouse(mouse) if mouse.kind == MouseEventKind::Down(MouseButton::Left) => {
-                let controls = draft.controls.get();
                 let at = (mouse.column, mouse.row).into();
-                if controls[0].is_some_and(|area| area.contains(at)) {
-                    self.workspace_close();
-                } else if controls[1].is_some_and(|area| area.contains(at)) {
+                if draft.controls.get()[ReviewButton::Apply as usize]
+                    .is_some_and(|area| area.contains(at))
+                {
                     return Some(self.workspace_confirm());
                 }
                 Some(Effect::None)
             }
-            _ if field.last().is_some_and(|field| field == "read")
-                || matches!(event, Event::Mouse(_)) =>
-            {
-                draft
-                    .scroll
-                    .borrow_mut()
-                    .input(event)
-                    .then_some(Effect::None)
-            }
+            _ if !editing => draft
+                .scroll
+                .borrow_mut()
+                .input(event)
+                .then_some(Effect::None),
             _ => None,
         }
     }
+    /// Esc, Cancel or an outside press: the form hides with what it holds, so the same key
+    /// reopens it at its stage, with the field's typed text. A result has nothing left to keep.
     pub(in crate::board) fn workspace_close(&mut self) {
-        if let Some(draft) = &mut self.workspace_form
-            && draft.stage == Stage::Pending
-        {
-            draft.shown = false;
-            draft.invalidate();
-        } else {
+        let typed = self.input.as_ref().map(|input| input.text.to_string());
+        let Some(draft) = &mut self.workspace_form else {
+            return;
+        };
+        if matches!(draft.stage, Stage::Result(_)) {
             self.workspace_form = None;
+            return;
+        }
+        if draft.stage == Stage::Fields {
+            draft.typed = typed.unwrap_or_default();
+            self.input = None;
+        }
+        draft.shown = false;
+        draft.invalidate();
+    }
+    /// The editor's cursor is on its last line, so ↓ leaves the field for the buttons.
+    fn input_on_last_line(&self) -> bool {
+        let width = self.input_viewport.get().map_or(80, |(area, _)| area.width);
+        self.input.as_ref().is_none_or(|input| {
+            let layout = input.text.layout(width);
+            layout.cursor.0 + 1 >= layout.lines.len()
+        })
+    }
+    /// Drops a kept form for good; only an explicit Discard does this.
+    pub(in crate::board) fn workspace_discard(&mut self) {
+        if self
+            .workspace_form
+            .as_ref()
+            .is_some_and(|draft| draft.stage != Stage::Pending)
+        {
+            self.workspace_form = None;
+            self.input = None;
         }
     }
     pub(in crate::board) fn workspace_begin(&mut self, kind: Kind) -> Effect {
@@ -675,12 +764,37 @@ impl App {
         self.workspace_begin_in_room(kind, Some((identity_id, room_id)))
     }
     fn workspace_begin_in_room(&mut self, kind: Kind, chosen: Option<(&str, &str)>) -> Effect {
+        // Member actions stay in the Agents list, also when they would reopen a kept draft; a
+        // submitted one stays reachable from anywhere so its result is never lost.
+        let submitted = self.workspace_form.as_ref().is_some_and(|draft| {
+            draft.kind == kind && matches!(draft.stage, Stage::Pending | Stage::Result(_))
+        });
+        if !submitted
+            && matches!(kind, Kind::RenameMember | Kind::RemoveMember)
+            && (self.shell.tab != super::super::shell::OpsTab::Agents
+                || self.workspace_scope() != crate::config::OpsKeyScope::Member)
+        {
+            return self.say("Select a visible agent in the Agents list for this action.");
+        }
         if let Some(draft) = &mut self.workspace_form
             && (!draft.shown || draft.stage == Stage::Pending)
         {
             if kind == draft.kind {
                 draft.shown = true;
+                draft.reopened = matches!(draft.stage, Stage::Fields | Stage::Review);
+                draft.fields_button = None;
+                if draft.stage == Stage::Review {
+                    draft.review = review_start(draft.kind, draft.reopened);
+                }
                 draft.invalidate();
+                if draft.stage == Stage::Fields {
+                    let typed = std::mem::take(&mut draft.typed);
+                    let effect = self.workspace_form_next();
+                    if let Some(input) = &mut self.input {
+                        input.text = typed.into();
+                    }
+                    return effect;
+                }
                 return Effect::None;
             }
             if draft.stage == Stage::Pending {
@@ -689,12 +803,6 @@ impl App {
                     "{operation} is still pending. Open it from Actions to inspect its result."
                 ));
             }
-        }
-        if matches!(kind, Kind::RenameMember | Kind::RemoveMember)
-            && (self.shell.tab != super::super::shell::OpsTab::Agents
-                || self.workspace_scope() != crate::config::OpsKeyScope::Member)
-        {
-            return self.say("Select a visible agent in the Agents list for this action.");
         }
         let Some(snapshot) = self.workspace_snapshot() else {
             return self.say("The workspace has not loaded.");
@@ -843,6 +951,12 @@ impl App {
         } else {
             None
         };
+        // One kept draft at a time: a different form replaces it, and says so.
+        let dropped = self
+            .workspace_form
+            .as_ref()
+            .filter(|draft| !draft.shown && matches!(draft.stage, Stage::Fields | Stage::Review))
+            .map(|draft| draft.kind.label());
         self.workspace_form = Some(Draft {
             kind,
             stage: Stage::Fields,
@@ -854,10 +968,17 @@ impl App {
             shown: true,
             timer_impact,
             scroll: Default::default(),
-            controls: Cell::new([None, None]),
-            review: review_start(kind),
+            controls: Cell::new([None; 3]),
+            typed: String::new(),
+            reopened: false,
+            review: review_start(kind, false),
+            fields_button: None,
         });
-        self.workspace_form_next()
+        let effect = self.workspace_form_next();
+        if let Some(label) = dropped {
+            self.say(format!("Dropped the kept {label} draft."));
+        }
+        effect
     }
     fn workspace_form_next(&mut self) -> Effect {
         let draft = self.workspace_form.as_ref().expect("opened workspace form");
@@ -882,7 +1003,7 @@ impl App {
         if draft.kind == Kind::RemoveMember {
             let draft = self.workspace_form.as_mut().unwrap();
             draft.stage = Stage::Review;
-            draft.review = review_start(draft.kind);
+            draft.review = review_start(draft.kind, draft.reopened);
             draft.invalidate();
             return Effect::None;
         }
@@ -897,7 +1018,7 @@ impl App {
         let draft = self.workspace_form.as_mut().unwrap();
         draft.operation = Some(operation);
         draft.stage = Stage::Review;
-        draft.review = review_start(draft.kind);
+        draft.review = review_start(draft.kind, draft.reopened);
         draft.invalidate();
         *draft.scroll.borrow_mut() = Default::default();
         Effect::None

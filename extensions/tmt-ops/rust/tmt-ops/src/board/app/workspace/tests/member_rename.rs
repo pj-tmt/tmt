@@ -1,6 +1,6 @@
 use super::*;
 use crate::board::workspace::{
-    manage::Change,
+    manage::{Change, ReviewButton},
     rename_member::{Completed, Outcome, Request as Rename},
 };
 
@@ -240,7 +240,7 @@ fn initial_enter_applies_and_escape_cancels_without_clicking_through_to_the_memb
     let mut app = review();
     let selected = app.workspace.selected.clone();
     assert_eq!(key(&mut app, KeyCode::Esc), Effect::None);
-    assert!(app.workspace_form.is_none());
+    assert!(hidden(&app));
     assert_eq!(app.workspace.selected, selected);
     assert!(app.input.is_none());
 
@@ -421,5 +421,158 @@ fn the_workspace_form_follows_the_close_rule() {
         &mut outside,
         crate::board::app::Overlay::Workspace,
     );
-    assert!(outside.workspace_form.is_none());
+    assert!(hidden(&outside));
+}
+
+#[test]
+fn a_kept_rename_reopens_with_its_text_target_and_discard() {
+    let mut app = board();
+    assert_eq!(
+        member_menu_action(&mut app, OpsUiAction::RenameMember),
+        Effect::None
+    );
+    let fresh = paint(&app, 160, 36).join("\n");
+    assert!(!fresh.contains("Discard"), "a fresh form keeps two buttons");
+    app.input.as_mut().unwrap().text = "half".into();
+    assert_eq!(key(&mut app, KeyCode::Esc), Effect::None);
+    assert!(hidden(&app) && app.input.is_none());
+
+    assert_eq!(
+        member_menu_action(&mut app, OpsUiAction::RenameMember),
+        Effect::None
+    );
+    assert_eq!(app.input.as_ref().unwrap().text.to_string(), "half");
+    let screen = paint(&app, 160, 36).join("\n");
+    assert!(screen.contains("Rename agent · worker"), "{screen}");
+    assert!(screen.contains("Discard"), "{screen}");
+    let discard = app.workspace_form.as_ref().unwrap().controls.get()[2].unwrap();
+    let event = Event::Mouse(MouseEvent {
+        kind: MouseEventKind::Down(MouseButton::Left),
+        column: discard.x,
+        row: discard.y,
+        modifiers: KeyModifiers::NONE,
+    });
+    assert_eq!(app.overlay_event(&event), Some(Effect::None));
+    assert!(app.workspace_form.is_none() && app.input.is_none());
+}
+
+#[test]
+fn a_kept_review_reopens_on_apply_with_discard_beside_it() {
+    let mut app = board();
+    member_menu_action(&mut app, OpsUiAction::RenameMember);
+    app.input.as_mut().unwrap().text = "renamed".into();
+    assert_eq!(key(&mut app, KeyCode::Enter), Effect::None);
+    assert!(!paint(&app, 160, 36).join("\n").contains("Discard"));
+    assert_eq!(key(&mut app, KeyCode::Esc), Effect::None);
+    assert!(hidden(&app));
+
+    member_menu_action(&mut app, OpsUiAction::RenameMember);
+    let draft = app.workspace_form.as_ref().unwrap();
+    assert!(draft.shown && draft.stage == Stage::Review);
+    assert_eq!(
+        draft.review.focus,
+        tmt_tui::components::Focus::Buttons(2),
+        "Cancel · Discard · Rename, on Rename"
+    );
+    let screen = paint(&app, 160, 36).join("\n");
+    assert!(screen.contains("Rename agent · worker"), "{screen}");
+    assert!(screen.contains("Discard"), "{screen}");
+    key(&mut app, KeyCode::Left);
+    assert_eq!(key(&mut app, KeyCode::Enter), Effect::None);
+    assert!(app.workspace_form.is_none(), "Discard drops the kept draft");
+}
+
+#[test]
+fn down_from_the_field_reaches_cancel_and_discard_by_keyboard() {
+    let mut app = board();
+    member_menu_action(&mut app, OpsUiAction::RenameMember);
+    paint(&app, 160, 36);
+    app.input.as_mut().unwrap().text = "half".into();
+    assert_eq!(key(&mut app, KeyCode::Down), Effect::None);
+    assert_eq!(
+        app.workspace_form.as_ref().unwrap().fields_button,
+        Some(ReviewButton::Cancel)
+    );
+    key(&mut app, KeyCode::Right);
+    assert_eq!(
+        app.workspace_form.as_ref().unwrap().fields_button,
+        Some(ReviewButton::Cancel),
+        "a fresh form has only Cancel"
+    );
+    key(&mut app, KeyCode::Up);
+    assert_eq!(app.workspace_form.as_ref().unwrap().fields_button, None);
+    key(&mut app, KeyCode::Down);
+    assert_eq!(key(&mut app, KeyCode::Enter), Effect::None);
+    assert!(hidden(&app), "Cancel keeps the draft");
+
+    member_menu_action(&mut app, OpsUiAction::RenameMember);
+    assert_eq!(app.workspace_form.as_ref().unwrap().fields_button, None);
+    paint(&app, 160, 36);
+    key(&mut app, KeyCode::Down);
+    key(&mut app, KeyCode::Right);
+    let screen = paint(&app, 160, 36).join("\n");
+    assert!(screen.contains("Discard"), "{screen}");
+    assert_eq!(
+        app.workspace_form.as_ref().unwrap().fields_button,
+        Some(ReviewButton::Discard)
+    );
+    assert_eq!(key(&mut app, KeyCode::Enter), Effect::None);
+    assert!(app.workspace_form.is_none() && app.input.is_none());
+}
+
+#[test]
+fn a_kept_rename_reopened_from_another_agent_still_names_its_own_target() {
+    const OTHER: &str = "66666666-6666-4666-8666-666666666666";
+    let mut app = board();
+    let snapshot = &mut app.view.as_mut().unwrap().home.as_mut().unwrap().workspace;
+    let mut member = snapshot.roster.members[MEMBER].clone();
+    member.id = OTHER.into();
+    member.name = "reviewer".into();
+    snapshot.roster.members.insert(OTHER.into(), member);
+    snapshot.roster.squads[0].members.push(OTHER.into());
+    let other = OpsTarget::Member {
+        room_id: Some(ROOM.into()),
+        identity_id: OTHER.into(),
+    };
+    snapshot.rows.insert(
+        other.clone(),
+        json!({"id":OTHER,"name":"reviewer","state":"working"}),
+    );
+    member_menu_action(&mut app, OpsUiAction::RenameMember);
+    app.input.as_mut().unwrap().text = "half".into();
+    assert_eq!(key(&mut app, KeyCode::Esc), Effect::None);
+
+    app.workspace.selected = Some(other.clone());
+    assert_eq!(app.workspace_begin(Kind::RenameMember), Effect::None);
+    let draft = app.workspace_form.as_ref().unwrap();
+    assert!(draft.shown && draft.reopened);
+    assert_eq!(draft.member.as_ref().unwrap().id, MEMBER, "the kept target");
+    assert_eq!(app.input.as_ref().unwrap().text.to_string(), "half");
+    let screen = paint(&app, 160, 36).join("\n");
+    assert!(screen.contains("Rename agent · worker"), "{screen}");
+    assert!(!screen.contains("Rename agent · reviewer"), "{screen}");
+    assert_eq!(
+        app.workspace.selected,
+        Some(other),
+        "selection is untouched"
+    );
+}
+
+#[test]
+fn another_form_replacing_a_kept_draft_says_so() {
+    let mut app = board();
+    member_menu_action(&mut app, OpsUiAction::RenameMember);
+    app.input.as_mut().unwrap().text = "half".into();
+    assert_eq!(key(&mut app, KeyCode::Esc), Effect::None);
+    assert!(hidden(&app));
+
+    app.workspace.selected = Some(OpsTarget::Squad(ROOM.into()));
+    app.workspace_begin(Kind::RenameSquad);
+    let draft = app.workspace_form.as_ref().unwrap();
+    assert!(draft.shown && draft.kind == Kind::RenameSquad && !draft.reopened);
+    assert_eq!(
+        app.notice.as_deref(),
+        Some("Dropped the kept Rename draft."),
+        "typed text never vanishes silently"
+    );
 }
