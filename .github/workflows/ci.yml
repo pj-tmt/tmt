@@ -15,6 +15,9 @@ on:
 env:
   CARGO_PROFILE_DEV_DEBUG: 0
   CARGO_INCREMENTAL: 0
+  # A throttled Actions cache restore (#5708) falls back to a miss after 2 minutes,
+  # not the cache toolkit's 10-minute segment timeout; read by actions/cache and rust-cache.
+  SEGMENT_DOWNLOAD_TIMEOUT_MINS: '2'
 
 permissions:
   contents: read
@@ -735,6 +738,7 @@ jobs:
         uses: docker/setup-buildx-action@e468171a9de216ec08956ac3ada2f0791b6bd435 # v3.11.1
         with:
           version: v0.29.1
+          cache-binary: false
           cleanup: false
           driver-opts: image=mirror.gcr.io/moby/buildkit:buildx-stable-1@sha256:cec9f139f45e93c5c69c60f8b07cfad9f43f4ef6b6a6cd917527fea5ff2e3dea
           buildkitd-config-inline: |
@@ -745,6 +749,7 @@ jobs:
         uses: docker/setup-buildx-action@e468171a9de216ec08956ac3ada2f0791b6bd435 # v3.11.1
         with:
           version: v0.29.1
+          cache-binary: false
       - name: Run Docker end-to-end tests
         working-directory: typescript
         env:

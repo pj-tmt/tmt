@@ -3476,7 +3476,18 @@ describe('required CI gate', () => {
         disabled.map((step) => step.name),
         file
       ).toEqual(file === 'ci.yml' ? ['Set up Buildx only for an admitted archive'] : []);
+      // #5708: a throttled Actions cache restore of the buildx binary stalled 10 minutes
+      // and timed out a shard; the binary comes from its release download instead.
+      for (const step of steps(readFileSync(new URL(file, workflows), 'utf8')).filter((step) =>
+        step.body.includes('docker/setup-buildx-action@')
+      ))
+        expect(step.body, `${file}: ${step.name}`).toMatch(/\n\s+cache-binary: false(\n|$)/);
     }
+    // A throttled restore (actions/cache and rust-cache) falls back to a miss in
+    // minutes instead of the toolkit's 10-minute segment timeout.
+    expect(workflow.split('\nenv:\n')[1].split('\n\n')[0]).toContain(
+      "  SEGMENT_DOWNLOAD_TIMEOUT_MINS: '2'"
+    );
     expect(readFileSync(new URL('../../scripts/run-e2e.mjs', import.meta.url), 'utf8')).toContain(
       "await run('docker', ['image', 'rm', '--force', image]"
     );

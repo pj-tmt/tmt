@@ -138,6 +138,9 @@ key: workspace for shared dev dependencies, process for its dev/release builds
 (`native-process-rust`), MSRV for its toolchain, each runtime target for its cache.
 Only admitted main-full or `verify=false` seed events write; PRs, merge groups and
 other workers restore only. The process cache is cold until its first main save.
+`ci.yml` sets `SEGMENT_DOWNLOAD_TIMEOUT_MINS: '2'`, so a throttled or stalled restore
+(Actions cache egress limit) becomes a miss within two minutes, and every
+`setup-buildx-action` sets `cache-binary: false` to download its pinned binary (#5708).
 CI disables dev debug info/incremental compilation; release profiles follow manifests.
 [Native release verification](native-release.md#cli-upgrade-proof) owns release/adapter caches.
 
