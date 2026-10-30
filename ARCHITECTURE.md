@@ -191,7 +191,7 @@ nothing.
 The [grammar](rust/crates/tmt-cli/src/grammar.rs) owns primary names, aliases and
 the public help surface; core reserves its names before external dispatch.
 Core owns [workspace geometry/codecs](contracts/workspace-v1.md#restore-authority) and generations; adapters, atomic publication/fenced
-creation; CLI, consent/output. The built-in host's store records running members ([built-in snapshots](contracts/workspace-v1.md#built-in-host-snapshots)). Restore pins bytes; full restore uses ordinary
+creation; CLI, consent/output. The built-in host's store records running members, which restore restarts one at a time through ordinary resume ([built-in snapshots](contracts/workspace-v1.md#built-in-host-snapshots)). Restore pins bytes; full restore uses ordinary
 resume/external dispatch in created panes. Layout-only grants no launch authority.
 One typed result serves human and JSON output; `identity show`
 without a name uses the shared verified-caller selector and never falls back to

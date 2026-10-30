@@ -193,8 +193,29 @@ so the default restore never brings it back.
 selection is unchanged. List and save add `host` (`"tmux"` or `"pty"`) to their documents; a built-in
 document has no `socket`. `show --host pty` reports each member with its current `action`
 (`resumable`, `no_remembered_session`, `stale_requires_retry`, `identity_missing`, `live` or
-`folder_missing`) from current durable state, never the annotation. Built-in restore is not
-available yet: `restore --host pty` returns `WORKSPACE_HOST_UNSUPPORTED` before any effect.
+`folder_missing`) from current durable state, never the annotation.
+
+`tmt workspace restore --host pty [SNAPSHOT] [--expect DIGEST] [--fresh]` selects as the tmux
+restore does, including smaller-than-protected consent, and then handles members one at a time
+in recorded order. At each member's turn it rereads the identity by UUID, the live built-in
+members, the folder and the remembered session; the preview grants nothing. A member already
+running is `skipped` (`live`) and never stopped, signalled or rebound. A resumable member starts
+through ordinary `tmt resume --host pty -- <name>` as a child process in its recorded folder (the
+caller's folder when none was recorded), so binding, preset and channel admission keep their one
+owner; `--fresh` passes `--new` instead and also starts members with a stale or no remembered
+conversation. Each start has 20 seconds and the whole restore 120 seconds. Members not reached
+in time are reported, never dropped, so a rerun finishes the rest and skips what is now live.
+
+Each member reports `status` and `reason`: `started` (`resume_requested`, `fresh`), `skipped`
+(`live`), `needs_you` (`budget`, `identity_missing`, `folder_missing`, `no_remembered_session`,
+`stale`, `unchecked`) or `failed` (`start_failed` with the start's output `tail`, or `unconfirmed`
+when the start did not answer in time and may still be starting). Every `needs_you` with a
+manual fix and every `start_failed` carries the exact `retry` command; an `unconfirmed` member
+has none, so a duplicate start is never invited. Human output prints one progress line per
+member as it goes; `--json` prints one document at the end. The document is also written to the
+private `<global_dir>/restore-last-pty.json`, replaced each run. The exit status is 1 only when a
+start failed. An explicitly selected snapshot becomes the recovery choice only when no start
+failed and every member was reached. `--layout-only` does not apply to the built-in host.
 
 ## Restore authority
 

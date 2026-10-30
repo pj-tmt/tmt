@@ -42,7 +42,8 @@ fn workspace_restore_defaults_to_revival_and_has_no_provider_flags() {
             expect: None,
             socket: Some("/tmp/exact".into()),
             builtin: false,
-            layout_only: true
+            layout_only: true,
+            fresh: false
         }
     );
     assert_eq!(
@@ -52,7 +53,8 @@ fn workspace_restore_defaults_to_revival_and_has_no_provider_flags() {
             expect: None,
             socket: None,
             builtin: false,
-            layout_only: true
+            layout_only: true,
+            fresh: false
         }
     );
     assert_eq!(
@@ -62,12 +64,26 @@ fn workspace_restore_defaults_to_revival_and_has_no_provider_flags() {
             expect: None,
             socket: None,
             builtin: false,
-            layout_only: false
+            layout_only: false,
+            fresh: false
+        }
+    );
+    assert_eq!(
+        parsed(&["workspace", "restore", "--host", "pty", "--fresh"]).invocation,
+        Invocation::WorkspaceRestore {
+            name: None,
+            expect: None,
+            socket: None,
+            builtin: true,
+            layout_only: false,
+            fresh: true
         }
     );
     for args in [
         vec!["workspace", "show", "--layout-only"],
         vec!["workspace", "restore", "--layout-only", "--retry"],
+        vec!["workspace", "restore", "--fresh"],
+        vec!["workspace", "restore", "--host", "pty", "--layout-only"],
         vec!["workspace", "restore", "--layout-only", "--force"],
         vec!["workspace", "restore", "--layout-only", "--channel"],
     ] {
@@ -139,7 +155,8 @@ fn workspace_snapshot_selection_and_digest_are_parsed_before_effects() {
             builtin: false,
             name: Some("work-1".parse().unwrap()),
             expect: Some(digest),
-            layout_only: false
+            layout_only: false,
+            fresh: false
         }
     );
     for name in [

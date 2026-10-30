@@ -56,6 +56,8 @@ pub enum Invocation {
         name: Option<tmt_core::workspace::SnapshotSelector>,
         expect: Option<String>,
         layout_only: bool,
+        /// `--fresh` (built-in only): a new conversation instead of the remembered one.
+        fresh: bool,
     },
     WorkspaceShow {
         socket: Option<String>,

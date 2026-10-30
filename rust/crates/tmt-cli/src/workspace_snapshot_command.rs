@@ -71,13 +71,19 @@ pub fn execute(invocation: &Invocation, mode: OutputMode) -> io::Result<u8> {
             }
             return crate::workspace_show_command::execute(socket.as_deref(), name.as_ref(), mode);
         }
-        Invocation::WorkspaceRestore { builtin: true, .. } => {
-            return Failure::new(
-                "WORKSPACE_HOST_UNSUPPORTED",
-                "Restoring built-in members is not available yet; tmt workspace show --host pty previews them.",
-                1,
-            )
-            .publish(mode);
+        Invocation::WorkspaceRestore {
+            builtin: true,
+            name,
+            expect,
+            fresh,
+            ..
+        } => {
+            return crate::workspace_restore_command::execute_builtin(
+                name.as_ref(),
+                expect.as_deref(),
+                *fresh,
+                mode,
+            );
         }
         Invocation::WorkspaceRestore {
             socket,
@@ -223,12 +229,3 @@ pub fn execute(invocation: &Invocation, mode: OutputMode) -> io::Result<u8> {
     }
     Ok(0)
 }
-
-#[cfg(test)]
-pub(crate) const PRINTED_HINTS: &[crate::cli_style_tests::HintSpec] = &[
-    crate::cli_style_tests::HintSpec::core(
-        "Restoring built-in members is not available yet; tmt workspace show --host pty previews them.",
-        &[" previews them."],
-        &[],
-    ),
-];

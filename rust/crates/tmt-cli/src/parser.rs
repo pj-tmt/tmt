@@ -227,6 +227,7 @@ fn translate(path: &[&str], m: &ArgMatches) -> Result<Invocation, String> {
             name: m.get_one::<tmt_core::workspace::SnapshotSelector>("name").cloned(),
             expect: text(m, "expect"),
             layout_only: flag(m, "layout-only"),
+            fresh: flag(m, "fresh"),
         },
         ["workspace", "show"] => Invocation::WorkspaceShow {
             socket: text(m, "socket"),
