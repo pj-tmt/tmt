@@ -59,7 +59,7 @@ pub fn execute(skill: Option<&str>, reference: Option<&LearnReference>) -> io::R
         )?;
         writeln!(
             output,
-            "Read tmt learn --skill for complete current safety and usage guidance.\nUse tmt help for options. Managed native installations use tmt upgrade; package-manager installations use their original manager."
+            "Read tmt learn --skill for current safety and usage guidance, and\ntmt learn --skill tmt --topics for its references. Use tmt help for options.\nManaged native installations use tmt upgrade; package-manager installations use their original manager."
         )?;
     }
     Ok(0)
@@ -77,7 +77,7 @@ pub(crate) const PRINTED_HINTS: &[crate::cli_style_tests::HintSpec] = &[
         "Bundled learn prose is outside printed hint commands and help Examples; installed guidance has its own verification.",
     ),
     crate::cli_style_tests::HintSpec::skipped(
-        "Read tmt learn --skill for complete current safety and usage guidance.\nUse tmt help for options. Managed native installations use tmt upgrade; package-manager installations use their original manager.",
+        "Read tmt learn --skill for current safety and usage guidance, and\ntmt learn --skill tmt --topics for its references. Use tmt help for options.\nManaged native installations use tmt upgrade; package-manager installations use their original manager.",
         "Bundled learn prose is outside printed hint commands and help Examples; installed guidance has its own verification.",
     ),
     crate::cli_style_tests::HintSpec::skipped(

@@ -475,7 +475,8 @@ pub(in crate::grammar) fn learn() -> Command {
             "Read agent guidance",
             [
                 "Read the tmt guidance" => "tmt learn",
-                "Print a bundled skill" => "tmt learn --skill tmt-inbox",
+                "List the tmt skill's reference topics" => "tmt learn --skill tmt --topics",
+                "Read one reference before running agents" => "tmt learn --skill tmt run",
             ]
         )),
         &["skill"],

@@ -29,7 +29,15 @@ pub static BUNDLED: [BundledName; 2] = [
     BundledName {
         name: MAIN,
         group: Group::Core,
-        topics: &[],
+        topics: &[
+            "run",
+            "setup",
+            "config",
+            "install",
+            "identities",
+            "attention",
+            "context",
+        ],
     },
     BundledName {
         name: INBOX,
