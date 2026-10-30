@@ -811,17 +811,12 @@ pub(in crate::board) fn controls_rule(frame: &mut Frame, app: &App, area: Rect) 
         app,
         crate::action::OpsUiAction::AgentsFilter,
         search_count.as_deref(),
-        &scope_labels(app),
     ) {
         let choice = match hit.id.as_str() {
             "all" => Choice::AgentsFilter(AgentsFilter::All),
             "agents" => Choice::AgentsFilter(AgentsFilter::Agents),
             "pinned" => Choice::AgentsFilter(AgentsFilter::Pinned),
             "clear-search" => Choice::ClearSearch,
-            "clear-scope" => Choice::Action(
-                crate::action::Action::parse(crate::action::OpsUiAction::ClearScope.spec().name)
-                    .expect("registered clear-scope action"),
-            ),
             _ => Choice::Action(crate::action::Action::parse("search").unwrap()),
         };
         app.workspace_strip_hits

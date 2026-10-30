@@ -31,7 +31,7 @@ become Common pool members. Outside a scope, hidden squads leave the tree for th
 and unfolded (or under search and the Pinned filter) it lists them one level in. The
 group only selects, folds and counts; it is never a recipient or room. Saved hiding
 filters Agents; launch scope applies across destinations and shows as the scope chip
-(`filter_bar::paint_scope`) on the Agents search bar or the Digest tab strip; there is
+(`view::scope_chip`) at the right end of the tab strip on both tabs; there is
 no boundary band. The folded group reports UUID-deduplicated blocked evidence from hidden
 rooms in the existing state role, cached when preferences configure the snapshot;
 it omits absent attention and drops the count while unfolded. The

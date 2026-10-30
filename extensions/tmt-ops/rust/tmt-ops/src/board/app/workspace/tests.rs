@@ -4041,12 +4041,12 @@ fn visibility_capture_matrix_keeps_shell_global_and_views_scoped() {
                         .map(|row| row.iter().map(|cell| cell.symbol()).collect::<String>())
                         .collect::<Vec<_>>();
                     let text = lines.join("\n");
-                    // No band: the scope is a search-bar chip and hidden squads are
+                    // No band: the scope is a tab-strip chip and hidden squads are
                     // the Hidden group closing the Squads list.
                     assert!(!text.contains("Hidden:") && !text.contains("Esc clears"));
-                    // The wide frame shows the chip and the group row; the shorter
-                    // frames may scroll the group out or drop the chip for the search field.
-                    if mode == "scoped" && width == 160 {
+                    // The chip shows at every width; the shorter frames may scroll the
+                    // group row out of view.
+                    if mode == "scoped" {
                         assert!(text.contains("Scope: squad-00"), "{width} {mode} {text}");
                     }
                     let all = filter == crate::board::workspace::AgentsFilter::All && width == 160;
@@ -4113,11 +4113,7 @@ fn visibility_capture_matrix_keeps_shell_global_and_views_scoped() {
                     let before = app.workspace.selected.clone();
                     let control = app.workspace_strip_hits.borrow().iter().find(|(_,choice)| matches!(choice,Choice::Action(action) if matches!(action.verb,Verb::Ui(OpsUiAction::ClearScope | OpsUiAction::RevealHidden)))).cloned();
                     // Only the scope chip's × is a strip control; the group is a row.
-                    if mode != "scoped" {
-                        assert!(control.is_none(), "{width} {mode}");
-                    } else if width == 160 {
-                        assert!(control.is_some(), "{width} {mode}");
-                    }
+                    assert_eq!(control.is_some(), mode == "scoped", "{width} {mode}");
                     captures.push(json!({"width":width,"height":height,"base":format!("{base:?}"),"depth":format!("{depth:?}"),"tab":format!("{:?}", OpsTab::Agents),"filter":format!("{filter:?}"),"mode":mode,"lines":lines,
                         "cells":buffer.content.iter().map(|cell|json!({"symbol":cell.symbol(),"fg":format!("{:?}",cell.fg),"bg":format!("{:?}",cell.bg),"modifier":format!("{:?}",cell.modifier)})).collect::<Vec<_>>(),
                         "selected":format!("{before:?}"),"hits":format!("{:?}",app.hits.borrow())}));
@@ -4186,26 +4182,19 @@ fn scope_chip_admits_whole_names_then_a_count_and_neutralizes_untrusted_roster_n
             .join("\n")
     };
     app.workspace.visibility.scope = vec![ids[2].clone()];
-    // A name that would squeeze the search field is counted instead of cut.
-    let one = text(&app, 160);
-    assert!(one.contains("Scope: 1 squad ×"), "{one}");
-    assert!(!one.contains("Scope: charlie"));
-    app.view
-        .as_mut()
-        .unwrap()
-        .home
-        .as_mut()
-        .unwrap()
-        .workspace
-        .roster
-        .squads[2]
-        .name = "charlie".into();
-    assert!(text(&app, 160).contains("Scope: charlie ×"));
+    assert!(text(&app, 160).contains("Scope: charlie-long-squad-three ×"));
     // More squads read as `+N`; the other names never show.
     app.workspace.visibility.scope = vec![ids[2].clone(), ids[0].clone(), ids[1].clone()];
     let wide = text(&app, 160);
-    assert!(wide.contains("Scope: charlie +2 ×"), "{wide}");
+    assert!(
+        wide.contains("Scope: charlie-long-squad-three +2 ×"),
+        "{wide}"
+    );
     assert!(!wide.contains("Scope: alpha") && !wide.contains("Scope: bravo"));
+    // Where the whole name does not fit after the tabs, the chip counts instead of cutting.
+    let narrow = text(&app, 60);
+    assert!(narrow.contains("Scope: 3 squads ×"), "{narrow}");
+    assert!(!narrow.contains("Scope: charlie"));
     app.workspace.visibility.scope = vec![ids[2].clone()];
     app.view
         .as_mut()

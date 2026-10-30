@@ -783,9 +783,9 @@ migration notices and preserves authored TOML. `--tabs` is refused. Launch with
 `tmt ops ui --squad product` or repeat the option, for example
 `tmt ops ui --squad product --squad infra`, to show only those squads for this
 session, opening Agents on the first named squad. Scope overrides saved hides,
-excludes Common pool, and appears as a chip on the Agents search bar (on Digest,
-at the right end of the tab strip): `Scope: product +1 ×`, or `Scope: 2 squads ×`
-when a whole name does not fit; a narrow bar drops it before the search field.
+excludes Common pool, and appears as a chip at the right end of the
+`1 Agents  2 Digest` tab strip: `Scope: product +1 ×`, or `Scope: 2 squads ×`
+when a whole name does not fit.
 Click × or press Escape outside an editor, search or overlay to clear it;
 explicit bindings win. Duplicate room IDs collapse and an unknown
 or retired name fails before terminal admission with active valid squad names. `all` is an ordinary
