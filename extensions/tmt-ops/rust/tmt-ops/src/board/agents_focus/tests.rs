@@ -334,7 +334,7 @@ fn overflowing_agents_panes_reach_the_painted_footer_in_both_focuses() {
                             let text = screen(&buffer);
                             let lines = text.lines().collect::<Vec<_>>();
                             let pane = app.conversation.borrow().pane.unwrap();
-                            let footer_rows = 2;
+                            let footer_rows = 1;
                             let expected_bottom = height - footer_rows;
                             let context =
                                 format!("{look} {width}x{height} focus={focus} editing={editing}");

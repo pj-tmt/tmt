@@ -176,13 +176,7 @@ pub(in crate::board) fn render_frame(
             Constraint::Length(shell_gap),
             Constraint::Length(0),
             Constraint::Min(1),
-            Constraint::Length(
-                if app.shell.tab == super::shell::OpsTab::Agents && frame.area().height >= 24 {
-                    2
-                } else {
-                    1
-                },
-            ),
+            Constraint::Length(1),
         ])
         .areas(frame.area())
     } else {

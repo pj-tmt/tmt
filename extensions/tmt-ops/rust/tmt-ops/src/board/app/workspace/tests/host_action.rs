@@ -40,7 +40,7 @@ fn custom_host_binding_wins_in_overview_agents_and_conversation_from_one_table()
         key(&mut app, KeyCode::Char('o')),
         Effect::Act(Request::Open { .. })
     ));
-    assert!(paint(&app, 160, 36).join("\n").contains("j swap left"));
+    assert!(super::help_lists(&app, "j"));
     key(&mut app, KeyCode::Tab);
     assert_eq!(app.workspace_scope(), crate::config::OpsKeyScope::Reader);
     assert_eq!(
@@ -51,7 +51,8 @@ fn custom_host_binding_wins_in_overview_agents_and_conversation_from_one_table()
             direction: "left".into()
         })
     );
-    assert!(paint(&app, 160, 36).join("\n").contains("j swap left"));
+    // The focused reader's guidance takes the footer line; `?` keeps the authored key.
+    assert!(super::help_lists(&app, "j"));
 }
 
 #[test]
@@ -66,7 +67,7 @@ fn board_pane_run_defers_only_reserved_context_to_the_effect_lane() {
             row
         })
     );
-    assert!(paint(&app, 160, 36).join("\n").contains("j run echo"));
+    assert!(super::help_lists(&app, "j"));
     app.workspace.selected = Some(OpsTarget::Member {
         room_id: None,
         identity_id: "unknown".into(),
@@ -113,7 +114,7 @@ fn squad_host_action_keeps_its_binding_context_and_current_lead_recipient() {
             direction: "left".into()
         })
     );
-    assert!(paint(&app, 160, 36).join("\n").contains("j swap left"));
+    assert!(super::help_lists(&app, "j"));
     app.view
         .as_mut()
         .unwrap()

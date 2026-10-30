@@ -1098,7 +1098,7 @@ fn compact_identity_hides_uuid_and_selected_host_action_survives_pane_focus() {
             }
         );
         if !focused {
-            assert!(shown.contains("j host"));
+            assert!(crate::board::app::workspace::tests::help_lists(&app, "j"));
         }
     }
 }

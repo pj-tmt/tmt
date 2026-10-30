@@ -707,12 +707,6 @@ impl App {
             .cloned()
             .collect()
     }
-    pub(in crate::board) fn row_names_hint(&self) -> bool {
-        self.input.is_none()
-            && self.focus == 0
-            && !self.bindings().contains_key("@")
-            && !self.row_name_hits().is_empty()
-    }
     fn reader_link_default_key(&self, event: &str) -> bool {
         self.input.is_none()
             && !self

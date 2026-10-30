@@ -69,7 +69,6 @@ fn escape_returns_one_level_and_never_quits_the_board() {
             "focused host metadata must not describe scrolling as Host: {screen}"
         );
         if width == 160 {
-            assert!(screen.contains("j host"), "{screen}");
             assert_eq!(
                 app.bindings()["pageup"].verb,
                 Verb::Ui(OpsUiAction::ScrollPageUp)
@@ -265,7 +264,7 @@ fn reader_entry_uses_the_visible_response_without_requiring_retired_row_expansio
     key(&mut app, KeyCode::Esc);
     assert!(app.row_details.reader.is_none());
     let screen = paint(&app, 160, 36).join("\n");
-    assert!(screen.contains("v reader"), "{screen}");
+    assert!(super::help_lists(&app, "v"), "{screen}");
     app.context_menu();
     assert!(app.menu.as_ref().unwrap().entries.iter().any(
         |entry| matches!(&entry.choice, Choice::Action(action) if action.verb == Verb::ViewReply)

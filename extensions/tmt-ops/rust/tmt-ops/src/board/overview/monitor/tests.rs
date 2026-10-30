@@ -108,8 +108,8 @@ fn agents_use_available_height_before_reporting_overflow() {
                 .iter()
                 .position(|line| line.starts_with(" ↓ "))
                 .unwrap();
-            // Two footer rows follow the list.
-            assert_eq!(indicator, usize::from(height - 3));
+            // The one footer row follows the list.
+            assert_eq!(indicator, usize::from(height - 2));
             assert!(
                 lines[usize::from(rows[0].y)..indicator]
                     .iter()

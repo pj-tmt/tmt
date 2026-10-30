@@ -74,15 +74,15 @@ fn native_wide_table_draws_one_three_and_many_identities_below_the_all_row() {
                 let left = lines[header].chars().position(|c| c == '│').unwrap() + 1;
                 // The full-width footer can extend past the pane divider; it is
                 // outside the matrix even when its cells below this table are nonblank.
-                let body_bottom = lines.len().saturating_sub(2);
+                let body_bottom = lines.len().saturating_sub(1);
                 let rows: Vec<_> = lines[header + 1..body_bottom]
                     .iter()
                     .map(|line| line.chars().skip(left).collect::<String>())
                     .take_while(|line| !line.trim().is_empty())
                     .collect();
                 assert!(rows[0].trim_start().starts_with("all "));
-                // Two footer rows follow the matrix.
-                let available = usize::from(buffer.area.height).saturating_sub(header + 3);
+                // The one footer row follows the matrix.
+                let available = usize::from(buffer.area.height).saturating_sub(header + 2);
                 let shown = count.min(available.saturating_sub(1));
                 assert_eq!(rows.len(), shown + 1, "{width}/{count}: {rows:?}");
                 assert!(

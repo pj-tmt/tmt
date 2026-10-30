@@ -5645,7 +5645,7 @@ describe('large board responsiveness', () => {
                 String(width)
               );
               expect(shown).toContain('Keep worker raw #tmt:unknown');
-              expect(shown).toContain('↑↓ select');
+              expect(shown).toContain('↑↓←→ move');
             });
             // Tab enters read focus, where the mention shows at every width.
             tmux(['send-keys', '-t', pane, 'Tab']);

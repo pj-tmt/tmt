@@ -1161,7 +1161,19 @@ mod click_focus {
 
     #[test]
     fn a_click_on_blank_history_or_the_pane_title_focuses_the_conversation() {
-        for (what, x, y) in [("blank history", 98, 27), ("pane title", 98, 15)] {
+        let title = {
+            let mut app = fixture("first passage");
+            let buffer = draw(&mut app, WIDE, HIGH);
+            (0..HIGH)
+                .find(|&y| {
+                    (0..WIDE)
+                        .map(|x| buffer[(x, y)].symbol())
+                        .collect::<String>()
+                        .contains("── Conversation")
+                })
+                .expect("the conversation pane title row")
+        };
+        for (what, x, y) in [("blank history", 98, 27), ("pane title", 98, title)] {
             let mut app = fixture("first passage");
             draw(&mut app, WIDE, HIGH);
             assert_eq!(app.focused(), Pane::Rows);

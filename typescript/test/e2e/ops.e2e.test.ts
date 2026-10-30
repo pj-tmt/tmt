@@ -318,7 +318,7 @@ describe('squad on a private tmux server', { concurrent: false }, () => {
       const panes = await hostActionBoard(fixture, 'swap left', 'host action integration');
       const initial = hostPaneSlots(fixture);
       const caller = clientPlace(fixture);
-      await fixture.waitForCapture((screen) => screen.includes('j swap left'), panes.board);
+      await fixture.waitForCapture((screen) => screen.includes('m move'), panes.board);
       const ids = Object.keys(initial).sort();
       fixture.tmux(['send-keys', '-t', panes.board, 'j']);
       await fixture.waitFor(
@@ -345,7 +345,7 @@ describe('squad on a private tmux server', { concurrent: false }, () => {
       expect(clientPlace(fixture)).toBe(caller);
       // Selecting the squad targets its lead and reverses the exact exchange.
       fixture.tmux(['send-keys', '-t', panes.board, 'Tab']);
-      await fixture.waitForCapture((screen) => screen.includes('↑↓ select'), panes.board);
+      await fixture.waitForCapture((screen) => screen.includes('↑↓←→ move'), panes.board);
       fixture.tmux(['send-keys', '-t', panes.board, 'Escape']);
       await fixture.waitForCapture((screen) => /\/[ \t]+Search/.test(screen), panes.board);
       fixture.tmux(['send-keys', '-t', panes.board, 'Home']);
@@ -424,7 +424,7 @@ renameSync(output+'.tmp',output);
       const before = hostPaneSlots(fixture);
       const caller = clientPlace(fixture);
       expect(fs.existsSync(output)).toBe(false);
-      await fixture.waitForCapture((screen) => screen.includes('j run'), panes.board);
+      await fixture.waitForCapture((screen) => screen.includes('m move'), panes.board);
       fixture.tmux(['send-keys', '-t', panes.board, 'j']);
       try {
         await fixture.waitFor(

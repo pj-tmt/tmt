@@ -244,9 +244,9 @@ fn authored_member_keys_keep_their_meaning_and_hidden_rows_grant_no_action() {
 #[test]
 fn member_authored_note_keeps_help_footer_and_actions() {
     let mut app = member_actions_with_authored_note();
-    let footer = paint(&app, 160, 36).join("\n");
-    assert!(footer.contains("y copy"), "{footer}");
-    assert!(footer.contains("a note"), "{footer}");
+    let footer = paint(&app, 160, 36);
+    assert!(!footer.last().unwrap().contains("y copy"), "{footer:?}");
+    assert!(super::help_lists(&app, "y") && super::help_lists(&app, "a"));
     let help = crate::board::help::model(&app);
     let annotate = help.sections[0]
         .entries

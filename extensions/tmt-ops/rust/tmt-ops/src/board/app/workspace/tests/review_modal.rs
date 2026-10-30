@@ -604,8 +604,8 @@ fn member_footer_uses_effective_crud_bindings_and_never_advertises_future_action
         json!({"id":MEMBER,"name":"worker"}),
     );
     let text = paint(&app, 150, 43).join("\n");
-    assert!(text.contains("z remove"));
-    assert!(!text.contains("d remove"));
+    assert!(!text.contains("z remove") && !text.contains("d remove"));
+    assert!(super::help_lists(&app, "z"));
 }
 
 #[test]
