@@ -103,18 +103,30 @@ fn admission(
         Option<&tmt_core::endpoint::ProcessIncarnation>,
     ),
 ) {
+    // Exhaustive on purpose: a new binding or session field must be placed on one side of
+    // the fence here, never ignored by it.
+    let tmt_core::binding::Binding {
+        id,
+        identity_id,
+        server,
+        pane_id,
+        pane_pid,
+        pane_incarnation,
+        session,
+    } = binding;
+    let tmt_core::binding::session::BindingSessionState {
+        // Lifecycle telemetry a hook rewrites on every transition, not who holds the launch.
+        last_transition: _,
+        state,
+        key,
+        launch_owner,
+        // The latest refused start, a diagnostic only; a refusal changes no fence field.
+        start_refusal: _,
+    } = session;
     (
-        (&binding.id, &binding.identity_id, &binding.server),
-        (
-            &binding.pane_id,
-            binding.pane_pid,
-            binding.pane_incarnation.as_deref(),
-        ),
-        (
-            binding.session.state,
-            binding.session.key.as_ref(),
-            binding.session.launch_owner.as_ref(),
-        ),
+        (id, identity_id, server),
+        (pane_id, *pane_pid, pane_incarnation.as_deref()),
+        (*state, key.as_ref(), launch_owner.as_ref()),
     )
 }
 
