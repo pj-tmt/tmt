@@ -14,6 +14,12 @@ pub fn state_dir(root: &Path) -> PathBuf {
 }
 
 pub fn command(root: &Path, args: &[&str]) -> Command {
+    command_for(Path::new(env!("CARGO_BIN_EXE_tmt")), root, args)
+}
+
+/// [`command`] for another copy of the binary, such as one moved out of the
+/// checkout.
+pub fn command_for(program: &Path, root: &Path, args: &[&str]) -> Command {
     for directory in [
         "home",
         "xdg-config",
@@ -25,7 +31,7 @@ pub fn command(root: &Path, args: &[&str]) -> Command {
     ] {
         fs::create_dir_all(root.join(directory)).expect("create owned CLI environment directory");
     }
-    let mut command = Command::new(env!("CARGO_BIN_EXE_tmt"));
+    let mut command = Command::new(program);
     command
         .args(args)
         .env_clear()

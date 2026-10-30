@@ -47,6 +47,7 @@ pub enum Invocation {
     Complete(Vec<std::ffi::OsString>),
     Learn {
         skill: Option<String>,
+        reference: Option<LearnReference>,
     },
     Init,
     WorkspaceRestore {
@@ -586,6 +587,13 @@ pub enum OrchOperation {
         before: Option<u64>,
         limit: u16,
     },
+}
+/// What `learn --skill` prints instead of the entry: one embedded reference,
+/// or the list of reference topics.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum LearnReference {
+    Topic(String),
+    Topics,
 }
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum OrchWriteOperation {

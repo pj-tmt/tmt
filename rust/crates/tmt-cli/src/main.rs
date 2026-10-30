@@ -380,8 +380,8 @@ fn dispatch(parsed: invocation::Parsed) -> io::Result<u8> {
                 channel,
             });
         }
-        Invocation::Learn { skill } => {
-            return guidance_command::execute(skill.as_deref());
+        Invocation::Learn { skill, reference } => {
+            return guidance_command::execute(skill.as_deref(), reference.as_ref());
         }
         Invocation::Install {
             target,

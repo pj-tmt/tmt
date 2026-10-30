@@ -314,9 +314,11 @@ fn translate(path: &[&str], m: &ArgMatches) -> Result<Invocation, String> {
                 .map(|values| values.cloned().collect())
                 .unwrap_or_default(),
         ),
-        ["learn"] => Invocation::Learn {
-            skill: text(m, "skill"),
-        },
+        ["learn"] => {
+            let skill = text(m, "skill");
+            let reference = learn_reference(skill.as_deref(), text(m, "topic"), flag(m, "topics"))?;
+            Invocation::Learn { skill, reference }
+        }
         ["init"] => Invocation::Init,
         ["run"] => {
             let values = m
@@ -919,6 +921,32 @@ fn translate(path: &[&str], m: &ArgMatches) -> Result<Invocation, String> {
             }
         }
         _ => unreachable!("grammar and typed translation must agree"),
+    })
+}
+
+/// Grammar makes a topic or `--topics` require `--skill`; the selected skill's
+/// topics come from the one catalog (`tmt_core::skill_catalog`).
+fn learn_reference(
+    skill: Option<&str>,
+    topic: Option<String>,
+    list: bool,
+) -> Result<Option<LearnReference>, String> {
+    let Some(skill) = skill else {
+        return Ok(None);
+    };
+    let topics = tmt_core::skill_catalog::topics(skill).expect("grammar validates skill name");
+    if (topic.is_some() || list) && topics.is_empty() {
+        return Err(format!("The {skill} skill has no reference topics."));
+    }
+    Ok(match topic {
+        Some(topic) if topics.contains(&topic.as_str()) => Some(LearnReference::Topic(topic)),
+        Some(topic) => {
+            return Err(format!(
+                "Unknown {skill} reference topic '{topic}'. Topics: {}.",
+                topics.join(", ")
+            ));
+        }
+        None => list.then_some(LearnReference::Topics),
     })
 }
 

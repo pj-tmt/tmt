@@ -1,15 +1,28 @@
-//! Exact canonical skill viewing and a deliberately short native quick start.
+//! Exact canonical skill viewing, the embedded skill references, and a
+//! deliberately short native quick start.
 
+use crate::invocation::LearnReference;
 use std::io::{self, Write};
 use tmt_adapters::drivers::Registry;
 
-pub fn execute(skill: Option<&str>) -> io::Result<u8> {
+pub fn execute(skill: Option<&str>, reference: Option<&LearnReference>) -> io::Result<u8> {
     let mut output = io::stdout().lock();
     if let Some(skill) = skill {
-        output.write_all(
-            tmt_adapters::skill_installation::bundled_skill_named(skill)
-                .expect("grammar validates bundled skill name"),
-        )?;
+        match reference {
+            None => output.write_all(
+                tmt_adapters::skill_installation::bundled_skill_named(skill)
+                    .expect("grammar validates bundled skill name"),
+            )?,
+            Some(LearnReference::Topic(topic)) => output.write_all(
+                tmt_adapters::skill_installation::bundled_reference(skill, topic)
+                    .expect("parser validates the reference topic"),
+            )?,
+            Some(LearnReference::Topics) => {
+                for topic in tmt_core::skill_catalog::topics(skill).unwrap_or_default() {
+                    writeln!(output, "{topic}")?;
+                }
+            }
+        }
     } else {
         writeln!(
             output,

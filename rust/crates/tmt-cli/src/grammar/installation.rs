@@ -480,6 +480,20 @@ pub(in crate::grammar) fn learn() -> Command {
         )),
         &["skill"],
     )
+    .arg(
+        operand("topic", false)
+            .value_name("TOPIC")
+            .requires("skill")
+            .help("Print one reference of the selected skill, embedded in this binary"),
+    )
+    .arg(
+        Arg::new("topics")
+            .long("topics")
+            .action(ArgAction::SetTrue)
+            .requires("skill")
+            .conflicts_with("topic")
+            .help("List the selected skill's reference topics"),
+    )
 }
 
 /// Consented host drivers (#570): terminal hosts TMT doesn't build in.

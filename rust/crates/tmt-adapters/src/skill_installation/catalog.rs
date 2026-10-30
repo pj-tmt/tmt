@@ -11,13 +11,31 @@ pub struct BundledSkill {
     pub name: &'static str,
     pub group: Group,
     pub bytes: &'static [u8],
+    /// The embedded `references/<topic>.md` of each name topic, same order.
+    /// Served by `tmt learn` only; installation writes the entry alone.
+    references: &'static [&'static [u8]],
+    topics: &'static [&'static str],
 }
 
-const fn skill(entry: &'static BundledName, bytes: &'static [u8]) -> BundledSkill {
+impl BundledSkill {
+    pub(super) fn reference(&self, topic: &str) -> Option<&'static [u8]> {
+        let index = self.topics.iter().position(|known| *known == topic)?;
+        Some(self.references[index])
+    }
+}
+
+const fn skill(
+    entry: &'static BundledName,
+    bytes: &'static [u8],
+    references: &'static [&'static [u8]],
+) -> BundledSkill {
+    assert!(entry.topics.len() == references.len());
     BundledSkill {
         name: entry.name,
         group: entry.group,
         bytes,
+        references,
+        topics: entry.topics,
     }
 }
 
@@ -27,10 +45,12 @@ pub(super) static BUNDLED: [BundledSkill; 2] = [
     skill(
         &names::BUNDLED[0],
         include_bytes!("../../../../../skills/tmt/SKILL.md"),
+        &[],
     ),
     skill(
         &names::BUNDLED[1],
         include_bytes!("../../../../../skills/tmt-inbox/SKILL.md"),
+        &[],
     ),
 ];
 
@@ -130,6 +150,38 @@ mod tests {
                 "{}",
                 skill.name
             );
+        }
+    }
+
+    #[test]
+    fn every_reference_file_is_embedded_under_its_topic() {
+        let skills = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../skills");
+        for skill in &BUNDLED {
+            let directory = skills.join(skill.name).join("references");
+            let mut files: Vec<String> = match std::fs::read_dir(&directory) {
+                Ok(entries) => entries
+                    .map(|entry| entry.unwrap().file_name().into_string().unwrap())
+                    .collect(),
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => Vec::new(),
+                Err(error) => panic!("{}: {error}", directory.display()),
+            };
+            files.sort_unstable();
+            let mut expected: Vec<String> = skill
+                .topics
+                .iter()
+                .map(|topic| format!("{topic}.md"))
+                .collect();
+            expected.sort_unstable();
+            assert_eq!(files, expected, "{}", skill.name);
+            for topic in skill.topics {
+                assert_eq!(
+                    skill.reference(topic).unwrap(),
+                    std::fs::read(directory.join(format!("{topic}.md"))).unwrap(),
+                    "{}/{topic}",
+                    skill.name
+                );
+            }
+            assert_eq!(skill.reference("SKILL"), None);
         }
     }
 

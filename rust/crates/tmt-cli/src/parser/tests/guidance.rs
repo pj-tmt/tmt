@@ -1,22 +1,30 @@
 use super::*;
+use crate::invocation::LearnReference;
 
 #[test]
 fn learn_selects_exact_bundled_guidance_without_breaking_the_core_flag() {
     assert_eq!(
         parsed(&["learn"]).invocation,
-        Invocation::Learn { skill: None }
-    );
-    assert_eq!(
-        parsed(&["learn", "--skill"]).invocation,
         Invocation::Learn {
-            skill: Some("tmt".into())
+            skill: None,
+            reference: None
         }
     );
+    for args in [vec!["learn", "--skill"], vec!["learn", "--skill=tmt"]] {
+        assert_eq!(
+            parsed(&args).invocation,
+            Invocation::Learn {
+                skill: Some("tmt".into()),
+                reference: None
+            }
+        );
+    }
     for name in ["tmt", "tmt-inbox"] {
         assert_eq!(
             parsed(&["learn", "--skill", name]).invocation,
             Invocation::Learn {
-                skill: Some(name.into())
+                skill: Some(name.into()),
+                reference: None
             }
         );
     }
@@ -24,6 +32,83 @@ fn learn_selects_exact_bundled_guidance_without_breaking_the_core_flag() {
         parse_error(&["learn", "--skill", "unknown"]).code,
         "USAGE_ERROR"
     );
+}
+
+#[test]
+fn learn_selects_a_catalog_reference_topic_or_the_topic_list() {
+    for skill in &tmt_core::skill_catalog::BUNDLED {
+        let name = skill.name;
+        for topic in skill.topics {
+            let expected = Invocation::Learn {
+                skill: Some(name.into()),
+                reference: Some(LearnReference::Topic((*topic).into())),
+            };
+            assert_eq!(
+                parsed(&["learn", "--skill", name, topic]).invocation,
+                expected
+            );
+            assert_eq!(
+                parsed(&["learn", topic, "--skill", name]).invocation,
+                expected
+            );
+        }
+        let list = ["learn", "--skill", name, "--topics"];
+        if skill.topics.is_empty() {
+            let error = parse_error(&list);
+            assert_eq!(error.code, "USAGE_ERROR");
+            assert_eq!(
+                error.message,
+                format!("The {name} skill has no reference topics.")
+            );
+            assert_eq!(
+                parse_error(&["learn", "--skill", name, "topic"]).message,
+                error.message
+            );
+        } else {
+            assert_eq!(
+                parsed(&list).invocation,
+                Invocation::Learn {
+                    skill: Some(name.into()),
+                    reference: Some(LearnReference::Topics),
+                }
+            );
+            let error = parse_error(&["learn", "--skill", name, "unknown"]);
+            assert_eq!(error.code, "USAGE_ERROR");
+            assert_eq!(
+                error.message,
+                format!(
+                    "Unknown {name} reference topic 'unknown'. Topics: {}.",
+                    skill.topics.join(", ")
+                )
+            );
+        }
+    }
+    // A bare --skill means tmt for the list as well as the entry.
+    let outcome = |values: &[&str]| {
+        parse(&args(values))
+            .map(|parsed| parsed.invocation)
+            .map_err(|error| error.message)
+    };
+    assert_eq!(
+        outcome(&["learn", "--topics", "--skill"]),
+        outcome(&["learn", "--skill", "tmt", "--topics"])
+    );
+}
+
+#[test]
+fn learn_reference_needs_a_selected_skill_and_one_form() {
+    for args in [
+        vec!["learn", "run"],
+        vec!["learn", "--topics"],
+        // `run` is read as the --skill value, which no bundled skill has.
+        vec!["learn", "--skill", "run"],
+        vec!["learn", "--skill", "tmt", "run", "--topics"],
+        vec!["learn", "--skill", "tmt", "../SKILL"],
+        vec!["learn", "--skill", "tmt", "SKILL"],
+        vec!["learn", "--skill", "tmt", "a", "b"],
+    ] {
+        assert_eq!(parse_error(&args).code, "USAGE_ERROR", "{args:?}");
+    }
 }
 
 #[test]
