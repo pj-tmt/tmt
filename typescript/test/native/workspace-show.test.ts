@@ -106,9 +106,11 @@ describe('read-only workspace restore preview', () => {
     await withSandbox(async (sandbox) => {
       const tripwire = installTmuxTripwire(sandbox);
       delete sandbox.env.TMUX;
+      // Outside tmux the built-in store is selected; with no snapshot there it is not found.
       const selection = await runCli(sandbox, ['workspace', 'show', '--json']);
-      expect(selection.status).toBe(1);
-      expect(JSON.parse(selection.stdout).error.code).toBe('WORKSPACE_SELECTION_REQUIRED');
+      expect(selection.status).toBe(3);
+      expect(JSON.parse(selection.stdout).error.code).toBe('WORKSPACE_SNAPSHOT_NOT_FOUND');
+      expect(fs.existsSync(path.join(sandbox.globalDir, 'workspace'))).toBe(false);
       const socket = path.join(sandbox.root, 'gone-socket');
       const directory = path.join(
         sandbox.globalDir,

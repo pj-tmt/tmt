@@ -99,6 +99,42 @@ fn directory(paths: &ConfigPaths, store: Store<'_>) -> Result<PathBuf, Error> {
     Ok(directory)
 }
 
+/// The tmux sockets that have a recovery store, read from each store's newest document. A
+/// store's directory name is a digest, so its socket is known only from what it holds. This is
+/// advisory: an unreadable store is left out, and at most 256 directories are examined.
+pub fn socket_stores(paths: &ConfigPaths) -> Vec<String> {
+    let root = paths.global_dir.join("workspace");
+    let Ok(entries) = fs::read_dir(&root) else {
+        return Vec::new();
+    };
+    let mut sockets = entries
+        .take(256)
+        .filter_map(|entry| {
+            let name = entry.ok()?.file_name().into_string().ok()?;
+            tmt_core::content_digest::is_sha256(&name).then_some(name)
+        })
+        .filter_map(|name| {
+            let directory = root.join(&name);
+            let bytes = match generations::read(&directory).ok().flatten() {
+                Some(catalogue) => {
+                    generations::acquire::<WorkspaceSnapshot>(&directory, catalogue.latest()?)
+                        .ok()?
+                }
+                None => {
+                    bounded_file::read_no_follow(&destination(&directory, None), MAX_BYTES).ok()?
+                }
+            };
+            let socket = <WorkspaceSnapshot as Recovery>::decode(&bytes)
+                .ok()?
+                .server
+                .socket;
+            (sha256(socket.as_bytes()) == name).then_some(socket)
+        })
+        .collect::<Vec<_>>();
+    sockets.sort();
+    sockets
+}
+
 /// The digest and topology come from one acquisition. Restore never reopens it.
 pub fn acquire<D: Recovery>(
     paths: &ConfigPaths,

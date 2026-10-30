@@ -189,8 +189,14 @@ publishes the baseline plus the new members instead, so a member started after a
 on purpose leaves the baseline: a derived document without it becomes the protected generation,
 so the default restore never brings it back.
 
-`tmt workspace ls|show|save|rm --host pty` select this store, exclusive with `--socket`; implicit
-selection is unchanged. List and save add `host` (`"tmux"` or `"pty"`) to their documents; a built-in
+`tmt workspace ls|show|save|rm|restore --host pty` select this store, exclusive with `--socket`.
+Without either, a caller inside tmux keeps its server's socket and a caller on an external host is
+refused as before; a caller on the built-in host, or in no tmux server at all, selects this store.
+When that implicit selection finds no built-in snapshot while tmux stores exist (for example a tmux
+user in a plain terminal after their server ended), the selected store does not change: `ls`
+reports its empty list, and the other commands fail with `WORKSPACE_SNAPSHOT_NOT_FOUND` (exit 3).
+Both add `socketStores`, the tmux sockets that have a store (read from each store's newest
+document), and a hint naming the `--socket` form. List and save add `host` (`"tmux"` or `"pty"`) to their documents; a built-in
 document has no `socket`. `show --host pty` reports each member with its current `action`
 (`resumable`, `no_remembered_session`, `stale_requires_retry`, `identity_missing`, `live` or
 `folder_missing`) from current durable state, never the annotation.

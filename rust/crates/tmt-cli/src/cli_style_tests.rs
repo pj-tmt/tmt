@@ -295,6 +295,10 @@ fn hint_samples() -> Vec<(&'static str, &'static [HintSpec])> {
         ("appearance.rs", crate::appearance::PRINTED_HINTS),
         ("attach_command.rs", crate::attach_command::PRINTED_HINTS),
         (
+            "workspace_snapshot_command.rs",
+            crate::workspace_snapshot_command::PRINTED_HINTS,
+        ),
+        (
             "workspace_restore_command/builtin.rs",
             crate::workspace_restore_command::builtin::PRINTED_HINTS,
         ),

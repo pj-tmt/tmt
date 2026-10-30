@@ -719,3 +719,29 @@ fn built_in_named_saves_list_and_remove_beside_the_generations() {
         1
     );
 }
+
+#[test]
+fn socket_stores_name_each_tmux_store_by_its_recorded_socket_and_never_the_built_in_one() {
+    let directory = crate::test_support::TestDirectory::new();
+    let paths = paths(&directory.path);
+    assert!(saved::socket_stores(&paths).is_empty());
+    assert!(publish_builtin(&paths, members(1, &["a"])));
+    assert!(saved::socket_stores(&paths).is_empty());
+    let mut first = sample();
+    first.server.socket = "/tmp/b.sock".into();
+    let mut second = sample();
+    second.server.socket = "/tmp/a.sock".into();
+    for snapshot in [first, second] {
+        let socket = snapshot.server.socket.clone();
+        assert!(publish_event(&paths, &socket, || Ok(snapshot)).unwrap());
+    }
+    // A foreign directory with a digest name but no readable document is left out.
+    fs::create_dir(
+        paths
+            .global_dir
+            .join("workspace")
+            .join(tmt_core::content_digest::sha256(b"/tmp/foreign.sock")),
+    )
+    .unwrap();
+    assert_eq!(saved::socket_stores(&paths), ["/tmp/a.sock", "/tmp/b.sock"]);
+}

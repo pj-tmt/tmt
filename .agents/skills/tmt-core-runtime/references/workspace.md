@@ -36,6 +36,8 @@ Built-in restore (`workspace_restore_command/builtin.rs`) is a sequential loop o
 recorded members: it rechecks each through `builtin_plan_input` and `member_plan` at that
 member's turn and starts it only by running ordinary `tmt resume --host pty` as a bounded child
 (`UnixCommandRunner::execute_in`) in the recorded folder, never by spawning a supervisor.
+`workspace_snapshot_command` alone resolves implicit selection (no `--socket`, no `--host`);
+`saved::socket_stores` reads the tmux sockets back from their stores for its advisory hint.
 
 Publication keeps immutable generation bytes ahead of the atomic catalogue,
 then updates the legacy projection and prunes only verified owned orphans.
