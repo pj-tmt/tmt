@@ -71,7 +71,17 @@ const view: ShellView = {
 
 /** The gallery adopts only when its root has installed the common controls. */
 function ReadyTopBar({ actions }: { actions: ReactNode }) {
-  return useTopBarReady() ? <BrowserTopBar status={<span>Live</span>} actions={actions} /> : null;
+  return useTopBarReady() ? (
+    <BrowserTopBar
+      title={
+        <h1>
+          <span className="tmt-ui-topbar-title-current">Shared top bar</span>
+        </h1>
+      }
+      status={<span>Live</span>}
+      actions={actions}
+    />
+  ) : null;
 }
 
 function NativeTopBar({
@@ -99,12 +109,13 @@ function NativeTopBar({
       slot.status.textContent = 'Live';
       latest.current.didMount();
       const heading = document.createElement('h1');
-      heading.className = 'tmt-ui-page-title';
+      heading.className = 'tmt-ui-topbar-title-current';
       heading.textContent = title;
       heading.tabIndex = -1;
       const note = document.createElement('p');
       note.textContent = rootNote;
-      main.replaceChildren(heading, note);
+      slot.title.replaceChildren(heading);
+      main.replaceChildren(note);
       heading.focus();
       const action = document.createElement('button');
       action.type = 'button';
@@ -238,7 +249,6 @@ export function TopBarFrame({ params }: { params: URLSearchParams }) {
               }
             />
             <div className="tmt-ui-page">
-              <h1 className="tmt-ui-page-title">Shared top bar</h1>
               <p>{rootNote}</p>
             </div>
           </BrowserShell>

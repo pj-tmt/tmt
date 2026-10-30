@@ -207,3 +207,12 @@ test('global search lives above Home and remains beside navigation on phones', a
   expect(mobileBox!.x).toBeGreaterThanOrEqual(navBox!.x + navBox!.width);
   expect(mobileBox!.x - navBox!.x - navBox!.width).toBeLessThanOrEqual(16);
 });
+
+for (const renderer of ['react', 'native', 'hosted'])
+  test(`${renderer}: route title belongs to the top bar left group`, async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 900 });
+    await page.goto(`/?frame=topbar&renderer=${renderer}`);
+    await expect(
+      page.locator('.tmt-ui-topbar-navigation').getByRole('heading', { level: 1 }),
+    ).toHaveText('Shared top bar');
+  });

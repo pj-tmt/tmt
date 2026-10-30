@@ -160,11 +160,19 @@ The shell offers an opt-in shared top bar through the existing `./shell`, `./she
 and `./react` entries. The root installs `ShellControls.setCommonControls({ openSearch, remote })`;
 `ShellHost` delegates that setter, and `BrowserShell` accepts `commonControls`. These bindings
 belong to the root, never a route module. A route calls `ShellSlot.setTopBar()` and receives
-only `readonly status` and `readonly actions` elements; React's `BrowserTopBar` portals into
-those slots. The status precedes the common controls; page actions follow them at the far right.
+`readonly title`, `readonly status` and `readonly actions` elements; React's
+`BrowserTopBar({ title, status, actions })` portals into those slots. The status precedes the common controls; page actions follow them at the far right.
 Global Search is the first sidebar item, above Home and a divider; at the 900px shell breakpoint
-an icon beside the navigation button opens the same search. No title is drawn in the bar; the
-host's content supplies its real `h1`.
+an icon beside the navigation button opens the same search. The left group is navigation,
+phone Search, then the route-owned title. The route supplies its one page `h1` here, without
+a duplicated large content title. Ancestor segments and their `/` separators use
+`tmt-ui-topbar-title-prefix`; the final segment uses `tmt-ui-topbar-title-current`. Optional
+project chips/add/pin controls follow the heading in `tmt-ui-topbar-title-chips`. At widths
+up to and including 900px, prefixes and chips are hidden; only the final segment remains,
+truncated with ellipsis. The route owns labels, links, attribution and heading semantics;
+the leaf never parses a breadcrumb or reads page state. Readers supply brand/title/author;
+pairing, login and error routes supply brand only. Creation and other page actions belong
+in the content sub-header; the trailing action slot is for the page menu.
 
 `openSearch(opener)` connects the existing product switcher and its focus return. The platform
 shortcut admits a trusted, fresh Command/Ctrl+K outside an editor; untrusted, composing,
@@ -184,7 +192,7 @@ also returns false for a replaced route. React's `useTopBarReady()` reads the ho
 its legacy header when the probe is false; `setTopBar()` still throws when controls are absent.
 There is no readiness subscription: the root installs controls before mounting a route and
 replaces the route when clearing them. Route departure clears
-the action slot and transient common UI; root disposal releases listeners and pending route
+the title, status and action slots and transient common UI; root disposal releases listeners and pending route
 loads cannot install a new header. Legacy header/tools slots remain for existing consumers
 until their owning adoption removes them. Gallery `?frame=topbar&renderer=react|native|hosted`
 exercises the real renderer and adapter with demonstration root bindings, not product data.
