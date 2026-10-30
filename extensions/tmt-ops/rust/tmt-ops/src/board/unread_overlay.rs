@@ -1,27 +1,22 @@
-//! The Unread overlay: the unread answers of a scope, grouped by agent, shown in full and
-//! acknowledged as they are painted. It owns no acknowledgment path: the blocks it paints in
-//! its viewport go through the same `unread.writer` the conversation feeds. Terminal
-//! unavailable captions grant exact-revision evidence too; loading and failed reads do not.
+//! The Unread overlay owns stable scoped rows and one selected detail. List previews never
+//! acknowledge; selected body rows and terminal unavailable captions use the conversation's
+//! exact-revision writer. Loading and failed reads grant no evidence.
 use super::{
-    app::{App, Effect, Overlay as OverlayId},
-    exchange_view,
+    app::{App, Effect},
     recent_responses::{self, Observation},
     unread::{Answer, BodyKind, Page, walk::Body},
     workspace::OpsTarget,
 };
-use ratatui::{
-    Frame,
-    crossterm::event::{Event, KeyCode, KeyEventKind},
-    layout::Rect,
-    text::Line,
-};
+use ratatui::{layout::Rect, text::Line};
 use std::{
     cell::{Cell, RefCell},
     collections::{BTreeMap, BTreeSet},
     ops::Range,
 };
-use tmt_cli_style::Role;
-use tmt_tui::components::{Modal, Placement, ScrollState, strip};
+use tmt_tui::components::{ListFrame, ListRow, ListState, ScrollState};
+
+mod input;
+mod surface;
 
 /// Which members' unread an open overlay lists.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -91,14 +86,6 @@ enum Text<'a> {
     },
 }
 
-/// One answer's block in the built overlay.
-struct Block {
-    item: usize,
-    rows: Range<usize>,
-    /// Read evidence: body rows or a terminal unavailable caption, never loading/failure.
-    body: Range<usize>,
-}
-
 struct Built {
     width: usize,
     look: crate::look::Look,
@@ -106,7 +93,7 @@ struct Built {
     /// The minute the ages in the headers were computed for.
     minute: u64,
     lines: Vec<Line<'static>>,
-    blocks: Vec<Block>,
+    body: Range<usize>,
 }
 
 pub(in crate::board) struct Overlay {
@@ -136,7 +123,14 @@ pub(in crate::board) struct Overlay {
     built: RefCell<Option<Built>>,
     /// The answers whose text is inside the viewport of the last paint.
     painted: RefCell<Vec<Body>>,
-    top: Cell<Option<usize>>,
+    list: RefCell<ListState>,
+    list_frame: RefCell<Option<ListFrame>>,
+    hover: Cell<Option<usize>>,
+    narrow: Cell<bool>,
+    detail_open: bool,
+    detail_focus: bool,
+    confirmation: Option<input::Confirmation>,
+    confirm_hits: Cell<Option<(Rect, Rect)>>,
     /// Core holds back older unread answers than the page the board keeps.
     more: bool,
     /// Only the open overlay advances older metadata; HOME refreshes still read the head.
@@ -161,7 +155,14 @@ impl Overlay {
             version: Cell::new(0),
             built: RefCell::default(),
             painted: RefCell::default(),
-            top: Cell::new(None),
+            list: RefCell::default(),
+            list_frame: RefCell::default(),
+            hover: Cell::new(None),
+            narrow: Cell::new(false),
+            detail_open: false,
+            detail_focus: false,
+            confirmation: None,
+            confirm_hits: Cell::new(None),
             more: false,
             before: None,
             next_before: None,
@@ -235,6 +236,16 @@ impl Overlay {
             }
         }
         self.order.extend(arrived);
+        let rows = (0..self.order.len())
+            .map(|index| ListRow {
+                id: format!("answer-{index}"),
+                disabled: false,
+            })
+            .collect();
+        self.list
+            .borrow_mut()
+            .reconcile(rows)
+            .expect("stable unread rows");
         let more = if continuation {
             self.next_before = page.next_before.clone();
             self.next_before.is_some()
@@ -266,10 +277,6 @@ impl Overlay {
             total,
             more: total > 0 && self.more,
         }
-    }
-
-    pub fn is_empty(&self) -> bool {
-        self.items.is_empty() && !self.more
     }
 
     /// Metadata reads never grant acknowledgment. Each read yields to the lane, and a
@@ -305,6 +312,7 @@ impl Overlay {
     }
 
     pub fn acknowledged(&mut self, completed: &super::unread::publish::Completed) {
+        self.bump();
         for (sent, outcome) in &completed.items {
             let key = (sent.member.clone(), sent.request.clone());
             if let Some(answer) = self.items.get_mut(&key) {
@@ -331,15 +339,22 @@ impl Overlay {
             .collect()
     }
 
-    /// The next member whose answers must be read: the first group at or below the
-    /// viewport's top, then the others, each once.
+    /// Prioritize the selected detail, including deliberate older-body paging, then
+    /// acquire the other agents' head pages for list previews, each once.
     pub fn next_read(&self) -> Option<&str> {
-        let ordered = self.ordered();
-        let start = self
-            .top
-            .get()
-            .and_then(|top| ordered.get(top))
-            .map(|answer| answer.member.as_str());
+        let start = self.selected_answer().map(|answer| answer.member.as_str());
+        if self.detail_visible()
+            && let Some(answer) = self.selected_answer()
+            && let Some(Observation::Observed(page)) = self.pages.get(&answer.member)
+            && matches!(
+                self.text(self.actor.as_deref().unwrap_or_default(), answer),
+                Text::Missing
+            )
+            && page.timeline.is_some()
+            && page.cursor().is_some()
+        {
+            return Some(&answer.member);
+        }
         let mut members: Vec<&str> = self.shown_members().map(String::as_str).collect();
         if let Some(start) = start
             && let Some(at) = members.iter().position(|member| *member == start)
@@ -380,12 +395,23 @@ impl Overlay {
         self.painted.borrow().clone()
     }
 
-    pub fn member_at_top(&self) -> Option<String> {
-        let ordered = self.ordered();
-        self.top
-            .get()
-            .and_then(|top| ordered.get(top))
-            .map(|answer| answer.member.clone())
+    fn selected_index(&self) -> Option<usize> {
+        self.list
+            .borrow()
+            .selected()?
+            .strip_prefix("answer-")?
+            .parse()
+            .ok()
+    }
+
+    fn selected_answer(&self) -> Option<&Answer> {
+        self.order
+            .get(self.selected_index()?)
+            .and_then(|key| self.items.get(key))
+    }
+
+    fn detail_visible(&self) -> bool {
+        !self.narrow.get() || self.detail_open
     }
 
     fn title(&self, names: &dyn Fn(&str) -> String) -> String {
@@ -414,216 +440,15 @@ impl Overlay {
         }
     }
 
-    fn build(&self, app: &App, actor: &str, width: usize, look: crate::look::Look) -> Built {
-        let ordered = self.ordered();
-        let mut lines = Vec::new();
-        let mut blocks = Vec::new();
-        let mut current: Option<&str> = None;
-        let now = crate::status::now_ms();
-        for (index, answer) in ordered.iter().enumerate() {
-            let name = app.member_label(&answer.member);
-            if current != Some(answer.member.as_str()) {
-                current = Some(answer.member.as_str());
-                if !lines.is_empty() {
-                    lines.push(Line::default());
-                }
-                let count = ordered
-                    .iter()
-                    .filter(|other| other.member == answer.member)
-                    .count();
-                lines.push(rule(&name, count, width, look));
-            }
-            let start = lines.len();
-            lines.push(exchange_view::header(
-                exchange_view::Sender::Agent(&name),
-                "you",
-                &format!(
-                    "in turn · {}",
-                    super::conversation::exchange::age_stamp(&crate::requests::age(
-                        now,
-                        answer.answered_at_ms
-                    ))
-                ),
-                false,
-                width,
-                look,
-            ));
-            let body_start = lines.len();
-            match self.text(actor, answer) {
-                Text::Found { text, truncated } => {
-                    let text = super::notes::sanitize(text);
-                    let mapped = super::markdown::render_conversation_with_members(
-                        &text,
-                        width.saturating_sub(3).max(1),
-                        look,
-                        Some(&app.references),
-                    );
-                    lines.extend(
-                        mapped
-                            .lines
-                            .into_iter()
-                            .map(|line| exchange_view::body(line, look)),
-                    );
-                    if truncated {
-                        lines.push(caption(
-                            "◌ answer truncated · full text in the agent's pane",
-                            look,
-                        ));
-                    }
-                }
-                Text::Waiting => lines.push(caption("Loading answers…", look)),
-                Text::Failed => lines.push(caption(
-                    "✗ Answers unavailable · scroll away and back to retry",
-                    look,
-                )),
-                Text::Missing => lines.push(caption("○ answer not loaded · open it in chat", look)),
-                Text::Unavailable => lines.push(caption("○ reply text unavailable", look)),
-            }
-            let end = lines.len();
-            let evidence = matches!(
-                self.text(actor, answer),
-                Text::Found { .. } | Text::Missing | Text::Unavailable
-            );
-            blocks.push(Block {
-                item: index,
-                rows: start..end,
-                body: if evidence { body_start..end } else { 0..0 },
-            });
-        }
-        if self.more && !lines.is_empty() {
-            lines.push(Line::default());
-            lines.push(caption(
-                "○ Older unread answers are not loaded · they appear as these are read",
-                look,
-            ));
-        }
-        Built {
-            width,
-            look,
-            version: self.version.get(),
-            minute: now / 60_000,
-            lines,
-            blocks,
-        }
-    }
-
-    pub fn render(&self, frame: &mut Frame, app: &App, body: Rect) {
-        let look = app.look();
-        let Some(actor) = app.view.as_ref().and_then(|view| view.me_id.clone()) else {
-            return;
-        };
-        if self.actor.as_deref() != Some(&actor) {
-            return;
-        }
-        let names = |member: &str| app.member_label(member);
-        let mut modal = Modal {
-            title: self.title(&names),
-            placement: if body.height < 8 {
-                Placement::Body
-            } else {
-                Placement::Center
-            },
-        };
-        let areas = modal.areas(body, [110, 32], true, true);
-        if areas.content.height == 0 {
-            modal.title = "Enlarge terminal · Esc closes unread".into();
-        }
-        modal.paint(areas, frame.buffer_mut(), &look.theme, look.depth);
-        app.peek_areas
-            .set_dialog(OverlayId::Unread, Some(areas.outer));
-        let width = usize::from(areas.content.width);
-        let stale = self.built.borrow().as_ref().is_none_or(|built| {
-            built.width != width
-                || built.look != look
-                || built.version != self.version.get()
-                || built.minute != crate::status::now_ms() / 60_000
-        });
-        if stale {
-            *self.built.borrow_mut() = Some(self.build(app, &actor, width, look));
-        }
-        let built = self.built.borrow();
-        let built = built.as_ref().expect("built just above");
-        let mut scroll = self.scroll.borrow_mut();
-        scroll.update(areas.content, built.lines.len(), None);
-        let offset = scroll.offset();
-        let height = usize::from(areas.content.height);
-        let visible = offset..offset + height;
-        for (i, line) in built.lines.iter().skip(offset).take(height).enumerate() {
-            strip::paint_left(
-                frame.buffer_mut(),
-                Rect::new(
-                    areas.content.x,
-                    areas.content.y + i as u16,
-                    areas.content.width,
-                    1,
-                ),
-                line.clone(),
-            );
-        }
-        let ordered = self.ordered();
-        let mut painted = Vec::new();
-        let mut top = None;
-        let mut visible_members = BTreeSet::new();
-        for block in &built.blocks {
-            if block.rows.start < visible.end
-                && block.rows.end > visible.start
-                && let Some(answer) = ordered.get(block.item)
-            {
-                visible_members.insert(answer.member.clone());
-            }
-            if top.is_none() && block.rows.end > offset {
-                top = Some(block.item);
-            }
-            let seen = block.body.start < visible.end && block.body.end > visible.start;
-            if seen && let Some(answer) = ordered.get(block.item) {
-                painted.push(Body {
-                    actor: actor.clone(),
-                    member: answer.member.clone(),
-                    request: answer.request.clone(),
-                    kind: match answer.kind {
-                        Some(kind) => kind,
-                        None => continue,
-                    },
-                    at_ms: Some(answer.answered_at_ms),
-                    revision: Some(answer.revision),
-                });
-            }
-        }
-        self.top.set(top);
-        *self.visible.borrow_mut() = visible_members;
-        *self.painted.borrow_mut() = painted;
-        if self.items.is_empty() {
-            strip::paint_left(
-                frame.buffer_mut(),
-                Rect::new(areas.content.x, areas.content.y, areas.content.width, 1),
-                Line::styled("Nothing unread here.", look.role(Role::Dim)),
-            );
-        }
-        strip::paint_left(
-            frame.buffer_mut(),
-            areas.footer,
-            Line::styled(
-                "↑↓ PgUp PgDn scroll · ⏎ open in chat · Esc close · shown answers are marked read",
-                look.role(Role::Dim),
-            ),
-        );
-    }
-
     pub fn invalidate(&self) {
         self.bump();
+        self.list_frame.borrow_mut().take();
+        self.hover.set(None);
+        self.confirm_hits.set(None);
+        self.painted.borrow_mut().clear();
         let n = self.scroll.borrow().content();
         self.scroll.borrow_mut().update(Rect::default(), n, None);
     }
-}
-
-fn rule(name: &str, count: usize, width: usize, look: crate::look::Look) -> Line<'static> {
-    let label = format!("── {name} · {count} ");
-    let fill = width.saturating_sub(unicode_width::UnicodeWidthStr::width(label.as_str()));
-    Line::styled(format!("{label}{}", "─".repeat(fill)), look.role(Role::Dim))
-}
-
-fn caption(text: &str, look: crate::look::Look) -> Line<'static> {
-    exchange_view::feedback(Line::styled(text.to_owned(), look.role(Role::Dim)), look)
 }
 
 /// The text of one unread answer in a member's loaded answers: the reply to the request for a
@@ -781,7 +606,7 @@ impl App {
         self.open_unread(&scope)
     }
 
-    /// Opens the overlay for `scope`; "Nothing unread here." when there is nothing to show.
+    /// Opens the scope, including its explicit empty state.
     pub(in crate::board) fn open_unread(&mut self, scope: &UnreadScope) -> Effect {
         let members = self.unread_scope_members(scope);
         self.unread_session += 1;
@@ -792,36 +617,9 @@ impl App {
         if let Some(page) = self.home_leads.unread(&actor) {
             overlay.sync(page);
         }
-        if overlay.is_empty() {
-            return self.say("Nothing unread here.");
-        }
+        overlay.actor = Some(actor);
         self.unread_overlay = Some(overlay);
         Effect::None
-    }
-
-    pub(in crate::board) fn unread_overlay_event(&mut self, event: &Event) -> Option<Effect> {
-        let overlay = self.unread_overlay.as_ref()?;
-        match event {
-            Event::Key(key) if key.kind != KeyEventKind::Release => match key.code {
-                KeyCode::Esc | KeyCode::Char('q') => {
-                    self.unread_overlay = None;
-                    self.unread.displayed.clear();
-                    return Some(Effect::None);
-                }
-                KeyCode::Enter => {
-                    let member = overlay.member_at_top();
-                    self.unread_overlay = None;
-                    if let Some(member) = member {
-                        return Some(self.open_member_conversation(&member));
-                    }
-                    return Some(Effect::None);
-                }
-                _ => {}
-            },
-            _ => {}
-        }
-        overlay.scroll.borrow_mut().input(event);
-        Some(Effect::None)
     }
 
     /// Selects `member` and shows their conversation, as Enter on their row does.
@@ -921,12 +719,28 @@ impl App {
             return None;
         }
         let member = overlay.next_read()?;
+        let older = overlay.detail_visible()
+            && overlay.selected_answer().is_some_and(|answer| {
+                answer.member == member && matches!(overlay.text(&actor, answer), Text::Missing)
+            });
+        let held = if older {
+            match overlay.pages.get(member) {
+                Some(Observation::Observed(page))
+                    if page.timeline.is_some() && page.cursor().is_some() =>
+                {
+                    Some(page.clone())
+                }
+                _ => None,
+            }
+        } else {
+            None
+        };
         Some((
             overlay.session,
             recent_responses::AnswerRead {
                 key: (Some(actor), member.to_owned()),
-                before: None,
-                held: None,
+                before: held.as_ref().and_then(|page| page.cursor()),
+                held,
                 rebuild: false,
             },
         ))

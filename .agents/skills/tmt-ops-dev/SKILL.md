@@ -24,6 +24,7 @@ Agents or Digest destination through `shell::OpsShell`.
 | `view::header/footer` | Summary, meters and effective action hints                      |
 | `home::limits/paint`  | Existing Usage-band quota presentation over held data           |
 | `view::overlays`      | Shared overlay dispatch                                         |
+| `unread_overlay`      | Scoped read evidence, list/detail selection and confirmation; child surface/input modules |
 
 `board/row_detail.rs` owns the shared in-place detail projection and renderer,
 expansion reconciliation, worker-acquired reply cache and read-only full-reply

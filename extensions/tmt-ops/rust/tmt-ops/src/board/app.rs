@@ -4427,7 +4427,15 @@ impl App {
                 .as_ref()
                 .is_some_and(|hit| hit.area.contains((event.column, event.row).into()));
         let unread_changed = unread != self.composer.unread_hover.replace(unread);
-        let changed = chart_changed
+        let unread_overlay_changed = self.unread_overlay.as_ref().is_some_and(|overlay| {
+            let active = self.overlay() == Some(Overlay::Unread)
+                && !self.help
+                && self.menu.is_none()
+                && !self.loading();
+            overlay.pointer(active.then(|| (event.column, event.row).into()))
+        });
+        let changed = unread_overlay_changed
+            || chart_changed
             || resize_changed
             || buttons_changed
             || links_changed
