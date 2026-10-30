@@ -849,6 +849,7 @@ function createMenuController(options) {
 * of Remote's describe contract; an unknown name falls back to `box`.
 */
 var shellIconNodes = {
+	plus: [["path", { d: "M12 5v14M5 12h14" }]],
 	"grip-vertical": [
 		["circle", {
 			cx: "9",

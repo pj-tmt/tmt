@@ -890,17 +890,15 @@ on an empty search it leaves the search. The keys fire only for a trusted unmodi
 target is the page or the list's own section: never in a text field, never above a menu or dialog,
 never in a hidden list.
 
-The TMT web shell's module menu (`colab-shell.tsx`, rendered by the leaf's `BrowserShell`) scopes
-the whole list. `scope` in the route search is the base
-filter: `inScope` (`project-scope.ts`) decides which pages feed the rows, the tab counts, the
-`project:` suggestions and the free-text and creator filters, and a `project:` token narrows inside it
-(intersection). The menu lists All pages and the projects the space pins, in the pinned order (`SpaceHome.projectPins`,
-schema 18; `menuProjects` in `project-pins.ts`), or its five most recently updated while nothing was
-chosen (labelled "Recent projects"), each with the pages shown and how many wait on the viewer. A scope
-that is not pinned shows as a temporary row. Then come `All projects…` (the manager) and `New project…`, which
-`Home` offers through `ProjectMenuActionsSlot` (`project-menu-actions.ts`) while it can manage
-projects, so the dialogs keep the list's data. The menu reads the list through `spaceHome` when the
-list opens. The default scope is device-local: `readScope`/`writeScope` keep it per space in
+The TMT web shell's module menu (`colab-shell.tsx`, rendered by the leaf's `BrowserShell`)
+shows All pages, device-local Shortcuts, Dashboards and Colab settings. Shortcuts open their
+saved list filters; the rail uses already remembered page rows and `shortcutCounts` for known
+matching totals and attention counts, omitting values whose required data is unavailable.
+Shared rail actions open the selected shortcut's editor or delete it; its drag and Alt+Arrow
+requests persist an atomic target-index move through `ShortcutStore`. A failed write is reported.
+The list's `scope` route field remains a base filter: `inScope` (`project-scope.ts`) determines
+the pages feeding rows, tabs and search suggestions, and a `project:` token narrows inside it.
+The default scope is device-local: `readScope`/`writeScope` keep it per space in
 `localStorage` (a refused access means All pages), the home loader redirects an unscoped `/` to it
 with `replace`, and choosing All pages removes it. A scope the space no longer has (a stale link or
 a remembered project that was deleted) shows All pages and is neither redirected to nor rewritten.

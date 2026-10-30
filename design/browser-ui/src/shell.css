@@ -378,6 +378,7 @@
   outline-offset: calc(var(--tmt-ui-focus-width) * -1);
 }
 .tmt-ui-rail-add {
+  gap: 6px;
   width: 100%;
   border: 0;
   background: transparent;
@@ -385,6 +386,10 @@
   font-family: inherit;
   text-align: left;
   cursor: pointer;
+}
+.tmt-ui-rail-add > svg {
+  width: 14px;
+  height: 14px;
 }
 .tmt-ui-rail-settings {
   position: relative;
@@ -410,6 +415,15 @@
 .tmt-ui-rail-row-action {
   width: 24px;
   height: 24px;
+}
+.tmt-ui-rail-row-actions > .tmt-ui-rail-row-action {
+  width: 28px;
+  height: 28px;
+}
+.tmt-ui-rail-row-actions .tmt-ui-shell-icon {
+  width: 16px;
+  height: 16px;
+  stroke-width: 1.75;
 }
 .tmt-ui-rail-row-actions {
   position: absolute;

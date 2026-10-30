@@ -246,6 +246,7 @@ export function Home() {
   const port = transport.management;
   const shortcuts = useShortcuts(spaceId);
   const [shortcutDialog, setShortcutDialog] = useState<'save' | 'edit' | 'manage'>();
+  const [shortcutTarget, setShortcutTarget] = useState<string>();
   const currentShortcut = shortcuts.items.find((item) => item.id === search.shortcut);
   function savedShortcut(item: Shortcut) {
     setShortcutDialog(undefined);
@@ -438,10 +439,21 @@ export function Home() {
   // The shell's Shortcuts commands open this list's own dialogs.
   useEffect(() => {
     const held = shortcutRequest?.request;
-    if (!held) return;
+    if (!held || !port || !shortcuts.store) return;
+    if (held.kind === 'edit' && !shortcuts.items.some((item) => item.id === held.shortcut)) {
+      try {
+        // The store may have loaded before this hook's first subscription refresh.
+        if (shortcuts.store.read().items.some((item) => item.id === held.shortcut)) return;
+      } catch {
+        // The hook reports an unreadable record; do not open an unrelated editor.
+      }
+      shortcutRequest.done(held.id);
+      return;
+    }
     shortcutRequest.done(held.id);
-    if (port && shortcuts.store) setShortcutDialog(held.kind);
-  }, [shortcutRequest, port, shortcuts.store]);
+    setShortcutTarget(held.shortcut);
+    setShortcutDialog(held.kind);
+  }, [shortcutRequest, port, shortcuts.store, shortcuts.items]);
   // The route search holds what is applied; the editor holds the draft until Enter applies it.
   const applied = JSON.stringify([filter.projects, filter.authors, filter.text]);
   const lastApplied = useRef(applied);
@@ -979,7 +991,10 @@ export function Home() {
                 presentation="compact"
                 label={currentShortcut ? text.shortcuts.edit : text.shortcuts.saveAs}
                 disabled={!shortcuts.store}
-                onActivate={() => setShortcutDialog(currentShortcut ? 'edit' : 'save')}
+                onActivate={() => {
+                  setShortcutTarget(undefined);
+                  setShortcutDialog(currentShortcut ? 'edit' : 'save');
+                }}
               />
               <BrowserIconAction
                 type="button"
@@ -1003,12 +1018,20 @@ export function Home() {
           mode={shortcutDialog}
           initial={
             shortcutDialog === 'edit'
-              ? currentShortcut
+              ? shortcutTarget
+                ? shortcuts.items.find((item) => item.id === shortcutTarget)
+                : currentShortcut
               : shortcutDialog === 'manage'
                 ? shortcuts.items[0]
                 : undefined
           }
-          search={shortcutDialog === 'manage' ? {} : { ...search, scope }}
+          search={
+            shortcutDialog === 'manage'
+              ? {}
+              : shortcutDialog === 'edit' && shortcutTarget
+                ? (shortcuts.items.find((item) => item.id === shortcutTarget)?.search ?? {})
+                : { ...search, scope }
+          }
           store={shortcuts.store}
           items={shortcuts.items}
           pages={homePages}

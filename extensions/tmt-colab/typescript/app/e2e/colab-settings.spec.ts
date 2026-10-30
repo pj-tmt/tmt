@@ -77,7 +77,7 @@ test('command copy keeps trusted success and refusal without running a command',
   expect(await page.evaluate(() => (window as unknown as { copied: string[] }).copied)).toEqual([]);
   await copy.focus();
   await page.keyboard.press('Enter');
-  await expect(app.getByRole('status')).toContainText('Copied');
+  await expect(app.locator('.tmt-ui-command-feedback[role="status"]')).toContainText('Copied');
   expect(await page.evaluate(() => (window as unknown as { copied: string[] }).copied)).toEqual([
     'tmt colab settings',
   ]);
@@ -87,5 +87,7 @@ test('command copy keeps trusted success and refusal without running a command',
     };
   });
   await copy.click();
-  await expect(app.getByRole('status')).toContainText('Clipboard unavailable');
+  await expect(app.locator('.tmt-ui-command-feedback[role="status"]')).toContainText(
+    'Clipboard unavailable',
+  );
 });

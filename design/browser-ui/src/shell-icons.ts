@@ -4,6 +4,7 @@
  * of Remote's describe contract; an unknown name falls back to `box`.
  */
 export const shellIconNodes = {
+  plus: [['path', { d: 'M12 5v14M5 12h14' }]],
   'grip-vertical': [
     ['circle', { cx: '9', cy: '12', r: '1' }],
     ['circle', { cx: '9', cy: '5', r: '1' }],

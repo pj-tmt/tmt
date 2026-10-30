@@ -901,7 +901,7 @@ test('the module menu is the fixed list: All pages, Shortcuts with its commands,
   await expect(menu.locator('a[data-id="all"]')).toHaveText(/All pages\s*4\s*1/);
   await expect(menu.locator('.tmt-ui-rail-sub-group')).toHaveText(['Shortcuts']);
   await expect(menu.getByRole('button', { name: 'Manage shortcuts' })).toBeVisible();
-  await expect(menu.getByRole('button', { name: '+ New shortcut' })).toBeVisible();
+  await expect(menu.getByRole('button', { name: 'New shortcut' })).toBeVisible();
   expect(
     await menu
       .locator('a[data-id]')
@@ -1133,7 +1133,7 @@ test('the page menu adds and removes a project with one whole-set request each',
   await expect(design).toHaveAttribute('aria-checked', 'false');
   await design.click();
   await expect(gamma.locator('.page-project-group-chip')).toBeVisible();
-  await expect(app(page).getByRole('status')).toHaveText('Projects saved.');
+  await expect(app(page).locator('.page-list-status[role="status"]')).toHaveText('Projects saved.');
   expect(await requests(page)).toEqual([
     {
       page: 'c0000003-1111-4111-8111-000000000001',
@@ -1529,6 +1529,8 @@ async function insideViewport(page: Page) {
       // Tab strips (the list's views, the phone module menu) scroll inside; their tabs may pass the
       // edge.
       .filter((node) => !node.parentElement?.closest('.tmt-ui-tab-list, .tmt-ui-module-menu'))
+      // Screen-reader announcements are deliberately clipped outside the visual layout.
+      .filter((node) => !node.closest('.tmt-ui-visually-hidden'))
       .map((node) => ({ node, box: node.getBoundingClientRect() }))
       .filter(({ box }) => box.width > 0 && (box.right > width + 0.5 || box.left < -0.5))
       .map(({ node }) => `${node.tagName}.${(node as HTMLElement).className}`);

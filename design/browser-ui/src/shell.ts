@@ -76,7 +76,7 @@ export interface ShellMenuGroup {
   /** At most one labelled icon command beside the group heading. */
   action?: ShellMenuIconAction;
   items: ShellMenuItem[];
-  /** Full visible label, such as "+ New project". */
+  /** Visible and accessible label; the rail adds the decorative plus icon. */
   add?: ShellMenuAction;
   /** Request moving fromId to the current index of toId; the host supplies the resulting order. */
   reorder?(fromId: string, toId: string): void;
@@ -620,11 +620,11 @@ export function mountShell(
       }
       if (group.add) {
         const row = document.createElement('li');
-        row.append(
-          command('tmt-ui-rail-sub-item tmt-ui-rail-add', group.add, () =>
-            latest.menu?.groups[index]?.add?.onActivate(),
-          ),
+        const add = command('tmt-ui-rail-sub-item tmt-ui-rail-add', group.add, () =>
+          latest.menu?.groups[index]?.add?.onActivate(),
         );
+        add.prepend(icon(document, 'plus'));
+        row.append(add);
         entries.append(row);
       }
     });
