@@ -26,10 +26,15 @@ distinct. Per-squad rank/state never becomes a global identity state.
 one snapshot. Pool remains first outside a launch scope; pinned squads precede the
 selected sort order. Session visibility holds resolved launch room UUIDs and the
 explicit hidden-room reveal. Scope wins saved hiding. Hidden memberships never
-become Common pool members, and search never reveals hidden squads. Saved hiding
-filters Agents; launch scope applies across destinations. The hidden band reports UUID-deduplicated waiting/blocked evidence from hidden
-rooms in the existing state roles, cached when preferences configure the snapshot;
-it omits absent attention and drops these counts after session reveal. The
+become Common pool members. Outside a scope, hidden squads leave the tree for the
+`OpsTarget::Hidden` group that closes it; `reveal_hidden` is that group's fold state,
+and unfolded (or under search and the Pinned filter) it lists them one level in. The
+group only selects, folds and counts; it is never a recipient or room. Saved hiding
+filters Agents; launch scope applies across destinations and shows as the scope chip
+(`view::scope_chip`) at the right end of the tab strip on both tabs; there is
+no boundary band. The folded group reports UUID-deduplicated blocked evidence from hidden
+rooms in the existing state role, cached when preferences configure the snapshot;
+it omits absent attention and drops the count while unfolded. The
 acquired roster and global shell attention remain unchanged.
 Attention ordering uses each squad's worst observed child state; its tree strip
 shows the admitted members once each, with the observed lead first.

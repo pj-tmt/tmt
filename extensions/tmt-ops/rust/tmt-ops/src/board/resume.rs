@@ -184,6 +184,9 @@ pub(super) fn row_json(target: &RowTarget) -> Value {
         RowTarget::Workspace(crate::board::workspace::OpsTarget::Pool) => {
             json!({"kind":"workspace-pool"})
         }
+        RowTarget::Workspace(crate::board::workspace::OpsTarget::Hidden) => {
+            json!({"kind":"workspace-hidden"})
+        }
         RowTarget::Member {
             tab,
             section,
@@ -206,6 +209,7 @@ pub(super) fn row_from(value: &Value) -> Option<RowTarget> {
             RowTarget::Workspace(crate::board::workspace::OpsTarget::DigestAll)
         }
         "workspace-pool" => RowTarget::Workspace(crate::board::workspace::OpsTarget::Pool),
+        "workspace-hidden" => RowTarget::Workspace(crate::board::workspace::OpsTarget::Hidden),
         "workspace-member" => RowTarget::Workspace(crate::board::workspace::OpsTarget::Member {
             room_id: match &value["roomId"] {
                 Value::Null => None,

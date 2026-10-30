@@ -95,6 +95,31 @@ impl App {
         self.invalidate_frame_geometry();
         Effect::None
     }
+    /// Folds or unfolds the Hidden group. Hidden squads join the totals while it is
+    /// open, and a selection inside it moves to the group row when it folds.
+    pub(in crate::board) fn toggle_hidden_group(&mut self) {
+        self.workspace.toggle_expanded(&OpsTarget::Hidden);
+        if !self.workspace.visibility.reveal_hidden {
+            let hidden = |room: &str| {
+                self.workspace_snapshot()
+                    .is_some_and(|snapshot| snapshot.preferences.hidden.contains(room))
+            };
+            let inside = match &self.workspace.selected {
+                Some(OpsTarget::Squad(room)) => hidden(room),
+                Some(OpsTarget::Member {
+                    room_id: Some(room),
+                    ..
+                }) => hidden(room),
+                _ => false,
+            };
+            if inside {
+                self.workspace.selected = Some(OpsTarget::Hidden);
+            }
+        }
+        self.overview_rows.borrow_mut().clear();
+        self.workspace_reconcile();
+        self.invalidate_frame_geometry();
+    }
     pub(in crate::board) fn workspace_snapshot(&self) -> Option<&OpsWorkspaceSnapshot> {
         Some(&self.view.as_ref()?.home.as_ref()?.workspace)
     }
@@ -467,7 +492,7 @@ impl App {
                 Some(preferences.agent_pins.contains(identity_id))
             }
             OpsTarget::Squad(room) => Some(preferences.pinned.contains(room)),
-            OpsTarget::Pool | OpsTarget::DigestAll => None,
+            OpsTarget::Pool | OpsTarget::DigestAll | OpsTarget::Hidden => None,
         }
     }
 
@@ -518,7 +543,7 @@ impl App {
         match self.workspace_retained_search_target()? {
             member @ OpsTarget::Member { .. } => Some(member.clone()),
             OpsTarget::Squad(room) => self.workspace_squad_lead(room),
-            OpsTarget::Pool | OpsTarget::DigestAll => None,
+            OpsTarget::Pool | OpsTarget::DigestAll | OpsTarget::Hidden => None,
         }
     }
 
@@ -693,7 +718,6 @@ impl App {
             }
             Verb::Ui(OpsUiAction::RevealHidden) => {
                 self.workspace.visibility.scope.is_empty()
-                    && !self.workspace.visibility.reveal_hidden
                     && self
                         .workspace_snapshot()
                         .is_some_and(|snapshot| snapshot.hidden_count > 0)
@@ -1124,10 +1148,9 @@ impl App {
                 if !self.workspace.visibility.scope.is_empty() {
                     return Effect::None;
                 }
-                self.workspace.visibility.reveal_hidden = true;
-                self.overview_rows.borrow_mut().clear();
-                self.workspace_reconcile();
-                self.invalidate_frame_geometry();
+                // `h` folds and unfolds the Hidden group and selects it.
+                self.workspace.selected = Some(OpsTarget::Hidden);
+                self.toggle_hidden_group();
             }
             HideSquad | ShowSquad => {
                 if self.shell.tab != OpsTab::Agents || !self.workspace_selection_visible() {
@@ -1213,14 +1236,17 @@ impl App {
                 } else {
                     let expanded = match &target {
                         OpsTarget::Pool => self.workspace.pool_expanded,
+                        OpsTarget::Hidden => self.workspace.visibility.reveal_hidden,
                         OpsTarget::DigestAll => false,
                         OpsTarget::Squad(id) => self.workspace.expanded.contains(id),
                         _ => false,
                     };
-                    if action == Inspect
+                    let toggles = action == Inspect
                         || (action == Expand && !expanded)
-                        || (action == Fold && expanded)
-                    {
+                        || (action == Fold && expanded);
+                    if toggles && target == OpsTarget::Hidden {
+                        self.toggle_hidden_group();
+                    } else if toggles {
                         self.workspace.toggle_expanded(&target);
                     }
                     self.workspace_reconcile();

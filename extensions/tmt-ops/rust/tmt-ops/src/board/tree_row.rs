@@ -51,13 +51,49 @@ fn style(look: Look, row: &Row<'_>, value: Style) -> Style {
         // The state words were already painted with the selection background; the tint wins.
         style.bg = look.conversation().bg;
         style
-    } else if row.selected {
+    } else {
+        selection(look, row.selected, value)
+    }
+}
+
+fn selection(look: Look, selected: bool, value: Style) -> Style {
+    if selected {
         look.selection()
             .patch(look.row_span(true, value, false))
             .remove_modifier(Modifier::BOLD)
     } else {
         value
     }
+}
+
+/// A group row that reads as one line across every column (the Hidden group):
+/// the gutter, the fold mark and `spans`, with the selection style when chosen.
+pub(in crate::board) fn paint_line(
+    buffer: &mut Buffer,
+    area: Rect,
+    expanded: bool,
+    spans: Vec<(String, Style)>,
+    selected: bool,
+    look: Look,
+) {
+    let mut line = vec![
+        Span::styled(" ", selection(look, selected, look.role(Role::Text))),
+        Span::styled(
+            if expanded { "▾ " } else { "▸ " },
+            selection(look, selected, look.role(Role::Muted)),
+        ),
+    ];
+    line.extend(
+        spans
+            .into_iter()
+            .map(|(text, style)| Span::styled(text, selection(look, selected, style))),
+    );
+    let width: usize = line.iter().map(Span::width).sum();
+    line.push(Span::styled(
+        " ".repeat(usize::from(area.width).saturating_sub(width)),
+        selection(look, selected, look.role(Role::Text)),
+    ));
+    strip::paint_left(buffer, area, Line::from(line));
 }
 
 pub(in crate::board) fn paint(
@@ -86,13 +122,19 @@ pub(in crate::board) fn paint(
         };
         let mut line = match field {
             AgentsField::Agent => {
-                let branch = if matches!(row.source.target, OpsTarget::Member { .. }) {
+                let member = matches!(row.source.target, OpsTarget::Member { .. });
+                // Rows inside the Hidden group sit one level further in.
+                let indent = "  ".repeat(usize::from(
+                    row.source.depth.saturating_sub(u8::from(member)),
+                ));
+                let branch = if member {
                     if row.last { "  └ " } else { "  ├ " }
                 } else if row.expanded {
                     "▾ "
                 } else {
                     "▸ "
                 };
+                let branch = format!("{indent}{branch}");
                 let name_width = usize::from(cell.width)
                     .saturating_sub(1 + branch.width() + usize::from(row.source.lead));
                 // The leading gutter carries the pin without moving name tracks.

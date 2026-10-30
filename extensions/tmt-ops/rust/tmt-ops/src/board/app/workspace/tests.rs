@@ -880,13 +880,14 @@ fn workspace_shell_is_available_before_data_at_every_theme_depth() {
             });
             let lines = paint(&app, 80, 8);
             assert!(lines[0].contains("TMT   OPS / UI"), "{base:?} {depth:?}");
+            // The tabs follow the top bar directly: there is no boundary band.
             for label in ["1  Agents", "2  Digest"] {
-                assert!(lines[2].contains(label), "{base:?} {depth:?}: {label}");
+                assert!(lines[1].contains(label), "{base:?} {depth:?}: {label}");
             }
             assert!(!lines[0].contains("private-squad"));
             let hits = app.tab_hits.borrow();
             assert_eq!(hits.iter().map(|hit| hit.tab).collect::<Vec<_>>(), [0, 1]);
-            assert!(hits.iter().all(|hit| hit.y == 2 && hit.x + hit.width <= 80));
+            assert!(hits.iter().all(|hit| hit.y == 1 && hit.x + hit.width <= 80));
         }
     }
 }
@@ -2691,6 +2692,54 @@ pub(in crate::board) fn measure_exchanges(
 
 /// One literal fixture owner for private capture packets and the frozen HOME oracle.
 /// It configures only an isolated test model; rendering stays on the actual App path.
+/// HOME oracle scenes for hidden squads and the scope: the Hidden group folded and
+/// open (one hidden squad with a blocked agent), and the scope chip on each tab.
+pub(in crate::board) const VISIBILITY_SCENES: &[&str] = &[
+    "hidden-group",
+    "hidden-group-open",
+    "scope-agents",
+    "scope-digest",
+];
+
+pub(in crate::board) fn visibility_capture_case(scene: &str, look: crate::look::Look) -> App {
+    let mut app = populated_board(3, 4);
+    let view = app.view.as_mut().unwrap();
+    view.look = look;
+    let snapshot = &mut view.home.as_mut().unwrap().workspace;
+    let ids: Vec<_> = snapshot
+        .roster
+        .squads
+        .iter()
+        .map(|squad| squad.room_id.clone())
+        .collect();
+    for id in &ids {
+        snapshot.squad_looks.insert(id.clone(), look);
+    }
+    let mut preferences = snapshot.preferences.clone();
+    preferences.hidden.insert(ids[0].clone());
+    snapshot.set_preferences(preferences);
+    snapshot.shell_counts = snapshot.roster.shell_counts();
+    app.shell.tab = OpsTab::Agents;
+    match scene {
+        "hidden-group-open" => {
+            app.workspace.visibility.reveal_hidden = true;
+            app.workspace.expanded.insert(ids[0].clone());
+            app.workspace.selected = Some(OpsTarget::Hidden);
+        }
+        "scope-agents" | "scope-digest" => {
+            app.workspace.visibility.scope = vec![ids[1].clone()];
+            app.workspace.selected = Some(OpsTarget::Squad(ids[1].clone()));
+            if scene == "scope-digest" {
+                app.shell.tab = OpsTab::Digest;
+            }
+        }
+        _ => app.workspace.selected = Some(OpsTarget::Hidden),
+    }
+    app.overview_rows.borrow_mut().clear();
+    app.workspace_reconcile();
+    app
+}
+
 pub(in crate::board) fn capture_case(scene: &str, look: crate::look::Look) -> App {
     if scene == "unread-core-capture" {
         let now = crate::status::now_ms();
@@ -3796,10 +3845,11 @@ fn confirmed_hide_moves_only_its_visible_squad_and_keeps_global_attention() {
     assert_eq!(app.workspace_snapshot().unwrap().preferences, old);
     assert_eq!(app.workspace.selected, Some(OpsTarget::Squad(ROOM.into())));
     app.finished_workspace_preferences(next, "Saved".into());
-    assert_eq!(app.workspace.selected, Some(OpsTarget::Pool));
+    // The hidden squad's selection follows it into the folded Hidden group.
+    assert_eq!(app.workspace.selected, Some(OpsTarget::Hidden));
     assert_eq!(app.workspace_snapshot().unwrap().hidden_count, 1);
     assert_eq!(app.workspace_snapshot().unwrap().shell_counts, global);
-    assert_eq!(app.workspace_rows().len(), 1);
+    assert_eq!(app.workspace_rows().len(), 2);
     app.shell.tab = OpsTab::Agents;
     app.workspace.filter = crate::board::workspace::AgentsFilter::Agents;
     app.workspace_reconcile();
@@ -3991,28 +4041,39 @@ fn visibility_capture_matrix_keeps_shell_global_and_views_scoped() {
                         .map(|row| row.iter().map(|cell| cell.symbol()).collect::<String>())
                         .collect::<Vec<_>>();
                     let text = lines.join("\n");
-                    assert!(
-                        text.contains(if mode == "scoped" {
-                            "Scope: squad-00"
-                        } else {
-                            "Hidden: 1"
-                        }),
-                        "{width} {mode} {text}"
-                    );
-                    if mode == "hidden" {
-                        assert!(text.contains("Hidden: 1 · ✗ 1 blocked · show"));
-                        let x = lines[1].chars().position(|c| c == '✗').unwrap() as u16;
+                    // No band: the scope is a tab-strip chip and hidden squads are
+                    // the Hidden group closing the Squads list.
+                    assert!(!text.contains("Hidden:") && !text.contains("Esc clears"));
+                    // The chip shows at every width; the shorter frames may scroll the
+                    // group row out of view.
+                    if mode == "scoped" {
+                        assert!(text.contains("Scope: squad-00"), "{width} {mode} {text}");
+                    }
+                    let all = filter == crate::board::workspace::AgentsFilter::All && width == 160;
+                    if all && mode == "hidden" {
+                        let (y, line) = lines
+                            .iter()
+                            .enumerate()
+                            .find(|(_, line)| line.contains("Hidden · 1 squad · ✗ 1 blocked"))
+                            .unwrap_or_else(|| panic!("{width} {mode} {text}"));
+                        let x = line.chars().position(|c| c == '✗').unwrap() as u16;
                         assert_eq!(
-                            buffer[(x, 1)].fg,
+                            buffer[(x, y as u16)].fg,
                             app.look()
                                 .role(tmt_cli_style::Role::Blocked)
                                 .fg
                                 .unwrap_or(ratatui::style::Color::Reset)
                         );
                     }
-                    if mode == "scoped" {
-                        assert!(text.contains("Esc clears"));
-                        assert!(!text.contains("Hidden:"));
+                    if all && mode == "revealed" {
+                        let group = lines
+                            .iter()
+                            .find(|line| line.contains("Hidden · 1 squad"))
+                            .unwrap_or_else(|| panic!("{width} {mode} {text}"));
+                        assert!(
+                            !group.contains("blocked"),
+                            "unfolded, the squad shows its own state"
+                        );
                     }
                     let rows = app.workspace_rows();
                     if mode == "hidden" {
@@ -4051,9 +4112,8 @@ fn visibility_capture_matrix_keeps_shell_global_and_views_scoped() {
                     assert_eq!(app.workspace_snapshot().unwrap().shell_counts, global);
                     let before = app.workspace.selected.clone();
                     let control = app.workspace_strip_hits.borrow().iter().find(|(_,choice)| matches!(choice,Choice::Action(action) if matches!(action.verb,Verb::Ui(OpsUiAction::ClearScope | OpsUiAction::RevealHidden)))).cloned();
-                    if mode != "revealed" {
-                        assert!(control.is_some());
-                    }
+                    // Only the scope chip's × is a strip control; the group is a row.
+                    assert_eq!(control.is_some(), mode == "scoped", "{width} {mode}");
                     captures.push(json!({"width":width,"height":height,"base":format!("{base:?}"),"depth":format!("{depth:?}"),"tab":format!("{:?}", OpsTab::Agents),"filter":format!("{filter:?}"),"mode":mode,"lines":lines,
                         "cells":buffer.content.iter().map(|cell|json!({"symbol":cell.symbol(),"fg":format!("{:?}",cell.fg),"bg":format!("{:?}",cell.bg),"modifier":format!("{:?}",cell.modifier)})).collect::<Vec<_>>(),
                         "selected":format!("{before:?}"),"hits":format!("{:?}",app.hits.borrow())}));
@@ -4089,7 +4149,7 @@ fn visibility_capture_matrix_keeps_shell_global_and_views_scoped() {
 }
 
 #[test]
-fn scope_header_fits_whole_names_and_neutralizes_untrusted_roster_names() {
+fn scope_chip_admits_whole_names_then_a_count_and_neutralizes_untrusted_roster_names() {
     let mut app = populated_board(3, 3);
     let snapshot = &mut app.view.as_mut().unwrap().home.as_mut().unwrap().workspace;
     let names = [
@@ -4106,18 +4166,36 @@ fn scope_header_fits_whole_names_and_neutralizes_untrusted_roster_names() {
         .iter()
         .map(|squad| squad.room_id.clone())
         .collect();
+    let text = |app: &App, width: u16| {
+        let mut terminal = Terminal::new(TestBackend::new(width, 24)).unwrap();
+        terminal
+            .draw(|frame| crate::board::view::render(frame, app))
+            .unwrap();
+        let buffer = terminal.backend().buffer();
+        (0..24)
+            .map(|y| {
+                (0..width)
+                    .map(|x| buffer[(x, y)].symbol())
+                    .collect::<String>()
+            })
+            .collect::<Vec<_>>()
+            .join("\n")
+    };
+    app.workspace.visibility.scope = vec![ids[2].clone()];
+    assert!(text(&app, 160).contains("Scope: charlie-long-squad-three ×"));
+    // More squads read as `+N`; the other names never show.
     app.workspace.visibility.scope = vec![ids[2].clone(), ids[0].clone(), ids[1].clone()];
-    let mut terminal = Terminal::new(TestBackend::new(60, 24)).unwrap();
-    terminal
-        .draw(|frame| crate::board::view::render(frame, &app))
-        .unwrap();
-    let line = (0..60)
-        .map(|x| terminal.backend().buffer()[(x, 1)].symbol())
-        .collect::<String>();
-    assert!(line.contains(names[2]));
-    assert!(line.contains("+2 · Esc clears"));
-    assert!(!line.contains("alpha"));
-    assert!(!line.contains("bravo"));
+    let wide = text(&app, 160);
+    assert!(
+        wide.contains("Scope: charlie-long-squad-three +2 ×"),
+        "{wide}"
+    );
+    assert!(!wide.contains("Scope: alpha") && !wide.contains("Scope: bravo"));
+    // Where the whole name does not fit after the tabs, the chip counts instead of cutting.
+    let narrow = text(&app, 60);
+    assert!(narrow.contains("Scope: 3 squads ×"), "{narrow}");
+    assert!(!narrow.contains("Scope: charlie"));
+    app.workspace.visibility.scope = vec![ids[2].clone()];
     app.view
         .as_mut()
         .unwrap()
@@ -4128,16 +4206,45 @@ fn scope_header_fits_whole_names_and_neutralizes_untrusted_roster_names() {
         .roster
         .squads[2]
         .name = "safe\u{1b}]52;c;secret\u{7}\u{202e}name".into();
-    terminal
-        .draw(|frame| crate::board::view::render(frame, &app))
-        .unwrap();
-    let line = (0..60)
-        .map(|x| terminal.backend().buffer()[(x, 1)].symbol())
-        .collect::<String>();
-    assert!(line.contains("Scope: safename"));
+    let line = text(&app, 160);
+    assert!(line.contains("Scope: safename ×"));
     assert!(!line.contains("secret"));
     assert!(!line.contains('\u{1b}'));
     assert!(!line.contains('\u{202e}'));
+}
+
+#[test]
+fn the_scope_chip_clears_with_its_cross_or_esc() {
+    let mut app = board();
+    app.workspace.visibility.scope = vec![ROOM.into()];
+    let mut terminal = Terminal::new(TestBackend::new(160, 24)).unwrap();
+    terminal
+        .draw(|frame| crate::board::view::render(frame, &app))
+        .unwrap();
+    let cross = app
+        .workspace_strip_hits
+        .borrow()
+        .iter()
+        .find(|(_, choice)| matches!(choice, Choice::Action(action) if matches!(action.verb, Verb::Ui(OpsUiAction::ClearScope))))
+        .map(|(area, _)| *area)
+        .expect("the chip's × is a control");
+    assert_eq!(
+        terminal.backend().buffer()[(cross.x, cross.y)].symbol(),
+        "×"
+    );
+    app.mouse(
+        MouseEvent {
+            kind: MouseEventKind::Down(MouseButton::Left),
+            column: cross.x,
+            row: cross.y,
+            modifiers: KeyModifiers::NONE,
+        },
+        std::time::Instant::now(),
+    );
+    assert!(app.workspace.visibility.scope.is_empty());
+    app.workspace.visibility.scope = vec![ROOM.into()];
+    key(&mut app, KeyCode::Esc);
+    assert!(app.workspace.visibility.scope.is_empty());
 }
 
 #[test]
@@ -4161,7 +4268,47 @@ fn cold_view_hints_cannot_set_or_clear_session_visibility() {
 }
 
 #[test]
-fn hidden_line_reports_both_attention_kinds_but_omits_absent_and_revealed_attention() {
+fn h_and_the_arrows_fold_the_hidden_group_and_a_folded_selection_moves_to_it() {
+    let mut app = board();
+    let snapshot = &mut app.view.as_mut().unwrap().home.as_mut().unwrap().workspace;
+    let mut preferences = snapshot.preferences.clone();
+    preferences.hidden.insert(ROOM.into());
+    snapshot.set_preferences(preferences);
+    app.workspace_reconcile();
+    let targets = |app: &App| {
+        app.workspace_rows()
+            .iter()
+            .map(|row| row.target.clone())
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(targets(&app).last(), Some(&OpsTarget::Hidden));
+    let squad = OpsTarget::Squad(ROOM.into());
+    assert!(!targets(&app).contains(&squad));
+    // h unfolds the group and selects it; the hidden squad follows one level in.
+    key(&mut app, KeyCode::Char('h'));
+    assert_eq!(app.workspace.selected, Some(OpsTarget::Hidden));
+    assert!(app.workspace.visibility.reveal_hidden);
+    assert!(targets(&app).contains(&squad));
+    app.workspace.selected = Some(squad.clone());
+    // h again folds it, and the selection inside moves to the group row.
+    key(&mut app, KeyCode::Char('h'));
+    assert!(!app.workspace.visibility.reveal_hidden);
+    assert_eq!(app.workspace.selected, Some(OpsTarget::Hidden));
+    // On the group row, Right unfolds and Left folds, like any group.
+    key(&mut app, KeyCode::Right);
+    assert!(app.workspace.visibility.reveal_hidden);
+    key(&mut app, KeyCode::Right);
+    assert!(app.workspace.visibility.reveal_hidden, "Right never folds");
+    key(&mut app, KeyCode::Left);
+    assert!(!app.workspace.visibility.reveal_hidden);
+    // The group is no recipient: Enter folds, and nothing composes to it.
+    key(&mut app, KeyCode::Enter);
+    assert!(app.workspace.visibility.reveal_hidden);
+    assert!(app.input.is_none());
+}
+
+#[test]
+fn hidden_group_reports_blocked_agents_only_while_folded() {
     let mut app = board();
     app.shell.tab = OpsTab::Agents;
     let snapshot = &mut app.view.as_mut().unwrap().home.as_mut().unwrap().workspace;
@@ -4175,14 +4322,16 @@ fn hidden_line_reports_both_attention_kinds_but_omits_absent_and_revealed_attent
         terminal
             .draw(|frame| crate::board::view::render(frame, app))
             .unwrap();
-        (0..60)
-            .map(|x| terminal.backend().buffer()[(x, 1)].symbol())
-            .collect::<String>()
+        let buffer = terminal.backend().buffer();
+        (0..24)
+            .map(|y| (0..60).map(|x| buffer[(x, y)].symbol()).collect::<String>())
+            .find(|line| line.contains("Hidden ·"))
+            .unwrap_or_default()
     };
-    assert!(paint(&app).contains("Hidden: 1 · ✗ 1 blocked · show"));
+    assert!(paint(&app).contains("▸ Hidden · 1 squad · ✗ 1 blocked"));
     app.workspace.visibility.reveal_hidden = true;
     let line = paint(&app);
-    assert!(line.contains("Hidden: 1 · shown"));
+    assert!(line.contains("▾ Hidden · 1 squad"));
     assert!(!line.contains("blocked"));
     assert!(!line.contains("need you"));
     app.workspace.visibility.reveal_hidden = false;
@@ -4191,7 +4340,7 @@ fn hidden_line_reports_both_attention_kinds_but_omits_absent_and_revealed_attent
     snapshot.roster.members.get_mut(MEMBER).unwrap().state = Some("working".into());
     snapshot.set_preferences(preferences);
     let line = paint(&app);
-    assert!(line.contains("Hidden: 1 · show"));
+    assert!(line.contains("▸ Hidden · 1 squad"));
     assert!(!line.contains("blocked"));
     assert!(!line.contains("need you"));
 }

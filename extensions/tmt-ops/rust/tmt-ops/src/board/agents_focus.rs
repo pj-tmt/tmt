@@ -251,7 +251,7 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
     );
     let mut y = metadata.y;
     match selected {
-        OpsTarget::DigestAll => {}
+        OpsTarget::DigestAll | OpsTarget::Hidden => {}
         OpsTarget::Member { .. } => {
             if let Some(row) = raw {
                 member::render(frame, app, metadata, &mut y, row, selected, squad);

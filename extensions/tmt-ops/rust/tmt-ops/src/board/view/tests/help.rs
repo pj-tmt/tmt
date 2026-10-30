@@ -141,14 +141,14 @@ fn help_pages_by_the_painted_viewport_after_resizing_an_editor() {
     key(&mut app, KeyCode::Enter);
     assert!(app.input.is_some());
     app.paste("kept draft 界 e\u{301}");
-    for (width, height) in [(160, 36), (100, 36), (80, 18), (60, 8)] {
+    for (width, height) in [(160, 36), (100, 36), (80, 18), (60, 7)] {
         app.invalidate_frame_geometry();
         app.set_body_width(width);
         draw(&app, width, height);
     }
     key(&mut app, KeyCode::Esc);
     assert!(app.input.is_none());
-    for (width, height) in [(100, 36), (80, 18), (60, 8)] {
+    for (width, height) in [(100, 36), (80, 18), (60, 7)] {
         app.invalidate_frame_geometry();
         app.set_body_width(width);
         draw(&app, width, height);
@@ -157,7 +157,7 @@ fn help_pages_by_the_painted_viewport_after_resizing_an_editor() {
         let (page, limit) = {
             let help = app.help_state.borrow();
             let viewport = help.scroll.viewport();
-            if height == 8 {
+            if height == 7 {
                 assert_eq!(
                     viewport.height, 0,
                     "tiny help must not retain a stale large viewport"

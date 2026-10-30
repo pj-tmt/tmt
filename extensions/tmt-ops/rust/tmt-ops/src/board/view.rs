@@ -93,6 +93,38 @@ fn bands(app: &App, area: Rect, has_usage: bool, limit_rows: u16) -> [Rect; 7] {
     .areas(area)
 }
 
+/// A launch scope shows as a chip at the right end of the tab strip on both tabs,
+/// `Scope: product ×`, in the first wording that fits after the tabs; its × is the
+/// one control that clears the scope (as Esc does).
+fn scope_chip(frame: &mut Frame, app: &App, area: Rect, used: u16) {
+    use unicode_width::UnicodeWidthStr;
+    let look = app.look();
+    for scope in super::workspace::render::scope_labels(app) {
+        let label = format!(" {scope} ");
+        let width = (label.width() + 2) as u16;
+        if area.width < used + 2 + width {
+            continue;
+        }
+        let x = area.right() - width;
+        strip::paint_left(
+            frame.buffer_mut(),
+            Rect::new(x, area.y, width, 1),
+            ratatui::text::Line::from(vec![
+                ratatui::text::Span::styled(label.clone(), look.role(tmt_cli_style::Role::Muted)),
+                ratatui::text::Span::styled("× ", look.role(tmt_cli_style::Role::Text)),
+            ]),
+        );
+        app.workspace_strip_hits.borrow_mut().push((
+            Rect::new(x + label.width() as u16, area.y, 1, 1),
+            super::app::Choice::Action(
+                crate::action::Action::parse(crate::action::OpsUiAction::ClearScope.spec().name)
+                    .expect("registered clear-scope action"),
+            ),
+        ));
+        return;
+    }
+}
+
 /// Frame geometry consumes an already formatted header, independent of acquisition.
 pub(in crate::board) fn render_frame(
     frame: &mut Frame,
@@ -135,9 +167,11 @@ pub(in crate::board) fn render_frame(
     let workspace = app.workspace_snapshot().is_some() || app.view.is_none();
     let shell_gap = u16::from(frame.area().height >= 24);
     let [tabs, boundary, summary, limits, meter_status, body, footer] = if workspace {
+        // Hidden squads live in the Agents list and the scope on the tab strip,
+        // so the workspace has no boundary band.
         Layout::vertical([
             Constraint::Length(1),
-            Constraint::Length(u16::from(frame.area().height >= 7)),
+            Constraint::Length(0),
             Constraint::Length(1),
             Constraint::Length(shell_gap),
             Constraint::Length(0),
@@ -162,8 +196,10 @@ pub(in crate::board) fn render_frame(
     app.conversation.borrow_mut().area = body;
     if workspace {
         header::render_shell(frame, app, tabs);
-        header::render_visibility(frame, app, boundary);
-        strip::paint_left(frame.buffer_mut(), summary, tabs::paint(app, summary));
+        let line = tabs::paint(app, summary);
+        let used = line.width() as u16;
+        strip::paint_left(frame.buffer_mut(), summary, line);
+        scope_chip(frame, app, summary, used);
     } else {
         strip::paint_left(frame.buffer_mut(), tabs, tabs::paint(app, tabs));
     }
