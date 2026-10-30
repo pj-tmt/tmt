@@ -889,3 +889,46 @@ fn summary_projection_has_unknown_savings_while_ordinary_full_evidence_keeps_its
         .unwrap();
     assert_eq!(observed, 1, "observed delivery evidence is retained");
 }
+
+#[test]
+fn a_data_root_reached_through_a_link_opens_but_links_under_it_never_do() {
+    use std::os::unix::fs::DirBuilderExt;
+    let fixture = Fixture::new();
+    let private_dir = |path: &std::path::Path| {
+        fs::DirBuilder::new()
+            .mode(0o700)
+            .recursive(true)
+            .create(path)
+            .unwrap()
+    };
+    // The root itself is reached through a link, as under macOS /var (#5711).
+    let real = fixture.0.join("real");
+    private_dir(&real);
+    let alias = fixture.0.join("alias");
+    symlink(&real, &alias).unwrap();
+    drop(Store::open(&alias, true).unwrap().unwrap());
+    assert!(Store::open(&alias, false).unwrap().is_some());
+    let database = real.join("digest/history/history.sqlite");
+    assert!(database.is_file());
+
+    // A linked digest directory and a linked database file are still refused.
+    let linked_dir = fixture.0.join("linked-dir");
+    private_dir(&linked_dir);
+    symlink(real.join("digest"), linked_dir.join("digest")).unwrap();
+    let linked_file = fixture.0.join("linked-file");
+    private_dir(&linked_file.join("digest/history"));
+    symlink(&database, linked_file.join("digest/history/history.sqlite")).unwrap();
+    for root in [&linked_dir, &linked_file] {
+        for write in [false, true] {
+            assert!(Store::open(root, write).is_err(), "{root:?} write={write}");
+        }
+    }
+
+    // A root missing behind its link: nothing to read, and writing creates nothing.
+    let absent = fixture.0.join("absent");
+    let dangling = fixture.0.join("dangling");
+    symlink(&absent, &dangling).unwrap();
+    assert!(Store::open(&dangling, false).unwrap().is_none());
+    assert!(Store::open(&dangling, true).is_err());
+    assert!(fs::symlink_metadata(&absent).is_err(), "nothing is created");
+}
