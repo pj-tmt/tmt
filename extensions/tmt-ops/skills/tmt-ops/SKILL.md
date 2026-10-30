@@ -760,8 +760,17 @@ in Agents; uncertainty needs inspection before a new explicit attempt.
 
 ### Saved workspace snapshots
 
-Workspace snapshots support tmux only. The list reads Core's Latest capture and
-named saves for the original socket. Selecting or opening a preview is read-only.
+Workspace snapshots support tmux and the built-in host. Core decides which store
+answers: inside tmux, the original socket's captures; on the built-in host or in a
+plain terminal, the built-in members. When the built-in store is empty but tmux
+snapshots exist, the list says so and names the `--socket` command; Ops never
+switches stores. The list reads Core's Latest capture and named saves for that
+store. Selecting or opening a preview is read-only.
+
+A built-in preview lists each recorded member with what restore would do (resume,
+running and left alone, or needs you) and its folder. Its restore mode is Resume or
+New conversation; Core starts members one at a time through `tmt resume` and lists
+each one's result, with the exact retry command where one applies.
 Preview includes capture time, digest, topology, pane directories and literal
 recorded argv. Long detail is scrollable and paged; text never becomes a command.
 Save latest capture copies the published capture under an explicit name; it does

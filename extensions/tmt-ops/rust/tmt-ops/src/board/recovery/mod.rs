@@ -8,8 +8,8 @@ pub(in crate::board) mod tests;
 
 use super::picker_surface;
 use crate::core::SquadError;
-use load::{Job, Outcome, Selection, Task};
-use model::{Preview, RecoverySnapshotSummary, Restore};
+use load::{Job, Outcome, Selection, Store, Task};
+use model::{MemberPreview, MemberRestore, Preview, RecoverySnapshotSummary, Restore};
 use std::cell::{Cell, RefCell};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -27,15 +27,22 @@ pub(in crate::board) struct Controller {
     zone: jiff::tz::TimeZone,
     serial: u64,
     screen: Screen,
-    socket: Option<String>,
+    /// Fixed by Core's first listing; never chosen here.
+    store: Option<Store>,
+    /// tmux sockets Core named beside an empty built-in store.
+    socket_stores: Vec<String>,
     entries: Vec<RecoverySnapshotSummary>,
     selected: Option<String>,
+    /// The tmux preview, or the built-in one: at most one is set, by store.
     preview: Option<Preview>,
+    members: Option<MemberPreview>,
     layout_only: bool,
+    fresh: bool,
     confirmation: Option<Selection>,
     pending: Option<Task>,
     requested_read: Option<Job>,
     restored: Option<Restore>,
+    members_restored: Option<MemberRestore>,
     details: Vec<String>,
     detail_page: usize,
     failure: Option<SquadError>,
@@ -61,15 +68,19 @@ impl Controller {
             zone,
             serial: 0,
             screen: Screen::List,
-            socket: None,
+            store: None,
+            socket_stores: vec![],
             entries: vec![],
             selected: None,
             preview: None,
+            members: None,
             layout_only: true,
+            fresh: false,
             confirmation: None,
             pending: None,
             requested_read: None,
             restored: None,
+            members_restored: None,
             details: vec![],
             detail_page: 0,
             failure: None,
@@ -89,13 +100,13 @@ impl Controller {
     pub fn open(&mut self) -> Option<Task> {
         self.active = true;
         // A report survives closing its view. Reopening never replays the write.
-        if self.restored.is_some() || self.unknown.is_some() {
+        if self.restored.is_some() || self.members_restored.is_some() || self.unknown.is_some() {
             self.screen = Screen::Results;
-            self.details = self
-                .restored
-                .as_ref()
-                .map(surface::results)
-                .unwrap_or_default();
+            self.details = match (&self.restored, &self.members_restored) {
+                (Some(restored), _) => surface::results(restored),
+                (_, Some(restored)) => surface::member_results(restored),
+                _ => vec![],
+            };
             self.detail_page = 0;
             self.form_focus = true;
             self.invalidate();
@@ -135,8 +146,15 @@ impl Controller {
     fn refresh(&mut self) -> Option<Task> {
         self.confirmation = None;
         self.preview = None;
+        self.members = None;
         self.screen = Screen::List;
-        self.read(Job::List(self.socket.clone()))
+        self.read(Job::List(self.store.clone()))
+    }
+    fn previewed(&self) -> bool {
+        self.preview.is_some() || self.members.is_some()
+    }
+    fn builtin(&self) -> bool {
+        self.store == Some(Store::Builtin)
     }
     fn selected_entry(&self) -> Option<&RecoverySnapshotSummary> {
         self.entries
@@ -146,24 +164,35 @@ impl Controller {
     fn select(&mut self, id: &str) -> Option<Task> {
         self.confirmation = None;
         self.preview = None;
+        self.members = None;
         self.selected = Some(id.into());
         let entry = self.selected_entry()?;
         let job = Job::Show {
-            socket: self.socket.clone()?,
+            store: self.store.clone()?,
             name: entry.selector().map(str::to_owned),
         };
         self.read(job)
     }
     fn selection(&self) -> Option<Selection> {
-        let p = self.preview.as_ref()?;
-        if self.selected_entry()?.selector() != p.name.as_deref() {
+        let (store, name, digest) = match (&self.preview, &self.members) {
+            (Some(p), _) => (
+                Store::Socket(p.snapshot.server.socket.clone()),
+                &p.name,
+                &p.digest,
+            ),
+            (_, Some(m)) => (Store::Builtin, &m.name, &m.digest),
+            _ => return None,
+        };
+        if self.selected_entry()?.selector() != name.as_deref() {
             return None;
         }
+        let builtin = store == Store::Builtin;
         Some(Selection {
-            socket: p.snapshot.server.socket.clone(),
-            name: p.name.clone(),
-            digest: p.digest.clone(),
-            layout_only: self.layout_only,
+            store,
+            name: name.clone(),
+            digest: digest.clone(),
+            layout_only: !builtin && self.layout_only,
+            fresh: builtin && self.fresh,
         })
     }
     fn close(&mut self) {
@@ -198,7 +227,8 @@ impl Controller {
         self.invalidate();
         match completed.result {
             Ok(Outcome::List(inventory)) => {
-                self.socket = Some(inventory.socket);
+                self.store = Some(inventory.store());
+                self.socket_stores = inventory.socket_stores;
                 self.entries = inventory.snapshots;
                 let id = self
                     .selected
@@ -220,9 +250,18 @@ impl Controller {
                     return self.select(&id);
                 }
                 self.selected = None;
-                self.notice =
+                self.notice = if !self.builtin() {
                     "No snapshots. A successful Core capture is needed before Save latest capture."
-                        .into();
+                        .into()
+                } else if let Some(socket) = self.socket_stores.first() {
+                    // Core chose the built-in store; Ops only says where tmux snapshots are.
+                    format!(
+                        "No built-in member snapshots. tmux workspace snapshots exist; run tmt workspace ls --socket {} or open Ops inside that tmux server.",
+                        crate::launch::shell_word(socket)
+                    )
+                } else {
+                    "No built-in member snapshots yet. Members started with tmt run on the built-in host are recorded automatically.".into()
+                };
             }
             Ok(Outcome::Show(preview)) => {
                 // Show acquires current bytes; a changed Latest requires a new review.
@@ -237,6 +276,21 @@ impl Controller {
                 self.details = surface::topology(&preview);
                 self.detail_page = 0;
                 self.preview = Some(*preview);
+                self.members = None;
+            }
+            Ok(Outcome::Members(preview)) => {
+                if let Some(entry) = self
+                    .entries
+                    .iter_mut()
+                    .find(|e| e.selector() == preview.name.as_deref())
+                {
+                    entry.digest = preview.digest.clone();
+                    entry.captured_at_ms = preview.captured_at_ms;
+                }
+                self.details = surface::members(&preview);
+                self.detail_page = 0;
+                self.members = Some(preview);
+                self.preview = None;
             }
             Ok(Outcome::Saved(entry)) => {
                 self.notice = format!(
@@ -258,9 +312,21 @@ impl Controller {
                 self.detail_page = 0;
                 self.form_focus = true;
                 self.restored = Some(result);
+                self.members_restored = None;
                 self.preview = None;
                 self.unknown = None;
                 self.notice = "Created resources remain. Startup requested is not conversation confirmed; nothing is rolled back or retried.".into();
+            }
+            Ok(Outcome::MembersRestored(result)) => {
+                self.screen = Screen::Results;
+                self.details = surface::member_results(&result);
+                self.detail_page = 0;
+                self.form_focus = true;
+                self.members_restored = Some(result);
+                self.restored = None;
+                self.members = None;
+                self.unknown = None;
+                self.notice = "Started means the member was asked to resume; running members were left alone. Nothing is retried automatically.".into();
             }
             Err(error) => {
                 if let Job::Restore(selection) = &completed.task.job {
@@ -269,6 +335,7 @@ impl Controller {
                         "WORKSPACE_SNAPSHOT_CHANGED" | "WORKSPACE_SNAPSHOT_NOT_FOUND"
                     );
                     self.preview = None;
+                    self.members = None;
                     self.details.clear();
                     self.detail_page = 0;
                     if guarded {
@@ -281,10 +348,17 @@ impl Controller {
                     } else {
                         self.screen = Screen::Results;
                         self.restored = None;
+                        self.members_restored = None;
                         self.form_focus = true;
                         self.unknown = Some(format!(
-                            "{}: {}. Inspect the original socket and live resources before deciding any further action; no automatic retry.",
-                            error.code, error.message
+                            "{}: {}. {} before deciding any further action; no automatic retry.",
+                            error.code,
+                            error.message,
+                            if selection.store == Store::Builtin {
+                                "Check which members are running"
+                            } else {
+                                "Inspect the original socket and live resources"
+                            }
                         ));
                     }
                     // One fresh read after a restore failure. A missing Latest
@@ -292,7 +366,7 @@ impl Controller {
                     // Unknown rather than infer whether effects were possible.
                     let next = self.active.then(|| {
                         self.issue(Job::Show {
-                            socket: selection.socket.clone(),
+                            store: selection.store.clone(),
                             name: selection.name.clone(),
                         })
                     });
@@ -301,6 +375,7 @@ impl Controller {
                 }
                 if matches!(completed.task.job, Job::Show { .. }) {
                     self.preview = None;
+                    self.members = None;
                     if self.screen != Screen::Results {
                         self.screen = Screen::List;
                     }
@@ -322,7 +397,7 @@ impl Controller {
                 self.confirmation = None;
                 self.screen = Screen::List;
             }
-            "details" if self.preview.is_some() => {
+            "details" if self.previewed() => {
                 self.screen = Screen::Preview;
                 self.form_focus = true;
             }
@@ -337,7 +412,11 @@ impl Controller {
                 self.form_focus = true;
             }
             "mode" => {
-                self.layout_only = !self.layout_only;
+                if self.builtin() {
+                    self.fresh = !self.fresh;
+                } else {
+                    self.layout_only = !self.layout_only;
+                }
                 self.confirmation = None;
             }
             "review" if self.pending.is_none() => {
@@ -357,6 +436,7 @@ impl Controller {
                 {
                     self.screen = Screen::Results;
                     self.restored = None;
+                    self.members_restored = None;
                     self.details.clear();
                     self.detail_page = 0;
                     self.form_focus = true;
@@ -367,7 +447,7 @@ impl Controller {
             "confirm" if self.screen == Screen::Confirm => {
                 self.notice = "Resize or scroll back until the complete target, mode and both Cancel/Confirm choices are visible.".into();
             }
-            "save" if self.socket.is_some() && self.entries.iter().any(|e| e.name.is_none()) => {
+            "save" if self.store.is_some() && self.entries.iter().any(|e| e.name.is_none()) => {
                 self.screen = Screen::Save;
                 self.form_focus = true;
                 self.form = RefCell::new(picker_surface::State::new(
@@ -386,8 +466,8 @@ impl Controller {
                     .to_owned();
                 if !model::valid_name(&name) {
                     self.notice = "Use 1–64 lowercase letters, digits, _ or -, starting with a letter or digit; latest is reserved.".into();
-                } else if let Some(socket) = self.socket.clone() {
-                    return Some(self.issue(Job::Save { socket, name }));
+                } else if let Some(store) = self.store.clone() {
+                    return Some(self.issue(Job::Save { store, name }));
                 }
             }
             "delete" if self.selected_entry().is_some_and(|e| e.name.is_some()) => {
@@ -401,7 +481,7 @@ impl Controller {
             {
                 let name = self.selected_entry()?.name.clone()?;
                 return Some(self.issue(Job::Remove {
-                    socket: self.socket.clone()?,
+                    store: self.store.clone()?,
                     name,
                 }));
             }
@@ -409,7 +489,7 @@ impl Controller {
                 if self.selected.as_deref() != Some(id) {
                     return self.select(id);
                 }
-                if self.preview.is_some() {
+                if self.previewed() {
                     self.screen = Screen::Preview;
                     self.form_focus = true;
                 }

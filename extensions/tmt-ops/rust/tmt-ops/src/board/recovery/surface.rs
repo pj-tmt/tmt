@@ -54,6 +54,13 @@ fn captured(ms: u64) -> String {
             |time| time.strftime("%Y-%m-%d %H:%M:%S UTC").to_string(),
         )
 }
+fn fresh_mode(fresh: bool) -> &'static str {
+    if fresh {
+        "New conversation — start each member's driver fresh"
+    } else {
+        "Resume — continue each member's remembered conversation"
+    }
+}
 fn mode(layout_only: bool) -> &'static str {
     if layout_only {
         "Layout only — windows and shells; no agents or commands"
@@ -111,7 +118,7 @@ impl Controller {
                     })
                     .collect();
                 rows.extend([
-                    Row::choice("details", "Open selected preview", self.preview.is_none()),
+                    Row::choice("details", "Open selected preview", !self.previewed()),
                     Row::choice(
                         "save",
                         "Save latest capture",
@@ -131,13 +138,20 @@ impl Controller {
             Screen::Preview => vec![
                 Row::choice(
                     "mode",
-                    format!("Restore mode: {}", mode(self.layout_only)),
+                    format!(
+                        "Restore mode: {}",
+                        if self.builtin() {
+                            fresh_mode(self.fresh)
+                        } else {
+                            mode(self.layout_only)
+                        }
+                    ),
                     false,
                 ),
                 Row::choice(
                     "review",
                     "Review restore…",
-                    self.preview.is_none() || self.pending.is_some(),
+                    !self.previewed() || self.pending.is_some(),
                 ),
                 Row::choice("back", "Back to snapshots", false),
             ],
@@ -192,22 +206,31 @@ impl Controller {
     fn notes(&self) -> Vec<String> {
         let mut notes =
             vec!["Save which agents run where, and bring them back after a restart.".into()];
-        if let Some(socket) = &self.socket {
-            notes.push(format!("Original tmux socket: {}", safe(socket)));
+        match &self.store {
+            Some(Store::Socket(socket)) => {
+                notes.push(format!("Original tmux socket: {}", safe(socket)));
+            }
+            Some(Store::Builtin) => notes.push("Built-in host members: restore starts each one again through tmt resume in its recorded folder.".into()),
+            None => {}
         }
         match self.screen {
             Screen::List => {
                 if self.entries.iter().filter(|e| e.name.is_some()).count() >= 16 {
                     notes.push("16 named snapshots retained; explicitly delete a named save before saving another.".into());
                 }
-                if let Some(p) = &self.preview {
+                let shown = match (&self.preview, &self.members) {
+                    (Some(p), _) => Some((p.snapshot.captured_at_ms, p.counts())),
+                    (_, Some(m)) => Some((m.captured_at_ms, m.counts())),
+                    _ => None,
+                };
+                if let Some((at, counts)) = shown {
                     notes.push(format!(
                         "Selected {} · captured {}",
                         self.selected_entry()
                             .map_or("Latest", |entry| self.capture_label(entry)),
-                        captured(p.snapshot.captured_at_ms)
+                        captured(at)
                     ));
-                    notes.push(p.counts());
+                    notes.push(counts);
                 }
             }
             Screen::Save => {
@@ -235,6 +258,29 @@ impl Controller {
                 notes.push("This removes the named save only. It does not remove Latest or any live resource.".into());
             }
             Screen::Preview | Screen::Confirm => {
+                if let Some(m) = &self.members {
+                    notes.push(format!(
+                        "Snapshot: {} · captured {}",
+                        self.selected_entry()
+                            .map_or("Latest", |entry| self.capture_label(entry)),
+                        captured(m.captured_at_ms)
+                    ));
+                    notes.push(format!("Digest: {}", m.digest));
+                    notes.push(format!("Mode: {}", fresh_mode(self.fresh)));
+                    notes.push(m.counts());
+                    notes.push("Starts members one at a time through tmt resume. Running members are left alone. Each start has 20 seconds and the whole restore 2 minutes; members not reached are listed with their retry command.".into());
+                    if self.screen == Screen::Preview {
+                        notes.extend(
+                            self.details
+                                .iter()
+                                .skip(self.detail_page * PAGE_SIZE)
+                                .take(PAGE_SIZE)
+                                .cloned(),
+                        );
+                    } else {
+                        notes.push("Confirm restores exactly the snapshot shown. If it has changed, the restore is refused.".into());
+                    }
+                }
                 if let Some(p) = &self.preview {
                     notes.push(format!(
                         "Snapshot: {} · captured {}",
@@ -271,6 +317,28 @@ impl Controller {
             Screen::Results => {
                 if let Some(p) = &self.preview {
                     notes.push(format!("Showing {} as it is now (digest {}). The earlier restore result is unchanged.",p.counts(),p.digest));
+                }
+                if let Some(m) = &self.members {
+                    notes.push(format!(
+                        "Showing {} as it is now (digest {}). The earlier restore result is unchanged.",
+                        m.counts(),
+                        m.digest
+                    ));
+                }
+                if let Some(r) = &self.members_restored {
+                    notes.push(format!(
+                        "Restore {} · {} · digest {}",
+                        r.status,
+                        fresh_mode(r.fresh),
+                        r.digest
+                    ));
+                    notes.extend(
+                        self.details
+                            .iter()
+                            .skip(self.detail_page * PAGE_SIZE)
+                            .take(PAGE_SIZE)
+                            .cloned(),
+                    );
                 }
                 if let Some(r) = &self.restored {
                     notes.push(format!(
@@ -374,7 +442,7 @@ impl Controller {
                 error.code.as_str(),
                 "WORKSPACE_HOST_UNSUPPORTED" | "WORKSPACE_SELECTION_REQUIRED"
             ) {
-                "Workspace snapshots support tmux only. Herdr and standalone are unsupported; no snapshot search or driver change was attempted.".into()
+                "Workspace snapshots support tmux and the built-in host. Herdr is unsupported; no snapshot search or driver change was attempted.".into()
             } else {
                 format!("{}: {}", safe(&error.code), safe(&error.message))
             };
@@ -504,6 +572,7 @@ fn status(value: &str) -> String {
             format!("{} Applied", Mark::Done.symbol())
         }
         "needs_you" => "◆ Action needed".into(),
+        "failed" => format!("{} Failed", Mark::Failed.symbol()),
         "skip_existing" | "skipped" | "shell" => {
             format!("{} Not applied", Mark::Offline.symbol())
         }
@@ -678,6 +747,59 @@ pub(super) fn results(r: &Restore) -> Vec<String> {
         ));
     }
     notes
+}
+
+/// One line per recorded built-in member, in recorded order.
+pub(super) fn members(p: &MemberPreview) -> Vec<String> {
+    p.members
+        .iter()
+        .map(|m| {
+            format!(
+                "Member {} · {} · {}",
+                safe(&m.name),
+                member_action(&m.action),
+                m.cwd
+                    .as_deref()
+                    .map_or_else(|| "folder unknown".into(), safe)
+            )
+        })
+        .collect()
+}
+pub(super) fn member_results(r: &MemberRestore) -> Vec<String> {
+    let mut notes = vec![];
+    for m in &r.members {
+        notes.push(format!(
+            "{} · member {}: {}",
+            status(&m.status),
+            safe(&m.name),
+            safe(&m.message)
+        ));
+        if let Some(retry) = &m.retry {
+            notes.push(format!("  retry: {}", safe(retry)));
+        }
+        if let Some(tail) = &m.tail {
+            notes.push(format!("  output: {}", safe(tail)));
+        }
+    }
+    for failure in &r.failures {
+        notes.push(format!(
+            "{} Unknown · {}",
+            Mark::Warning.symbol(),
+            safe(failure)
+        ));
+    }
+    notes
+}
+fn member_action(action: &str) -> String {
+    match action {
+        "resumable" => format!("{} Will resume", Mark::Resumable.symbol()),
+        "live" => format!("{} Running: left alone", Mark::Running.symbol()),
+        "no_remembered_session" => "◆ Action needed: no remembered conversation".into(),
+        "stale_requires_retry" => "◆ Action needed: stale conversation".into(),
+        "identity_missing" => "◆ Action needed: original identity missing".into(),
+        "folder_missing" => "◆ Action needed: folder missing".into(),
+        _ => format!("{} Unknown", Mark::Warning.symbol()),
+    }
 }
 
 fn session_action(action: &str) -> &'static str {

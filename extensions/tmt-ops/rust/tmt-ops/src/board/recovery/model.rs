@@ -1,4 +1,5 @@
 //! Private projections of the public workspace JSON. Core alone owns recovery.
+use super::load::{Selection, Store};
 use crate::core::SquadError;
 use std::collections::BTreeSet;
 
@@ -23,8 +24,50 @@ impl RecoverySnapshotSummary {
 #[derive(Debug)]
 pub(super) struct Inventory {
     pub version: u64,
-    pub socket: String,
+    /// `tmux` or `pty`; an older tmt names no host and only ever answers for tmux.
+    pub host: String,
+    /// The tmux store's socket; the built-in store has none.
+    pub socket: Option<String>,
     pub snapshots: Vec<RecoverySnapshotSummary>,
+    /// Core's hint when it chose the empty built-in store while tmux stores exist.
+    pub socket_stores: Vec<String>,
+}
+/// One recorded built-in member and what a restore would do with it now.
+#[derive(Clone, Debug)]
+pub(super) struct PlannedMember {
+    pub identity_id: String,
+    pub name: String,
+    pub cwd: Option<String>,
+    pub action: String,
+}
+#[derive(Clone, Debug)]
+pub(super) struct MemberPreview {
+    pub version: u64,
+    pub host: String,
+    pub name: Option<String>,
+    pub digest: String,
+    pub captured_at_ms: u64,
+    pub members: Vec<PlannedMember>,
+}
+#[derive(Clone, Debug)]
+pub(super) struct RestoredMember {
+    pub identity_id: String,
+    pub name: String,
+    pub status: String,
+    pub message: String,
+    pub retry: Option<String>,
+    pub tail: Option<String>,
+}
+#[derive(Clone, Debug)]
+pub(super) struct MemberRestore {
+    pub version: u64,
+    pub host: String,
+    pub name: Option<String>,
+    pub digest: String,
+    pub fresh: bool,
+    pub status: String,
+    pub members: Vec<RestoredMember>,
+    pub failures: Vec<String>,
 }
 #[derive(Clone, Debug)]
 pub(super) struct Preview {
@@ -171,11 +214,26 @@ pub(super) fn valid_socket(socket: &str) -> bool {
 const MAX_NAMED: usize = 16;
 const MAX_UNNAMED: usize = 35;
 impl Inventory {
-    pub fn validate(&self, socket: Option<&str>) -> Result<(), SquadError> {
+    /// The store Core answered for, which every later job names.
+    pub fn store(&self) -> Store {
+        self.socket.clone().map_or(Store::Builtin, Store::Socket)
+    }
+    pub fn validate(&self, requested: Option<&Store>) -> Result<(), SquadError> {
         let mut ids = BTreeSet::new();
+        let mut sockets = BTreeSet::new();
+        let answered = match (self.host.as_str(), &self.socket) {
+            ("tmux", Some(socket)) => valid_socket(socket) && self.socket_stores.is_empty(),
+            ("pty", None) => true,
+            _ => false,
+        };
         if self.version != 1
-            || !valid_socket(&self.socket)
-            || socket.is_some_and(|s| s != self.socket)
+            || !answered
+            || requested.is_some_and(|store| *store != self.store())
+            || self.socket_stores.len() > 256
+            || self
+                .socket_stores
+                .iter()
+                .any(|socket| !valid_socket(socket) || !sockets.insert(socket))
             || self.snapshots.iter().filter(|e| e.name.is_some()).count() > MAX_NAMED
             || self.snapshots.iter().filter(|e| e.name.is_none()).count() > MAX_UNNAMED
             || self.snapshots.iter().any(|e| {
@@ -270,6 +328,81 @@ impl Preview {
     }
 }
 
+const MEMBER_ACTIONS: [&str; 6] = [
+    "resumable",
+    "no_remembered_session",
+    "stale_requires_retry",
+    "identity_missing",
+    "live",
+    "folder_missing",
+];
+impl MemberPreview {
+    pub fn validate(&self, name: Option<&str>) -> Result<(), SquadError> {
+        if self.version != 1
+            || self.host != "pty"
+            || self.name.as_deref() != name
+            || !valid_digest(&self.digest)
+            || !super::load::unique_ids(self.members.iter().map(|m| m.identity_id.as_str()))
+            || self
+                .members
+                .iter()
+                .any(|m| !MEMBER_ACTIONS.contains(&m.action.as_str()))
+        {
+            return Err(invalid());
+        }
+        Ok(())
+    }
+    pub fn counts(&self) -> String {
+        let count = |actions: &[&str]| {
+            self.members
+                .iter()
+                .filter(|m| actions.contains(&m.action.as_str()))
+                .count()
+        };
+        format!(
+            "{} members · {} to resume · {} running · {} need you",
+            self.members.len(),
+            count(&["resumable"]),
+            count(&["live"]),
+            count(&[
+                "no_remembered_session",
+                "stale_requires_retry",
+                "identity_missing",
+                "folder_missing"
+            ])
+        )
+    }
+}
+impl MemberRestore {
+    /// Exit 1 means a start failed; a member that needs you is not a failure.
+    pub fn validate(&self, selection: &Selection, success: bool) -> Result<(), SquadError> {
+        let failed = self.members.iter().any(|m| m.status == "failed");
+        if self.version != 1
+            || self.host != "pty"
+            || self.name != selection.name
+            || self.digest != selection.digest
+            || self.fresh != selection.fresh
+            || !matches!(self.status.as_str(), "completed" | "partial")
+            || success == failed
+            || self.status == "completed"
+                && self
+                    .members
+                    .iter()
+                    .any(|m| !matches!(m.status.as_str(), "started" | "skipped"))
+            || self.members.iter().any(|m| {
+                !matches!(
+                    m.status.as_str(),
+                    "started" | "skipped" | "needs_you" | "failed"
+                )
+            })
+            || !super::load::unique_ids(self.members.iter().map(|m| m.identity_id.as_str()))
+        {
+            return Err(invalid());
+        }
+        Ok(())
+    }
+}
+
 // The extension already owns serde_json; no new dependency or Core type edge.
 pub(super) trait Decode: Sized {
     fn decode(value: &serde_json::Value) -> Result<Self, SquadError>;
@@ -334,10 +467,53 @@ impl Decode for RecoverySnapshotSummary {
         })
     }
 }
-document!(Inventory {
+impl Decode for Inventory {
+    fn decode(v: &serde_json::Value) -> Result<Self, SquadError> {
+        let optional = |key| v.get(key).map(Decode::decode).transpose();
+        Ok(Self {
+            version: Decode::decode(v.get("version").ok_or_else(invalid)?)?,
+            host: optional("host")?.unwrap_or_else(|| "tmux".into()),
+            socket: v.get("socket").map(Decode::decode).transpose()?,
+            snapshots: Decode::decode(v.get("snapshots").ok_or_else(invalid)?)?,
+            socket_stores: v
+                .get("socketStores")
+                .map(Decode::decode)
+                .transpose()?
+                .unwrap_or_default(),
+        })
+    }
+}
+document!(PlannedMember {
+    identity_id: "identityId",
+    name: "name",
+    cwd: "cwd",
+    action: "action"
+});
+document!(MemberPreview {
     version: "version",
-    socket: "socket",
-    snapshots: "snapshots"
+    host: "host",
+    name: "name",
+    digest: "digest",
+    captured_at_ms: "capturedAtMs",
+    members: "members"
+});
+document!(RestoredMember {
+    identity_id: "identityId",
+    name: "name",
+    status: "status",
+    message: "message",
+    retry: "retry",
+    tail: "tail"
+});
+document!(MemberRestore {
+    version: "version",
+    host: "host",
+    name: "name",
+    digest: "digest",
+    fresh: "fresh",
+    status: "status",
+    members: "members",
+    failures: "failures"
 });
 document!(Preview {
     version: "version",
