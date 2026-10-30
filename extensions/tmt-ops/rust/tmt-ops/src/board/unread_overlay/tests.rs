@@ -1814,3 +1814,30 @@ fn selection_and_hover_keep_the_theme_unread_foreground() {
         "selection clears the old pointer highlight"
     );
 }
+
+#[test]
+fn unread_detail_inset_gap_preview_ellipsis_and_confirmation_height_are_consistent() {
+    let mut agent = capture_case("unread-overlay-agent", crate::look::Look::default());
+    let mut confirm = capture_case("unread-overlay-confirm", crate::look::Look::default());
+    for app in [&mut agent, &mut confirm] {
+        let text = draw_size(app, 100, 36);
+        assert!(text.contains("│ re: request text unavailable"), "{text}");
+        assert!(text.contains("Opened the pull reques…"), "{text}");
+        let overlay = app.unread_overlay.as_ref().unwrap();
+        let built = overlay.built.borrow();
+        let built = built.as_ref().unwrap();
+        assert_eq!(
+            built.body.start, 3,
+            "one blank row after the two header rows"
+        );
+        assert_eq!(built.lines[2].width(), 0);
+    }
+    let overlay = confirm.unread_overlay.as_ref().unwrap();
+    let (yes, no) = overlay
+        .confirm_hits
+        .get()
+        .expect("both confirmation controls paint");
+    assert_eq!(yes.y, no.y);
+    let text = draw_size(&confirm, 100, 36);
+    assert!(text.contains("Mark all read"), "{text}");
+}

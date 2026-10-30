@@ -74,7 +74,7 @@ impl Overlay {
         let prompt = self
             .prompt(actor, answer)
             .map_or_else(|| "request text unavailable".to_owned(), first_line);
-        lines.push(Line::styled(format!("re: {prompt}"), look.role(Role::Dim)));
+        lines.push(Line::styled(format!(" re: {prompt}"), look.role(Role::Dim)));
         lines.push(Line::default());
         let start = lines.len();
         let text = self.text(actor, answer);
@@ -178,8 +178,17 @@ impl Overlay {
                     format!("{age} · "),
                     look.role(Role::Dim).patch(row_background),
                 ),
-                Span::styled(preview, look.role(Role::Text).patch(row_background)),
             ]);
+            let preview = tmt_cli_style::grid::fit(
+                &preview,
+                usize::from(area.width).saturating_sub(line.width()),
+                tmt_cli_style::grid::Align::Left,
+                tmt_cli_style::grid::Truncate::End,
+            );
+            line.spans.push(Span::styled(
+                preview,
+                look.role(Role::Text).patch(row_background),
+            ));
             let pad = usize::from(area.width).saturating_sub(line.width());
             line.spans.push(Span::styled(" ".repeat(pad), background));
             positions.push((index, lines.len()));
@@ -294,7 +303,7 @@ impl Overlay {
             title: "Mark all read".into(),
             placement: Placement::Center,
         };
-        let areas = modal.areas(body, [70, 10], false, true);
+        let areas = modal.areas(body, [70, 7], true, false);
         modal.paint(areas, frame.buffer_mut(), &look.theme, look.depth);
         app.peek_areas
             .set_dialog(OverlayId::Unread, Some(areas.outer));
