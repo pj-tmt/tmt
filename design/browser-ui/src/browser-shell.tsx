@@ -38,12 +38,13 @@ export function useTopBarReady(): boolean {
 const TopBar = createContext<(() => ShellTopBar) | null>(null);
 
 export interface BrowserTopBarProps {
+  title?: ReactNode;
   actions?: ReactNode;
   status?: ReactNode;
 }
 
-/** Route actions portal into the one native shell renderer; common controls stay root-owned. */
-export function BrowserTopBar({ actions, status }: BrowserTopBarProps) {
+/** Route presentation portals into the one native shell renderer; common controls stay root-owned. */
+export function BrowserTopBar({ title, actions, status }: BrowserTopBarProps) {
   const adopt = useContext(TopBar);
   const [slot, setSlot] = useState<ShellTopBar | null>(null);
   useLayoutEffect(() => {
@@ -52,6 +53,7 @@ export function BrowserTopBar({ actions, status }: BrowserTopBarProps) {
   }, [adopt]);
   return slot ? (
     <>
+      {createPortal(title, slot.title)}
       {createPortal(status, slot.status)}
       {createPortal(actions, slot.actions)}
     </>

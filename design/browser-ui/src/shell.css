@@ -433,6 +433,44 @@
   gap: var(--tmt-ui-header-gap);
   min-width: 0;
 }
+/* Routes supply the heading and its segments; the shell owns their available bar space. */
+.tmt-ui-topbar-navigation,
+.tmt-ui-topbar-title {
+  flex: 1;
+  min-width: 0;
+}
+.tmt-ui-topbar-controls {
+  flex: none;
+}
+.tmt-ui-topbar-title,
+.tmt-ui-topbar-title h1,
+.tmt-ui-topbar-title-chips {
+  display: flex;
+  align-items: center;
+  gap: var(--tmt-ui-space-s);
+}
+.tmt-ui-topbar-title h1 {
+  flex: 0 1 auto;
+  min-width: 0;
+  margin: 0;
+  font: 600 var(--tmt-ui-header-title-size)/1.2 var(--tmt-ui-font-body);
+  white-space: nowrap;
+}
+.tmt-ui-topbar-title-prefix {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--tmt-ui-color-secondary);
+  text-overflow: ellipsis;
+}
+.tmt-ui-topbar-title-current {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.tmt-ui-topbar-title-chips {
+  flex: none;
+}
+.tmt-ui-topbar-title:empty,
 .tmt-ui-topbar-status:empty,
 .tmt-ui-topbar-actions:empty {
   display: none;
@@ -473,6 +511,13 @@
    top-left menu button that opens it as a drawer; the current module's pages become tabs under
    the title bar. */
 @media (max-width: 900px) {
+  .tmt-ui-topbar-title-prefix,
+  .tmt-ui-topbar-title-chips {
+    display: none;
+  }
+  .tmt-ui-topbar-title h1 {
+    flex: 1;
+  }
   .tmt-ui-topbar {
     padding-inline: var(--tmt-ui-header-compact-padding-inline);
   }

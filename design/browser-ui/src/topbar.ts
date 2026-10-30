@@ -15,8 +15,9 @@ export interface ShellCommonControls {
   remote: ShellRemoteStatus;
 }
 
-/** A route receives only its action slot, never the common-control owner. */
+/** Route-owned presentation slots, never the common-control owner. */
 export interface ShellTopBar {
+  readonly title: HTMLElement;
   readonly actions: HTMLElement;
   readonly status: HTMLElement;
 }
@@ -52,6 +53,8 @@ export function createShellTopBar(
     const left = document.createElement('div');
     left.className = 'tmt-ui-topbar-navigation';
     left.append(navigation);
+    const title = document.createElement('div');
+    title.className = 'tmt-ui-topbar-title';
     const right = document.createElement('div');
     right.className = 'tmt-ui-topbar-controls';
     const statusSlot = document.createElement('div');
@@ -122,7 +125,7 @@ export function createShellTopBar(
     };
     const searchHelp = help(search, 'Search TMT');
     const remoteHelp = help(remote, 'Remote: session count unconfirmed');
-    left.append(searchHelp.wrapper);
+    left.append(searchHelp.wrapper, title);
     common.append(theme, remoteHelp.wrapper);
     right.append(statusSlot, common, actions);
     header.append(left, right);
@@ -269,7 +272,7 @@ export function createShellTopBar(
     };
     update();
     return {
-      slot: { actions, status: statusSlot },
+      slot: { title, actions, status: statusSlot },
       update,
       dispose() {
         document.removeEventListener('keydown', shortcut);

@@ -220,7 +220,11 @@ export function startShellHost(
     setTopBar: () =>
       current?.generation === mine
         ? controls.setTopBar()
-        : { actions: document.createElement('div'), status: document.createElement('div') },
+        : {
+            title: document.createElement('div'),
+            actions: document.createElement('div'),
+            status: document.createElement('div'),
+          },
     basePath: route.paths.at(-1)!,
     answer: () => answer,
     setMenu(next, handler) {

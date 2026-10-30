@@ -28,6 +28,66 @@ import { startShellHost, type ShellHost, type ShellRoute } from '../src/shell-ho
 const rootNote =
   'Search is first in the rail; on phones its icon sits beside navigation. Gallery root bindings only; product search remains in its owning adoption.';
 
+// Route-owned sample identities from the approved #5629 mocks, not adopted product routes.
+const identities: Record<
+  string,
+  { prefix?: string; current: string; chips?: boolean; author?: string }
+> = {
+  home: { current: 'Home' },
+  'colab-list': { prefix: 'Colab / ', current: 'pm' },
+  'colab-page': {
+    prefix: 'Spec / ',
+    current: 'Night design: editor hints and history cleanup',
+    chips: true,
+    author: 'by Ben',
+  },
+  'colab-settings': { prefix: 'Colab / ', current: 'Settings' },
+  remote: { current: 'Remote' },
+  'remote-members': { prefix: 'Remote / This machine / ', current: 'Members' },
+  ops: { prefix: 'Ops / ', current: 'Agents' },
+  digest: { current: 'Digest' },
+  settings: { prefix: 'TMT settings / ', current: 'General' },
+  reader: { prefix: 'tmt / ', current: 'Weekly plan', author: 'by Ben' },
+  pair: { current: 'tmt' },
+};
+type Identity = (typeof identities)[string];
+const defaultIdentity = { current: 'Shared top bar' };
+function TitleContent({ identity }: { identity: Identity }) {
+  return (
+    <>
+      <h1>
+        {identity.prefix && <span className="tmt-ui-topbar-title-prefix">{identity.prefix}</span>}
+        <span className="tmt-ui-topbar-title-current">{identity.current}</span>
+      </h1>
+      {(identity.chips || identity.author) && (
+        <div className="tmt-ui-topbar-title-chips">
+          {identity.chips && (
+            <>
+              <span className="tmt-ui-chip">night-shift</span>
+              <span className="tmt-ui-chip">spec</span>
+              <BrowserIconAction
+                type="button"
+                variant="text"
+                label="Add project"
+                icon={<span aria-hidden="true">+</span>}
+                onActivate={() => {}}
+              />
+              <BrowserIconAction
+                type="button"
+                variant="text"
+                label="Pin page"
+                icon={<span aria-hidden="true">⌖</span>}
+                onActivate={() => {}}
+              />
+            </>
+          )}
+          {identity.author && <span className="tmt-ui-caption">{identity.author}</span>}
+        </div>
+      )}
+    </>
+  );
+}
+
 const destinations = [
   ['home', 'Home'],
   ['colab', 'Colab pages'],
@@ -70,8 +130,14 @@ const view: ShellView = {
 };
 
 /** The gallery adopts only when its root has installed the common controls. */
-function ReadyTopBar({ actions }: { actions: ReactNode }) {
-  return useTopBarReady() ? <BrowserTopBar status={<span>Live</span>} actions={actions} /> : null;
+function ReadyTopBar({ actions, identity }: { actions: ReactNode; identity: Identity }) {
+  return useTopBarReady() ? (
+    <BrowserTopBar
+      title={<TitleContent identity={identity} />}
+      status={<span>Live</span>}
+      actions={actions}
+    />
+  ) : null;
 }
 
 function NativeTopBar({
@@ -81,6 +147,7 @@ function NativeTopBar({
   owner,
   gate,
   didMount,
+  identity,
 }: {
   common: ShellCommonControls;
   hosted: boolean;
@@ -88,6 +155,7 @@ function NativeTopBar({
   owner: RefObject<ShellControls | ShellHost | null>;
   gate?: Promise<void>;
   didMount(): void;
+  identity: Identity;
 }) {
   const root = useRef<HTMLDivElement>(null);
   const latest = useRef({ common, activate, didMount });
@@ -99,12 +167,53 @@ function NativeTopBar({
       slot.status.textContent = 'Live';
       latest.current.didMount();
       const heading = document.createElement('h1');
-      heading.className = 'tmt-ui-page-title';
-      heading.textContent = title;
+      const selected: Identity = title === 'Shared top bar' ? identity : { current: title };
+      if (selected.prefix) {
+        const prefix = document.createElement('span');
+        prefix.className = 'tmt-ui-topbar-title-prefix';
+        prefix.textContent = selected.prefix;
+        heading.append(prefix);
+      }
+      const current = document.createElement('span');
+      current.className = 'tmt-ui-topbar-title-current';
+      current.textContent = selected.current;
+      heading.append(current);
       heading.tabIndex = -1;
       const note = document.createElement('p');
       note.textContent = rootNote;
-      main.replaceChildren(heading, note);
+      slot.title.replaceChildren(heading);
+      if (selected.chips || selected.author) {
+        const chips = document.createElement('div');
+        chips.className = 'tmt-ui-topbar-title-chips';
+        if (selected.chips) {
+          for (const label of ['night-shift', 'spec']) {
+            const chip = document.createElement('span');
+            chip.className = 'tmt-ui-chip';
+            chip.textContent = label;
+            chips.append(chip);
+          }
+          for (const [label, text] of [
+            ['Add project', '+'],
+            ['Pin page', '⌖'],
+          ]) {
+            const button = document.createElement('button');
+            button.type = 'button';
+            button.className = 'tmt-ui-action';
+            button.dataset.variant = 'text';
+            button.setAttribute('aria-label', label);
+            button.textContent = text;
+            chips.append(button);
+          }
+        }
+        if (selected.author) {
+          const author = document.createElement('span');
+          author.className = 'tmt-ui-caption';
+          author.textContent = selected.author;
+          chips.append(author);
+        }
+        slot.title.append(chips);
+      }
+      main.replaceChildren(note);
       heading.focus();
       const action = document.createElement('button');
       action.type = 'button';
@@ -147,7 +256,7 @@ function NativeTopBar({
       owner.current?.dispose();
       owner.current = null;
     };
-  }, [hosted, owner, gate]);
+  }, [hosted, owner, gate, identity]);
   useLayoutEffect(() => owner.current?.setCommonControls(common), [common, owner]);
   // Only the scaffold belongs to React. Its contents belong to the actual native host.
   return (
@@ -171,6 +280,7 @@ function deferredLoad() {
 /** The real public root bindings, renderer and adapter; the search callback is a gallery fixture. */
 export function TopBarFrame({ params }: { params: URLSearchParams }) {
   const renderer = params.get('renderer') ?? 'react';
+  const identity = identities[params.get('identity') ?? ''] ?? defaultIdentity;
   const [status, setStatus] = useState<ShellCommonControls['remote']>({
     kind: 'confirmed',
     liveSessions: 6,
@@ -227,6 +337,7 @@ export function TopBarFrame({ params }: { params: URLSearchParams }) {
         (renderer === 'react' ? (
           <BrowserShell view={view} commonControls={common} select={() => true}>
             <ReadyTopBar
+              identity={identity}
               actions={
                 <BrowserIconAction
                   type="button"
@@ -238,13 +349,13 @@ export function TopBarFrame({ params }: { params: URLSearchParams }) {
               }
             />
             <div className="tmt-ui-page">
-              <h1 className="tmt-ui-page-title">Shared top bar</h1>
               <p>{rootNote}</p>
             </div>
           </BrowserShell>
         ) : (
           <NativeTopBar
             common={common}
+            identity={identity}
             hosted={renderer === 'hosted'}
             activate={activate}
             owner={native}
