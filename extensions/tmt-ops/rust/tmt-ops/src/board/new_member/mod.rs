@@ -253,7 +253,7 @@ impl App {
                 Ok(Outcome::Loaded(loaded)) => {
                     if matches!(completed.task.work, Work::Load)
                         && c.draft.text(model::Slot::Host).is_empty()
-                        && let Some(host) = loaded.hosts.iter().find(|h| h.eligible())
+                        && let Some(host) = model::default_host(&loaded)
                     {
                         c.draft.set(model::Slot::Host, &host.name);
                     }

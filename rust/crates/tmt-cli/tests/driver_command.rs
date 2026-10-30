@@ -809,6 +809,33 @@ fn a_driver_publishes_its_launch_template_and_host_templates_reads_it() {
     );
     assert_eq!(host("old")["launch"], Value::Null);
 
+    // The advisory default is the host the caller's locators name; nothing is run for it.
+    assert_eq!(templates["callerHost"], Value::Null, "a plain terminal");
+    let caller_host = |env: &[(&str, &str)]| {
+        let output = fixture.tmt_with(&["host", "templates", "--json"], env);
+        assert!(output.status.success(), "{output:?}");
+        serde_json::from_slice::<Value>(&output.stdout).unwrap()
+    };
+    let socket = fixture.root.join("tmux/advisory");
+    let tmux = format!("{},1,0", socket.display());
+    assert_eq!(
+        caller_host(&[("TMUX", &tmux), ("TMUX_PANE", "%1")])["callerHost"],
+        "tmux"
+    );
+    assert_eq!(
+        caller_host(&[("TMT_PTY_PANE", "pty_1")])["callerHost"],
+        "pty"
+    );
+    // Both test drivers declare the same variable: two hosts named, so no advice at all.
+    let ambiguous = caller_host(&[("FAKE_PANE_ID", "sc-1")]);
+    assert!(ambiguous.get("callerHost").is_none(), "{ambiguous}");
+    let plain = caller_host(&[]);
+    assert!(
+        plain.get("callerHost").is_some_and(Value::is_null),
+        "{plain}"
+    );
+    assert!(!socket.exists(), "no tmux server was asked");
+
     // Read-only: no session, no pane, no registry change.
     let human = fixture.tmt(&["host", "templates"]);
     assert!(human.status.success(), "{human:?}");

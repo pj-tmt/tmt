@@ -90,7 +90,9 @@ are owned by the verification reference.
 slot preparation and frozen-argv rechecks with `board/switch_tool`; `crate::launch`
 remains the pure validation/quoting owner. `board/tool_choices` projects suggestions
 from observed tools/models; it is not a provider registry. New member also reads
-Core's `drivers.models` once on the worker load (empty on an older Core). Input/paint never reads
+Core's `drivers.models` once on the worker load (empty on an older Core). Host starts on `templates`'
+`callerHost` when eligible (only `null` means the built-in host), else the first eligible host;
+without the key (an older Core, or ambiguous locators) it keeps the first eligible host. Input/paint never reads
 Core or locks Config. New member observes a new bound UUID before joining the frozen
 room; a failed join reports/selects that Pool member with a repair command.
 

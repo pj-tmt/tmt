@@ -816,7 +816,7 @@ pane or session. It lists tmux first, then the built-in `pty` host, then each
 approved host driver in the registry's order:
 
 ```json
-{"version": 1, "hosts": [
+{"version": 1, "callerHost": "tmux", "hosts": [
  {"host": "tmux", "state": "builtin",
   "launch": {"argv": ["sh", "-c", "…", "tmt-launch", "{session}", "{command}"],
              "placeholders": ["session", "command"]}},
@@ -830,6 +830,17 @@ approved host driver in the registry's order:
 - **`launch`:** `null` when the host publishes none. Core validates a stored
   template again on every read.
 - A user's own template for a host is the caller's setting. Core keeps none.
+- **`callerHost`:** an advisory default read from the caller's environment
+  locators: `pty` inside a built-in host member, `tmux` inside tmux (also when
+  tmux runs inside another host), an approved driver's name when only that
+  driver's declared variables are set, and `null` only when no locator names a
+  host (a plain terminal). It is absent when the locators name more than one
+  external host; a client then keeps its own default, as with an older Core.
+  It is not evidence: no driver or tmux is
+  run for it, and it never selects, binds or launches anything by itself. A
+  client uses it only to preselect a choice the user can change. Implicit
+  selection keeps its own rules. A client that does not know the field ignores
+  it.
 
 The tmux template is built into the CLI: `sh -c` with the session and the command
 as positional arguments, so nothing is interpolated into the script. It opens a

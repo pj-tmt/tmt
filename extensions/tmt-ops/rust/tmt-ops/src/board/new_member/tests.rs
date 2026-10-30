@@ -5,7 +5,7 @@ use crate::board::app::workspace::tests::board;
 use crate::{config::Config, core::SquadError};
 use serde_json::json;
 fn loaded() -> Loaded {
-    Loaded{hosts:crate::launch::hosts(&json!({"version":1,"hosts":[{"host":"herdr","state":"ok","launch":null},{"host":"tmux","state":"builtin","launch":{"argv":["host","{session}","{command}"],"placeholders":["session","command"]}},{"host":"pty","state":"builtin","launch":{"argv":["pty-host","{session}","{command}"],"placeholders":["session","command"]}}]})).unwrap(),config:Config::read(std::env::temp_dir().join(format!("ops-new-member-missing-{}",crate::id::new_v4().unwrap()))).unwrap(),executable:"/tool/tmt".into(),display_executable:"tmt".into(),
+    Loaded{caller_host:Default::default(),hosts:crate::launch::hosts(&json!({"version":1,"hosts":[{"host":"herdr","state":"ok","launch":null},{"host":"tmux","state":"builtin","launch":{"argv":["host","{session}","{command}"],"placeholders":["session","command"]}},{"host":"pty","state":"builtin","launch":{"argv":["pty-host","{session}","{command}"],"placeholders":["session","command"]}}]})).unwrap(),config:Config::read(std::env::temp_dir().join(format!("ops-new-member-missing-{}",crate::id::new_v4().unwrap()))).unwrap(),executable:"/tool/tmt".into(),display_executable:"tmt".into(),
     choices:[("codex".to_owned(),crate::board::host_launch::LaunchChoices{models:vec!["gpt-6.1-sol".into(),"gpt-6.1-terra".into()],efforts:vec!["low".into(),"medium".into(),"high".into()]})].into()}
 }
 #[test]
@@ -32,6 +32,63 @@ fn pool_defaults_to_first_eligible_published_host_and_common_not_running() {
     assert_eq!(c.draft.fields[4].as_str(), "tmux");
     assert_eq!(c.draft.fields[5].as_str(), "common");
     assert!(c.draft.saved);
+}
+#[test]
+fn the_host_starts_on_the_environment_ops_runs_in() {
+    use crate::board::host_launch::CallerHost;
+    let default = |caller_host: CallerHost, herdr_launches: bool| {
+        let mut app = board();
+        let Effect::NewMember(task) = app.open_new_member() else {
+            panic!()
+        };
+        let mut observed = loaded();
+        observed.caller_host = caller_host;
+        if herdr_launches {
+            observed.hosts[0].argv = Some(vec!["herdr-open".into(), "{command}".into()]);
+        }
+        app.finished_new_member(Completed {
+            task,
+            result: Ok(Outcome::Loaded(Box::new(observed))),
+        });
+        app.new_member
+            .as_ref()
+            .unwrap()
+            .draft
+            .text(model::Slot::Host)
+            .to_owned()
+    };
+    let named = |host: &str| CallerHost::Named(host.into());
+    assert_eq!(
+        default(CallerHost::Plain, true),
+        "pty",
+        "no tmux: the built-in terminal"
+    );
+    assert_eq!(default(named("tmux"), true), "tmux");
+    assert_eq!(
+        default(named("pty"), true),
+        "pty",
+        "inside a built-in member"
+    );
+    assert_eq!(default(named("herdr"), true), "herdr");
+    // A host Ops runs in but cannot launch on (no template) falls back.
+    assert_eq!(default(named("herdr"), false), "tmux");
+    // An older Core does not say: unchanged.
+    assert_eq!(
+        default(CallerHost::Unknown, true),
+        "herdr",
+        "first eligible"
+    );
+    // Only null is a plain terminal; ambiguous locators omit the field, and a value this Ops
+    // does not know keeps the default too.
+    let read = |document| CallerHost::of(&document);
+    assert_eq!(read(json!({"callerHost": null})), CallerHost::Plain);
+    assert_eq!(
+        read(json!({})),
+        CallerHost::Unknown,
+        "omitted when ambiguous"
+    );
+    assert_eq!(read(json!({"callerHost": 1})), CallerHost::Unknown);
+    assert_eq!(read(json!({"callerHost": "herdr"})), named("herdr"));
 }
 #[test]
 fn null_template_copies_both_lines_without_a_launch_or_creation() {
