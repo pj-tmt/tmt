@@ -47,6 +47,19 @@ const names = (page: Page) =>
       .map((node) => node.getAttribute('aria-label') ?? node.textContent!.trim());
   });
 
+test('More groups the admitted page actions with the proposal labels', async ({ page }) => {
+  await open(page, 1440, 'light', { shared: true });
+  await page.getByRole('button', { name: 'More', exact: true }).click();
+  const menu = page.locator('.tmt-ui-menu-surface[open]');
+  await expect(menu).toBeVisible();
+  for (const label of ['Share', 'Organize', 'Content', 'Page']) {
+    await expect(menu.getByText(label, { exact: true })).toBeVisible();
+  }
+  await expect(menu.getByRole('menuitem', { name: /^Creator/ })).toBeVisible();
+  await expect(menu.getByRole('menuitem', { name: /^Theme/ })).toHaveCount(0);
+  await expect(menu.getByRole('menuitem', { name: /^Remote/ })).toHaveCount(0);
+});
+
 for (const width of [1440, 390])
   for (const theme of ['light', 'dark'] as const) {
     test(`idle: only Search, Discussion and More, with no state shown at ${width} ${theme}`, async ({
@@ -99,7 +112,7 @@ for (const width of [1440, 390])
         await page.screenshot({ path: capturePath(`header-waiting-${width}-${theme}.png`) });
     });
 
-    test(`More holds Share…, Source and Export, then the existing items, and no Theme or Remote at ${width} ${theme}`, async ({
+    test(`More groups page actions without Theme or Remote at ${width} ${theme}`, async ({
       page,
     }) => {
       await open(page, width, theme, { shared: true, remoteOffline: true });
@@ -113,10 +126,10 @@ for (const width of [1440, 390])
       expect(rows.map((row) => row.replace(/\s+/g, ' ').trim())).toEqual([
         'Share… Link · Live',
         'Questions…',
-        'Set creator…',
-        'Agent status',
+        'Creator',
         'Source',
         'Export page',
+        'Agent status',
         'Manage page',
         'About this page',
       ]);
@@ -330,3 +343,33 @@ test('the busiest page status and global controls fit at 320', async ({ page }) 
     expect(boxes[i]!.x).toBeGreaterThanOrEqual(boxes[i - 1]!.x + boxes[i - 1]!.width);
   expect(boxes.at(-1)!.x + boxes.at(-1)!.width).toBeLessThanOrEqual(320);
 });
+
+for (const width of [390, 1440])
+  for (const theme of ['light', 'dark'] as const)
+    test(`grouped More review capture ${width} ${theme}`, async ({ page }, info) => {
+      await page.setViewportSize({ width, height: 900 });
+      await page.emulateMedia({ colorScheme: theme, reducedMotion: 'reduce' });
+      await page.addInitScript((value) => {
+        document.documentElement.dataset.theme = value;
+      }, theme);
+      await page.goto('/');
+      await run(page, 'mount', {
+        creator: true,
+        attachments: true,
+        projects: { names: ['design'], current: ['design'] },
+      });
+      await expect(
+        page.frameLocator('#ask-page-fixture iframe').locator('#selected'),
+      ).toBeVisible();
+      await page.getByRole('button', { name: 'More', exact: true }).click();
+      const menu = page.getByRole('menu', { name: 'More', exact: true });
+      for (const label of ['Share', 'Organize', 'Content', 'Page'])
+        await expect(menu.getByRole('group', { name: label, exact: true })).toBeVisible();
+      await expect(menu.getByRole('menuitem', { name: 'Files 0', exact: true })).toBeVisible();
+      await page.screenshot({ path: info.outputPath('open.png') });
+      const files = menu.getByRole('menuitem', { name: 'Files 0', exact: true });
+      await files.hover();
+      await page.screenshot({ path: info.outputPath('hover.png') });
+      await files.focus();
+      await page.screenshot({ path: info.outputPath('focus.png') });
+    });

@@ -1,4 +1,4 @@
-import { createMenuController, type MenuEntry } from './menu-controller.js';
+import { createMenuController, menuGroups, type MenuEntry } from './menu-controller.js';
 import { createIcon } from './glyph.js';
 import { bindIconActionTooltip } from './icon-action-tooltip.js';
 import { browserUiClasses as c } from './static.js';
@@ -6,6 +6,10 @@ import { browserUiClasses as c } from './static.js';
 export interface BrowserMenuHostItem<Key extends string = string> extends MenuEntry<Key> {
   /** Passive presentation, never a second interactive control. */
   content?: Node;
+  heading?: string;
+  leadingIcon?: Node;
+  detail?: string;
+  meta?: string;
   disabledReason?: string;
   checked?: boolean;
   role?: 'menuitem' | 'menuitemradio' | 'menuitemcheckbox';
@@ -18,6 +22,7 @@ export interface BrowserMenuHostOptions<Key extends string = string> {
   triggerText?: string;
   /** Textual trigger only; popup/controller metrics remain unchanged. */
   presentation?: 'compact';
+  popupLayout?: 'default' | 'grouped';
   icon?: Node;
   description?: string | Node;
   disabled?: boolean;
@@ -77,6 +82,16 @@ export function mountBrowserMenu<Key extends string>(
       reason: HTMLSpanElement;
     }
   >();
+  const groups = new Map<
+    Key,
+    { root: HTMLDivElement; heading: HTMLDivElement; divider: HTMLDivElement }
+  >();
+  function syncChildren(parent: HTMLElement, children: readonly Node[]) {
+    for (const [index, child] of children.entries())
+      if (parent.childNodes[index] !== child)
+        parent.insertBefore(child, parent.childNodes[index] ?? null);
+    while (parent.childNodes.length > children.length) parent.lastChild!.remove();
+  }
   const controller = createMenuController<Key, MouseEvent>({
     items: () => options.items,
     disabled: () => options.disabled === true,
@@ -108,6 +123,8 @@ export function mountBrowserMenu<Key extends string>(
     tooltipLabel.textContent = options.label;
     tooltip.hidden = !iconOnly;
     surface.setAttribute('aria-label', options.label);
+    if (options.popupLayout === 'grouped') surface.dataset.popupLayout = 'grouped';
+    else delete surface.dataset.popupLayout;
     menu.setAttribute('aria-label', options.label);
     trigger.disabled = !controller.canOpen();
     if (iconOnly) {
@@ -155,7 +172,40 @@ export function mountBrowserMenu<Key extends string>(
       }
       removed.delete(item.key);
       display(row.label, item.content ?? item.label);
-      row.button.replaceChildren(row.label, ...(item.checked ? [row.check] : []));
+      const enhanced = item.leadingIcon || item.detail || item.meta !== undefined;
+      if (enhanced) {
+        const parts: Node[] = [];
+        if (item.leadingIcon) {
+          const icon = document.createElement('span');
+          icon.className = 'tmt-ui-menu-leading-icon';
+          icon.setAttribute('aria-hidden', 'true');
+          icon.append(item.leadingIcon);
+          parts.push(icon);
+        }
+        const label = document.createElement('span');
+        label.className = 'tmt-ui-menu-label';
+        label.append(row.label);
+        if (item.detail) {
+          const detail = document.createElement('span');
+          detail.className = 'tmt-ui-menu-detail';
+          detail.id = `${id}-detail-${index}`;
+          detail.textContent = item.detail;
+          label.append(detail);
+        }
+        parts.push(label);
+        if (item.meta !== undefined) {
+          const meta = document.createElement('span');
+          meta.className = 'tmt-ui-menu-meta';
+          meta.textContent = item.meta;
+          parts.push(meta);
+        }
+        if (item.checked) parts.push(row.check);
+        row.button.replaceChildren(...parts);
+        row.button.setAttribute('aria-label', [item.label, item.meta].filter(Boolean).join(' '));
+      } else {
+        row.button.replaceChildren(row.label, ...(item.checked ? [row.check] : []));
+        row.button.removeAttribute('aria-label');
+      }
       row.button.disabled = item.disabled === true;
       row.button.setAttribute(
         'role',
@@ -163,17 +213,19 @@ export function mountBrowserMenu<Key extends string>(
       );
       if (item.checked === undefined) row.button.removeAttribute('aria-checked');
       else row.button.setAttribute('aria-checked', String(item.checked));
-      if (item.separated) row.button.dataset.separated = 'true';
+      if (item.separated && !item.heading) row.button.dataset.separated = 'true';
       else delete row.button.dataset.separated;
       if (item.disabledReason) {
         row.reason.id = `${id}-reason-${index}`;
         row.reason.textContent = item.disabledReason;
-        row.button.setAttribute('aria-describedby', row.reason.id);
         if (!row.reason.isConnected) row.root.append(row.reason);
-      } else {
-        row.reason.remove();
-        row.button.removeAttribute('aria-describedby');
-      }
+      } else row.reason.remove();
+      const described = [
+        item.detail ? `${id}-detail-${index}` : undefined,
+        item.disabledReason ? row.reason.id : undefined,
+      ].filter(Boolean);
+      if (described.length) row.button.setAttribute('aria-describedby', described.join(' '));
+      else row.button.removeAttribute('aria-describedby');
       children.push(row.root);
     }
     for (const key of removed) {
@@ -181,10 +233,45 @@ export function mountBrowserMenu<Key extends string>(
       rows.delete(key);
     }
     // Keep surviving keyed rows connected so an observation refresh retains their focus.
-    for (const [index, child] of children.entries())
-      if (menu.childNodes[index] !== child)
-        menu.insertBefore(child, menu.childNodes[index] ?? null);
-    while (menu.childNodes.length > children.length) menu.lastChild!.remove();
+    if (options.items.some((item) => item.heading)) {
+      const output: Node[] = options.description ? [description] : [];
+      const used = new Set<Key>();
+      for (const [index, group] of menuGroups(options.items).entries()) {
+        if (!group.heading) {
+          output.push(...group.entries.map(({ item }) => rows.get(item.key)!.root));
+          continue;
+        }
+        const first = group.entries[0]!.item;
+        let node = groups.get(first.key);
+        if (!node) {
+          node = {
+            root: document.createElement('div'),
+            heading: document.createElement('div'),
+            divider: document.createElement('div'),
+          };
+          node.root.setAttribute('role', 'group');
+          node.heading.className = 'tmt-ui-menu-heading';
+          node.divider.className = 'tmt-ui-menu-divider';
+          node.divider.setAttribute('aria-hidden', 'true');
+          groups.set(first.key, node);
+        }
+        used.add(first.key);
+        node.heading.id = `${id}-group-${index}`;
+        node.heading.textContent = group.heading;
+        node.root.setAttribute('aria-labelledby', node.heading.id);
+        syncChildren(node.root, [
+          ...(first.separated ? [node.divider] : []),
+          node.heading,
+          ...group.entries.map(({ item }) => rows.get(item.key)!.root),
+        ]);
+        output.push(node.root);
+      }
+      for (const key of groups.keys()) if (!used.has(key)) groups.delete(key);
+      syncChildren(menu, output);
+    } else {
+      groups.clear();
+      syncChildren(menu, children);
+    }
     controller.refresh();
     help?.refresh();
   }

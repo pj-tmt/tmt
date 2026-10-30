@@ -234,3 +234,56 @@
 .tmt-ui-menu[data-presentation='compact'] > .tmt-ui-menu-trigger-wrapper {
   width: 100%;
 }
+
+/* Grouped presentation is opt-in; ordinary menus keep their existing geometry. */
+.tmt-ui-menu-surface[data-popup-layout='grouped'] {
+  min-width: min(260px, calc(100vw - 2 * var(--tmt-ui-space-s)));
+  max-width: calc(100vw - 2 * var(--tmt-ui-space-s));
+  padding: var(--tmt-ui-radius-s);
+  border-radius: var(--tmt-ui-radius-l);
+}
+.tmt-ui-menu-surface[data-popup-layout='grouped'] .tmt-ui-menu-item {
+  min-height: var(--tmt-ui-control-size);
+  padding: 0 calc(var(--tmt-ui-space-xs) + var(--tmt-ui-radius-s));
+  gap: calc(var(--tmt-ui-space-xs) + var(--tmt-ui-radius-s));
+}
+.tmt-ui-menu-leading-icon {
+  width: var(--tmt-ui-space-l);
+  height: var(--tmt-ui-space-l);
+  flex: none;
+  color: var(--tmt-ui-color-secondary);
+}
+.tmt-ui-menu-leading-icon > svg {
+  width: 100%;
+  height: 100%;
+}
+.tmt-ui-menu-label {
+  display: grid;
+  flex: 1;
+  min-width: 0;
+}
+.tmt-ui-menu-detail,
+.tmt-ui-menu-meta,
+.tmt-ui-menu-heading {
+  color: var(--tmt-ui-color-secondary);
+}
+.tmt-ui-menu-detail {
+  font-size: var(--tmt-ui-caption-size);
+}
+.tmt-ui-menu-meta {
+  min-width: 0;
+  max-width: 50%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.tmt-ui-menu-heading {
+  padding: var(--tmt-ui-space-s) calc(var(--tmt-ui-space-xs) + var(--tmt-ui-radius-s))
+    var(--tmt-ui-space-xs);
+  font-size: var(--tmt-ui-eyebrow-size);
+  font-weight: 600;
+}
+.tmt-ui-menu-divider {
+  margin: var(--tmt-ui-radius-s) var(--tmt-ui-space-xs);
+  border-top: var(--tmt-ui-rule-width) solid var(--tmt-ui-surface-rule);
+}

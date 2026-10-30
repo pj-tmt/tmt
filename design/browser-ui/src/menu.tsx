@@ -9,12 +9,20 @@ import {
 } from 'react';
 import { ChevronDown, Ellipsis } from 'lucide-react';
 import { BrowserIconAction } from './icon-action.js';
-import { createMenuController, type MenuEntry } from './menu-controller.js';
+import { createMenuController, menuGroups, type MenuEntry } from './menu-controller.js';
 import { browserUiClasses as c, countText } from './static.js';
 import type { BrowserCountTone } from './static.js';
 
 export interface BrowserMenuItem<Key extends string = string> extends MenuEntry<Key> {
   content?: ReactNode;
+  /** Passive heading beginning a named group. */
+  heading?: string;
+  /** Decorative icon; never contributes to the accessible name. */
+  leadingIcon?: ReactNode;
+  /** Secondary description, announced through aria-describedby. */
+  detail?: string;
+  /** Trailing metadata, included in the accessible name. */
+  meta?: string;
   disabledReason?: string;
   checked?: boolean;
   role?: 'menuitem' | 'menuitemradio' | 'menuitemcheckbox';
@@ -39,6 +47,7 @@ export interface BrowserMenuProps<Key extends string = string> {
   /** A `count` chip's number, boxed after the text; absent when nothing is counted. */
   /** Field/text trigger only: compact fixed geometry; popup metrics are unchanged. */
   presentation?: 'compact';
+  popupLayout?: 'default' | 'grouped';
   count?: number;
   /** A `count` chip's tone: `attention` is for work that waits on the reader. */
   tone?: BrowserCountTone;
@@ -62,6 +71,7 @@ export function BrowserMenu<Key extends string>({
   variant = 'field',
   count,
   presentation,
+  popupLayout,
   tone = 'neutral',
   description,
   onOpenChange,
@@ -101,6 +111,58 @@ export function BrowserMenu<Key extends string>({
   }, [openRequest, controller]);
   useLayoutEffect(() => controller.attachSurface(), [open, controller]);
   useLayoutEffect(() => controller.refresh(), [items, controller]);
+  const renderItem = (item: BrowserMenuItem<Key>, index: number) => {
+    const enhanced = !!item.leadingIcon || !!item.detail || item.meta !== undefined;
+    const detailId = item.detail ? `${id}-detail-${index}` : undefined;
+    const reasonId = item.disabledReason ? `${id}-reason-${index}` : undefined;
+    return (
+      <div key={item.key}>
+        <button
+          type="button"
+          className="tmt-ui-menu-item"
+          {...(item.separated && !item.heading ? { 'data-separated': 'true' } : {})}
+          role={item.role ?? (item.checked === undefined ? 'menuitem' : 'menuitemradio')}
+          aria-checked={item.checked}
+          aria-label={enhanced ? [item.label, item.meta].filter(Boolean).join(' ') : undefined}
+          aria-describedby={[detailId, reasonId].filter(Boolean).join(' ') || undefined}
+          disabled={item.disabled}
+          tabIndex={-1}
+          ref={(node) => {
+            entries.current[index] = node;
+          }}
+          onFocus={() => controller.focused(item.key)}
+          onClick={(event) => controller.select(item.key, event)}
+        >
+          {enhanced ? (
+            <>
+              {item.leadingIcon && (
+                <span className="tmt-ui-menu-leading-icon" aria-hidden="true">
+                  {item.leadingIcon}
+                </span>
+              )}
+              <span className="tmt-ui-menu-label">
+                <span>{item.content ?? item.label}</span>
+                {item.detail && (
+                  <span className="tmt-ui-menu-detail" id={detailId}>
+                    {item.detail}
+                  </span>
+                )}
+              </span>
+              {item.meta !== undefined && <span className="tmt-ui-menu-meta">{item.meta}</span>}
+            </>
+          ) : (
+            <span>{item.content ?? item.label}</span>
+          )}
+          {item.checked && <span aria-hidden="true">✓</span>}
+        </button>
+        {item.disabledReason && (
+          <span className="tmt-ui-menu-reason" id={reasonId}>
+            {item.disabledReason}
+          </span>
+        )}
+      </div>
+    );
+  };
   return (
     <span
       className="tmt-ui-menu"
@@ -173,6 +235,7 @@ export function BrowserMenu<Key extends string>({
           ref={dialog}
           className="tmt-ui-menu-surface"
           data-state={open ? 'open' : 'closed'}
+          data-popup-layout={popupLayout === 'grouped' ? 'grouped' : undefined}
           tabIndex={-1}
           aria-label={label}
           onClose={controller.nativeClose}
@@ -193,33 +256,24 @@ export function BrowserMenu<Key extends string>({
                 {description}
               </div>
             )}
-            {items.map((item, index) => (
-              <div key={item.key}>
-                <button
-                  type="button"
-                  className="tmt-ui-menu-item"
-                  {...(item.separated ? { 'data-separated': 'true' } : {})}
-                  role={item.role ?? (item.checked === undefined ? 'menuitem' : 'menuitemradio')}
-                  aria-checked={item.checked}
-                  aria-describedby={item.disabledReason ? `${id}-reason-${index}` : undefined}
-                  disabled={item.disabled}
-                  tabIndex={-1}
-                  ref={(node) => {
-                    entries.current[index] = node;
-                  }}
-                  onFocus={() => controller.focused(item.key)}
-                  onClick={(event) => controller.select(item.key, event)}
-                >
-                  <span>{item.content ?? item.label}</span>
-                  {item.checked && <span aria-hidden="true">✓</span>}
-                </button>
-                {item.disabledReason && (
-                  <span className="tmt-ui-menu-reason" id={`${id}-reason-${index}`}>
-                    {item.disabledReason}
-                  </span>
-                )}
-              </div>
-            ))}
+            {items.some((item) => item.heading)
+              ? menuGroups(items).map((group, groupIndex) => {
+                  if (!group.heading)
+                    return group.entries.map(({ item, index }) => renderItem(item, index));
+                  const headingId = `${id}-group-${groupIndex}`;
+                  return (
+                    <div key={group.entries[0]!.item.key} role="group" aria-labelledby={headingId}>
+                      {group.entries[0]!.item.separated && (
+                        <div className="tmt-ui-menu-divider" aria-hidden="true" />
+                      )}
+                      <div className="tmt-ui-menu-heading" id={headingId}>
+                        {group.heading}
+                      </div>
+                      {group.entries.map(({ item, index }) => renderItem(item, index))}
+                    </div>
+                  );
+                })
+              : items.map(renderItem)}
           </div>
         </dialog>
       )}

@@ -437,12 +437,12 @@ test('files added to the page reach another device and a read-only link byte-ide
     await (await chooser).setFiles(all);
     await expect(panel.getByTestId('attachment-chip')).toHaveCount(3);
     // Choosing stored and wrote nothing: the other device still shows no files.
-    await expect(await pageAction(second, 'Files')).toHaveAccessibleName('Files (0)');
+    await expect(await pageAction(second, 'Files')).toHaveAccessibleName('Files 0');
 
     await panel.getByRole('button', { name: text.filesAdd, exact: true }).click();
     await expect(panel.getByTestId('file-row')).toHaveCount(3, { timeout: 30_000 });
-    await expect(await pageAction(first, 'Files')).toHaveAccessibleName('Files (3)');
-    await expect(await pageAction(second, 'Files')).toHaveAccessibleName('Files (3)', {
+    await expect(await pageAction(first, 'Files')).toHaveAccessibleName('Files 3');
+    await expect(await pageAction(second, 'Files')).toHaveAccessibleName('Files 3', {
       timeout: 30_000,
     });
 
@@ -502,7 +502,7 @@ test('files added to the page reach another device and a read-only link byte-ide
       .click();
     await first.getByRole('button', { name: text.filesRemoveConfirm, exact: true }).click();
     await expect(panel.getByTestId('file-row')).toHaveCount(2, { timeout: 30_000 });
-    await expect(await pageAction(second, 'Files')).toHaveAccessibleName('Files (2)', {
+    await expect(await pageAction(second, 'Files')).toHaveAccessibleName('Files 2', {
       timeout: 30_000,
     });
     await expect(await pageAction(reader.page, 'Files')).toHaveText(`${text.files} 2`, {

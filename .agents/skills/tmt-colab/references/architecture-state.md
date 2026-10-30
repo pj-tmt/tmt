@@ -1004,6 +1004,10 @@ reads), the host takes `shortcut={false}` so the bar's one listener is the only 
 `allowed` on every route of that shell. That dialog is still the page switcher (no registry yet).
 `SharedTopBar` (`shared-top-bar.ts`) tells `ColabHeader`, `AppHeader` and the page More menu that
 Search, Theme and Remote are the bar's; the hosted mount leaves it false until `useTopBarReady` (#5239).
+`page-header-actions.tsx` groups admitted page actions under Share, Organize, Content and Page in
+its shared-bar More menu, with icons, access detail and trailing creator/file metadata. Its standalone
+fallback retains Theme and Remote; the compact project-pin fallback remains in Organize. The reader
+menu groups only its admitted actions. `BrowserMenu` owns the shared presentation and keyboard behavior.
 
 The quick switcher's data (#2599) is React-free except one hook. `quick-switcher.ts` ranks the
 list's own `PageSummary` rows for the list's own `PageFilter` (no second index or parser): match

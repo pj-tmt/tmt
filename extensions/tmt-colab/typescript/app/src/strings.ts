@@ -354,6 +354,8 @@ export const text = {
   },
   files: 'Files',
   /** The More menu's entry for the page's sharing, with its state as secondary text. */
+  moreGroups: { share: 'Share', organize: 'Organize', content: 'Content', page: 'Page' },
+  moreCreator: 'Creator',
   shareItem: 'Share…',
   projectsItem: 'Projects…',
   filesCount: (count: number) => `Page files (${count})`,
