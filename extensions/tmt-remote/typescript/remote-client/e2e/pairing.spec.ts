@@ -2543,7 +2543,7 @@ test('settings draft preserves authority, exact values, drafts and unknown self-
   try {
     await gotoSettings(page, { waitUntil: 'commit' });
     await loading.reached;
-    await expect(page.locator('header')).toHaveClass('tmt-ui-topbar');
+    await expect(page.getByRole('banner', { name: 'TMT' })).toHaveClass('tmt-ui-topbar');
     await expect(page.locator('.tmt-ui-topbar-title-current')).toHaveText('Settings');
     await captureState(
       page,
@@ -3882,7 +3882,13 @@ test('Firestore settings show recorded prerequisites and the approved fixture ca
   expect(
     // A lost read reply invokes the SDK's scope-free sequence recovery read.
     observed.every((op) =>
-      ['session.open', 'capabilities', 'remote.settings.show', 'remote.devices.list'].includes(op),
+      [
+        'session.open',
+        'capabilities',
+        'remote.settings.show',
+        'remote.devices.list',
+        'remote.members.summary',
+      ].includes(op),
     ),
     `Observed signed operations: ${JSON.stringify(observed)}`,
   ).toBe(true);
@@ -6189,6 +6195,11 @@ test('permanent pairing short-circuits manual offers and atomically removes the 
 test('Remote tab frame keeps unknown, Member locks and designated Admin separate', async () => {
   await withRegistryWorld(async ({ page, context, pairAt, identity }) => {
     await pairAt(env, 'G2 browser');
+    const operations: string[] = [];
+    page.on('request', (request) => {
+      if (request.method() === 'POST' && new URL(request.url()).pathname.endsWith('/append'))
+        operations.push(JSON.parse(request.postData()!).operation);
+    });
     await page.goto(`${origin}/remote/overview`);
     await expect(page.locator('#remote-designation')).toHaveText(
       'Read-only in this browser. Ask the admin to make changes.',
@@ -6233,6 +6244,8 @@ test('Remote tab frame keeps unknown, Member locks and designated Admin separate
     await expect(
       tabs.getByRole('tab', { name: /^People(?: · \d+ (?:person|people))?$/ }),
     ).toHaveAttribute('aria-selected', 'true');
+    // The Member browser must never send the owner-only summary read.
+    expect(operations).not.toContain('remote.members.summary');
     const clientId = (current.paired as { clientId: string }).clientId;
     execFileSync(BINARY, ['devices', 'designate', clientId, '--json'], { env });
     await page.reload();
@@ -6251,6 +6264,7 @@ test('Remote tab frame keeps unknown, Member locks and designated Admin separate
       'aria-label',
       'People · 1 person',
     );
+    await expect.poll(() => operations.includes('remote.members.summary')).toBe(true);
     await expect(page.locator('.remote-tab-content .tmt-ui-subheader p:visible')).toContainText(
       '1 person · Sending is off',
     );
