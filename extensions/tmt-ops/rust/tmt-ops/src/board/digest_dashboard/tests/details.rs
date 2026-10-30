@@ -47,7 +47,10 @@ fn chips_and_the_bound_key_switch_tabs_and_the_tab_survives_a_new_selection() {
     for label in ["Details · worker · 1d", "▸ Impact", "Delivery", "Evidence"] {
         assert!(shown.contains(label), "{label}: {shown}");
     }
-    assert!(!shown.contains("▸ Delivery"), "only the shown tab is marked");
+    assert!(
+        !shown.contains("▸ Delivery"),
+        "only the shown tab is marked"
+    );
     assert!(shown.contains("Est. ctx avoided 18.2k"), "{shown}");
     assert_eq!(
         click(&mut app, &Choice::DigestDetails(Tab::Delivery)),
