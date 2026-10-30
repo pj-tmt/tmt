@@ -315,7 +315,7 @@ fn size_follows_the_modal_rule_at_sm_md_and_lg() {
 }
 
 #[test]
-fn paint_frames_the_title_and_right_aligns_buttons_with_the_cursor_focused_at_every_depth() {
+fn paint_frames_the_title_and_left_aligns_buttons_with_the_cursor_focused_at_every_depth() {
     let dialog = Dialog {
         title: "delete timer?".into(),
         kind: DialogKind::Confirm,
@@ -333,7 +333,7 @@ fn paint_frames_the_title_and_right_aligns_buttons_with_the_cursor_focused_at_ev
         let row: String = (areas.footer.x..areas.footer.right())
             .map(|x| buffer[(x, areas.footer.y)].symbol())
             .collect();
-        assert!(row.ends_with(" Cancel   Delete "), "{depth:?}: {row:?}");
+        assert!(row.starts_with(" Cancel   Delete "), "{depth:?}: {row:?}");
         let top: String = (areas.outer.x..areas.outer.right())
             .map(|x| buffer[(x, areas.outer.y)].symbol())
             .collect();
@@ -341,7 +341,7 @@ fn paint_frames_the_title_and_right_aligns_buttons_with_the_cursor_focused_at_ev
         let [Some(cancel), Some(delete)] = hits.buttons[..] else {
             panic!("both buttons fit: {:?}", hits.buttons)
         };
-        assert_eq!(delete.right(), areas.footer.right());
+        assert_eq!(cancel.x, areas.footer.x);
         let hot = screen::chip(&theme, ChipKind::Secondary, ChipState::Hot, depth);
         let idle = screen::chip(&theme, ChipKind::Secondary, ChipState::Idle, depth);
         assert_eq!(
