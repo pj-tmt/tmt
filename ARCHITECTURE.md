@@ -57,8 +57,7 @@ product-neutral `rust/archive/NATIVE-INSTALL.md`; [dev-only embed](site/README.m
 
 The `typescript` pnpm workspace owns private Node tooling/tests and one lockfile,
 with parent-relative packages for the parked browser-addon shell, Remote client SDK,
-and Colab browser/client packages.
-It is not a second CLI runtime. Packages resolve declared dependencies, never
+and Colab browser/client packages. Packages resolve declared dependencies, never
 root-hoisted tooling; browser specs reach the tooling SQLite oracle through
 `typescript/test/support`. Rust, root launchers, core contracts and canonical
 skills stay outside this boundary; extension contracts stay with their product.
@@ -281,6 +280,10 @@ the durable identity inbox, which settles `queued`. Unbound identity delivery us
 the foreground observer and recipient pull. The [request contract](contracts/request-response-v1.md)
 owns behavior and limits.
 
+Digest owns [history, pricing and valuation](extensions/tmt-digest/contracts/digest-v1.md) and one [price file](extensions/tmt-digest/contracts/digest-v1.md#pricing-file); tick collects, status reads.
+A `user`-marked identity is never held, nor anyone while the [global switch](extensions/tmt-digest/contracts/digest-v1.md#global-switch) is off; an `auto` member is held like an interval one until [auto delivery](extensions/tmt-digest/contracts/digest-tick-v1.md#auto-delivery).
+The [usage report](extensions/tmt-digest/contracts/usage-v1.md) joins Core's rollup, limits and `x flow --bucket` per run; it stores nothing.
+
 ### Tmux and process effects
 
 `tmt-adapters::process` owns bounded child execution and byte observations (stream caps,
@@ -289,7 +292,7 @@ native-first process-incarnation acquisition. `process::interactive` owns direct
 sockets, with bounded budgets and no ambient fallback; a failed paste
 or Enter is uncertain and never retried as unsent; [pane cosmetics](.agents/skills/tmt-core-runtime/references/hosts-drivers.md) own only pane-local badge overrides.
 
-Driver-owned consumption attribution uses completed-record evidence; Agy may fill an omitted model from its admitted hook observation, never a kept resume setting ([consumption rules](.agents/skills/tmt-core-runtime/references/identity-bindings.md)).
+Driver-owned consumption attribution uses completed-record evidence ([consumption rules](.agents/skills/tmt-core-runtime/references/identity-bindings.md)).
 
 The CLI acquires caller-host evidence only for caller-scoped operations; explicit senders
 and stored bindings retain their own authority. Caller-process observation failures retain typed adapter causes through the driver registry to bounded CLI context.
@@ -348,13 +351,9 @@ only `tmt` and `tmt-inbox`.
 Skill installation never opens configuration, SQLite or tmux. Retired bundles, catalog
 publication, removal and refresh/uninstall preservation follow the [installer owner](.agents/skills/tmt-core-runtime/references/install-architecture.md#managed-skills).
 Extension-owned skills arrive as bytes through `skills.install`/`skills.remove`
-(explicit consent), are stored per owner and linked into the same roots; the first
-owner of a name keeps it until an explicit force and core names are reserved.
-API-supplied names refuse unmanaged targets; explicit force backs them up before
-replacement. An API name or owner alone cannot authorize catalog replacement.
-Native release skills publish after binary consent. Skill failures after successful
-binary activation are warnings with path/cause and partial publication; human and
-JSON summaries retain each product's activation and skills outcome.
+(explicit consent) and link into the same roots; core names are reserved, and an API
+name or owner alone cannot authorize catalog replacement. Name ownership, force
+backups and post-activation skill warnings follow the same installer owner.
 
 Native executable installation is a different owner under `tmt-adapters::native_install`.
 Its cosmetic pane-option cutover performs host CAS outside SQLite, between short row checks.
@@ -367,18 +366,13 @@ keeps the previous release, and failure or cancellation never leaves a half-publ
 current release. CLI self-upgrade delegates to the verified candidate under the
 [handoff contract](contracts/native-install-handoff-v1.md); PR channel trust,
 compiled schema export and admission are owned by the [PR channel contract](contracts/native-pr-channel.md). The candidate then lets that CLI
-run the consented extension phase; there is no rollback or second installer. Upgrade shares setup's missing inventory and provider publisher; only interactive approval can add a provider scope.
+run the consented extension phase; there is no rollback or second installer.
 `install_guidance` projects setup's verified inventory as public
 [`guidance.actions`](contracts/extension-api.md#installation-guidance-through-the-ordinary-cli);
 PATH only resolves commands.
 Receipt-frozen [CLI minima](contracts/extension-api.md#optional-cross-extension-uses) gate activation; listing compares locally.
 [Installer architecture](.agents/skills/tmt-core-runtime/references/install-architecture.md) owns retention,
 discovery, receipts, skills, repair and handoff; [release procedures](.agents/skills/tmt-release/SKILL.md) own verification and publication.
-
-Digest owns [history, pricing and valuation](extensions/tmt-digest/contracts/digest-v1.md); tick collects, status reads.
-A `user`-marked identity is never held, nor anyone while the [global switch](extensions/tmt-digest/contracts/digest-v1.md#global-switch) is off. An `auto` member is held like an interval one: the tick renews the hold and offers [auto delivery](extensions/tmt-digest/contracts/digest-tick-v1.md#auto-delivery); Core and the turn end deliver.
-Prices are one [public file](extensions/tmt-digest/contracts/digest-v1.md#pricing-file).
-The [usage report](extensions/tmt-digest/contracts/usage-v1.md) joins Core's rollup, limits and `x flow --bucket` per run; it stores nothing.
 
 ## Ops extension
 
