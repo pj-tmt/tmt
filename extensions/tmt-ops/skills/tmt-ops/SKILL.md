@@ -1023,15 +1023,16 @@ supplied usage facts and timers. Agents uses a 47% list in Side layout; Auto sta
 below 120 columns and uses a single focused pane when the usable budgets do not fit.
 The table reserves one range/total/more row. Add a member, set or
 clear its lead, rename it, pin it or open Timers through the named controls or
-Manage. `N` creates from a name, optional lead and explicit members. Assign offers
-add (keep every membership) or move (remove the selected source only after the
-destination add is confirmed). Common pool offers add only.
+Manage. `N` creates from a name, optional lead and explicit members. `m` moves an
+agent to another squad in place; `tmt ops squad add` joins a second squad.
 
-Rename and assignment reviews show the human CLI equivalents. Rename still
+Rename and membership reviews show the human CLI equivalents. Rename still
 executes the UUID/expected-name check; `c` copies its displayed command.
-Management reviews freeze exact room/identity UUIDs and revisions, show timer
-impact and start on Cancel. Tab reaches the scrollable read region and Apply;
-clipped or stale Apply controls cannot submit. Pending prevents repeated applies.
+Management reviews freeze exact room/identity UUIDs and revisions and show timer
+impact. Non-destructive reviews open on the apply button, so Enter applies what was
+reviewed; Leave squad and Remove member open on Cancel. ←→ move between Cancel and
+Apply, ↑↓ and the page keys read, and Tab does nothing. Clipped or stale Apply controls
+cannot submit. Pending prevents repeated applies.
 Results retain per-item success/failure and explicit repair guidance, with no
 automatic retry. `x` removes membership, not an identity, process, draft or history.
 Source timers pause before leave; re-add/reassign never resumes them. Explicit
@@ -1077,8 +1078,9 @@ pause/resume, `x` send now, `o` reassign and `d` delete after confirmation. The
 workspace entry follows explicit bindings; the modal owns its scoped keys.
 Forms retain exact owner/message/schedule; Esc cancels. Before create, changed
 schedule or reassignment applies, Review shows the frozen operation, up to three
-next occurrences and scheduled invocations in the next 24h. Tab reaches reading,
-Cancel and Apply; a pending or failed preview cannot apply. Dense schedules say
+next occurrences and scheduled invocations in the next 24h. It opens on Cancel; ←→
+move between Cancel and Apply, ↑↓ and the page keys read, and Tab does nothing. A pending
+or failed preview cannot apply. Dense schedules say
 at least 4096 (preview capped). This is not tokens or dollars, and depends on the
 owner and clock. Apply rechecks the original actor, room and revision. Multiline messages use the shared editor; oversized stored messages
 remain intact when editing only owner or schedule.
