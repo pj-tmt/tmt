@@ -519,3 +519,41 @@ fn down_from_the_field_reaches_cancel_and_discard_by_keyboard() {
     assert_eq!(key(&mut app, KeyCode::Enter), Effect::None);
     assert!(app.workspace_form.is_none() && app.input.is_none());
 }
+
+#[test]
+fn a_kept_rename_reopened_from_another_agent_still_names_its_own_target() {
+    const OTHER: &str = "66666666-6666-4666-8666-666666666666";
+    let mut app = board();
+    let snapshot = &mut app.view.as_mut().unwrap().home.as_mut().unwrap().workspace;
+    let mut member = snapshot.roster.members[MEMBER].clone();
+    member.id = OTHER.into();
+    member.name = "reviewer".into();
+    snapshot.roster.members.insert(OTHER.into(), member);
+    snapshot.roster.squads[0].members.push(OTHER.into());
+    let other = OpsTarget::Member {
+        room_id: Some(ROOM.into()),
+        identity_id: OTHER.into(),
+    };
+    snapshot.rows.insert(
+        other.clone(),
+        json!({"id":OTHER,"name":"reviewer","state":"working"}),
+    );
+    member_menu_action(&mut app, OpsUiAction::RenameMember);
+    app.input.as_mut().unwrap().text = "half".into();
+    assert_eq!(key(&mut app, KeyCode::Esc), Effect::None);
+
+    app.workspace.selected = Some(other.clone());
+    assert_eq!(app.workspace_begin(Kind::RenameMember), Effect::None);
+    let draft = app.workspace_form.as_ref().unwrap();
+    assert!(draft.shown && draft.reopened);
+    assert_eq!(draft.member.as_ref().unwrap().id, MEMBER, "the kept target");
+    assert_eq!(app.input.as_ref().unwrap().text.to_string(), "half");
+    let screen = paint(&app, 160, 36).join("\n");
+    assert!(screen.contains("Rename agent · worker"), "{screen}");
+    assert!(!screen.contains("Rename agent · reviewer"), "{screen}");
+    assert_eq!(
+        app.workspace.selected,
+        Some(other),
+        "selection is untouched"
+    );
+}
