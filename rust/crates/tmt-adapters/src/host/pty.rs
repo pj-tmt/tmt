@@ -320,16 +320,6 @@ pub(super) struct PtyDriver<'a, R> {
     pub enter_delay: Duration,
 }
 impl<R: CommandRunner> PtyDriver<'_, R> {
-    /// The member process's live directory, as tmux reports a pane's: for display and skill
-    /// roots only, never authority or a binding fence. It is kept only when the process still
-    /// has the start identity just verified, so a reused pid never lends its directory; any
-    /// doubt is `None`.
-    fn member_cwd(&self, pane_pid: u64, start: &str) -> Option<String> {
-        let cwd = tmt_sys::process_cwd(i32::try_from(pane_pid).ok()?)?;
-        let still = runtime::observe_start(self.runner, pane_pid, self.deadline).ok()??;
-        (still == start).then_some(cwd)
-    }
-
     fn snapshot_at(
         &self,
         server: &ServerEvidence,
@@ -351,6 +341,14 @@ impl<R: CommandRunner> PtyDriver<'_, R> {
         answer: State,
     ) -> Result<EndpointSnapshot, HostError> {
         verify_pair(self.runner, &answer, self.deadline)?;
+        // The member's live directory, as tmux reports a pane's: display and skill roots
+        // only, never authority or a binding fence. It is read before the start observation
+        // below, so a member whose start that observation finds was alive, and owned the pid,
+        // when the directory was read; a pid reused in between shows as another incarnation,
+        // which fails the binding fence that every trusting reader checks. Doubt is `None`.
+        let cwd = i32::try_from(answer.pane_pid)
+            .ok()
+            .and_then(tmt_sys::process_cwd);
         let starts = runtime::observe_starts(
             self.runner,
             &[answer.server_pid, answer.pane_pid],
@@ -369,7 +367,6 @@ impl<R: CommandRunner> PtyDriver<'_, R> {
             let incarnation = starts
                 .get(&answer.pane_pid)
                 .ok_or_else(|| error("the pane process is unverified"))?;
-            let cwd = self.member_cwd(answer.pane_pid, incarnation.start_identity());
             found.push(PaneObservation {
                 id: pane.into(),
                 target: None,
@@ -725,7 +722,7 @@ impl<R: CommandRunner> HostDriver for PtyDriver<'_, R> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::process::UnixCommandRunner;
+    use crate::process::{CommandOutput, CommandRequest, UnixCommandRunner};
     use std::process::{Child, Command, Stdio};
 
     fn spawn(script: &str) -> (Child, u64, String) {
@@ -747,8 +744,44 @@ mod tests {
         (child, pid, start)
     }
 
+    /// Counts every process observation, native or through `ps`, the Unix runner is asked for.
+    struct Counting {
+        calls: std::cell::Cell<usize>,
+    }
+    impl Counting {
+        fn count(&self) {
+            self.calls.set(self.calls.get() + 1);
+        }
+    }
+    impl CommandRunner for Counting {
+        fn process_observation(
+            &self,
+            pid: u64,
+            deadline: Instant,
+        ) -> Option<runtime::ProcessObservation> {
+            self.count();
+            UnixCommandRunner.process_observation(pid, deadline)
+        }
+        fn process_parent(&self, pid: u64, deadline: Instant) -> Option<u64> {
+            self.count();
+            UnixCommandRunner.process_parent(pid, deadline)
+        }
+        fn process_link(&self, pid: u64, deadline: Instant) -> Option<ancestry::ProcessLink> {
+            self.count();
+            UnixCommandRunner.process_link(pid, deadline)
+        }
+        fn execute(&self, request: CommandRequest<'_>) -> Result<CommandOutput, CommandError> {
+            self.count();
+            UnixCommandRunner.execute(request)
+        }
+        fn execute_leaf(&self, request: CommandRequest<'_>) -> Result<CommandOutput, CommandError> {
+            self.count();
+            UnixCommandRunner.execute_leaf(request)
+        }
+    }
+
     #[test]
-    fn the_member_directory_is_its_live_one_and_only_for_the_verified_incarnation() {
+    fn a_snapshot_reports_the_live_directory_without_another_process_observation() {
         use crate::test_support::{TestChild, TestDirectory};
         let root = TestDirectory::new();
         let (first, second) = (root.path.join("first"), root.path.join("second"));
@@ -768,32 +801,61 @@ mod tests {
                 .spawn()
                 .unwrap(),
         );
+        child.wait_for_content(&moved, "", Duration::from_secs(10));
+        let deadline = Instant::now() + Duration::from_secs(10);
+        let (server_pid, pane_pid) = (u64::from(std::process::id()), u64::from(child.child.id()));
+        let server = ServerEvidence {
+            host: HostKind::pty(),
+            server_id: "server".into(),
+            socket_path: "/unused/pty_cwd.sock".into(),
+            server_pid,
+            server_start_time: runtime::observe_start(&UnixCommandRunner, server_pid, deadline)
+                .unwrap()
+                .unwrap(),
+        };
+        let answer = || State {
+            server_pid,
+            pane_pid,
+            marker: None,
+            idle: None,
+        };
+        let runner = Counting {
+            calls: Default::default(),
+        };
         let driver = PtyDriver {
-            runner: &UnixCommandRunner,
-            server: None,
-            deadline: Instant::now() + Duration::from_secs(10),
+            runner: &runner,
+            server: Some(&server),
+            deadline,
             enter_delay: Duration::ZERO,
         };
-        let pid = u64::from(child.child.id());
-        child.wait_for_content(&moved, "", Duration::from_secs(10));
-        let start = runtime::observe_start(driver.runner, pid, driver.deadline)
-            .unwrap()
+        // What a snapshot observed before it reported a directory (#5634).
+        verify_pair(&runner, &answer(), deadline).unwrap();
+        runtime::observe_starts(&runner, &[server_pid, pane_pid], deadline).unwrap();
+        let baseline = runner.calls.replace(0);
+        let snapshot = driver
+            .snapshot_from(&server, "pty_cwd", &[], answer())
             .unwrap();
-        let canonical =
-            |path: Option<String>| path.map(|path| std::fs::canonicalize(path).unwrap());
+        assert_eq!(runner.calls.get(), baseline, "no extra process observation");
+        let pane = &snapshot.panes[0];
         assert_eq!(
-            canonical(driver.member_cwd(pid, &start)),
+            pane.cwd
+                .as_deref()
+                .map(|cwd| std::fs::canonicalize(cwd).unwrap()),
             Some(std::fs::canonicalize(&second).unwrap()),
             "the live directory after cd, not the launch directory"
         );
-        assert_eq!(
-            driver.member_cwd(pid, "ps-v1:another incarnation"),
-            None,
-            "a reused pid never lends its directory"
-        );
+        assert!(pane.pane_incarnation.is_some());
         child.child.kill().unwrap();
         child.wait_for_exit(Duration::from_secs(10));
-        assert_eq!(driver.member_cwd(pid, &start), None, "an exited member");
+        assert!(
+            driver
+                .snapshot_from(&server, "pty_cwd", &[], answer())
+                .map_or(true, |snapshot| snapshot
+                    .panes
+                    .iter()
+                    .all(|pane| pane.cwd.is_none())),
+            "an exited member lends no directory"
+        );
     }
 
     #[test]
