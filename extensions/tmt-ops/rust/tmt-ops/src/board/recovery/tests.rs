@@ -1873,11 +1873,33 @@ fn down_past_the_reading_reaches_the_actions_and_up_reads_again() {
     assert!(c.form_focus, "↑ on the first action reads again");
 }
 #[test]
-fn a_confirm_is_its_own_layer_and_esc_returns_to_the_list() {
+fn a_confirm_is_its_own_layer_and_cancel_returns_to_its_source_screen() {
+    // Restore asks from Preview, Delete from the list; cancel and reopen land on the same screen.
+    for (confirm, source) in [
+        (Screen::Confirm, Screen::Preview),
+        (Screen::Delete, Screen::List),
+    ] {
+        for esc in [true, false] {
+            let mut c = controller();
+            if confirm == Screen::Confirm {
+                review(&mut c);
+            } else {
+                c.screen = Screen::Delete;
+            }
+            if esc {
+                c.input(&key(KeyCode::Esc));
+            } else {
+                assert!(c.choose("cancel").is_none());
+            }
+            assert!(
+                c.active && c.screen == source && c.confirmation.is_none(),
+                "{confirm:?} esc={esc}"
+            );
+        }
+    }
     let mut c = controller();
     review(&mut c);
     c.input(&key(KeyCode::Esc));
-    assert!(c.active && c.screen == Screen::List && c.confirmation.is_none());
     c.input(&key(KeyCode::Esc));
     assert!(!c.active, "a second Esc hides the dialog");
 }

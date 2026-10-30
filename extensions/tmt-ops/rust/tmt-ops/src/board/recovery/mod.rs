@@ -120,11 +120,7 @@ impl Controller {
         }
         // A reopened inner screen shows where it was; Ctrl-R refreshes it. A confirm lost its
         // confirmation on close, so it reopens on the screen that asks for it again.
-        match self.screen {
-            Screen::Confirm => self.screen = Screen::Preview,
-            Screen::Delete => self.screen = Screen::List,
-            _ => {}
-        }
+        self.screen = Self::confirm_source(self.screen);
         if self.screen != Screen::List && !self.entries.is_empty() {
             self.reopened = self.screen == Screen::Save
                 && self
@@ -222,6 +218,20 @@ impl Controller {
         self.requested_read = None;
         // Keep ownership of the active read until its completion. Reopening
         // coalesces behind it instead of queuing abandoned reads on the lane.
+        self.invalidate();
+    }
+    /// The screen that asks for a confirm: cancel and reopen both land there.
+    fn confirm_source(screen: Screen) -> Screen {
+        match screen {
+            Screen::Confirm => Screen::Preview,
+            Screen::Delete => Screen::List,
+            other => other,
+        }
+    }
+    /// Closes just the confirm layer, back on the screen that asked for it.
+    fn cancel_confirm(&mut self) {
+        self.confirmation = None;
+        self.screen = Self::confirm_source(self.screen);
         self.invalidate();
     }
     pub fn invalidate(&self) {
@@ -414,6 +424,9 @@ impl Controller {
         match id {
             "close" => self.close(),
             "refresh" => return self.refresh(),
+            "cancel" if matches!(self.screen, Screen::Confirm | Screen::Delete) => {
+                self.cancel_confirm()
+            }
             "back" | "cancel" => {
                 self.confirmation = None;
                 self.reopened = false;
