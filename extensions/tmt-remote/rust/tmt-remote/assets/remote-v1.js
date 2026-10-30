@@ -2921,16 +2921,18 @@ function claimIconActionTooltip(document, dismiss) {
 		if (activeTooltips.get(document) === dismiss) activeTooltips.delete(document);
 	};
 }
-function iconActionTooltipPosition(anchor, tooltipWidth, tooltipHeight, viewport, gutter) {
+function iconActionTooltipPosition(anchor, tooltipWidth, tooltipHeight, viewport, gutter, side) {
 	const maxWidth = Math.max(0, viewport.width - gutter * 2);
 	const width = Math.min(tooltipWidth, maxWidth);
 	const leftEdge = viewport.left + gutter;
 	const belowTop = Math.max(viewport.top, anchor.bottom);
 	const below = Math.max(0, viewport.top + viewport.height - gutter - belowTop);
-	const above = Math.max(0, anchor.top - viewport.top - gutter);
-	const flipped = tooltipHeight > below && above > below;
+	const offset = side === "above" ? gutter : 0;
+	const above = Math.max(0, anchor.top - viewport.top - gutter - offset);
+	const flipped = side === "above" || tooltipHeight > below && above > below;
 	const maxHeight = flipped ? above : below;
-	const top = flipped ? anchor.top - Math.min(tooltipHeight, maxHeight) : belowTop;
+	const placedTop = flipped ? anchor.top - offset - Math.min(tooltipHeight, maxHeight) : belowTop;
+	const top = side === "above" ? Math.max(viewport.top + gutter, placedTop) : placedTop;
 	return {
 		left: Math.max(leftEdge, Math.min((anchor.left + anchor.right - width) / 2, viewport.left + viewport.width - gutter - width)),
 		top,
@@ -2938,7 +2940,7 @@ function iconActionTooltipPosition(anchor, tooltipWidth, tooltipHeight, viewport
 		maxHeight
 	};
 }
-function placeIconActionTooltip(anchor, tooltip) {
+function placeIconActionTooltip(anchor, tooltip, side) {
 	const view = anchor.ownerDocument.defaultView;
 	if (!view) return () => {};
 	const viewport = view.visualViewport;
@@ -2957,7 +2959,7 @@ function placeIconActionTooltip(anchor, tooltip) {
 		};
 		tooltip.style.maxWidth = `${Math.max(0, bounds.width - gutter * 2)}px`;
 		const tooltipBox = tooltip.getBoundingClientRect();
-		const next = iconActionTooltipPosition(box, tooltipBox.width, Math.max(tooltipBox.height, tooltip.scrollHeight), bounds, gutter);
+		const next = iconActionTooltipPosition(box, tooltipBox.width, Math.max(tooltipBox.height, tooltip.scrollHeight), bounds, gutter, side);
 		tooltip.style.left = `${next.left}px`;
 		tooltip.style.top = `${next.top}px`;
 		tooltip.style.maxHeight = `${next.maxHeight}px`;
@@ -2992,7 +2994,7 @@ function guardEscapeFocus(document) {
 	document.defaultView?.requestAnimationFrame(clear);
 }
 /** Internal binding shared by icon renderers; activation and its busy fence stay with the caller. */
-function bindIconActionTooltip(wrapper, button, tooltip) {
+function bindIconActionTooltip(wrapper, button, tooltip, placement) {
 	const document = button.ownerDocument;
 	const view = document.defaultView;
 	let hovered = false;
@@ -3027,9 +3029,11 @@ function bindIconActionTooltip(wrapper, button, tooltip) {
 			return;
 		}
 		if (tooltip.matches(":popover-open")) return;
+		const anchor = placement ? placement.anchor() : button;
+		if (!anchor?.isConnected) return;
 		release = claimIconActionTooltip(document, dismiss);
 		tooltip.showPopover();
-		position = placeIconActionTooltip(button, tooltip);
+		position = placeIconActionTooltip(anchor, tooltip, placement?.side);
 		document.addEventListener("keydown", escape, true);
 	};
 	const clearReturnGuard = () => {

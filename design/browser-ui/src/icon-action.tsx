@@ -2,7 +2,7 @@ import { useLayoutEffect, useImperativeHandle, useRef } from 'react';
 import type { KeyboardEventHandler, ReactNode, Ref } from 'react';
 import type { BrowserActionProps } from './action.js';
 import { useBusyMark } from './busy-mark.js';
-import { bindIconActionTooltip } from './icon-action-tooltip.js';
+import { bindIconActionTooltip, type IconActionTooltipPlacement } from './icon-action-tooltip.js';
 import { browserUiClasses as c } from './static.js';
 
 export type BrowserIconActionProps = Omit<
@@ -13,6 +13,8 @@ export type BrowserIconActionProps = Omit<
   icon: ReactNode;
   /** Optional shortcut help; the button name remains independently sufficient. */
   tooltipLabel?: string;
+  /** Optional grouping/side; hover, focus and accessible naming remain on this button. */
+  tooltipPlacement?: IconActionTooltipPlacement;
   ariaKeyShortcuts?: string;
   buttonRef?: Ref<HTMLButtonElement>;
   hasPopup?: 'menu' | 'dialog';
@@ -26,6 +28,7 @@ export function BrowserIconAction({
   type,
   label,
   tooltipLabel,
+  tooltipPlacement,
   ariaKeyShortcuts,
   variant,
   icon,
@@ -49,12 +52,17 @@ export function BrowserIconAction({
   const marked = useBusyMark(busy && !disabled);
   useImperativeHandle(buttonRef, () => button.current!, []);
   useLayoutEffect(() => {
-    help.current = bindIconActionTooltip(wrapper.current!, button.current!, tooltip.current!);
+    help.current = bindIconActionTooltip(
+      wrapper.current!,
+      button.current!,
+      tooltip.current!,
+      tooltipPlacement,
+    );
     return () => {
       help.current?.dispose();
       help.current = null;
     };
-  }, []);
+  }, [tooltipPlacement]);
   useLayoutEffect(() => {
     help.current?.refresh();
   }, [expanded]);

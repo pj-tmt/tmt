@@ -61,7 +61,18 @@ it('clamps to the larger side when neither side fits and prefers below on a tie'
   ).toEqual({ left: 28, top: 317, maxWidth: 304, maxHeight: 175 });
 });
 
-function bindingFixture(expanded?: boolean) {
+it('centers explicit above help on a group with the token gap, even when below has room', () => {
+  const viewport = { left: 0, top: 0, width: 390, height: 844 };
+  const anchor = { left: 190, right: 366, top: 500, bottom: 546 };
+  const result = iconActionTooltipPosition(anchor, 100, 48, viewport, 8, 'above');
+  expect(result.left + 50).toBe((anchor.left + anchor.right) / 2);
+  expect(anchor.top - result.top - 48).toBe(8);
+  expect(result.maxHeight).toBe(484);
+  const constrained = iconActionTooltipPosition(anchor, 800, 1000, viewport, 8, 'above');
+  expect(constrained).toEqual({ left: 8, top: 8, maxWidth: 374, maxHeight: 484 });
+});
+
+function bindingFixture(expanded?: boolean, grouped = false) {
   const events = new EventTarget();
   const frames: (() => void)[] = [];
   const disconnects: ReturnType<typeof vi.fn>[] = [];
@@ -126,12 +137,38 @@ function bindingFixture(expanded?: boolean) {
     matches: () => state.visible,
     getBoundingClientRect: () => ({ width: 100, height: 40 }),
   };
+  const group = {
+    ownerDocument: document,
+    isConnected: true,
+    getBoundingClientRect: () => ({
+      left: 100,
+      right: 300,
+      top: 400,
+      bottom: 446,
+      width: 200,
+      height: 46,
+    }),
+  };
   const binding = bindIconActionTooltip(
     wrapper as HTMLElement,
     button as unknown as HTMLButtonElement,
     tooltip as unknown as HTMLElement,
+    grouped ? { anchor: () => group as unknown as HTMLElement, side: 'above' } : undefined,
   );
-  return { binding, wrapper, button, state, show, hide, events, frames, disconnects, add };
+  return {
+    binding,
+    wrapper,
+    button,
+    state,
+    show,
+    hide,
+    events,
+    frames,
+    disconnects,
+    add,
+    group,
+    tooltip,
+  };
 }
 
 it('dismisses an open tooltip without consuming the host Escape and releases its listener', () => {
@@ -214,4 +251,22 @@ it('replaces help per document and stale cleanup cannot release the next tooltip
   expect(third).not.toHaveBeenCalled();
   releaseAfterUnmount();
   releaseIndependent();
+});
+
+it('uses the opt-in group while keeping button hover and disposal ownership', () => {
+  const f = bindingFixture(undefined, true);
+  f.wrapper.dispatchEvent(new Event('pointermove'));
+  expect(f.show).toHaveBeenCalledOnce();
+  expect(f.tooltip.style).toMatchObject({ left: '150px', top: '352px' });
+  f.binding.dispose();
+  expect(f.state.visible).toBe(false);
+  expect(f.disconnects.every((disconnect) => disconnect.mock.calls.length === 1)).toBe(true);
+});
+it('does not show group help when the host anchor is detached', () => {
+  const f = bindingFixture(undefined, true);
+  f.group.isConnected = false;
+  f.wrapper.dispatchEvent(new Event('pointermove'));
+  expect(f.show).not.toHaveBeenCalled();
+  expect(f.disconnects).toHaveLength(0);
+  f.binding.dispose();
 });
