@@ -37,6 +37,7 @@ pub enum OpsUiAction {
     Timers,
     AllTimers,
     WorkspaceSnapshots,
+    OpenWeb,
     DiscoverAgents,
     Pin,
     HideSquad,
@@ -340,6 +341,13 @@ const SPECS: &[OpsUiSpec] = &[
         "workspace-snapshots",
         "snapshots",
         "preview saved workspace snapshots and review a guarded restore",
+        12
+    ),
+    spec!(
+        OpenWeb,
+        "open-web",
+        "web",
+        "open the web UI in the browser with tmt remote open",
         12
     ),
     spec!(

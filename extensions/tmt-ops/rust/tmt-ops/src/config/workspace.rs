@@ -343,7 +343,11 @@ pub(crate) fn defaults(scope: OpsKeyScope) -> Bindings {
         entries.push(("s", "discover-agents"));
         entries.push(("f", "agents-filter"));
     }
-    entries.extend([("w", "workspace-snapshots"), ("y", "copy")]);
+    entries.extend([
+        ("w", "workspace-snapshots"),
+        ("g", "open-web"),
+        ("y", "copy"),
+    ]);
     entries
         .into_iter()
         .map(|(key, action)| {

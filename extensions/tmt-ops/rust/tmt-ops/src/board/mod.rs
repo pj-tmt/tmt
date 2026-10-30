@@ -89,6 +89,7 @@ mod tree_row;
 mod unread;
 mod unread_overlay;
 mod versions;
+mod web;
 mod wheel_hint;
 pub(crate) use crate::tabs;
 mod shell;
@@ -494,6 +495,7 @@ fn execute(core: &Core, request: Request) -> Result<ActionOutcome, String> {
             Ok(None) => Ok("Nothing to go back to.".into()),
             Err(error) => Err(error.message),
         },
+        Request::OpenWeb => web::open(core),
         Request::Open { link, opener } => {
             effects::open(&link, opener.as_deref()).map(|()| format!("Opened {link}"))
         }

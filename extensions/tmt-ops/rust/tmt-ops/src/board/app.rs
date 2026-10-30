@@ -153,6 +153,8 @@ pub enum Request {
     },
     /// Return the invoker's client to where its last jump came from.
     Back,
+    /// Open the web UI through Remote's `tmt remote open`.
+    OpenWeb,
     Open {
         link: String,
         opener: Option<Vec<String>>,
@@ -222,6 +224,7 @@ impl Request {
             Self::Jump(_) | Self::Back => "Jumping…",
             Self::Swap { .. } => "Swapping…",
             Self::Open { .. } | Self::Run(_) | Self::PreparedRun { .. } => "Opening…",
+            Self::OpenWeb => "Opening the web UI…",
             Self::DigestOpen(_) => "Checking digest access…",
             Self::Digest(_) => "Saving digest…",
             Self::DigestSwitch(_) => "Switching Digest…",

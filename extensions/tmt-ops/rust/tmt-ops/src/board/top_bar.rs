@@ -161,8 +161,10 @@ pub(in crate::board) struct Caption<'a> {
 
 /// What a painted caption and attention strip leaves for the caller.
 pub(in crate::board) struct Painted {
-    /// The control's rectangle, for the caller to paint.
+    /// The rectangle of the controls that fit, for the caller to paint.
     pub control: Option<Rect>,
+    /// How many of the leading controls fit in `control`; the last ones yield first.
+    pub controls: usize,
     /// Where the unread count was painted, when the strip shows one.
     pub unread: Option<Rect>,
 }
@@ -180,6 +182,7 @@ fn paint_with_control(
     look: Look,
     control_width: u16,
 ) -> Option<Rect> {
+    let controls = [control_width];
     paint_attention(
         buffer,
         area,
@@ -187,12 +190,14 @@ fn paint_with_control(
         attention,
         observations,
         look,
-        control_width,
+        if control_width > 0 { &controls } else { &[] },
     )
     .control
 }
 
-/// `paint_with_control`, and where the unread count went.
+/// `paint_with_control` for a row of controls, each `controls` columns wide and one column
+/// apart, and where the unread count went. Where a stage cannot keep them all, the last ones
+/// yield first, so the leading ones fit exactly where they would alone.
 pub(in crate::board) fn paint_attention(
     buffer: &mut Buffer,
     area: Rect,
@@ -205,7 +210,7 @@ pub(in crate::board) fn paint_attention(
     attention: Option<&Attention>,
     observations: Option<&Observations<'_>>,
     look: Look,
-    control_width: u16,
+    controls: &[u16],
 ) -> Painted {
     // Whole semantic segments yield in the approved order. Never fit a partial
     // percentage or token count into the space between the two owners. The version
@@ -237,101 +242,120 @@ pub(in crate::board) fn paint_attention(
             }
             _ => continue,
         };
-        let control_width = if with_control { control_width } else { 0 };
-        let right = attention.map(|value| {
-            if words {
-                value.fitted(look, usize::from(area.width))
-            } else {
-                value.with_words(look, false)
-            }
-        });
-        let mut left_width = right.as_ref().map_or(area.width, |line| {
-            area.width
-                .saturating_sub((line.width() as u16).saturating_add(2))
-        });
-        let mut caption = Line::from(vec![Span::styled(" ▚ TMT", look.role(Role::Text))]);
-        if let Some(text) = &text {
-            caption
-                .spans
-                .push(Span::styled(text.clone(), look.role(Role::Muted)));
-        }
-        caption.spans.extend([
-            Span::styled(if brand { "   " } else { "" }, look.role(Role::Text)),
-            Span::styled(if brand { "OPS / UI" } else { "" }, look.role(Role::Muted)),
-        ]);
-        let control = (control_width > 0
-            && control_width.saturating_add(caption.width() as u16 + 1) <= left_width
-            && area.height > 0)
-            .then(|| {
-                Rect::new(
-                    area.x + left_width - control_width,
-                    area.y,
-                    control_width,
-                    1,
-                )
-            });
-        if text.is_some() && control_width > 0 && control.is_none() {
-            continue;
-        }
-        if control.is_some() {
-            left_width = left_width.saturating_sub(control_width + 1);
-        }
-        let extra = observations.map(|value| {
-            let width = (index + 1 == stages.len())
-                .then(|| usize::from(left_width).saturating_sub(caption.width()));
-            value.line(weekly, window, width, look)
-        });
-        if text.is_some()
-            && caption.width() + extra.as_ref().map_or(0, Line::width) > usize::from(left_width)
-        {
-            continue;
-        }
-        if let Some(extra) = extra.filter(|line| !line.spans.is_empty()) {
-            if caption.width() + extra.width() > usize::from(left_width) {
-                if index + 1 < stages.len() {
-                    continue;
+        // The row's width with its first `count` controls, most first; none is the last try.
+        let counts: Vec<usize> = if with_control && !controls.is_empty() {
+            (1..=controls.len()).rev().collect()
+        } else {
+            vec![0]
+        };
+        for (attempt, &count) in counts.iter().enumerate() {
+            let fallback = attempt + 1 == counts.len();
+            let control_width = controls[..count]
+                .iter()
+                .fold(0u16, |sum, width| sum.saturating_add(*width))
+                .saturating_add(count.saturating_sub(1) as u16);
+            let right = attention.map(|value| {
+                if words {
+                    value.fitted(look, usize::from(area.width))
+                } else {
+                    value.with_words(look, false)
                 }
-                // At extremely small sizes preserve attention evidence rather
-                // than clipping an observation into an apparent smaller value.
-            } else {
-                caption.spans.extend(extra.spans);
+            });
+            let mut left_width = right.as_ref().map_or(area.width, |line| {
+                area.width
+                    .saturating_sub((line.width() as u16).saturating_add(2))
+            });
+            let mut caption = Line::from(vec![Span::styled(" ▚ TMT", look.role(Role::Text))]);
+            if let Some(text) = &text {
+                caption
+                    .spans
+                    .push(Span::styled(text.clone(), look.role(Role::Muted)));
             }
-        }
-        let name_width = left_width.saturating_sub(caption.width() as u16 + 3);
-        if let Some(name) = layer.filter(|_| name_width > 0) {
-            let name = super::notes::single_line(name);
-            let fitted = super::view::fit(&name, usize::from(name_width).min(name.width()));
-            caption
-                .spans
-                .push(Span::styled(format!(" · {fitted}"), look.role(Role::Muted)));
-        }
-        if caption.width() > usize::from(left_width) {
-            caption = Line::styled(
-                super::view::fit(&caption.to_string(), usize::from(left_width)),
-                look.role(Role::Muted),
+            caption.spans.extend([
+                Span::styled(if brand { "   " } else { "" }, look.role(Role::Text)),
+                Span::styled(if brand { "OPS / UI" } else { "" }, look.role(Role::Muted)),
+            ]);
+            let control = (control_width > 0
+                && control_width.saturating_add(caption.width() as u16 + 1) <= left_width
+                && area.height > 0)
+                .then(|| {
+                    Rect::new(
+                        area.x + left_width - control_width,
+                        area.y,
+                        control_width,
+                        1,
+                    )
+                });
+            if (text.is_some() || !fallback) && control_width > 0 && control.is_none() {
+                continue;
+            }
+            if control.is_some() {
+                left_width = left_width.saturating_sub(control_width + 1);
+            }
+            let extra = observations.map(|value| {
+                let width = (index + 1 == stages.len())
+                    .then(|| usize::from(left_width).saturating_sub(caption.width()));
+                value.line(weekly, window, width, look)
+            });
+            if text.is_some()
+                && caption.width() + extra.as_ref().map_or(0, Line::width) > usize::from(left_width)
+            {
+                continue;
+            }
+            if let Some(extra) = extra.filter(|line| !line.spans.is_empty()) {
+                if caption.width() + extra.width() > usize::from(left_width) {
+                    if index + 1 < stages.len() || !fallback {
+                        continue;
+                    }
+                    // At extremely small sizes preserve attention evidence rather
+                    // than clipping an observation into an apparent smaller value.
+                } else {
+                    caption.spans.extend(extra.spans);
+                }
+            }
+            let name_width = left_width.saturating_sub(caption.width() as u16 + 3);
+            if let Some(name) = layer.filter(|_| name_width > 0) {
+                let name = super::notes::single_line(name);
+                let fitted = super::view::fit(&name, usize::from(name_width).min(name.width()));
+                caption
+                    .spans
+                    .push(Span::styled(format!(" · {fitted}"), look.role(Role::Muted)));
+            }
+            if caption.width() > usize::from(left_width) {
+                caption = Line::styled(
+                    super::view::fit(&caption.to_string(), usize::from(left_width)),
+                    look.role(Role::Muted),
+                );
+            }
+            strip::paint_left(
+                buffer,
+                Rect {
+                    width: left_width,
+                    ..area
+                },
+                caption,
             );
+            let mut unread = None;
+            if let Some(right) = right {
+                let width = right.width() as u16;
+                unread = attention
+                    .and_then(|value| value.unread_extent(look, words))
+                    .filter(|_| width <= area.width)
+                    .map(|(offset, count)| {
+                        Rect::new(area.right() - width + offset, area.y, count, 1)
+                    });
+                strip::paint_right(buffer, area, right);
+            }
+            return Painted {
+                controls: if control.is_some() { count } else { 0 },
+                control,
+                unread,
+            };
         }
-        strip::paint_left(
-            buffer,
-            Rect {
-                width: left_width,
-                ..area
-            },
-            caption,
-        );
-        let mut unread = None;
-        if let Some(right) = right {
-            let width = right.width() as u16;
-            unread = attention
-                .and_then(|value| value.unread_extent(look, words))
-                .filter(|_| width <= area.width)
-                .map(|(offset, count)| Rect::new(area.right() - width + offset, area.y, count, 1));
-            strip::paint_right(buffer, area, right);
-        }
-        return Painted { control, unread };
     }
     Painted {
         control: None,
+        controls: 0,
         unread: None,
     }
 }
@@ -419,6 +443,40 @@ mod tests {
         (text, control)
     }
     const VERSION: (&str, Option<&str>) = ("5.0.0-alpha.378", Some("0.1.0-alpha.4"));
+    #[test]
+    fn a_second_control_yields_before_the_first_ever_does() {
+        let (first, second) = (13, 7);
+        let mut both = 0;
+        for width in 20..=200 {
+            let (alone, alone_control) = top(width, Some(VERSION), first);
+            let area = Rect::new(0, 0, width, 1);
+            let mut buffer = Buffer::empty(area);
+            let painted = paint_attention(
+                &mut buffer,
+                area,
+                Caption {
+                    layer: None,
+                    version: Some(VERSION.0),
+                    ops: VERSION.1,
+                    compact: VERSION.0.split_once('-').map(|(_, tail)| tail),
+                },
+                Some(&attention()),
+                None,
+                Look::default(),
+                &[first, second],
+            );
+            let text: String = buffer.content.iter().map(|cell| cell.symbol()).collect();
+            match painted.controls {
+                0 | 1 => assert_eq!((text, painted.control), (alone, alone_control), "{width}"),
+                _ => {
+                    both += 1;
+                    assert!(alone_control.is_some(), "{width}");
+                    assert_eq!(painted.control.unwrap().width, first + 1 + second);
+                }
+            }
+        }
+        assert!(both > 0);
+    }
     #[test]
     fn the_version_follows_the_mark_and_a_missing_one_leaves_the_mark_alone() {
         let (text, _) = top(150, Some(VERSION), 0);

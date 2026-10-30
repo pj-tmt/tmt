@@ -81,8 +81,18 @@ fn paint_shell(buffer: &mut ratatui::buffer::Buffer, app: &App, area: Rect, now:
         now,
     };
     use crate::action::{Action, OpsUiAction};
-    let key = crate::board::keycap::key(app, OpsUiAction::WorkspaceSnapshots, "w");
-    let label = crate::board::keycap::label(key.as_deref(), "Snapshots", false, app.look());
+    // The top bar's controls, left to right: `w  Snapshots`, then `g  Web`.
+    let controls: Vec<_> = [
+        (OpsUiAction::WorkspaceSnapshots, "w", "Snapshots"),
+        (OpsUiAction::OpenWeb, "g", "Web"),
+    ]
+    .into_iter()
+    .map(|(action, fallback, word)| {
+        let key = crate::board::keycap::key(app, action, fallback);
+        let label = crate::board::keycap::label(key.as_deref(), word, false, app.look());
+        (action, key, label.to_string())
+    })
+    .collect();
     let (version, ops, compact) = app
         .versions
         .as_ref()
@@ -102,46 +112,54 @@ fn paint_shell(buffer: &mut ratatui::buffer::Buffer, app: &App, area: Rect, now:
         attention.as_ref(),
         Some(&observations),
         app.look(),
-        if app.workspace_snapshot().is_some() {
-            (label.width() + 2) as u16
+        // Each chip is its label plus padding; `Web` yields before `Snapshots`.
+        &if app.workspace_snapshot().is_some() {
+            controls
+                .iter()
+                .map(|(_, _, label)| {
+                    (unicode_width::UnicodeWidthStr::width(label.as_str()) + 2) as u16
+                })
+                .collect::<Vec<_>>()
         } else {
-            0
+            Vec::new()
         },
     );
+    let controls = &controls[..painted.controls];
     if let Some(area) = painted.unread {
         app.push_unread_hit(area, None);
     }
     if let Some(area) = painted.control {
-        let label_text = label.to_string();
         let enabled = app.workspace_strip_enabled();
+        let buttons: Vec<_> = controls
+            .iter()
+            .map(|(_, _, label)| {
+                crate::board::buttons::Button::secondary(label)
+                    .idle(app.look().role(Role::Muted))
+                    .enabled(enabled)
+            })
+            .collect();
         let painted = crate::board::buttons::paint(
             app,
             buffer,
             area,
-            &[crate::board::buttons::Button::secondary(&label_text)
-                .idle(app.look().role(Role::Muted))
-                .enabled(enabled)],
+            &buttons,
             tmt_cli_style::grid::Align::Left,
             None,
         );
-        if let Some(rect) = painted[0] {
+        for ((action, key, _), rect) in controls.iter().zip(painted) {
+            let Some(rect) = rect else { continue };
             if let Some(key) = key.as_deref() {
                 strip::paint_left(
                     buffer,
                     Rect::new(rect.x + 1, rect.y, rect.width - 2, 1),
-                    Line::from(crate::board::keycap::control_span(
-                        app,
-                        key,
-                        OpsUiAction::WorkspaceSnapshots,
-                    )),
+                    Line::from(crate::board::keycap::control_span(app, key, *action)),
                 );
             }
             if enabled {
                 app.workspace_strip_hits.borrow_mut().push((
                     rect,
                     crate::board::app::Choice::Action(
-                        Action::parse(OpsUiAction::WorkspaceSnapshots.spec().name)
-                            .expect("registered snapshots action"),
+                        Action::parse(action.spec().name).expect("registered top-bar action"),
                     ),
                 ));
             }
