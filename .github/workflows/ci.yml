@@ -694,7 +694,7 @@ jobs:
   docker-e2e-shard-1:
     name: Docker E2E shard 1/2
     needs: changes
-    if: needs.changes.outputs.verify == 'true' && needs.changes.outputs.native == 'true'
+    if: needs.changes.outputs.verify == 'true' && needs.changes.outputs.native == 'true' && needs.changes.outputs.e2e_shard_1 != ''
     runs-on: ubuntu-latest
     timeout-minutes: 20
     env:

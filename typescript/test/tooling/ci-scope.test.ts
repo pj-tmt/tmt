@@ -1270,12 +1270,31 @@ describe('component map', () => {
         'plain file names'
       );
     }
-    expect(invalid((value) => (value.components.ops.scopedChecks.e2eFiles = []))).toThrow(
+    expect(invalid((value) => (value.components.ops.scopedChecks.nativeTests = []))).toThrow(
       'non-empty list'
     );
     expect(invalid((value) => delete value.components.ops.scopedChecks.nativeTests)).toThrow(
       'non-empty list'
     );
+    expect(invalid((value) => delete value.components.ops.scopedChecks.e2eFiles)).toThrow(
+      'list of plain file names'
+    );
+    expect(invalid((value) => (value.components.ops.scopedChecks.e2eFiles = ['']))).toThrow(
+      'plain file names'
+    );
+  });
+
+  it('admits a scoped component that names no E2E files, so neither Docker shard runs', () => {
+    const value = JSON.parse(mapText);
+    value.components.ops.scopedChecks.e2eFiles = [];
+    const noE2e = parseComponentMap(JSON.stringify(value));
+    expect(scopedChecks('ops', noE2e).e2eFiles).toEqual([]);
+    const skipped = { e2eShard1: 'skipped', e2eShard2: 'skipped' };
+    expect(e2eGatePasses('ops', skipped, noE2e)).toBe(true);
+    expect(e2eGatePasses('ops', { ...skipped, e2eShard1: 'success' }, noE2e)).toBe(false);
+    // Ops itself still names its files, so its first shard must run.
+    expect(e2eGatePasses('ops', skipped, map)).toBe(false);
+    expect(e2eGatePasses('ops', { ...skipped, e2eShard1: 'success' }, map)).toBe(true);
   });
 
   it('lists every test that runs the Ops binary or reads Ops, so the scoped run cannot miss one', () => {
@@ -3427,10 +3446,11 @@ describe('required CI gate', () => {
     expect(job('native-msrv')).toContain('sh scripts/install-ci-rust.sh "$MSRV" --profile minimal');
     expect(job('native-msrv')).not.toMatch(/install-ci-rust\.sh \d/);
     expect(job('native-msrv')).toContain('cargo +"$MSRV" check --locked --workspace --all-targets');
-    // The E2E suite is two shard jobs; only the first runs for a scoped component, and
-    // only the first of a full run also runs the Rust adapter tests.
+    // The E2E suite is two shard jobs; only the first runs for a scoped component that
+    // names E2E files, and only the first of a full run also runs the Rust adapter tests.
+    // An empty file list would make the harness run every file, so it skips the job.
     expect(job('docker-e2e-shard-1')).toContain(
-      "if: needs.changes.outputs.verify == 'true' && needs.changes.outputs.native == 'true'"
+      "if: needs.changes.outputs.verify == 'true' && needs.changes.outputs.native == 'true' && needs.changes.outputs.e2e_shard_1 != ''"
     );
     expect(job('docker-e2e-shard-1')).toContain(
       'TMT_E2E_FILES: ${{ needs.changes.outputs.e2e_shard_1 }}'
