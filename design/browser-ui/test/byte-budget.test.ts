@@ -2,12 +2,10 @@ import { expect, it } from 'vite-plus/test';
 import { readFileSync } from 'node:fs';
 import { gzipSync } from 'node:zlib';
 
-/** Shipped CSS, gzip level 9. GUI approved 21,978 B for grouped menus (+217 B
- * over 21,761 B), without headroom or a UI foundation budget change.
- * Measurement: https://github.com/tmt-ninja/tmt/actions/runs/41128808110/job/124320431163
- * Further increases require a lead decision. Raw sizes belong in the PR evidence.
- */
-const approvedGzipBytes = 21_978;
+/** #5517: GUI approved ListTable and PageSubheader at the Linux CI measurement:
+ * 21,978 -> 22,267 bytes, https://github.com/tmt-ninja/tmt/actions/runs/41143551311/job/124363432535.
+ * No headroom; later shared CSS changes require a new measurement and decision. */
+const approvedGzipBytes = 22_267;
 
 it('keeps the shipped stylesheets within the approved gzip cap', () => {
   const size = ['static', 'ui']
