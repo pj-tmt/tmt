@@ -443,7 +443,7 @@ export function mountMembersPage(
     const sendingText = node('span');
     sendingText.className = 'tmt-ui-chip-label';
     const sendingChip = node('span');
-    sendingChip.className = 'tmt-ui-chip';
+    sendingChip.className = 'tmt-ui-chip remote-stage';
     const sendingMark = node('span');
     sendingMark.className = 'tmt-ui-state-mark';
     sendingMark.dataset.shape = 'dot';
