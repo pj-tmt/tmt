@@ -345,7 +345,7 @@ describe('squad on a private tmux server', { concurrent: false }, () => {
       expect(clientPlace(fixture)).toBe(caller);
       // Selecting the squad targets its lead and reverses the exact exchange.
       fixture.tmux(['send-keys', '-t', panes.board, 'Tab']);
-      await fixture.waitForCapture((screen) => screen.includes('↑↓ select'), panes.board);
+      await fixture.waitForCapture((screen) => screen.includes('↑↓←→ move'), panes.board);
       fixture.tmux(['send-keys', '-t', panes.board, 'Escape']);
       await fixture.waitForCapture((screen) => /\/[ \t]+Search/.test(screen), panes.board);
       fixture.tmux(['send-keys', '-t', panes.board, 'Home']);
