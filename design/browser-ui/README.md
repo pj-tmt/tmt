@@ -167,7 +167,9 @@ an icon beside the navigation button opens the same search. The left group is na
 phone Search, then the route-owned title. The route supplies its one page `h1` here, without
 a duplicated large content title. Ancestor segments and their `/` separators use
 `tmt-ui-topbar-title-prefix`; the final segment uses `tmt-ui-topbar-title-current`. Optional
-project chips/add/pin controls follow the heading in `tmt-ui-topbar-title-chips`. At widths
+project chips/add/pin controls follow the heading in `tmt-ui-topbar-title-chips`. Colab page
+author attribution follows those controls as muted `by <author>` text (`tmt-ui-caption`)
+inside that same compact-hidden group. At widths
 up to and including 900px, prefixes and chips are hidden; only the final segment remains,
 truncated with ellipsis. The route owns labels, links, attribution and heading semantics;
 the leaf never parses a breadcrumb or reads page state. Readers supply brand/title/author;
