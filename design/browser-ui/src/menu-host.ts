@@ -82,10 +82,7 @@ export function mountBrowserMenu<Key extends string>(
       reason: HTMLSpanElement;
     }
   >();
-  const groups = new Map<
-    Key,
-    { root: HTMLDivElement; heading: HTMLDivElement; divider: HTMLDivElement }
-  >();
+  const groups = new Map<Key, { root: HTMLDivElement; heading: HTMLDivElement }>();
   function syncChildren(parent: HTMLElement, children: readonly Node[]) {
     for (const [index, child] of children.entries())
       if (parent.childNodes[index] !== child)
@@ -247,20 +244,18 @@ export function mountBrowserMenu<Key extends string>(
           node = {
             root: document.createElement('div'),
             heading: document.createElement('div'),
-            divider: document.createElement('div'),
           };
           node.root.setAttribute('role', 'group');
           node.heading.className = 'tmt-ui-menu-heading';
-          node.divider.className = 'tmt-ui-menu-divider';
-          node.divider.setAttribute('aria-hidden', 'true');
           groups.set(first.key, node);
         }
         used.add(first.key);
         node.heading.id = `${id}-group-${index}`;
         node.heading.textContent = group.heading;
+        if (first.separated) node.heading.dataset.separated = 'true';
+        else delete node.heading.dataset.separated;
         node.root.setAttribute('aria-labelledby', node.heading.id);
         syncChildren(node.root, [
-          ...(first.separated ? [node.divider] : []),
           node.heading,
           ...group.entries.map(({ item }) => rows.get(item.key)!.root),
         ]);

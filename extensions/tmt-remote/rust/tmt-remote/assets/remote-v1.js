@@ -4098,24 +4098,19 @@ function mountBrowserMenu(container, initial) {
 				if (!node) {
 					node = {
 						root: document.createElement("div"),
-						heading: document.createElement("div"),
-						divider: document.createElement("div")
+						heading: document.createElement("div")
 					};
 					node.root.setAttribute("role", "group");
 					node.heading.className = "tmt-ui-menu-heading";
-					node.divider.className = "tmt-ui-menu-divider";
-					node.divider.setAttribute("aria-hidden", "true");
 					groups.set(first.key, node);
 				}
 				used.add(first.key);
 				node.heading.id = `${id}-group-${index}`;
 				node.heading.textContent = group.heading;
+				if (first.separated) node.heading.dataset.separated = "true";
+				else delete node.heading.dataset.separated;
 				node.root.setAttribute("aria-labelledby", node.heading.id);
-				syncChildren(node.root, [
-					...first.separated ? [node.divider] : [],
-					node.heading,
-					...group.entries.map(({ item }) => rows.get(item.key).root)
-				]);
+				syncChildren(node.root, [node.heading, ...group.entries.map(({ item }) => rows.get(item.key).root)]);
 				output.push(node.root);
 			}
 			for (const key of groups.keys()) if (!used.has(key)) groups.delete(key);

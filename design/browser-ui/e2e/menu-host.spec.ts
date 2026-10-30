@@ -274,6 +274,8 @@ for (const source of ['React', 'Native'] as const) {
     const second = menu.getByRole('group', { name: 'Second group', exact: true });
     await expect(first).toBeVisible();
     await expect(second).toBeVisible();
+    await expect(second.locator('.tmt-ui-menu-heading')).toHaveAttribute('data-separated', 'true');
+    await expect(second.locator('.tmt-ui-menu-divider')).toHaveCount(0);
     const alpha = first.getByRole('menuitemradio', { name: 'Alpha 4', exact: true });
     await expect(alpha).toHaveAccessibleDescription('Detail');
     await expect(alpha).toBeFocused();

@@ -148,7 +148,7 @@
   /* Preserve the separator's existing row footprint without bending its rule around the control. */
   padding-top: calc(10px + var(--tmt-ui-rule-width));
 }
-.tmt-ui-menu-item[data-separated]::before {
+:is(.tmt-ui-menu-item, .tmt-ui-menu-heading)[data-separated]::before {
   content: '';
   position: absolute;
   inset: 0 0 auto;
@@ -239,13 +239,13 @@
 .tmt-ui-menu-surface[data-popup-layout='grouped'] {
   min-width: min(260px, calc(100vw - 2 * var(--tmt-ui-space-s)));
   max-width: calc(100vw - 2 * var(--tmt-ui-space-s));
-  padding: var(--tmt-ui-radius-s);
+  padding: calc(var(--tmt-ui-space-s) - var(--tmt-ui-space-xs) / 2);
   border-radius: var(--tmt-ui-radius-l);
 }
 .tmt-ui-menu-surface[data-popup-layout='grouped'] .tmt-ui-menu-item {
   min-height: var(--tmt-ui-control-size);
-  padding: 0 calc(var(--tmt-ui-space-xs) + var(--tmt-ui-radius-s));
-  gap: calc(var(--tmt-ui-space-xs) + var(--tmt-ui-radius-s));
+  padding: 0 calc(var(--tmt-ui-space-s) + var(--tmt-ui-space-xs) / 2);
+  gap: calc(var(--tmt-ui-space-s) + var(--tmt-ui-space-xs) / 2);
 }
 .tmt-ui-menu-leading-icon {
   width: var(--tmt-ui-space-l);
@@ -268,8 +268,9 @@
   color: var(--tmt-ui-color-secondary);
 }
 .tmt-ui-menu-detail {
-  font-size: var(--tmt-ui-rail-sub-size);
-  line-height: var(--tmt-ui-header-action-line-height);
+  --tmt-ui-menu-detail-size: 12px;
+  font-size: var(--tmt-ui-menu-detail-size);
+  line-height: var(--tmt-ui-caption-line-height);
 }
 .tmt-ui-menu-meta {
   min-width: 0;
@@ -279,12 +280,18 @@
   white-space: nowrap;
 }
 .tmt-ui-menu-heading {
-  padding: var(--tmt-ui-space-s) calc(var(--tmt-ui-space-xs) + var(--tmt-ui-radius-s))
+  padding: var(--tmt-ui-space-s) calc(var(--tmt-ui-space-s) + var(--tmt-ui-space-xs) / 2)
     var(--tmt-ui-space-xs);
   font-size: var(--tmt-ui-eyebrow-size);
   font-weight: 600;
 }
-.tmt-ui-menu-divider {
-  margin: var(--tmt-ui-radius-s) var(--tmt-ui-space-xs);
-  border-top: var(--tmt-ui-rule-width) solid var(--tmt-ui-surface-rule);
+.tmt-ui-menu-heading[data-separated] {
+  position: relative;
+  margin-top: calc(var(--tmt-ui-space-s) - var(--tmt-ui-space-xs) / 2);
+  padding-top: calc(
+    2 * var(--tmt-ui-space-s) - var(--tmt-ui-space-xs) / 2 + var(--tmt-ui-rule-width)
+  );
+}
+.tmt-ui-menu-heading[data-separated]::before {
+  inset-inline: var(--tmt-ui-space-xs);
 }

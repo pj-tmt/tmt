@@ -263,10 +263,11 @@ export function BrowserMenu<Key extends string>({
                   const headingId = `${id}-group-${groupIndex}`;
                   return (
                     <div key={group.entries[0]!.item.key} role="group" aria-labelledby={headingId}>
-                      {group.entries[0]!.item.separated && (
-                        <div className="tmt-ui-menu-divider" aria-hidden="true" />
-                      )}
-                      <div className="tmt-ui-menu-heading" id={headingId}>
+                      <div
+                        className="tmt-ui-menu-heading"
+                        id={headingId}
+                        data-separated={group.entries[0]!.item.separated ? 'true' : undefined}
+                      >
                         {group.heading}
                       </div>
                       {group.entries.map(({ item, index }) => renderItem(item, index))}

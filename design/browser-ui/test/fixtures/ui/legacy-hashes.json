@@ -1,7 +1,7 @@
 {
   "baseline": "a5c85cb407003632dc9a5b3ac51ca2f6d92be355",
   "sha256": {
-    "generated/static.css": "8932f5691321e9ce81bc404f67e8edcd21e74d3495f25685610c9f3cc5e2906a",
+    "generated/static.css": "e59a570575cd49ac1f38333af2190744407c33ef6e0140d16736b4c0088a4bcc",
     "src/action.css": "c6d89fbc0ee8a8ed004783f0079408d06a0b8215fbccabd196b7f4f4e5b80e0d",
     "src/action.tsx": "b9406611c1519fa806ac226f5b1a7665e4c2e0a65d25d36de6692947f5342934",
     "src/chips.css": "46ee249714c41bf206c7d8202835ac0b6014492222d3de0d35aa632e8ec61d19",
@@ -22,8 +22,8 @@
     "src/list.css": "bdb83bf31da229ab48daba7141c76d34dc70ba860bff0f5db6830b4390b84167",
     "src/list.tsx": "2c4a434cdcb33144998ff7b45b108011d679367c324904e1f009824199929c8b",
     "src/menu-position.ts": "0d107000343afa7e087fbbc1ce2a6ebc62fd7a42fed823d1b8f7176b62fcc6a1",
-    "src/menu.css": "fe0e63fa94ee24e2a9c0b3711bbf062e12d4e1e0a0722738d60a29175d477f3f",
-    "src/menu.tsx": "cee81a12ccba0757b770a9a1565adf742acd027328dad747ce6c9352bd458053",
+    "src/menu.css": "8dbd8fd35066cb9febafb955f9a0006762782f4bca084e7e14eb61171211cddd",
+    "src/menu.tsx": "26da406711fc2afda213f24a029d29f733ff3baf9e67ce2a11380bfcd296c30f",
     "src/modal-dialog.ts": "7f98471272a0886870aed486c2d878c6ad5574c0669e3be92f45c9d5e9b6e9bb",
     "src/notice.css": "00534d7144b78fdaa38ffd142f6c8b98b515a432564b2b09f468814afa5a48b8",
     "src/notice.tsx": "e703bd0106d71f737540266825361015cd09c8add5f9b4f3294884bcfe72097a",
