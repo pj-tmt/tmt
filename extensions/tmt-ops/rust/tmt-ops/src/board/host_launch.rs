@@ -7,12 +7,35 @@ use crate::{
 use std::collections::BTreeMap;
 pub(in crate::board) struct Loaded {
     pub hosts: Vec<crate::launch::Host>,
+    /// The host Ops runs in, as Core reads its locators; only ever a preselection.
+    pub caller_host: CallerHost,
     pub config: Config,
     pub executable: String,
     pub display_executable: String,
     /// Each driver's models and efforts, by driver name; empty from an older Core.
     pub choices: BTreeMap<String, LaunchChoices>,
 }
+/// `callerHost` of `tmt host templates`: advisory, never evidence.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub(in crate::board) enum CallerHost {
+    /// An older Core does not say.
+    #[default]
+    Unknown,
+    /// No locator names a host: a plain terminal.
+    Plain,
+    Named(String),
+}
+
+impl CallerHost {
+    fn of(document: &serde_json::Value) -> Self {
+        match document.get("callerHost") {
+            None => Self::Unknown,
+            Some(serde_json::Value::String(host)) => Self::Named(host.clone()),
+            Some(_) => Self::Plain,
+        }
+    }
+}
+
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub(in crate::board) struct LaunchChoices {
     pub models: Vec<String>,
@@ -23,7 +46,8 @@ pub(in crate::board) fn unavailable(text: impl Into<String>) -> SquadError {
     SquadError::new("SQUAD_LAUNCH_UNAVAILABLE", text)
 }
 pub(in crate::board) fn read(core: &Core) -> Result<Loaded, SquadError> {
-    let hosts = crate::launch::hosts(&core.json(&["host", "templates"])?).map_err(unavailable)?;
+    let templates = core.json(&["host", "templates"])?;
+    let hosts = crate::launch::hosts(&templates).map_err(unavailable)?;
     let executable = core
         .executable()
         .to_str()
@@ -32,6 +56,7 @@ pub(in crate::board) fn read(core: &Core) -> Result<Loaded, SquadError> {
         .into();
     Ok(Loaded {
         hosts,
+        caller_host: CallerHost::of(&templates),
         config: Config::load(core)?,
         choices: launch_choices(core),
         executable,

@@ -16,7 +16,7 @@ fn app() -> App {
     app
 }
 fn loaded() -> Loaded {
-    Loaded{hosts:crate::launch::hosts(&json!({"version":1,"hosts":[{"host":"tmux","state":"builtin","launch":{"argv":["host","{session}","{command}"],"placeholders":["session","command"]}},{"host":"herdr","state":"ok","launch":null}]})).unwrap(),
+    Loaded{caller_host:Default::default(),hosts:crate::launch::hosts(&json!({"version":1,"hosts":[{"host":"tmux","state":"builtin","launch":{"argv":["host","{session}","{command}"],"placeholders":["session","command"]}},{"host":"herdr","state":"ok","launch":null}]})).unwrap(),
         config:crate::config::Config::read(std::env::temp_dir().join(format!("ops-switch-missing-{}",crate::id::new_v4().unwrap()))).unwrap(),executable:"/tool/tmt".into(),choices:Default::default(),display_executable:"tmt".into()}
 }
 fn form() -> App {

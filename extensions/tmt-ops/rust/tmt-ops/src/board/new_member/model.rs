@@ -1,6 +1,7 @@
 //! Frozen form defaults, field choices and the launch plan over held public observations.
 use super::super::tool_choices::observed_model;
 use super::*;
+use crate::board::host_launch::CallerHost;
 use crate::membership::workspace::RoomTarget;
 use std::collections::{BTreeMap, BTreeSet};
 use tmt_tui::components::Editor;
@@ -116,6 +117,17 @@ pub(in crate::board) struct Review {
 }
 /// The built-in host: it has no sessions, and its launch names the host itself.
 pub(super) const BUILT_IN_HOST: &str = "pty";
+/// The Host a new form starts on: the one Ops runs in when it can launch there (a plain
+/// terminal means the built-in host), else the first eligible one. The user can change it.
+pub(super) fn default_host(loaded: &Loaded) -> Option<&crate::launch::Host> {
+    let eligible = |name: &str| loaded.hosts.iter().find(|h| h.name == name && h.eligible());
+    match &loaded.caller_host {
+        CallerHost::Named(name) => eligible(name),
+        CallerHost::Plain => eligible(BUILT_IN_HOST),
+        CallerHost::Unknown => None,
+    }
+    .or_else(|| loaded.hosts.iter().find(|h| h.eligible()))
+}
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(super) struct Display {
     pub command: Vec<String>,
