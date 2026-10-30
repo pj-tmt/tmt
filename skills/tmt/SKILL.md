@@ -834,15 +834,18 @@ Bare `tmt run <name>` launches the remembered registered executable through PATH
 with no arguments; without one, supply an explicit command.
 
 Outside tmux and Herdr, `tmt run` and named `tmt resume` create a built-in-host
-member in the background. They report the actual name, host and pane after managed
-startup is confirmed. Closing this terminal leaves it running; `tmt ls`, `talk`,
-`reply`, `check`, `unbind` and `rm` use the same identity and exchange contracts.
+member. They report the actual name, host and pane after managed startup is
+confirmed. A fresh `tmt run` from an interactive terminal then attaches to the
+member; `tmt resume`, or a run whose stdin or stdout is not a terminal or whose
+`TERM` is `dumb`, returns after confirmation and leaves it in the background.
+Closing this terminal leaves it running; `tmt ls`, `talk`, `reply`, `check`,
+`unbind` and `rm` use the same identity and exchange contracts.
 `check` reads only the current screen, with no scrollback. Use
 `--host tmux|herdr|pty` before the name to choose; an unavailable explicit host
 refuses and never falls back. `tmt attach <name-or-UUID>` enters a built-in
 member's terminal; plain `tmt focus <name-or-UUID>` does the same. It requires a
-terminal and refuses JSON. The screen may stay blank until the program draws:
-attachment forwards live output without replaying the current screen. Ctrl-\
+terminal and refuses JSON. Attachment first paints the current screen (no
+scrollback), then follows live output. Ctrl-\
 detaches and leaves the member running; Ctrl-C goes to the program. `attach -d`
 takes sole use and disconnects other viewers. Terminal sizes above 1000 columns
 or rows are clamped; another viewer's resize never resizes your physical window.
@@ -920,8 +923,8 @@ selected message channel cannot take initial handoff input, use the error's
 
 TMT records the owned command's exit and keeps its remembered session. A foreground
 launch returns the command's status, or 128 plus a terminating signal number; a
-built-in background launch returns startup confirmation. Its supervisor ends when
-the owned launcher exits, so its binding can become offline. A supervisor that is
+built-in launch returns startup confirmation, or ends with the attachment that
+follows it. Its supervisor ends when the owned launcher exits, so its binding can become offline. A supervisor that is
 killed takes its program with it: `tmt ls` shows the member offline, `check` refuses
 it as not active, and a new `talk` queues for its inbox instead of pasting anywhere;
 other built-in members are unaffected. It reaps only
