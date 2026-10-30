@@ -1,11 +1,10 @@
 import { browserUiClasses as ui } from '@tmt/browser-ui/static';
 import { BrowserMenu } from '@tmt/browser-ui/react';
-import { Circle, CircleCheck, CircleDot } from 'lucide-react';
 import { text } from './strings.js';
 import { SaveRefused, saveMessage } from './save.js';
 import type { PageState } from './bootstrap.js';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
-import { WorkBand, type WorkBandProps } from './work-band.js';
+import { WorkBand, stateIcon, type WorkBandProps } from './work-band.js';
 import { AddTask, AttachSubpage, TaskControls, useWorkRun } from './work-controls.js';
 import type { PageBinding, PageTransport } from './transport.js';
 import { useLinkedPages } from './work-stages.js';
@@ -34,7 +33,7 @@ export function PageWorkBand({
 }): ReactNode {
   const run = useWorkRun(binding);
   const [open, setOpen] = useState(false);
-  const { stageOf, subpages, observed, pages, knownChild } = useLinkedPages(
+  const { stageOf, parent, subpages, observed, pages, knownChild } = useLinkedPages(
     transport,
     space,
     pageId,
@@ -58,6 +57,7 @@ export function PageWorkBand({
         work={work}
         onOpenChange={setOpen}
         stateControl={stateControl}
+        parent={parent}
         subpages={subpages}
         stageOf={stageOf}
       />
@@ -73,6 +73,7 @@ export function PageWorkBand({
           <AttachSubpage pages={pages} pageId={pageId} work={work} run={run} />
         ) : undefined
       }
+      parent={parent}
       subpages={subpages}
       stageOf={stageOf}
       actions={(task, id, state) => (
@@ -119,15 +120,7 @@ function PageStateMenu({ binding, state }: { binding?: PageBinding; state?: Page
         variant="count"
         valueLabel={label}
         tone={state === 'in-progress' ? 'attention' : 'neutral'}
-        icon={
-          state === 'done' ? (
-            <CircleCheck className="tmt-ui-icon" />
-          ) : state === 'in-progress' ? (
-            <CircleDot className="tmt-ui-icon" />
-          ) : (
-            <Circle className="tmt-ui-icon" />
-          )
-        }
+        icon={stateIcon(state, 'tmt-ui-icon')}
         disabled={busy}
         onOpenChange={(open) => {
           if (!open) return;

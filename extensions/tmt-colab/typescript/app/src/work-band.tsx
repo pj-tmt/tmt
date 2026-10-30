@@ -17,8 +17,23 @@ import type { PageProgress, PageState } from './bootstrap.js';
 import { WorkList } from './work-list.js';
 import './work-band.css';
 
+/** The parent task that follows this page, shown as a way back until #5506. */
+export interface WorkParent {
+  pageId: string;
+  taskId: string;
+  title: string;
+  taskTitle?: string;
+}
+
+export function stateIcon(state: PageState | null | undefined, className?: string): ReactNode {
+  if (state === 'done') return <CircleCheck className={className} />;
+  if (state === 'in-progress') return <CircleDot className={className} />;
+  return <Circle className={className} />;
+}
+
 export interface WorkBandProps extends TaskDetailSlots {
   work: Work;
+  parent?: WorkParent;
   onSize?(height: number): void;
   onOpenChange?(open: boolean): void;
   pageState?: PageState | null;
@@ -43,6 +58,7 @@ export interface WorkBandProps extends TaskDetailSlots {
  */
 export function WorkBand({
   work,
+  parent,
   onSize,
   onOpenChange,
   listActions,
@@ -159,6 +175,13 @@ export function WorkBand({
       <div className="work-body-transition" data-open={open} inert={!open}>
         <div className="work-body" id={listId} ref={detail}>
           <div className="work-body-content">
+            {parent && (
+              <p className="work-parent">
+                <a href={pageHref?.(parent.pageId, { task: parent.taskId })}>
+                  {t.parentTask(parent.title, parent.taskId, parent.taskTitle)}
+                </a>
+              </p>
+            )}
             {subpages.length > 0 && <h3 className="work-items-heading">{t.subpages}</h3>}
             {subpages.length > 0 && (
               <ul className="work-subpages" aria-label={t.subpages}>
@@ -166,24 +189,12 @@ export function WorkBand({
                   <li key={child.id}>
                     {pageHref ? (
                       <a href={pageHref(child.id)}>
-                        {child.state === 'done' ? (
-                          <CircleCheck />
-                        ) : child.state === 'in-progress' ? (
-                          <CircleDot />
-                        ) : (
-                          <Circle />
-                        )}
+                        {stateIcon(child.state)}
                         {child.title ?? t.unknownPage}
                       </a>
                     ) : (
                       <span>
-                        {child.state === 'done' ? (
-                          <CircleCheck />
-                        ) : child.state === 'in-progress' ? (
-                          <CircleDot />
-                        ) : (
-                          <Circle />
-                        )}
+                        {stateIcon(child.state)}
                         {child.title ?? t.unknownPage}
                       </span>
                     )}

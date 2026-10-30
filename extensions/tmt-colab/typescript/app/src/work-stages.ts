@@ -3,6 +3,7 @@ import { pageStage } from './list-stage.js';
 import { rememberPages, rememberedPages, watchRememberedPages } from './quick-switcher-source.js';
 import type { PageSummary, PageTransport } from './transport.js';
 import type { Work } from './work.js';
+import type { WorkParent } from './work-band.js';
 
 /** The pages a work value's tasks follow, as one comparable key. */
 function followed(work: Work | undefined): string {
@@ -28,6 +29,7 @@ export function useLinkedPages(
   observed: boolean;
   pages?: readonly PageSummary[];
   knownChild: boolean;
+  parent?: WorkParent;
   subpages: readonly { id: string; title?: string; state?: PageSummary['state'] }[];
 } {
   const key = followed(work);
@@ -60,6 +62,13 @@ export function useLinkedPages(
       return page ? pageStage(page) : undefined;
     };
   }, [key, pages]);
+  const parent = useMemo(() => {
+    const link = pages?.find((page) => page.id === pageId)?.summary?.parent;
+    const held = link && pages?.find((page) => page.id === link.page);
+    return link && held
+      ? { pageId: link.page, taskId: link.task, title: held.title, taskTitle: link.title }
+      : undefined;
+  }, [pages, pageId]);
   const subpages = useMemo(
     () =>
       [...new Set(key.split(' ').filter(Boolean))].map((id) => {
@@ -69,5 +78,5 @@ export function useLinkedPages(
     [key, pages],
   );
   const knownChild = pages?.find((page) => page.id === pageId)?.summary?.parent !== undefined;
-  return { stageOf, subpages, pages, knownChild, observed: pages !== undefined };
+  return { stageOf, parent, subpages, pages, knownChild, observed: pages !== undefined };
 }

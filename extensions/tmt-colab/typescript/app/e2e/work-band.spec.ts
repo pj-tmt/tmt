@@ -63,6 +63,18 @@ async function openTask(page: Page, id: string) {
 }
 const calls = (page: Page) => page.evaluate(() => window.__workPage!.calls);
 
+test('a child links back to its parent task only when the parent is known', async ({ page }) => {
+  await mountRoute(page, true, true, 'child');
+  await expand(page);
+  const link = page.getByRole('link', { name: 'Release plan › T-3 · Draft the copy' });
+  await expect(link).toHaveAttribute('href', /[?&]task=T-3/);
+  await link.click();
+  await expect(page.getByRole('region', { name: 'Task T-3' })).toBeVisible();
+  await mountRoute(page, true, true, 'child-orphan');
+  await expand(page);
+  await expect(page.locator('.work-parent')).toHaveCount(0);
+});
+
 test('collapsed panel uses manual state and native progress, including unknown', async ({
   page,
 }) => {

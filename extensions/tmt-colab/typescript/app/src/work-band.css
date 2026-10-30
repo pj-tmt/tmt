@@ -11,9 +11,17 @@
   color: var(--c-text);
   font: 14px/1.5 var(--f-body);
 }
+.work-parent,
 .work-detail p,
 .work-detail h3 {
   margin: 0;
+}
+.work-parent {
+  margin-bottom: 8px;
+  color: var(--c-muted);
+}
+.work-parent:last-child {
+  margin-bottom: 0;
 }
 .work-head {
   display: flex;

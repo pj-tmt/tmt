@@ -293,6 +293,9 @@ export function mountWorkPage(
                 parent: { page: PARENT, task: 'T-3', title: 'Draft the copy' },
               },
             },
+            ...(scenario === 'child'
+              ? [{ id: PARENT, title: 'Release plan', sharing: 'private' as const }]
+              : []),
           ],
         };
       const completeHome = {
