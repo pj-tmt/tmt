@@ -945,7 +945,7 @@ test('the module menu lists dashboards under Dashboards and opens Colab settings
 });
 
 for (const theme of ['light', 'dark'] as const) {
-  test(`the scope menu mutes its counts with the secondary colour in ${theme}`, async ({
+  test(`the scope menu keeps total and attention pills readable through selection in ${theme}`, async ({
     page,
   }) => {
     await page.emulateMedia({ colorScheme: theme });
@@ -955,29 +955,48 @@ for (const theme of ['light', 'dark'] as const) {
     }, theme);
     const row = scopeRows(page).nth(1);
     await expect(row).toHaveText(/design\s*2\s*(?:◆ )?1/);
-    // A token no CSS defines leaves the declaration invalid, so the count would inherit the name's
-    // colour; the count must instead be the colour the secondary token has in this theme.
     const colors = await row.evaluate((element) => {
       const color = (target: Element) => getComputedStyle(target).color;
-      const probe = document.createElement('span');
-      probe.style.color = 'var(--tmt-ui-color-secondary)';
-      element.append(probe);
-      const secondary = color(probe);
-      probe.remove();
+      const role = (name: string) => {
+        const probe = document.createElement('span');
+        probe.style.color = `var(--tmt-ui-color-${name})`;
+        element.append(probe);
+        const value = color(probe);
+        probe.remove();
+        return value;
+      };
       return {
-        count: color(element.querySelector('.tmt-ui-shell-count')!),
+        total: color(element.querySelector('.tmt-ui-shell-count:not([data-kind])')!),
+        attention: color(element.querySelector('.tmt-ui-shell-count[data-kind="needs-you"]')!),
         name: color(element.querySelector('.tmt-ui-module-menu-label')!),
-        secondary,
+        primary: role('text'),
+        secondary: role('secondary'),
+        waiting: role('waiting'),
       };
     });
-    expect(colors.count).toBe(colors.secondary);
-    // A rail row at rest is drawn in the secondary colour itself; the current row's name is not.
-    const current = await scopeRows(page)
-      .first()
-      .evaluate(
-        (element) => getComputedStyle(element.querySelector('.tmt-ui-module-menu-label')!).color,
+    expect(colors.total).toBe(colors.primary);
+    expect(colors.name).toBe(colors.secondary);
+    expect(colors.total).not.toBe(colors.name);
+    expect(colors.attention).toBe(colors.waiting);
+    expect(colors.attention).not.toBe(colors.total);
+    const paint = () =>
+      row.locator('.tmt-ui-shell-count').evaluateAll((nodes) =>
+        nodes.map((node) => {
+          const css = getComputedStyle(node);
+          return {
+            color: css.color,
+            fill: css.backgroundColor,
+            font: css.fontFamily,
+            padding: css.padding,
+          };
+        }),
       );
-    expect(colors.count).not.toBe(current);
+    const before = await paint();
+    expect(before[0]!.fill).not.toBe(before[1]!.fill);
+    for (const pill of before) expect(pill.fill).not.toBe('rgba(0, 0, 0, 0)');
+    await scopeTo(page, 'design');
+    await expect(row).toHaveAttribute('aria-current', 'page');
+    expect(await paint()).toEqual(before);
     await page.screenshot({ path: await capturePath(`3952-scope-menu-${theme}.png`) });
   });
 }
