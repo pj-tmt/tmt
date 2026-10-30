@@ -435,7 +435,9 @@ impl Controller {
                 })
                 .collect(),
         );
-        let selected = state.picker.list.selected();
+        // The name field holds focus until ↓ reaches the actions: no row cursor meanwhile.
+        state.list_focus = !(self.screen == Screen::Save && self.form_focus);
+        let selected = state.picker.list.selected().filter(|_| state.list_focus);
         let rows: Vec<_> = rows.iter().map(|r| json!({"id":r.id,"disabled":r.disabled,"label":r.label,"cursor":if selected==Some(r.id.as_str()){"›"}else{""}})).collect();
         let notes = self.notes();
         let status = if let Some(task) = &self.pending {

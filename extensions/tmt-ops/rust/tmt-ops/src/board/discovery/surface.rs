@@ -360,7 +360,9 @@ impl Controller {
                 })
                 .collect(),
         );
-        let selected = ui.picker.list.selected();
+        // The name field holds focus until ↓ reaches the actions: no row cursor meanwhile.
+        ui.list_focus = !(self.screen == Screen::Form && self.form_focus);
+        let selected = ui.picker.list.selected().filter(|_| ui.list_focus);
         let projected:Vec<_>=rows.iter().map(|r|json!({"id":r.id,"label":r.label,"disabled":r.disabled,"cursor":if selected==Some(r.id.as_str()){"›"}else{""}})).collect();
         let notes = self.notes();
         let projected_notes: Vec<_> = notes

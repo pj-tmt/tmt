@@ -60,6 +60,8 @@ pub(super) fn compile(file: &str, markup: &str, schema: Schema) -> surface::Temp
 pub(super) struct State {
     pub picker: Picker,
     pub frame: Option<FrameMap>,
+    /// False while a field above the list holds focus: the selected row paints no highlight.
+    pub list_focus: bool,
     scene: Option<(Value, ModalSurface)>,
 }
 impl State {
@@ -74,6 +76,7 @@ impl State {
         Self {
             picker,
             frame: None,
+            list_focus: true,
             scene: None,
         }
     }
@@ -159,6 +162,7 @@ impl State {
         body: Rect,
     ) {
         self.prepare(file, template, value);
+        let list_focus = self.list_focus;
         self.frame = Some(
             surface::render_list(
                 &self.scene.as_ref().unwrap().1,
@@ -170,8 +174,12 @@ impl State {
                     depth: look.depth,
                 },
                 |role| {
-                    look.selection()
-                        .patch(look.row_span(true, look.role(role), false))
+                    if list_focus {
+                        look.selection()
+                            .patch(look.row_span(true, look.role(role), false))
+                    } else {
+                        look.role(role)
+                    }
                 },
             )
             .expect("admitted picker surface"),

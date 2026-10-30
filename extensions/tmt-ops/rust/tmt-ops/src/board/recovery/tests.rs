@@ -1932,3 +1932,16 @@ fn a_reopened_stale_screen_cannot_apply_an_outdated_choice() {
     assert!(c.choose("confirm").is_none());
     assert!(c.pending.is_none());
 }
+#[test]
+fn the_name_field_owns_focus_until_down_shows_the_action_cursor() {
+    let mut c = controller();
+    assert!(c.choose("save").is_none());
+    let typing = render(&c, 160, 50);
+    assert!(
+        !typing.contains('›'),
+        "no row cursor while the name field has focus"
+    );
+    c.input(&key(KeyCode::Down));
+    let acting = render(&c, 160, 50);
+    assert!(acting.contains("› Back"), "↓ reaches the actions");
+}
