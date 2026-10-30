@@ -2069,28 +2069,28 @@ function remoteRegistryPage(initialBlocked = () => "", shell) {
 		{
 			id: "name",
 			label: "Name",
-			track: "minmax(0, 1fr)"
+			track: "minmax(0, 2.4fr)"
 		},
 		{
 			id: "connection",
 			label: "Connection",
-			track: "128px"
+			track: "minmax(0, 1.2fr)"
 		},
 		{
 			id: "role",
 			label: "Your role",
-			track: "136px"
+			track: "minmax(0, .9fr)"
 		},
 		{
 			id: "members",
 			label: "Members",
-			track: "96px",
+			track: "minmax(0, 1fr)",
 			hideBelow: "phone"
 		},
 		{
 			id: "active",
 			label: "Last active",
-			track: "104px",
+			track: "minmax(0, 1fr)",
 			hideBelow: "phone"
 		},
 		{
