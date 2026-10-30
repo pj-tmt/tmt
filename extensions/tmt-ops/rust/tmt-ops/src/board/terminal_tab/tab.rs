@@ -129,8 +129,8 @@ impl Tab {
     }
 
     pub(in crate::board) fn located(&mut self, identity: &str, located: Located, now_ms: u64) {
-        if !matches!(located, Located::Stream(_)) && self.type_on_open.as_deref() == Some(identity)
-        {
+        // A failed answer is asked again; only no stream ends the wish.
+        if matches!(located, Located::NoStream) && self.type_on_open.as_deref() == Some(identity) {
             self.type_on_open = None;
         }
         self.seen.insert(
@@ -432,6 +432,18 @@ pub(in crate::board) mod tests {
         assert!(!tab.typing(), "typing belongs to that one stream");
         tab.sync(Some((ID, &a)));
         assert!(!tab.typing(), "and the wish was used once");
+    }
+
+    #[test]
+    fn a_failed_answer_keeps_the_create_wish_for_the_retry() {
+        let (mut tab, _) = tab();
+        let a = address("a");
+        tab.show_typing(ID);
+        tab.located(ID, Located::Failed("busy".into()), 0);
+        tab.sync(None);
+        tab.located(ID, Located::Stream(a.clone()), FAILED_FOR_MS);
+        assert!(tab.sync(Some((ID, &a))));
+        assert!(tab.typing(), "the retry's stream starts typing");
     }
 
     #[test]
