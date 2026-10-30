@@ -1945,3 +1945,22 @@ fn the_name_field_owns_focus_until_down_shows_the_action_cursor() {
     let acting = render(&c, 160, 50);
     assert!(acting.contains("› Back"), "↓ reaches the actions");
 }
+#[test]
+fn reopen_keeps_the_chosen_action_when_discard_joins_the_rows() {
+    let mut c = controller();
+    assert!(c.choose("save").is_none());
+    for ch in "night".chars() {
+        c.input(&key(KeyCode::Char(ch)));
+    }
+    c.input(&key(KeyCode::Down));
+    render(&c, 160, 50);
+    c.form.borrow_mut().select("save-confirm");
+    c.input(&key(KeyCode::Esc));
+    assert!(c.open().is_none());
+    render(&c, 160, 50);
+    assert_eq!(
+        c.form.borrow().picker.list.selected(),
+        Some("save-confirm"),
+        "rows are chosen by id, so Discard does not take the cursor"
+    );
+}

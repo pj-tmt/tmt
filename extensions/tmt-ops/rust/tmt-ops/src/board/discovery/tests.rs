@@ -982,3 +982,22 @@ fn a_reopened_stale_confirm_cannot_bind() {
     assert!(c.confirm().is_none(), "no bind from an old confirmation");
     assert!(c.pending.is_none());
 }
+#[test]
+fn reopen_keeps_the_chosen_action_when_discard_joins_the_rows() {
+    use ratatui::crossterm::event::{Event, KeyCode, KeyEvent, KeyModifiers};
+    let mut c = controller();
+    assert!(c.choose("bind").is_none());
+    assert!(c.input(&Event::Paste("worker".into())).is_none());
+    c.form_focus = false;
+    paint(&c, 160, 36);
+    c.ui.borrow_mut().select("review");
+    c.input(&Event::Key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE)));
+    c.open();
+    assert!(c.reopened);
+    paint(&c, 160, 36);
+    assert_eq!(
+        c.ui.borrow().picker.list.selected(),
+        Some("review"),
+        "rows are chosen by id, so Discard does not take the cursor"
+    );
+}
