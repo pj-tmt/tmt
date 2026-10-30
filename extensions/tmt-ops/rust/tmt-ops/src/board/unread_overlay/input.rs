@@ -5,7 +5,7 @@ use crate::board::unread::publish::Seen;
 use ratatui::crossterm::event::{Event, KeyCode, KeyEventKind};
 use ratatui::crossterm::event::{KeyModifiers, MouseButton, MouseEventKind};
 use std::collections::BTreeSet;
-use tmt_tui::components::{ListEvent, Step};
+use tmt_tui::components::{DialogHits, DialogInput, DialogKind, DialogState, ListEvent, Step};
 
 pub(super) struct Confirmation {
     actor: String,
@@ -51,44 +51,33 @@ impl Overlay {
     }
 
     fn confirmation_input(&mut self, event: &Event) -> Input {
-        let confirm = match event {
-            Event::Key(key) if key.kind != KeyEventKind::Release => match key.code {
-                KeyCode::Esc | KeyCode::Char('q') => Some(false),
-                KeyCode::Enter
-                    if !key
-                        .modifiers
-                        .intersects(KeyModifiers::CONTROL | KeyModifiers::ALT) =>
-                {
-                    Some(true)
-                }
-                _ => None,
-            },
-            Event::Mouse(mouse) if mouse.kind == MouseEventKind::Down(MouseButton::Left) => {
-                let at = (mouse.column, mouse.row).into();
-                self.confirm_hits.get().and_then(|(yes, no)| {
-                    if yes.contains(at) {
-                        Some(true)
-                    } else if no.contains(at) {
-                        Some(false)
-                    } else {
-                        None
-                    }
-                })
+        let buttons = self.confirm_buttons();
+        let input = match event {
+            Event::Key(key) => self
+                .confirm_state
+                .key(DialogKind::Confirm, key, &[], &buttons),
+            Event::Mouse(mouse) => {
+                let hits = self.confirm_hits.borrow().clone();
+                self.confirm_state.mouse(mouse, &hits, &buttons)
             }
-            _ => None,
+            _ => DialogInput::Ignored,
         };
-        match confirm {
-            Some(false) => {
+        match input {
+            DialogInput::Cancel | DialogInput::Choose(0) => {
                 self.confirmation = None;
-                self.confirm_hits.set(None);
+                *self.confirm_hits.borrow_mut() = DialogHits::default();
                 self.painted.borrow_mut().clear();
                 Input::None
             }
-            Some(true) if self.confirm_hits.get().is_some() => {
+            DialogInput::Choose(_) => {
                 let confirmation = self.confirmation.take().expect("shown confirmation");
-                self.confirm_hits.set(None);
+                *self.confirm_hits.borrow_mut() = DialogHits::default();
                 self.painted.borrow_mut().clear();
                 Input::All(confirmation)
+            }
+            DialogInput::Moved => {
+                self.painted.borrow_mut().clear();
+                Input::None
             }
             _ => Input::None,
         }
@@ -181,7 +170,8 @@ impl Overlay {
                                 .collect(),
                             before: self.next_before.clone(),
                         });
-                        self.confirm_hits.set(None);
+                        self.confirm_state = DialogState::new(&[], &super::confirm_buttons(true));
+                        *self.confirm_hits.borrow_mut() = DialogHits::default();
                         self.painted.borrow_mut().clear();
                     }
                     return Input::None;
