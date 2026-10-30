@@ -24,27 +24,30 @@ impl Storage {
         id: String,
         token: String,
         through_limit: Option<u64>,
-    ) -> Result<Option<DigestChecklist>, RequestError<StorageError>> {
+    ) -> Result<LaunchClaim, RequestError<StorageError>> {
         let calendar = super::orchestration::ReceivingCalendar::load(self.connection()?)?;
         with_immediate_transaction(self, "launch checklist", |transaction| {
             let rows = BindingRows(transaction);
             let identity = &expected.entry.identity.id;
             let current = rows.entry_by_id(identity)?;
             let preferences = rows.session_preferences(identity)?;
-            // Telemetry may change in a simultaneous observation hook. Admission
-            // only depends on the exact binding/session/owner and remembered pair.
+            // Telemetry may change in a simultaneous observation hook, the queue drain or a
+            // compaction. Admission only depends on the exact binding/session/owner fence
+            // and the remembered pair (#5459).
             let remembered = |prefs: &tmt_core::binding::session::SessionPreferences| {
                 prefs
                     .remembered
                     .as_ref()
                     .map(|r| (r.harness.clone(), r.provider_session.clone()))
             };
-            if current
-                .as_ref()
-                .is_none_or(|entry| entry.binding != expected.entry.binding)
-                || remembered(&preferences) != remembered(&expected.preferences)
-            {
-                return Ok(None);
+            if current.as_ref().is_none_or(|entry| {
+                entry.binding.as_ref().map(admission)
+                    != expected.entry.binding.as_ref().map(admission)
+            }) {
+                return Ok(LaunchClaim::BindingChanged);
+            }
+            if remembered(&preferences) != remembered(&expected.preferences) {
+                return Ok(LaunchClaim::RememberedChanged);
             }
             let mut requests = TransactionRequests(transaction, &calendar);
             if let Some(summary) =
@@ -57,7 +60,7 @@ impl Storage {
                         || true,
                     )?
             {
-                return Ok(Some(summary));
+                return Ok(LaunchClaim::Claimed(summary));
             }
             let claimed = RequestService::new(&mut requests, crate::request_runtime::wall_time_ms)
                 .claim_digest_checklist(
@@ -67,9 +70,52 @@ impl Storage {
                     DigestOpportunity::TurnBoundary,
                     through_limit,
                 )?;
-            Ok(claimed)
+            Ok(claimed.map_or(LaunchClaim::Nothing, LaunchClaim::Claimed))
         })
     }
+}
+
+/// What a launch's Digest claim found. Only an authority change refuses; finding nothing
+/// to claim is not a refusal.
+#[derive(Debug)]
+pub enum LaunchClaim {
+    Claimed(DigestChecklist),
+    Nothing,
+    /// The binding fence ([`admission`]) is not the launch's any more.
+    BindingChanged,
+    /// The remembered harness and provider session are not the launch's any more.
+    RememberedChanged,
+}
+
+/// The part of a binding that authorizes a launch's Digest: which binding, endpoint and
+/// pane, which provider session in which process, and its owner. A session's
+/// `last_transition` and `start_refusal` are telemetry a hook may update at any time, never
+/// authority, so they are left out.
+#[allow(clippy::type_complexity)]
+fn admission(
+    binding: &tmt_core::binding::Binding,
+) -> (
+    (&str, &str, &tmt_core::endpoint::ServerEvidence),
+    (&str, u64, Option<&str>),
+    (
+        tmt_core::binding::session::RuntimeState,
+        Option<&tmt_core::binding::session::ObservedSessionKey>,
+        Option<&tmt_core::endpoint::ProcessIncarnation>,
+    ),
+) {
+    (
+        (&binding.id, &binding.identity_id, &binding.server),
+        (
+            &binding.pane_id,
+            binding.pane_pid,
+            binding.pane_incarnation.as_deref(),
+        ),
+        (
+            binding.session.state,
+            binding.session.key.as_ref(),
+            binding.session.launch_owner.as_ref(),
+        ),
+    )
 }
 
 #[cfg(test)]
@@ -99,6 +145,13 @@ mod tests {
     }
 
     fn claim(storage: &mut Storage, expected: &IdentityContextSnapshot) -> Option<DigestChecklist> {
+        match outcome(storage, expected) {
+            LaunchClaim::Claimed(checklist) => Some(checklist),
+            _ => None,
+        }
+    }
+
+    fn outcome(storage: &mut Storage, expected: &IdentityContextSnapshot) -> LaunchClaim {
         storage
             .claim_digest_for_launch(
                 expected,
@@ -116,6 +169,10 @@ mod tests {
             "UPDATE bindings SET launch_owner_start_identity='other'",
             "UPDATE bindings SET runtime_start_identity='other'",
             "UPDATE bindings SET observed_provider_session_id='other'",
+            "UPDATE bindings SET runtime_pid=99",
+            "UPDATE bindings SET pane_id='%2'",
+            "UPDATE bindings SET pane_pid=98",
+            "UPDATE bindings SET server_start_time='other'",
             "UPDATE bindings SET runtime_state='unknown'",
             "UPDATE identity_session_preferences SET provider_session_id='other'",
             "UPDATE identity_session_preferences SET remembered_harness='codex'",
@@ -127,7 +184,16 @@ mod tests {
                 .unwrap();
             let mut storage = Storage::open(&path).unwrap();
             storage.connection().unwrap().execute(update, []).unwrap();
-            assert!(claim(&mut storage, &expected).is_none(), "{update}");
+            // Each names the authority that changed, so the worker can store why it refused.
+            match outcome(&mut storage, &expected) {
+                LaunchClaim::RememberedChanged => {
+                    assert!(update.contains("identity_session_preferences"), "{update}")
+                }
+                LaunchClaim::BindingChanged => {
+                    assert!(!update.contains("identity_session_preferences"), "{update}")
+                }
+                other => panic!("{update}: {other:?}"),
+            }
             assert_eq!(
                 storage
                     .connection()
@@ -159,6 +225,23 @@ mod tests {
         storage.connection().unwrap().execute("UPDATE identity_session_preferences SET driver_state_version=1,driver_state='{\"activity\":\"idle\"}'",[]).unwrap();
         assert!(claim(&mut storage, &expected).is_some());
         storage.close().unwrap();
+    }
+
+    #[test]
+    fn a_volatile_session_write_between_snapshot_and_claim_still_claims() {
+        for update in [
+            "UPDATE bindings SET last_transition='compacted'",
+            "UPDATE bindings SET runtime_start_refusal='{\"driver\":\"claude\",\"session\":\"other\",\"reason\":\"previous_session_live\",\"atMs\":1}'",
+        ] {
+            let (_directory, path, id) = fixture();
+            let expected = Storage::context_by_identity(&path, &id, 1)
+                .unwrap()
+                .unwrap();
+            let mut storage = Storage::open(&path).unwrap();
+            storage.connection().unwrap().execute(update, []).unwrap();
+            assert!(claim(&mut storage, &expected).is_some(), "{update}");
+            storage.close().unwrap();
+        }
     }
 
     #[test]
