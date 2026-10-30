@@ -85,6 +85,7 @@ for (const renderer of ['native', 'react'])
         await page.mouse.move(width - 5, 995);
         await row('notes').hover();
         const handle = row('notes').locator('[data-rail-part="drag"]');
+        await expect(handle.locator('svg circle')).toHaveCount(6);
         const start = (await handle.boundingBox())!;
         const target = (await link('project').boundingBox())!;
         await page.mouse.move(start.x + start.width / 2, start.y + start.height / 2);

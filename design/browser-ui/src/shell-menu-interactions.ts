@@ -77,7 +77,7 @@ export function createShellMenuInteractions(
         row.dataset.reorderable = '';
         anchor.draggable = false;
         anchor.setAttribute('aria-keyshortcuts', 'Alt+ArrowUp Alt+ArrowDown');
-        const handle = button(`Reorder ${item.label}`, 'menu', 'drag');
+        const handle = button(`Reorder ${item.label}`, 'grip-vertical', 'drag');
         handle.classList.add('tmt-ui-rail-drag');
         handle.draggable = true;
         handle.setAttribute('aria-keyshortcuts', 'Alt+ArrowUp Alt+ArrowDown');
