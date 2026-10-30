@@ -108,7 +108,7 @@ fn live_activity_does_not_invalidate_but_source_session_driver_and_selection_do(
 fn pending_cannot_replay_and_late_completion_cannot_replace_another_owner() {
     let mut app = form();
     review(&mut app);
-    key(&mut app, KeyCode::Tab);
+    key(&mut app, KeyCode::Right);
     paint(&app, 150, 43);
     let Effect::SwitchTool(task) = key(&mut app, KeyCode::Enter) else {
         panic!()
@@ -189,7 +189,7 @@ fn captured_copy_only_review_has_a_current_source_and_copies_without_launching()
             .still_selected(&app)
     );
     paint(&app, 150, 43);
-    key(&mut app, KeyCode::Tab);
+    key(&mut app, KeyCode::Right);
     paint(&app, 150, 43);
     let Effect::Act(Request::Copy { text, .. }) = key(&mut app, KeyCode::Enter) else {
         panic!("copy, never host launch")
@@ -205,7 +205,7 @@ fn captured_copy_only_review_has_a_current_source_and_copies_without_launching()
 fn modal_revision_pending_hides_reopens_and_keeps_one_outcome() {
     let mut app = form();
     review(&mut app);
-    key(&mut app, KeyCode::Tab);
+    key(&mut app, KeyCode::Right);
     paint(&app, 150, 43);
     let Effect::SwitchTool(task) = key(&mut app, KeyCode::Enter) else {
         panic!()
@@ -277,5 +277,96 @@ fn the_switch_tool_form_follows_the_close_rule() {
         &mut form(),
         &mut form(),
         crate::board::app::Overlay::SwitchTool,
+    );
+}
+
+#[test]
+fn arrows_change_fields_and_values_and_tab_does_nothing() {
+    let mut app = form();
+    app.switch_tool.as_mut().unwrap().tools = vec!["claude".into(), "gemini".into()];
+    key(&mut app, KeyCode::Tab);
+    assert_eq!(app.switch_tool.as_ref().unwrap().focus, 0);
+    key(&mut app, KeyCode::Down);
+    assert_eq!(
+        app.switch_tool.as_ref().unwrap().focus,
+        1,
+        "↓ moves to Model"
+    );
+    key(&mut app, KeyCode::Down);
+    assert_eq!(
+        app.switch_tool.as_ref().unwrap().focus,
+        2,
+        "then the buttons"
+    );
+    key(&mut app, KeyCode::Up);
+    assert_eq!(app.switch_tool.as_ref().unwrap().focus, 1);
+    key(&mut app, KeyCode::Up);
+    let before = app.switch_tool.as_ref().unwrap().fields[0].to_string();
+    key(&mut app, KeyCode::Right);
+    assert_ne!(
+        app.switch_tool.as_ref().unwrap().fields[0].to_string(),
+        before,
+        "←→ change the value"
+    );
+}
+
+#[test]
+fn a_kept_switch_reopens_on_its_agent_with_discard() {
+    let mut app = form();
+    review(&mut app);
+    assert_eq!(key(&mut app, KeyCode::Esc), Effect::None);
+    assert!(!app.switch_tool_shown());
+    app.switch_tool_changed();
+    assert_eq!(
+        app.switch_tool.as_ref().unwrap().stage,
+        Stage::Review,
+        "a hidden draft is not judged until it reopens"
+    );
+
+    assert_eq!(app.open_switch_tool(), Effect::None);
+    let c = app.switch_tool.as_ref().unwrap();
+    assert!(c.shown && c.reopened && c.stage == Stage::Review);
+    let screen = paint(&app, 150, 43);
+    assert!(
+        screen.contains("Back") && screen.contains("Discard"),
+        "{screen}"
+    );
+    key(&mut app, KeyCode::Right);
+    assert_eq!(key(&mut app, KeyCode::Enter), Effect::None);
+    assert!(app.switch_tool.is_none(), "Discard drops the kept draft");
+}
+
+#[test]
+fn another_agent_starts_fresh_and_says_which_draft_was_dropped() {
+    let mut app = form();
+    assert_eq!(key(&mut app, KeyCode::Esc), Effect::None);
+    assert!(!app.switch_tool_shown());
+    let other = json!({"id":"66666666-6666-4666-8666-666666666666","name":"reviewer","driverSupport":"full","runningDriver":"codex","location":{"host":"tmux","session":"work","window":"two"},"resume":{"driver":"codex","session":"two-session","staleAtMs":null}});
+    app.references = Inventory::from_listed(&Ok(json!({"identities":[row(), other]})));
+    let snapshot = &mut app.view.as_mut().unwrap().home.as_mut().unwrap().workspace;
+    let mut member = snapshot.roster.members[MEMBER].clone();
+    member.id = "66666666-6666-4666-8666-666666666666".into();
+    member.name = "reviewer".into();
+    snapshot.roster.members.insert(member.id.clone(), member);
+    snapshot.roster.squads[0]
+        .members
+        .push("66666666-6666-4666-8666-666666666666".into());
+    let target = crate::board::workspace::OpsTarget::Member {
+        room_id: Some(crate::board::app::workspace::tests::ROOM.into()),
+        identity_id: "66666666-6666-4666-8666-666666666666".into(),
+    };
+    snapshot.rows.insert(
+        target.clone(),
+        json!({"id":"66666666-6666-4666-8666-666666666666","name":"reviewer","state":"working"}),
+    );
+    app.workspace.selected = Some(target);
+
+    assert!(matches!(app.open_switch_tool(), Effect::SwitchTool(_)));
+    let c = app.switch_tool.as_ref().unwrap();
+    assert!(c.shown && !c.reopened && c.stage == Stage::Form);
+    assert_eq!(c.source.as_ref().unwrap().name, "reviewer");
+    assert_eq!(
+        app.notice.as_deref(),
+        Some("Dropped the kept Switch tool draft for worker.")
     );
 }

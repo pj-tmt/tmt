@@ -43,11 +43,15 @@ impl App {
                 c.invalidate();
                 return Some(Effect::None);
             }
-            activate = c
-                .controls
-                .get()
-                .iter()
-                .position(|area| area.is_some_and(|a| a.contains(position)));
+            let [first, apply] = c.controls.get();
+            activate = [
+                (first, Control::First),
+                (c.discard.get(), Control::Discard),
+                (apply, Control::Apply),
+            ]
+            .into_iter()
+            .find(|(area, _)| area.is_some_and(|a| a.contains(position)))
+            .map(|(_, control)| control);
         }
         if let Event::Paste(text) = event {
             if !text.chars().any(char::is_control) {
@@ -70,25 +74,14 @@ impl App {
             if key.kind == KeyEventKind::Release {
                 return Some(Effect::None);
             }
+            // Esc closes the dialog; only an open field list, a layer of its own, closes first.
             if key.code == KeyCode::Esc {
-                match c.stage {
-                    Stage::Template => {
-                        c.stage = if c.destination == Destination::Settings {
-                            Stage::Hosts
-                        } else {
-                            Stage::Form
-                        };
-                        c.focus = 0;
-                        c.notice = None;
-                        c.invalidate();
-                    }
-                    Stage::Form if c.list.is_some() => {
-                        c.list = None;
-                        c.invalidate();
-                    }
-                    _ => return Some(self.new_member_close()),
+                if c.stage == Stage::Form && c.list.is_some() {
+                    c.list = None;
+                    c.invalidate();
+                    return Some(Effect::None);
                 }
-                return Some(Effect::None);
+                return Some(self.new_member_close());
             }
             if matches!(c.stage, Stage::Launching | Stage::Saving) {
                 return Some(Effect::None);
@@ -100,8 +93,8 @@ impl App {
                     return Some(Effect::None);
                 };
                 match key.code {
-                    KeyCode::Up | KeyCode::BackTab => list.row = (list.row + count - 1) % count,
-                    KeyCode::Down | KeyCode::Tab => list.row = (list.row + 1) % count,
+                    KeyCode::Up => list.row = (list.row + count - 1) % count,
+                    KeyCode::Down => list.row = (list.row + 1) % count,
                     KeyCode::Enter => {
                         let row = list.row;
                         c.choose(row);
@@ -125,7 +118,7 @@ impl App {
                 && c.stage == Stage::Form
                 && matches!(
                     c.at,
-                    Focus::Slot(Slot::Host) | Focus::Cancel | Focus::Create
+                    Focus::Slot(Slot::Host) | Focus::Cancel | Focus::Discard | Focus::Create
                 )
             {
                 c.begin_template();
@@ -152,16 +145,12 @@ impl App {
                     .filter(|h| matches!(h.state.as_str(), "builtin" | "ok"))
                     .map(|h| h.name.clone())
                     .collect::<Vec<_>>();
-                if matches!(
-                    key.code,
-                    KeyCode::Down | KeyCode::Up | KeyCode::Tab | KeyCode::BackTab
-                ) && !available.is_empty()
-                {
+                if matches!(key.code, KeyCode::Down | KeyCode::Up) && !available.is_empty() {
                     let current = available
                         .iter()
                         .position(|h| h == c.draft.text(Slot::Host))
                         .unwrap_or(0);
-                    let back = matches!(key.code, KeyCode::Up | KeyCode::BackTab);
+                    let back = key.code == KeyCode::Up;
                     c.draft.set(
                         Slot::Host,
                         &available[(current + if back { available.len() - 1 } else { 1 })
@@ -178,8 +167,12 @@ impl App {
             }
             if c.stage == Stage::Form {
                 match (key.code, c.at) {
-                    (KeyCode::Up | KeyCode::BackTab, _) => c.step_focus(true),
-                    (KeyCode::Down | KeyCode::Tab, _) => c.step_focus(false),
+                    (KeyCode::Up, _) => c.step_focus(true),
+                    (KeyCode::Down, _) => c.step_focus(false),
+                    (
+                        KeyCode::Left | KeyCode::Right,
+                        Focus::Cancel | Focus::Discard | Focus::Create,
+                    ) => c.step_focus(key.code == KeyCode::Left),
                     (
                         KeyCode::Left | KeyCode::Right | KeyCode::Char(' '),
                         Focus::Slot(Slot::Keep),
@@ -193,8 +186,9 @@ impl App {
                     (KeyCode::Enter, Focus::Slot(Slot::Keep)) => c.draft.saved = !c.draft.saved,
                     (KeyCode::Enter, Focus::Slot(slot)) if slot.listed() => c.open_list(slot),
                     (KeyCode::Enter, Focus::Slot(_)) => c.step_focus(false),
-                    (KeyCode::Enter, Focus::Cancel) => activate = Some(0),
-                    (KeyCode::Enter, Focus::Create) => activate = Some(1),
+                    (KeyCode::Enter, Focus::Cancel) => activate = Some(Control::First),
+                    (KeyCode::Enter, Focus::Discard) => activate = Some(Control::Discard),
+                    (KeyCode::Enter, Focus::Create) => activate = Some(Control::Apply),
                     (_, Focus::Slot(slot)) if slot.typed() => {
                         c.draft.fields[slot.index()].key(*key, c.editor_width.get(), 1024);
                     }
@@ -205,20 +199,41 @@ impl App {
                     c.invalidate();
                 }
             } else {
+                let template = c.stage == Stage::Template;
+                let buttons = c.template_controls();
+                let width = c.editor_width.get();
                 match key.code {
-                    KeyCode::Tab | KeyCode::BackTab if c.stage == Stage::Template => {
-                        c.focus = (c.focus + if key.code == KeyCode::Tab { 1 } else { 2 }) % 3;
+                    // ↓ past the editor's last line reaches the buttons; ↑ goes back.
+                    KeyCode::Down
+                        if template && c.focus == 0 && {
+                            let layout = c.template.layout(width);
+                            layout.cursor.0 + 1 >= layout.lines.len()
+                        } =>
+                    {
+                        c.focus = 1;
+                        c.invalidate();
+                    }
+                    KeyCode::Up if template && c.focus > 0 => {
+                        c.focus = 0;
+                        c.invalidate();
+                    }
+                    KeyCode::Left | KeyCode::Right if template && c.focus > 0 => {
+                        let n = buttons.len();
+                        let at = c.focus - 1;
+                        c.focus = 1 + (at + if key.code == KeyCode::Left { n - 1 } else { 1 }) % n;
                         c.invalidate();
                     }
                     KeyCode::Enter => {
-                        if c.stage == Stage::Template && c.focus == 0 {
+                        if template && c.focus == 0 {
                             c.focus = 1;
                             c.invalidate();
+                        } else if template {
+                            activate = buttons.get(c.focus - 1).copied();
                         } else {
-                            activate = Some(if c.stage == Stage::Template {
-                                c.focus - 1
+                            activate = Some(if c.focus == 0 {
+                                Control::First
                             } else {
-                                c.focus
+                                Control::Apply
                             });
                         }
                     }
@@ -234,8 +249,12 @@ impl App {
         if matches!(c.stage, Stage::Result(_)) && c.scroll.borrow_mut().input(event) {
             c.readable.set(false);
         }
-        if let Some(index) = activate {
-            if index == 0 {
+        if activate == Some(Control::Discard) {
+            self.new_member = None;
+            return Some(Effect::None);
+        }
+        if let Some(control) = activate {
+            if control == Control::First {
                 match c.stage {
                     Stage::Template => {
                         c.stage = if c.destination == Destination::Settings {

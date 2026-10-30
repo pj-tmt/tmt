@@ -46,7 +46,16 @@ enum Field {
 enum Focus {
     Slot(model::Slot),
     Cancel,
+    Discard,
     Create,
+}
+/// A footer button: the first one (Cancel, Back or Close), Discard on a reopened draft, or the
+/// stage's action.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Control {
+    First,
+    Discard,
+    Apply,
 }
 /// A field's open list: typing filters it, and its free-form row takes the filter text.
 #[derive(Clone, Debug)]
@@ -61,8 +70,10 @@ pub(in crate::board) struct Controller {
     draft: model::Draft,
     loaded: Option<Loaded>,
     stage: Stage,
-    /// False while a launch or save runs behind a closed form; reopening shows it.
+    /// False while the form is hidden: a kept draft, or a launch or save running behind it.
     shown: bool,
+    /// Opened again from a kept draft: Discard drops it.
+    reopened: bool,
     review: Option<model::Review>,
     /// The Hosts and Template stages' focus; the form uses `at`.
     focus: usize,
@@ -73,6 +84,7 @@ pub(in crate::board) struct Controller {
     readable: Cell<bool>,
     fields: RefCell<Vec<(Field, Rect)>>,
     controls: Cell<[Option<Rect>; 2]>,
+    discard: Cell<Option<Rect>>,
     editor_width: Cell<u16>,
     scroll: RefCell<tmt_tui::components::ScrollState>,
 }
@@ -81,6 +93,20 @@ impl Controller {
         self.readable.set(false);
         self.fields.borrow_mut().clear();
         self.controls.set([None, None]);
+        self.discard.set(None);
+    }
+    /// Discard shows on a reopened draft, beside the form's or the template's first button.
+    fn discards(&self) -> bool {
+        self.reopened
+            && (self.stage == Stage::Template || self.stage == Stage::Form && self.list.is_none())
+    }
+    /// The Template stage's buttons after its editor (`focus` 1, 2, …).
+    fn template_controls(&self) -> Vec<Control> {
+        [Control::First]
+            .into_iter()
+            .chain(self.discards().then_some(Control::Discard))
+            .chain([Control::Apply])
+            .collect()
     }
     fn task(&self, work: Work) -> Task {
         Task {
@@ -97,7 +123,9 @@ impl Controller {
             .into_iter()
             .filter(|slot| *slot != model::Slot::Squad || self.draft.saved)
             .map(Focus::Slot)
-            .chain([Focus::Cancel, Focus::Create])
+            .chain([Focus::Cancel])
+            .chain(self.reopened.then_some(Focus::Discard))
+            .chain([Focus::Create])
             .collect()
     }
     fn step_focus(&mut self, back: bool) {
@@ -212,7 +240,9 @@ impl App {
             "New member on the Agents tab",
         )
     }
-    /// A running launch or template save hides and keeps going; any other stage closes.
+    /// Esc, Cancel or an outside press. A loaded form or template hides and keeps its draft for
+    /// the same key; a running launch or template save hides and keeps going; a load, the host
+    /// list or a result closes.
     pub(in crate::board) fn new_member_close(&mut self) -> Effect {
         let reopen = self.new_member_reopen_hint();
         let Some(c) = &mut self.new_member else {
@@ -221,6 +251,12 @@ impl App {
         let running = match c.stage {
             Stage::Launching => "Launching",
             Stage::Saving => "Saving the launch template",
+            Stage::Form | Stage::Template if c.loaded.is_some() => {
+                c.shown = false;
+                c.list = None;
+                c.invalidate();
+                return Effect::None;
+            }
             _ => {
                 self.new_member = None;
                 return Effect::None;
@@ -241,6 +277,7 @@ impl App {
             && !c.shown
         {
             c.shown = true;
+            c.reopened = matches!(c.stage, Stage::Form | Stage::Template);
             c.invalidate();
             self.menu = None;
             return Effect::None;
@@ -264,6 +301,7 @@ impl App {
                 Stage::Form
             },
             shown: true,
+            reopened: false,
             review: None,
             focus: 0,
             at: Focus::Slot(model::Slot::Name),
@@ -273,6 +311,7 @@ impl App {
             readable: Cell::new(false),
             fields: RefCell::new(Vec::new()),
             controls: Cell::new([None, None]),
+            discard: Cell::new(None),
             editor_width: Cell::new(40),
             scroll: RefCell::new(Default::default()),
         };
