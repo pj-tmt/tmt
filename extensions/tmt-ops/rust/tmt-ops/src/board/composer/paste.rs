@@ -362,9 +362,7 @@ impl App {
         if let Some(input) = &mut self.input
             && input.draft_key.as_ref() == Some(&hit.key)
         {
-            input
-                .text
-                .replace_range(hit.source, "", crate::board::app::MESSAGE_LIMIT);
+            input.remove_fold(hit.id, hit.source);
             self.remember_draft();
             self.update_mentions();
             self.invalidate_frame_geometry();

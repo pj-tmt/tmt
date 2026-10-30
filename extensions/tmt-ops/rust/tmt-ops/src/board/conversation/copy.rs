@@ -1,8 +1,9 @@
 //! Copying a selection of the transcript as the Markdown source of its messages (#4457).
 //! The transcript keeps, for each displayed line, the message it came from and the source
 //! line within it; a selection maps back to those source lines instead of the painted text.
-//! Tables, code, headings, lists and quotes are copied as whole source lines. A selection
-//! that starts or ends inside a plain paragraph line copies the exact source characters.
+//! A selection that starts or ends inside a source line, whatever its block, copies the
+//! exact source characters there (#5594). Markers, fences and table headers come along only
+//! with lines the selection covers whole, where the Markdown source is still useful.
 use crate::board::member_links::{Link, Origin};
 
 /// Where one displayed transcript line came from.
@@ -63,13 +64,7 @@ pub(super) fn passage(map: &Map, selected: &Selected) -> String {
     let mut line = first;
     while line <= last {
         let Some(start) = map.rows.get(line).and_then(|row| row.at) else {
-            parts.push(
-                selected
-                    .shown
-                    .get(line - first)
-                    .cloned()
-                    .unwrap_or_default(),
-            );
+            parts.push(shown(selected, line));
             line += 1;
             continue;
         };
@@ -84,13 +79,36 @@ pub(super) fn passage(map: &Map, selected: &Selected) -> String {
             end += 1;
         }
         let text = &map.messages[start.message];
+        let head = (line == first)
+            .then(|| exact(map, text, line, &selected.start, true))
+            .flatten();
+        let tail = (end == last)
+            .then(|| exact(map, text, end, &selected.end, false))
+            .flatten();
+        // Inside one source line, an end on its first or last character keeps the line's
+        // markers only when the other end reaches the other edge.
+        let single = line == first && end == last && low == high;
+        let whole = !single || (head.is_some_and(|h| h.edge) && tail.is_some_and(|t| t.edge));
+        if single && (head.is_none() || tail.is_none()) && !covers(map, selected, line..=end) {
+            // Text that cannot be aligned with its source copies what it displays.
+            parts.push(
+                (line..=end)
+                    .map(|line| shown(selected, line).trim().to_owned())
+                    .collect::<Vec<_>>()
+                    .join("\n"),
+            );
+            line = end + 1;
+            continue;
+        }
         let cut = Cut {
-            head: (line == first)
-                .then(|| exact(map, text, line, &selected.start, true))
-                .flatten(),
-            tail: (end == last)
-                .then(|| exact(map, text, end, &selected.end, false))
-                .flatten(),
+            head: head.map(|head| if head.edge && whole { 0 } else { head.at }),
+            tail: tail.map(|tail| {
+                if tail.edge && whole {
+                    usize::MAX
+                } else {
+                    tail.at
+                }
+            }),
         };
         parts.push(source(text, low, high, &cut));
         line = end + 1;
@@ -98,12 +116,39 @@ pub(super) fn passage(map: &Map, selected: &Selected) -> String {
     parts.join("\n")
 }
 
-/// Where inside its first and last source line a copy starts and stops, when those ends
-/// lie in plain paragraph text.
+/// What displayed line `line` shows inside the selection.
+fn shown(selected: &Selected, line: usize) -> String {
+    selected
+        .shown
+        .get(line - selected.first)
+        .cloned()
+        .unwrap_or_default()
+}
+
+/// Whether the selection holds every displayed character of the rows `lines`.
+fn covers(map: &Map, selected: &Selected, lines: std::ops::RangeInclusive<usize>) -> bool {
+    let nonspace = |text: &str| text.split_whitespace().collect::<String>();
+    lines.into_iter().all(|line| {
+        map.rows
+            .get(line)
+            .is_none_or(|row| nonspace(&shown(selected, line)).contains(&nonspace(&row.shown)))
+    })
+}
+
+/// Where inside its first and last source line a copy starts and stops; `None` is the
+/// line's edge.
 #[derive(Default)]
 struct Cut {
     head: Option<usize>,
     tail: Option<usize>,
+}
+
+/// One end of a selection in its source line: the byte there, and whether the end lies on
+/// the line's first (head) or last (tail) displayed character.
+#[derive(Clone, Copy)]
+struct Edge {
+    at: usize,
+    edge: bool,
 }
 
 /// A block of a message that is only valid Markdown with its opening lines.
@@ -112,50 +157,50 @@ enum Block {
     Fence { open: usize, close: Option<usize> },
     /// A table: its header row, whose delimiter row follows.
     Table { head: usize, end: usize },
-    /// A paragraph outside any list or quote: its source lines.
-    Prose { start: usize, end: usize },
 }
 
 /// The source lines `low..=high` of `text`, with the lines a partial block needs to stay
-/// valid: the fences around selected code and the header of a selected table body.
+/// valid when the selection covers one of its lines whole: the fences around selected code
+/// and the header of a selected table body.
 fn source(text: &str, low: usize, high: usize, cut: &Cut) -> String {
     let lines: Vec<&str> = text.split('\n').collect();
     let high = high.min(lines.len().saturating_sub(1));
     let low = low.min(high);
     let blocks = blocks(text, &lines);
+    let whole = |line: usize| {
+        (line > low || cut.head.is_none_or(|at| at == 0))
+            && (line < high || cut.tail.is_none_or(|at| at >= lines[line].len()))
+    };
+    let any_whole = |from: usize, to: usize| (from.max(low)..=to.min(high)).any(whole);
     let mut out: Vec<String> = Vec::new();
     for block in &blocks {
         match block {
             Block::Fence { open, close } => {
                 let end = close.unwrap_or(lines.len());
-                if *open < low && low < end {
+                if *open < low && low < end && any_whole(open + 1, end.saturating_sub(1)) {
                     out.push(lines[*open].to_owned());
                 }
             }
             Block::Table { head, end } => {
-                if head + 1 < low && low <= *end {
+                if head + 1 < low && low <= *end && any_whole(head + 2, *end) {
                     out.push(lines[*head].to_owned());
                     out.push(lines[*head + 1].to_owned());
                 }
             }
-            Block::Prose { .. } => {}
         }
     }
-    let prose = |line: usize| {
-        blocks.iter().any(
-            |block| matches!(block, Block::Prose { start, end } if (*start..=*end).contains(&line)),
-        )
-    };
     for (line, text) in lines.iter().enumerate().take(high + 1).skip(low) {
         let mut text = *text;
         let hard_break = line + 1 < lines.len() && text.ends_with("  ");
-        let from = if line == low && prose(line) {
+        let from = if line == low {
             cut.head.filter(|at| text.is_char_boundary(*at))
         } else {
             None
         };
-        let to = if line == high && prose(line) {
-            cut.tail.filter(|at| text.is_char_boundary(*at))
+        let to = if line == high {
+            cut.tail
+                .map(|at| at.min(text.len()))
+                .filter(|at| text.is_char_boundary(*at))
         } else {
             None
         };
@@ -178,6 +223,7 @@ fn source(text: &str, low: usize, high: usize, cut: &Cut) -> String {
         } = block
             && open < &high
             && high < *close
+            && any_whole(open + 1, close - 1)
         {
             out.push(lines[*close].to_owned());
         }
@@ -185,12 +231,11 @@ fn source(text: &str, low: usize, high: usize, cut: &Cut) -> String {
     out.join("\n")
 }
 
-/// The byte offset in the source line behind displayed line `row` of the selection end at
-/// byte `at` of that row: the start of the line when the end is its first displayed
-/// character (so leading markers come along), the end of the line when it is the last, else
-/// the exact character. `None` when the line is not plain prose or its text cannot be aligned
-/// with its source.
-fn exact(map: &Map, text: &str, row: usize, end: &End, head: bool) -> Option<usize> {
+/// Where in the source line behind displayed line `row` the selection end at byte `at` of
+/// that row falls: the source byte of the character there, and whether it is the line's
+/// first (head) or last (tail) displayed character. Painted-only glyphs (bullets, quote bars,
+/// table borders) are skipped. `None` when the text cannot be aligned with its source.
+fn exact(map: &Map, text: &str, row: usize, end: &End, head: bool) -> Option<Edge> {
     let source_line = map.rows.get(row)?.at?;
     let lines: Vec<&str> = text.split('\n').collect();
     let line = *lines.get(source_line.line)?;
@@ -256,10 +301,13 @@ fn exact(map: &Map, text: &str, row: usize, end: &End, head: bool) -> Option<usi
                     source_chars.next();
                 }
                 shown.push((index, nth, from, to));
-            } else {
-                let (from, matched) = source_chars.find(|(_, c)| *c == character)?;
+            } else if let Some((from, matched)) =
+                source_chars.clone().find(|(_, c)| *c == character)
+            {
+                while source_chars.next().is_some_and(|(at, _)| at < from) {}
                 shown.push((index, nth, from, from + matched.len_utf8()));
             }
+            // Otherwise a painted-only glyph such as a bullet: it has no source character.
         }
     }
     let first_char = shown.first()?;
@@ -268,16 +316,19 @@ fn exact(map: &Map, text: &str, row: usize, end: &End, head: bool) -> Option<usi
         let entry = shown
             .iter()
             .find(|(r, nth, ..)| (*r, *nth) >= (row, ordinal))?;
-        Some(if entry == first_char { 0 } else { entry.2 })
+        Some(Edge {
+            at: entry.2,
+            edge: entry == first_char,
+        })
     } else {
         let entry = shown
             .iter()
             .rev()
             .find(|(r, nth, ..)| (*r, *nth) < (row, ordinal))?;
-        if entry == last_char {
-            return Some(line.len());
-        }
-        Some(entry.3)
+        Some(Edge {
+            at: entry.3,
+            edge: entry == last_char,
+        })
     }
 }
 
@@ -305,7 +356,7 @@ fn closing(line: &str, start: usize, end: usize) -> usize {
 }
 
 fn blocks(text: &str, lines: &[&str]) -> Vec<Block> {
-    use pulldown_cmark::{CodeBlockKind, Event, Options, Parser, Tag, TagEnd};
+    use pulldown_cmark::{CodeBlockKind, Event, Options, Parser, Tag};
     let starts: Vec<usize> = std::iter::once(0)
         .chain(text.match_indices('\n').map(|(at, _)| at + 1))
         .collect();
@@ -315,18 +366,11 @@ fn blocks(text: &str, lines: &[&str]) -> Vec<Block> {
             .saturating_sub(1)
     };
     let mut blocks = Vec::new();
-    let mut depth = 0usize;
     for (event, range) in
         Parser::new_ext(text, Options::ENABLE_TABLES | Options::ENABLE_FOOTNOTES).into_offset_iter()
     {
         let last = line_of(range.end.saturating_sub(1).max(range.start));
         match event {
-            Event::Start(Tag::List(_) | Tag::BlockQuote(_)) => depth += 1,
-            Event::End(TagEnd::List(_) | TagEnd::BlockQuote(_)) => depth = depth.saturating_sub(1),
-            Event::Start(Tag::Paragraph) if depth == 0 => blocks.push(Block::Prose {
-                start: line_of(range.start),
-                end: last,
-            }),
             Event::Start(Tag::CodeBlock(CodeBlockKind::Fenced(_))) => {
                 let open = line_of(range.start);
                 let closes = last > open
@@ -696,14 +740,82 @@ mod tests {
     }
 
     #[test]
-    fn table_and_code_ends_never_cut_inside_a_source_line() {
+    fn a_partial_table_row_copies_only_its_selected_cells() {
         let source = "| a | b |\n|---|---|\n| 111 | 222 |";
+        let row = "│ 111 │ 222 │";
         let map = shown_map(
             &[source],
             &[Some((0, 0)), Some((0, 0)), Some((0, 2))],
-            &["│ a │ b │", "├───┼───┤", "│ 111 │ 222 │"],
+            &["│ a │ b │", "├───┼───┤", row],
         );
-        assert_eq!(cut(&map, 2, 2, 4, 7), "| a | b |\n|---|---|\n| 111 | 222 |");
+        let one = row.find("111").unwrap();
+        assert_eq!(cut(&map, 2, 2, one, one + 3), "111");
+        let two = row.find("222").unwrap();
+        assert_eq!(cut(&map, 2, 2, one + 1, two + 2), "11 | 22");
+        // The whole row still pastes as a table.
+        assert_eq!(
+            cut(&map, 2, 2, 0, row.len()),
+            "| a | b |\n|---|---|\n| 111 | 222 |"
+        );
+    }
+
+    /// The displayed row of `map` that shows `text`, and the byte range of `text` in it.
+    fn find(map: &Map, text: &str) -> (usize, std::ops::Range<usize>) {
+        map.rows
+            .iter()
+            .enumerate()
+            .find_map(|(index, row)| row.shown.find(text).map(|at| (index, at..at + text.len())))
+            .unwrap_or_else(|| panic!("{text:?} is displayed"))
+    }
+
+    const BLOCKS: &str = "- alpha beta gamma\n\n> quoted words here\n\n## Heading words\n\n```\nlet value = 42;\n```";
+
+    #[test]
+    fn a_selection_inside_any_block_line_copies_exactly_its_characters() {
+        for width in [80, 14] {
+            let map = rendered_map(BLOCKS, width);
+            for word in ["beta", "words", "Heading", "value"] {
+                let (row, range) = find(&map, word);
+                assert_eq!(cut(&map, row, row, range.start, range.end), word, "{width}");
+            }
+            // From a line's first character into it: no marker comes along.
+            let (row, range) = find(&map, "alpha");
+            assert_eq!(cut(&map, row, row, 0, range.end), "alpha", "{width}");
+            let (row, range) = find(&map, "quoted");
+            assert_eq!(cut(&map, row, row, 0, range.end), "quoted", "{width}");
+        }
+    }
+
+    #[test]
+    fn a_whole_block_line_keeps_its_markdown() {
+        let map = rendered_map(BLOCKS, 80);
+        for (word, source) in [
+            ("alpha", "- alpha beta gamma"),
+            ("quoted", "> quoted words here"),
+            ("Heading", "## Heading words"),
+            ("value", "```\nlet value = 42;\n```"),
+        ] {
+            let (row, _) = find(&map, word);
+            let length = map.rows[row].shown.len();
+            assert_eq!(cut(&map, row, row, 0, length), source);
+        }
+    }
+
+    #[test]
+    fn a_selection_across_list_items_keeps_its_lines_and_cuts_its_ends() {
+        let map = rendered_map("- one two\n- three four\n- five six", 80);
+        let (first, two) = find(&map, "two");
+        let (last, five) = find(&map, "five");
+        // The last line is selected from its start, so its marker comes along.
+        assert_eq!(
+            cut(&map, first, last, two.start, five.end),
+            "two\n- three four\n- five"
+        );
+        let (_, six) = find(&map, "six");
+        assert_eq!(
+            cut(&map, first, last, two.start, six.end),
+            "two\n- three four\n- five six"
+        );
     }
 
     #[test]

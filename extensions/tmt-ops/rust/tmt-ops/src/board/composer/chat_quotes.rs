@@ -25,6 +25,27 @@ pub(in crate::board) fn normalized_quote(text: &str) -> String {
     text
 }
 
+/// What a sent quote needs before the text after it so Markdown does not read that text as
+/// a continuation of the quote: nothing when an empty line or nothing follows.
+fn quote_end(rest: &str) -> &'static str {
+    let rest = rest.replace("\r\n", "\n").replace('\r', "\n");
+    match rest.split_once('\n') {
+        _ if rest.trim().is_empty() => "",
+        Some((same, next)) if same.trim().is_empty() => {
+            if next
+                .lines()
+                .next()
+                .is_none_or(|line| line.trim().is_empty())
+            {
+                ""
+            } else {
+                "\n"
+            }
+        }
+        _ => "\n\n",
+    }
+}
+
 fn excerpt(text: &str) -> String {
     let raw: String = text.chars().take(120).collect();
     let mut text = super::super::notes::single_line(&line_breaks(&raw));
@@ -89,6 +110,7 @@ impl Input {
                 .iter()
                 .any(|fold| fold.source.contains(&(end - 1)));
         let prefix = if end == 0 || after_break { "" } else { "\n" };
+        let at_end = end == self.text.as_str().len();
         if self
             .text
             .as_str()
@@ -117,12 +139,32 @@ impl Input {
         else {
             return false;
         };
-        if !editor.insert("\n", limit) {
+        // At the draft's end an empty line ends the quote, so what is typed next starts its
+        // own paragraph; inside the draft the line break that follows already does.
+        if !(at_end && editor.insert("\n\n", limit)) && !editor.insert("\n", limit) {
             return false;
         }
         self.text = editor;
         self.inline_quotes.insert(id, source);
         true
+    }
+
+    /// Remove a fold's source. A quote also takes the empty line its insertion added while
+    /// that line is still empty, so removing it leaves no extra blank lines.
+    pub(in crate::board) fn remove_fold(&mut self, id: u64, source: Range<usize>) {
+        let end = if self.inline_quotes.contains_key(&id)
+            && self
+                .text
+                .as_str()
+                .get(source.end..)
+                .is_some_and(|rest| rest.starts_with("\n\n"))
+        {
+            source.end + 2
+        } else {
+            source.end
+        };
+        self.text
+            .replace_range(source.start..end, "", super::super::app::MESSAGE_LIMIT);
     }
 
     /// Reconcile metadata with Editor after deletion/replacement; metadata alone
@@ -161,6 +203,7 @@ impl Input {
                 QuoteSource::Exact { .. } => crate::requests::message::blockquote(text),
             });
             end = fold.source.end;
+            body.push_str(quote_end(&self.text.as_str()[end..]));
         }
         body.push_str(&self.text.as_str()[end..]);
         body
