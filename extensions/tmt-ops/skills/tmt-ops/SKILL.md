@@ -485,9 +485,14 @@ conversation or jumping with `j` does not mark offscreen answers read. Clicking 
 `● N unread` (the top bar's, an Agents row's STATE, the conversation header's or the
 composer's; each highlights under the pointer) or pressing `u` opens the Unread overlay: the unread answers of that
 agent, squad or pool (everyone for the top bar, or for `u` with nothing selected),
-grouped by agent with a count, oldest first, in full with scrolling. An answer turns
-read when its text is painted inside the overlay; answers not scrolled into view stay
-unread, and Enter opens the top answer's agent in its conversation. The member menu's
+grouped by agent, oldest first, with unread and read counts. The reader fills the board
+body with a list and selected answer detail side by side. Below 100 columns it opens
+with the list only; Enter opens detail and Esc returns to the list. Only the selected
+detail's visible answer body or terminal unavailable caption is acknowledged after a
+successful draw; list previews, hover, Loading and failures never mark read.
+`r` marks the selected answer read or retries a failed read; `a` asks once before
+marking all answers in the opening's scope read. Enter from detail (or the wide list)
+opens the selected agent's chat. The member menu's
 "Mark read" or the `mark-read` action (no default key; bind it in Help or Settings)
 still explicitly acknowledges the conversation's unread answers without showing them.
 Core keeps this state across restart, named views and reset-view. A failure
