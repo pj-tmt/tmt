@@ -98,6 +98,31 @@ impl World {
         .unwrap();
         request
     }
+    fn prepared_final(&self, text: &str) -> super::super::hook_queue::CaptureEvent {
+        let lifecycle = crate::drivers::claude::ClaudeLifecycle;
+        let payload = serde_json::json!({"hook_event_name":"Stop","session_id":"fixture-session","last_assistant_message":text}).to_string();
+        let turn = lifecycle.decode_turn(payload.as_bytes()).unwrap();
+        let activity = lifecycle.decode_activity(payload.as_bytes()).unwrap();
+        let expected = Storage::context_by_identity(&self.path, &self.agent, self.now)
+            .unwrap()
+            .unwrap();
+        super::super::hook_queue::CaptureEvent::prepare(
+            &self.path,
+            &TurnCapture {
+                expected: &expected,
+                process: &self.process,
+                activity: &activity,
+                response: Some(ResponseCapture {
+                    text: turn.final_text.unwrap(),
+                }),
+                interrupted: false,
+                now_ms: self.now + 1,
+                deadline: Instant::now() + Duration::from_secs(2),
+            },
+            Default::default(),
+        )
+        .unwrap()
+    }
     fn end(&mut self, text: &str, continued: bool) {
         let lifecycle = crate::drivers::claude::ClaudeLifecycle;
         let payload = serde_json::json!({"hook_event_name":"Stop","session_id":"fixture-session","stop_hook_active":continued,"last_assistant_message":text});
@@ -382,18 +407,13 @@ fn unavailable_bodies_and_capture_failures_are_explicit_without_read_time_writes
             [request],
         )
         .unwrap();
-    let expected = Storage::context_by_identity(&world.path, &world.agent, world.now)
-        .unwrap()
-        .unwrap();
-    world
-        .storage
-        .record_capture_failure(
-            &expected,
-            super::super::CaptureFailure::Storage,
-            world.now,
-            Instant::now() + Duration::from_secs(2),
-        )
-        .unwrap();
+    let event = world.prepared_final("verified text was never published");
+    super::super::hook_queue::CapturePublication::Unpublished(super::super::StorageError::new(
+        super::super::StorageErrorCode::Unknown,
+        "fixture publication failure",
+    ))
+    .record_failure(&world.path, &event, Instant::now() + Duration::from_secs(2))
+    .unwrap();
     let cursor = world.storage.change_cursor().unwrap();
     let page = world.timeline(50, None);
     assert_eq!(page["entries"][0]["availability"], "unavailable");
@@ -560,6 +580,7 @@ fn stale_binding_and_expired_budget_cannot_capture_or_attach_failure() {
         let payload=serde_json::json!({"hook_event_name":"Stop","session_id":"fixture-session","last_assistant_message":"refused"}).to_string();
         let turn = lifecycle.decode_turn(payload.as_bytes()).unwrap();
         let activity = lifecycle.decode_activity(payload.as_bytes()).unwrap();
+        let event = w.prepared_final("refused");
         if stale {
             w.storage
                 .connection()
@@ -595,14 +616,21 @@ fn stale_binding_and_expired_budget_cannot_capture_or_attach_failure() {
                 .unwrap(),
             TurnCaptureOutcome::NotApplicable
         );
-        w.storage
-            .record_capture_failure(
-                &expected,
-                super::super::CaptureFailure::Worker,
-                w.now + 1,
-                deadline,
-            )
-            .unwrap();
+        let diagnostic = super::super::hook_queue::CapturePublication::Unpublished(
+            super::super::StorageError::new(
+                super::super::StorageErrorCode::Unknown,
+                "fixture unpublished end",
+            ),
+        )
+        .record_failure(&w.path, &event, deadline);
+        if stale {
+            diagnostic.unwrap();
+        } else {
+            assert_eq!(
+                diagnostic.unwrap_err().code,
+                super::super::StorageErrorCode::Busy
+            );
+        }
         let page = w.timeline(50, None);
         assert_eq!(page["entries"].as_array().unwrap().len(), 1);
         assert_eq!(page["responses"], serde_json::json!([]));

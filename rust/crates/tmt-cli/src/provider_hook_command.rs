@@ -326,7 +326,6 @@ fn observe_turn(
             .is_some_and(tmt_adapters::setup::usage_consented);
     // Only older payloads missing the final need the consented driver reader
     // before capture; optional usage never precedes capture of supplied text.
-    let mut failure = tmt_adapters::storage::CaptureFailure::Storage;
     let queued = (|| -> Result<bool, ()> {
         // Some provider Stops have no activity event (for example Codex without
         // a turn id), but their existing consented usage follow-up still runs.
@@ -388,48 +387,57 @@ fn observe_turn(
         {
             return Ok(false);
         }
-        let wait = deadline
-            .saturating_duration_since(Instant::now())
-            .min(Duration::from_millis(500));
-        let captured =
-            match tmt_adapters::storage::hook_queue::HookQueue::open(&paths.database, wait) {
-                Ok(queue) => {
-                    queue.enqueue(&event).map_err(|_| ())?;
-                    let _ = queue.start_flusher(deadline);
-                    matches!(
-                        event.admission(),
-                        tmt_adapters::storage::hook_queue::CaptureResult::Committed
-                            | tmt_adapters::storage::hook_queue::CaptureResult::Duplicate
-                    )
-                }
-                Err(error) if error.code == StorageErrorCode::IncompatibleSchema => {
-                    // Approved compatibility boundary: main must still be current.
-                    // A missing/incompatible queue retains today's bounded direct
-                    // capture path; hooks never initialize either database.
-                    let mut storage =
-                        Storage::open_hook(&paths.database, deadline).map_err(|_| ())?;
+        use tmt_adapters::storage::hook_queue::{CapturePublication, CaptureResult};
+        let publication = crate::hook_flush_command::enqueue(&paths.database, &event, deadline);
+        let captured = match publication {
+            CapturePublication::Queued => matches!(
+                event.admission(),
+                CaptureResult::Committed | CaptureResult::Duplicate
+            ),
+            CapturePublication::Recorded(outcome) => {
+                matches!(outcome, CaptureResult::Committed | CaptureResult::Duplicate)
+            }
+            CapturePublication::Unpublished(error)
+                if error.code == StorageErrorCode::IncompatibleSchema =>
+            {
+                // Only a missing/incompatible queue selects the direct path;
+                // an uncertain append never authorizes capture replay.
+                let direct = (|| -> Result<_, StorageError> {
+                    let mut storage = Storage::open_hook(&paths.database, deadline)?;
                     let outcome = if activity.is_some() {
                         storage.capture_turn_end(event.id(), event.recorded_batch(), capture)
                     } else {
                         Ok(tmt_adapters::storage::TurnCaptureOutcome::NotApplicable)
                     };
                     let closed = storage.close();
-                    let outcome = outcome
-                        .and_then(|value| closed.map(|()| value))
-                        .map_err(|_| ())?;
-                    let result = tmt_adapters::storage::hook_queue::CaptureResult::from(outcome);
-                    if outcome == tmt_adapters::storage::TurnCaptureOutcome::Committed {
-                        let _ = event.adopt_direct_batch(&paths.database);
+                    outcome.and_then(|value| closed.map(|()| value))
+                })();
+                let outcome = match direct {
+                    Ok(outcome) => outcome,
+                    Err(error) => {
+                        // A committed direct receipt wins over this diagnostic,
+                        // including when only connection cleanup failed.
+                        let _ = CapturePublication::Unpublished(error).record_failure(
+                            &paths.database,
+                            &event,
+                            deadline,
+                        );
+                        return Err(());
                     }
-                    flush_capture_follow_up(&paths, &event, result, deadline);
-                    matches!(
-                        outcome,
-                        tmt_adapters::storage::TurnCaptureOutcome::Committed
-                            | tmt_adapters::storage::TurnCaptureOutcome::Duplicate
-                    )
+                };
+                let result = CaptureResult::from(outcome);
+                if outcome == tmt_adapters::storage::TurnCaptureOutcome::Committed {
+                    let _ = event.adopt_direct_batch(&paths.database);
                 }
-                Err(_) => return Err(()),
-            };
+                flush_capture_follow_up(&paths, &event, result, deadline);
+                matches!(result, CaptureResult::Committed | CaptureResult::Duplicate)
+            }
+            unpublished @ CapturePublication::Unpublished(_) => {
+                let _ = unpublished.record_failure(&paths.database, &event, deadline);
+                return Err(());
+            }
+            CapturePublication::Unknown { .. } => return Err(()),
+        };
         if let Some(learning) = run.learning {
             learning.capture_queued();
         }
@@ -437,15 +445,7 @@ fn observe_turn(
     })();
     let captured = match queued {
         Ok(queued) => queued,
-        Err(()) => {
-            if Instant::now() >= deadline {
-                failure = tmt_adapters::storage::CaptureFailure::Budget;
-            }
-            // Queue failure diagnostics are best effort and never wait on the
-            // main writer. A successful enqueue never enters this path.
-            let _ = Storage::try_capture_failure(&paths.database, &stored, failure, deadline);
-            return Err(TurnFailure::CaptureFailed);
-        }
+        Err(()) => return Err(TurnFailure::CaptureFailed),
     };
     Ok(Observation {
         context: String::new(),
