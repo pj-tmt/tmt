@@ -506,7 +506,7 @@ fn take_migration_writer<'a>(
     stall: Duration,
     what: &'static str,
 ) -> Result<Option<Transaction<'a>>, StorageError> {
-    let result = wait_for_migration_writer(connection, needed, stall, what);
+    let result = wait_for_migration_writer(connection, needed, stall, what, Instant::now);
     connection
         .busy_timeout(super::BUSY_TIMEOUT)
         .map_err(|error| classify(error, "Configure busy timeout"))?;
@@ -518,9 +518,10 @@ fn wait_for_migration_writer<'a>(
     needed: usize,
     stall: Duration,
     what: &'static str,
+    mut now: impl FnMut() -> Instant,
 ) -> Result<Option<Transaction<'a>>, StorageError> {
     let mut seen = recorded_through(connection)?.unwrap_or(0);
-    let mut advanced = Instant::now();
+    let mut advanced = now();
     loop {
         connection
             .busy_timeout(WRITER_SLICE)
@@ -538,8 +539,8 @@ fn wait_for_migration_writer<'a>(
         }
         if recorded > seen {
             seen = recorded;
-            advanced = Instant::now();
-        } else if advanced.elapsed() >= stall {
+            advanced = now();
+        } else if now().saturating_duration_since(advanced) >= stall {
             return Err(error);
         }
     }
