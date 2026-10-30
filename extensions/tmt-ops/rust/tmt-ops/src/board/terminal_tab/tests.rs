@@ -1103,3 +1103,71 @@ fn buffer_at(app: &App, position: ratatui::layout::Position) -> ratatui::buffer:
         .unwrap();
     terminal.backend().buffer()[position].clone()
 }
+
+#[test]
+fn a_zoomed_watcher_gets_the_whole_room_and_unzoom_gives_the_normal_area_back() {
+    let mut attached = Attached::new(b"hi");
+    text(&attached.app);
+    let normal = window(&attached.app);
+    attached.app.terminal_sync();
+    assert!(attached.peer.quiet(), "a plain watcher never resizes");
+    attached
+        .app
+        .key(key(KeyCode::Char('z'), KeyModifiers::NONE));
+    // The frame that draws the zoomed area asks for it at once, without another wake.
+    text(&attached.app);
+    attached.app.terminal.fit_window();
+    let zoomed = window(&attached.app);
+    assert!(zoomed.cols > normal.cols, "{zoomed:?} vs {normal:?}");
+    assert_eq!(attached.peer.expect(), ClientMessage::Resize(zoomed));
+    assert!(
+        !attached.app.terminal.typing(),
+        "zoom does not start typing"
+    );
+    // A loop pass before the next frame still knows only the zoomed area: nothing new.
+    attached.app.key(key(KeyCode::Esc, KeyModifiers::NONE));
+    attached.app.terminal_sync();
+    assert!(attached.peer.quiet());
+    text(&attached.app);
+    attached.app.terminal.fit_window();
+    assert_eq!(
+        attached.peer.expect(),
+        ClientMessage::Resize(normal),
+        "unzoom shrinks the program back"
+    );
+    // Back to watching: later area changes ask for nothing.
+    draw_at(&attached.app, 120, 28);
+    attached.app.terminal.fit_window();
+    attached.app.terminal_sync();
+    assert!(attached.peer.quiet());
+}
+
+#[test]
+fn a_board_resize_while_zoomed_resizes_the_program_both_ways() {
+    let mut attached = Attached::new(b"hi");
+    attached
+        .app
+        .key(key(KeyCode::Char('z'), KeyModifiers::NONE));
+    text(&attached.app);
+    attached.app.terminal.fit_window();
+    let big = window(&attached.app);
+    assert_eq!(attached.peer.expect(), ClientMessage::Resize(big));
+    draw_at(&attached.app, 100, 24);
+    attached.app.terminal.fit_window();
+    let small = window(&attached.app);
+    assert!(small.cols < big.cols);
+    assert_eq!(attached.peer.expect(), ClientMessage::Resize(small));
+}
+
+#[test]
+fn a_member_without_a_built_in_stream_has_nothing_to_zoom_or_resize() {
+    // A tmux member: core names no stream, so there is no terminal and no window to ask for.
+    let mut app = reader();
+    app.apply_terminal_located(MEMBER, Located::NoStream);
+    press_t(&mut app);
+    app.key(key(KeyCode::Char('z'), KeyModifiers::NONE));
+    assert!(!app.terminal_zoomed());
+    text(&app);
+    app.terminal.fit_window();
+    assert!(!app.terminal_sync(), "no stream is opened");
+}
