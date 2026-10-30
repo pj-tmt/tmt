@@ -216,7 +216,14 @@ impl App {
         }
         if let Some(c) = &mut self.switch_tool {
             c.shown = true;
+            // Discard joins the row; the focused button stays the same button.
+            let control = c.focused();
             c.reopened = matches!(c.stage, Stage::Form | Stage::Review);
+            if let Some(control) = control
+                && let Some(at) = c.buttons().iter().position(|b| *b == control)
+            {
+                c.focus = at + if c.stage == Stage::Form { 2 } else { 0 };
+            }
             c.invalidate();
             self.menu = None;
             return Effect::None;
@@ -471,8 +478,11 @@ impl App {
         if c.stage != Stage::Form && c.scroll.borrow_mut().input(event) {
             c.readable.set(false);
         }
+        // Only a painted Discard drops the draft, by key or click.
         if activate == Some(Control::Discard) {
-            self.switch_tool = None;
+            if c.discard.get().is_some() {
+                self.switch_tool = None;
+            }
             return Some(Effect::None);
         }
         if let Some(control) = activate {

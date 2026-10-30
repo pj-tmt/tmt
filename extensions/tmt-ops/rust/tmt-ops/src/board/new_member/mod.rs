@@ -124,9 +124,20 @@ impl Controller {
             .filter(|slot| *slot != model::Slot::Squad || self.draft.saved)
             .map(Focus::Slot)
             .chain([Focus::Cancel])
-            .chain(self.reopened.then_some(Focus::Discard))
+            .chain(self.discards().then_some(Focus::Discard))
             .chain([Focus::Create])
             .collect()
+    }
+    /// ←→ on the button row move between its buttons only.
+    fn step_button(&mut self, back: bool) {
+        let buttons: Vec<_> = self
+            .stops()
+            .into_iter()
+            .filter(|stop| !matches!(stop, Focus::Slot(_)))
+            .collect();
+        let at = buttons.iter().position(|b| *b == self.at).unwrap_or(0);
+        let n = buttons.len();
+        self.at = buttons[(at + if back { n - 1 } else { 1 }) % n];
     }
     fn step_focus(&mut self, back: bool) {
         let stops = self.stops();
@@ -277,7 +288,17 @@ impl App {
             && !c.shown
         {
             c.shown = true;
+            // Discard joins the row; the focused button stays the same button.
+            let control = (c.stage == Stage::Template)
+                .then(|| c.focus.checked_sub(1))
+                .flatten()
+                .and_then(|at| c.template_controls().get(at).copied());
             c.reopened = matches!(c.stage, Stage::Form | Stage::Template);
+            if let Some(control) = control
+                && let Some(at) = c.template_controls().iter().position(|b| *b == control)
+            {
+                c.focus = at + 1;
+            }
             c.invalidate();
             self.menu = None;
             return Effect::None;

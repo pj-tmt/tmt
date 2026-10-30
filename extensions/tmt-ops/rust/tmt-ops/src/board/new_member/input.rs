@@ -172,7 +172,7 @@ impl App {
                     (
                         KeyCode::Left | KeyCode::Right,
                         Focus::Cancel | Focus::Discard | Focus::Create,
-                    ) => c.step_focus(key.code == KeyCode::Left),
+                    ) => c.step_button(key.code == KeyCode::Left),
                     (
                         KeyCode::Left | KeyCode::Right | KeyCode::Char(' '),
                         Focus::Slot(Slot::Keep),
@@ -249,8 +249,11 @@ impl App {
         if matches!(c.stage, Stage::Result(_)) && c.scroll.borrow_mut().input(event) {
             c.readable.set(false);
         }
+        // Only a painted Discard drops the draft, by key or click.
         if activate == Some(Control::Discard) {
-            self.new_member = None;
+            if c.discard.get().is_some() {
+                self.new_member = None;
+            }
             return Some(Effect::None);
         }
         if let Some(control) = activate {
