@@ -203,8 +203,10 @@ document has no `socket`. `show --host pty` reports each member with its current
 
 `tmt workspace restore --host pty [SNAPSHOT] [--expect DIGEST] [--fresh]` selects as the tmux
 restore does, including smaller-than-protected consent, and then handles members one at a time
-in recorded order. At each member's turn it rereads the identity by UUID, the live built-in
-members, the folder and the remembered session; the preview grants nothing. A member already
+in recorded order. At each member's turn it rereads only that member: its identity by UUID,
+whether it runs now on whatever host it is bound to (a member resumed elsewhere counts as
+running), its folder and its remembered session, within its own second of the overall budget.
+The preview grants nothing. A member already
 running is `skipped` (`live`) and never stopped, signalled or rebound. A resumable member starts
 through ordinary `tmt resume --host pty -- <name>` as a child process in its recorded folder (the
 caller's folder when none was recorded), so binding, preset and channel admission keep their one

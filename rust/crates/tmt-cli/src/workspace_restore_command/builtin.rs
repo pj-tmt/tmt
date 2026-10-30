@@ -20,7 +20,7 @@ use tmt_core::{
     host::HostKind,
     workspace::{
         SnapshotSelector, StoredIdentity,
-        builtin::{BuiltinMemberAction, BuiltinSnapshot, member_plan},
+        builtin::{BuiltinMember, BuiltinMemberAction, BuiltinSnapshot, member_plan},
     },
 };
 
@@ -31,6 +31,8 @@ const MEMBER_BUDGET: Duration = Duration::from_secs(20);
 const TOTAL_BUDGET: Duration = Duration::from_secs(120);
 /// Less than this left is not worth a start that would only end unconfirmed.
 const MINIMUM_START: Duration = Duration::from_secs(1);
+/// Each member's own recheck, within what is left of the whole restore.
+const CHECK_BUDGET: Duration = Duration::from_secs(1);
 const MAX_START_OUTPUT: usize = 64 * 1024;
 const TAIL_BYTES: usize = 2 * 1024;
 
@@ -104,13 +106,14 @@ fn retry(cwd: Option<&str>, flag: Option<&str>, name: &str) -> String {
     }
 }
 
-/// Members are rechecked and started in recorded order. `check` reads current identities and
-/// the live built-in members at each member's turn; `start` runs one ordinary resume.
+/// Members are rechecked and started in recorded order. At each member's turn, `check` reads
+/// only that member's current records and whether it runs now, by its own deadline; `start`
+/// runs one ordinary resume.
 fn restore(
     snapshot: &BuiltinSnapshot,
     fresh: bool,
     deadline: Instant,
-    mut check: impl FnMut() -> io::Result<(Vec<StoredIdentity>, HashSet<String>)>,
+    mut check: impl FnMut(&BuiltinMember, Instant) -> io::Result<(Vec<StoredIdentity>, HashSet<String>)>,
     folder_exists: impl Fn(&str) -> bool,
     mut start: impl FnMut(&str, &Path, bool, Instant) -> Start,
     mut progress: impl FnMut(usize, usize, &Restored),
@@ -133,7 +136,7 @@ fn restore(
         let checked = if remaining < MINIMUM_START {
             None
         } else {
-            Some(check())
+            Some(check(member, deadline.min(Instant::now() + CHECK_BUDGET)))
         };
         let action = match &checked {
             None => None,
@@ -144,8 +147,12 @@ fn restore(
                 None
             }
             Some(Ok((identities, live))) => {
-                let plan = member_plan(snapshot, identities, live, &folder_exists);
-                let planned = &plan[index];
+                let alone = BuiltinSnapshot {
+                    captured_at_ms: snapshot.captured_at_ms,
+                    members: vec![member.clone()],
+                };
+                let plan = member_plan(&alone, identities, live, &folder_exists);
+                let planned = &plan[0];
                 if let Some(record) = planned.identity {
                     row.name = record.entry.identity.name.clone();
                 }
@@ -361,12 +368,8 @@ pub fn execute(
             &document.snapshot,
             fresh,
             started_at + TOTAL_BUDGET,
-            || {
-                workspace::builtin_plan_input(
-                    &paths,
-                    &document.snapshot,
-                    Instant::now() + workspace::CAPTURE_BUDGET,
-                )
+            |member, deadline| {
+                workspace::builtin_member_check(&paths, &member.identity.id, deadline)
             },
             |cwd| Path::new(cwd).is_dir(),
             |name, directory, fresh, deadline| {
@@ -480,7 +483,7 @@ mod tests {
             },
         },
         identity::{Identity, Lifetime},
-        workspace::{WorkspaceIdentity, builtin::BuiltinMember},
+        workspace::WorkspaceIdentity,
     };
 
     fn snapshot(ids: &[&str]) -> BuiltinSnapshot {
@@ -544,7 +547,7 @@ mod tests {
                 &snapshot,
                 false,
                 Instant::now() + TOTAL_BUDGET,
-                || Ok((records(), live.borrow().clone())),
+                |_, _| Ok((records(), live.borrow().clone())),
                 |_| true,
                 |name, directory, fresh, _| {
                     starts
@@ -597,7 +600,7 @@ mod tests {
             &snapshot,
             true,
             deadline,
-            || Ok((records(), HashSet::new())),
+            |_, _| Ok((records(), HashSet::new())),
             |_| true,
             |name, _, fresh, until| {
                 assert!(fresh);
@@ -644,7 +647,7 @@ mod tests {
             &snapshot,
             false,
             Instant::now() + TOTAL_BUDGET,
-            || Ok((records(), HashSet::new())),
+            |_, _| Ok((records(), HashSet::new())),
             |cwd| cwd != "/work/missing",
             |_, _, _, _| outcomes.next().unwrap(),
             |_, _, _| {},
@@ -678,7 +681,7 @@ mod tests {
             &snapshot,
             false,
             Instant::now() + TOTAL_BUDGET,
-            || Ok((records(), HashSet::new())),
+            |_, _| Ok((records(), HashSet::new())),
             |cwd| cwd != "/work/missing",
             |_, _, _, _| unreachable!("nothing starts"),
             |_, _, _| {},
@@ -690,6 +693,44 @@ mod tests {
         assert_eq!(
             restored[2].retry.as_deref(),
             Some("cd '/work/c' && tmt resume --host pty --retry -- c")
+        );
+    }
+
+    #[test]
+    fn each_turn_checks_only_its_member_by_its_own_deadline_and_one_failed_check_stays_alone() {
+        let snapshot = snapshot(&["a", "b", "c"]);
+        let records = || vec![record("a", true), record("b", true), record("c", true)];
+        let deadline = Instant::now() + TOTAL_BUDGET;
+        let mut asked = Vec::new();
+        let restored = restore(
+            &snapshot,
+            false,
+            deadline,
+            |member, until| {
+                asked.push(member.identity.id.clone());
+                assert!(until <= Instant::now() + CHECK_BUDGET && until <= deadline);
+                if member.identity.id == "uuid-b" {
+                    return Err(io::Error::new(io::ErrorKind::TimedOut, "slow host"));
+                }
+                // Only this member is reported; the others are not even read.
+                let live = HashSet::from([member.identity.id.clone()]);
+                Ok((records(), live))
+            },
+            |_| true,
+            |_, _, _, _| unreachable!("every checked member is running"),
+            |_, _, _| {},
+        );
+        assert_eq!(asked, ["uuid-a", "uuid-b", "uuid-c"]);
+        assert_eq!(
+            restored
+                .iter()
+                .map(|row| (row.status, row.reason))
+                .collect::<Vec<_>>(),
+            [
+                ("skipped", "live"),
+                ("needs_you", "unchecked"),
+                ("skipped", "live")
+            ]
         );
     }
 
