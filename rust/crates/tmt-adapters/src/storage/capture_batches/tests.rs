@@ -137,7 +137,9 @@ impl World {
             self.storage
                 .capture_turn_end(
                     &uuid::Uuid::new_v4().to_string(),
-                    None,
+                    current(self.storage.connection().unwrap(), &self.agent)
+                        .unwrap()
+                        .as_deref(),
                     TurnCapture {
                         expected: &expected,
                         process: &self.process,
@@ -325,7 +327,9 @@ fn rejected_turn_ends_distinguish_missing_starts_from_duplicates_interrupts_and_
             .storage
             .capture_turn_end(
                 &uuid::Uuid::new_v4().to_string(),
-                None,
+                current(w.storage.connection().unwrap(), &w.agent)
+                    .unwrap()
+                    .as_deref(),
                 TurnCapture {
                     expected: &expected,
                     process: &w.process,
@@ -344,10 +348,40 @@ fn rejected_turn_ends_distinguish_missing_starts_from_duplicates_interrupts_and_
             )
             .unwrap();
         assert_eq!(outcome, wanted, "{case}");
+        let mut expected = before;
+        if !matches!(
+            case,
+            "duplicate" | "continued_duplicate" | "interrupted_without_start"
+        ) {
+            // Refused text has a diagnostic, not an answer or an input
+            // settlement. Pin the entire added row and every unchanged row.
+            let batch = expected[1][0][0].clone();
+            let next_sequence = match expected[2].last().unwrap()[0] {
+                Value::Integer(sequence) => sequence + 1,
+                _ => unreachable!("capture entry sequence is an integer"),
+            };
+            expected[2].push(vec![
+                Value::Integer(next_sequence),
+                Value::Text(w.agent.clone()),
+                batch,
+                Value::Text("failure".into()),
+                Value::Null,
+                Value::Text("incoming".into()),
+                Value::Text("delivered".into()),
+                Value::Null,
+                Value::Null,
+                Value::Text("worker_error".into()),
+                Value::Integer(if case == "clock_rollback" {
+                    w.now - 1
+                } else {
+                    w.now + 1
+                } as i64),
+            ]);
+        }
         assert_eq!(
             snapshot(&w.storage),
-            before,
-            "{case}: no final, capture or bound-input settlement"
+            expected,
+            "{case}: only the defined diagnostic may change; no final or bound-input settlement"
         );
         assert_eq!(
             BindingRows(w.storage.connection().unwrap())
@@ -600,7 +634,7 @@ fn stale_binding_and_expired_budget_cannot_capture_or_attach_failure() {
             w.storage
                 .capture_turn_end(
                     &uuid::Uuid::new_v4().to_string(),
-                    None,
+                    event.recorded_batch(),
                     TurnCapture {
                         expected: &expected,
                         process: &w.process,
@@ -655,7 +689,9 @@ fn interruption_keeps_earlier_answers_but_closes_the_batch_without_capturing_par
         w.storage
             .capture_turn_end(
                 &uuid::Uuid::new_v4().to_string(),
-                None,
+                current(w.storage.connection().unwrap(), &w.agent)
+                    .unwrap()
+                    .as_deref(),
                 TurnCapture {
                     expected: &expected,
                     process: &w.process,

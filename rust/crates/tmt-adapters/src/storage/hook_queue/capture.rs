@@ -705,12 +705,11 @@ impl super::CapturePublication {
         if !event.valid() {
             return Err(invalid("Invalid unpublished capture event"));
         }
-        let Some(capture) = event.capture.as_ref().filter(|capture| {
-            !capture.provisional
-                && capture.batch.is_some()
-                && !capture.interrupted
-                && capture.response.is_some()
-        }) else {
+        let Some(capture) = event
+            .capture
+            .as_ref()
+            .filter(|capture| !capture.interrupted && capture.response.is_some())
+        else {
             return Ok(());
         };
         let process = ProcessIncarnation::new(capture.pid, &capture.start)
@@ -743,7 +742,7 @@ impl super::CapturePublication {
                         event_id: event.id(),
                         identity: &capture.identity,
                         binding: &capture.binding,
-                        batch: capture.batch.as_deref(),
+                        batch: event.recorded_batch(),
                         provider: Some(&capture.provider),
                         session: Some(&capture.session),
                         process: &process,

@@ -428,16 +428,27 @@ unless exact retained-text replay is proven. The same transaction writes the exi
 event receipt: an event replay adds nothing, while distinct misses in one batch remain
 separate entries. Historical failure placement changes no newer activity, batch or
 passthrough. A changed binding cannot attribute a failure to another identity.
-Publication keeps three distinct outcomes. Confirmed unpublished text uses the same
-recorded-batch/event fence with `storage_error` or `budget_timeout`, within the original
-hook allowance. An append error is reconciled by exact event ID: the queue is read first,
+Without a recorded batch, the same disposition appends an unbatched `worker_error`
+entry only while the identity remains active and its exact running binding,
+provider/session and process incarnation still match under the capture writer.
+It creates no batch and claims no input or request association: clients must not
+attach this failure to a nearby prompt. Only event-ID replay deduplicates these
+entries; text from another batch proves nothing. A newer prompt can coexist but
+its activity, batch, requests and passthrough remain unchanged. A missing recorded
+batch never selects this path, nor does a replaced binding/session/process or a
+retired identity authorize it. Direct capture compares the complete optional batch
+coordinate before committing: an originally absent batch cannot adopt a newer prompt.
+Publication keeps three distinct outcomes. Confirmed unpublished text uses the
+corresponding recorded-batch or unbatched authority and event fence with
+`storage_error` or `budget_timeout`, within the original hook allowance. An
+unpublished provisional locator never creates a batch just for a diagnostic. An append error is reconciled by exact event ID: the queue is read first,
 then the main receipt because ingestion may already have acknowledged the row. Unavailable
 readback remains unknown and never authorizes another append, direct recapture or a terminal
 failure receipt. Missing/incompatible queues alone retain the bounded direct fallback.
 Accepted queue work remains pending after a flusher startup failure; the existing worker
 log keeps bounded content-free startup diagnostics and existing finite notifications or
 explicit drains recover it. Startup failure never becomes a false capture failure. No
-pending-chat projection or new correlation rule for missing batches is introduced.
+pending-chat projection is introduced; missing previously recorded batches keep their refusal.
 Total-store or exhausted-budget unavailability may prevent even a diagnostic. Interrupted
 events retain no final.
 
