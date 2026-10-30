@@ -86,6 +86,8 @@ pub(in crate::board) struct Tab {
     type_on_open: Option<String>,
     /// The tab fills the board.
     zoomed: bool,
+    /// Zoom just ended: the program is given the normal area once, then the window is forgotten.
+    refit: bool,
     /// Where the last frame drew the screen, which is the size the program is given.
     area: Cell<Option<Rect>>,
     /// Where the last frame put the real cursor for the program while typing.
@@ -229,6 +231,7 @@ impl Tab {
             self.type_on_open.take().as_deref() == Some(open.identity.as_str())
         });
         self.zoomed &= self.open.is_some();
+        self.refit = false;
         true
     }
 
@@ -263,13 +266,16 @@ impl Tab {
         live
     }
 
-    /// Typing ended: the window is no longer this viewer's, and nothing is resized back.
+    /// Typing ended: unless zoom still asks for it, the window is no longer this viewer's, and
+    /// nothing is resized back.
     pub(in crate::board) fn stop_typing(&mut self) {
         if !self.typing {
             return;
         }
         self.typing = false;
-        if let Some(open) = self.open.as_mut() {
+        if !self.zoomed
+            && let Some(open) = self.open.as_mut()
+        {
             open.window = None;
             open.stream.stop_typing();
         }
@@ -295,7 +301,10 @@ impl Tab {
         self.zoomed
     }
 
+    /// Zooming asks for the window like typing does; leaving zoom gives the program the normal
+    /// area once more.
     pub(in crate::board) fn set_zoomed(&mut self, zoomed: bool) {
+        self.refit = self.zoomed && !zoomed && self.open.is_some();
         self.zoomed = zoomed;
     }
 
@@ -317,10 +326,13 @@ impl Tab {
         self.caret.set(caret);
     }
 
-    /// While typing, the program is given the room the screen has: the size when typing began,
-    /// and again whenever the area changes. A viewer that only watches never asks.
+    /// While typing or zoomed, the program is given the room the screen has: the size when that
+    /// began, and again whenever the area changes. After zoom ends it is given the normal area
+    /// once. A viewer that only watches, unzoomed, never asks.
     pub(in crate::board) fn fit_window(&mut self) {
-        if !self.typing {
+        // Typing fits the window itself and stopping releases it, so no refit is left owed.
+        self.refit &= !self.typing;
+        if !self.typing && !self.zoomed && !self.refit {
             return;
         }
         let (Some(open), Some(area)) = (self.open.as_mut(), self.area.get()) else {
@@ -329,9 +341,16 @@ impl Tab {
         let Ok(size) = Size::new(area.width, area.height) else {
             return;
         };
-        if open.window != Some(size) {
-            open.window = Some(size);
-            open.stream.resize(size);
+        if open.window == Some(size) {
+            // Until a frame draws the normal area, the zoomed one is still recorded.
+            return;
+        }
+        open.window = Some(size);
+        open.stream.resize(size);
+        if self.refit && !self.typing && !self.zoomed {
+            self.refit = false;
+            open.window = None;
+            open.stream.stop_typing();
         }
     }
 

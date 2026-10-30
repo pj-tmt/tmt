@@ -831,6 +831,9 @@ fn session(
         }
         if dirty {
             observe_navigation(app, (), |_| Some("Paint"), |app, ()| draw(app))?;
+            // The frame just recorded the screen's area: a zoom or resize asks for it now, not
+            // on the next wake.
+            app.terminal.fit_window();
             app.unread_drawn();
             // Painting may admit/drop clock surfaces. Set the comparison base
             // from that frame, so initial paint or clipping does not cause a
