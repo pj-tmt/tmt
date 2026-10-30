@@ -2,10 +2,10 @@ import { headerHeight } from './tokens.js';
 import { expect, test, type Page } from '@playwright/test';
 
 /** What trusted content takes between the header and the page frame, margins included: the reader's
- * note, or the owner page's title row under the shared bar. */
+ * status and note, or the owner page's title row under the shared bar. */
 const noteSize = (page: Page) =>
   page
-    .locator('.reader-note, .colab-title-row, .work-band')
+    .locator('.reader-note, .reader-status-row, .colab-title-row, .work-band')
     .evaluateAll((nodes) =>
       nodes
         .filter((node) => node.getClientRects().length)
@@ -54,9 +54,9 @@ async function mount(page: Page, source: string, reader: boolean, readerOnly = f
     },
     { source, reader },
   );
-  // The owner page's status sits in the shared bar; the reader's own header carries it.
+  // The owner page's status sits in the shared bar; the reader's content row carries it.
   await expect(
-    page.locator(reader ? '.tmt-ui-header:visible .status' : '.tmt-ui-topbar:visible .status'),
+    page.locator(reader ? '.reader-status-row .status' : '.tmt-ui-topbar:visible .status'),
   ).toContainText('Live');
   await page.evaluate(() => (window as unknown as { firstHeight: Promise<void> }).firstHeight);
 }

@@ -1,4 +1,4 @@
-import { pageAction } from '../test/page-actions.js';
+import { pageAction, readerAction } from '../test/page-actions.js';
 import { expect, test, type Page } from '@playwright/test';
 import { text } from '../src/strings.js';
 import { capturePath } from './captures.js';
@@ -29,14 +29,16 @@ const saves = (page: Page) =>
   page.evaluate(async (fixture) => (await import(fixture)).proof().saves, fixture);
 const note = (page: Page) => page.locator('.reader-note');
 async function info(page: Page) {
-  await page.getByLabel('Info', { exact: true }).click();
+  await (await readerAction(page, 'Info')).click();
   return page.locator('.reader-information-panel');
 }
 
 test('a viewer link is marked read-only, says so, and has no Source control', async ({ page }) => {
   await mount(page, 'viewer');
   await expect(page.locator('.chip')).toHaveText(text.readerOnly);
-  await expect(page.getByTestId('source-toggle')).toHaveCount(0);
+  await page.getByRole('button', { name: 'More', exact: true }).click();
+  await expect(page.getByRole('menuitem', { name: 'Source', exact: true })).toHaveCount(0);
+  await page.keyboard.press('Escape');
   await expect(note(page)).toContainText(text.readerNoteTitle);
   await expect(note(page)).toContainText(text.readerNote);
   // The note is always in view; Info keeps what is about the page, not about the link.
@@ -53,7 +55,7 @@ test('an editor link is marked Can edit, names what a save does, and saves from 
   await expect(note(page)).toContainText(text.readerNoteTitleEditor);
   await expect(note(page)).toContainText(text.readerNoteEditor);
   await expect(note(page)).not.toContainText('You cannot edit it');
-  await page.getByTestId('source-toggle').click();
+  await (await readerAction(page, 'Source')).click();
   const area = page.locator('#source-edit');
   const save = page.getByRole('button', { name: text.save, exact: true });
   await expect(area).toHaveValue('<main><h1>Release notes</h1></main>');
@@ -92,7 +94,7 @@ test('an editor link tells an applied request, a changed page, a request still w
   page,
 }) => {
   await mount(page, 'editor');
-  await page.getByTestId('source-toggle').click();
+  await (await readerAction(page, 'Source')).click();
   const area = page.locator('#source-edit');
   const save = page.getByRole('button', { name: text.save, exact: true });
   // Waiting: the request is sent, the page has not changed, and the draft and its button hold.
@@ -137,7 +139,7 @@ for (const width of [390, 1280])
         await page.setViewportSize({ width, height: width === 390 ? 844 : 800 });
         await page.emulateMedia({ colorScheme: theme });
         await mount(page, 'editor');
-        await page.getByTestId('source-toggle').click();
+        await (await readerAction(page, 'Source')).click();
         await edit(page, notice);
         await expect(
           page.getByText(
@@ -163,7 +165,7 @@ for (const width of [390, 1024, 1280, 1440])
       await page.setViewportSize({ width, height: width === 390 ? 844 : 800 });
       await page.emulateMedia({ colorScheme: theme });
       await mount(page, 'editor');
-      await page.getByTestId('source-toggle').click();
+      await (await readerAction(page, 'Source')).click();
       const save = page.getByRole('button', { name: text.save, exact: true });
       await expect(save).toBeDisabled();
       await save.hover({ force: true });
@@ -203,7 +205,7 @@ for (const outcome of ['refused', 'unconfirmed'] as const) {
   }) => {
     await mount(page, 'editor');
     await script(page, outcome);
-    await page.getByTestId('source-toggle').click();
+    await (await readerAction(page, 'Source')).click();
     const area = page.locator('#source-edit'),
       save = page.getByRole('button', { name: text.save, exact: true });
     await area.fill('<main>requested draft</main>');
@@ -236,7 +238,7 @@ for (const width of [1440, 390])
     await page.setViewportSize({ width, height: width === 390 ? 844 : 900 });
     await mount(page, 'editor');
     await script(page, 'refused');
-    await page.getByTestId('source-toggle').click();
+    await (await readerAction(page, 'Source')).click();
     await page.locator('#source-edit').fill('<main>a race lost to another holder</main>');
     await page.getByRole('button', { name: text.save, exact: true }).click();
     await expect(page.getByText('Not sent', { exact: true })).toBeVisible();
@@ -289,7 +291,7 @@ test('a request that was not sent can be sent again with the next deliberate Sav
 }) => {
   await mount(page, 'editor');
   await script(page, 'refused');
-  await page.getByTestId('source-toggle').click();
+  await (await readerAction(page, 'Source')).click();
   const area = page.locator('#source-edit'),
     save = page.getByRole('button', { name: text.save, exact: true });
   await area.fill('<main>a race lost to another holder</main>');

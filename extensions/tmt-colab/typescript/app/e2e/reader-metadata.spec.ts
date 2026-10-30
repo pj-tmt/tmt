@@ -1,3 +1,4 @@
+import { readerAction } from '../test/page-actions.js';
 import { expect, test, type Page } from '@playwright/test';
 import { capturePath } from './captures.js';
 const fixture = '/test/reader-metadata-browser.tsx';
@@ -13,23 +14,15 @@ async function mount(page: Page, role = 'editor') {
   await expect(page.locator('#reader-metadata-fixture .status')).toContainText('Live');
 }
 async function info(page: Page) {
-  const toggle = page.getByLabel('Info', { exact: true });
-  if (!(await page.locator('.reader-information').getAttribute('open'))) {
-    // Boolean open attributes have an empty value; inspect the property instead.
-    if (
-      !(await page
-        .locator('.reader-information')
-        .evaluate((node) => (node as HTMLDetailsElement).open))
-    )
-      await toggle.click();
-  }
+  if (!(await page.getByRole('dialog', { name: 'Info', exact: true }).isVisible()))
+    await (await readerAction(page, 'Info')).click();
   return page.locator('.reader-information-panel');
 }
 async function creator(page: Page) {
   await (await info(page)).getByRole('button', { name: 'Change creator…', exact: true }).click();
   const dialog = page.getByRole('dialog', { name: 'Change creator', exact: true });
   await expect(dialog).toBeVisible();
-  await expect(page.locator('.reader-information')).not.toHaveAttribute('open');
+  await expect(page.getByRole('dialog', { name: 'Info', exact: true })).toBeHidden();
   return dialog;
 }
 test.beforeEach(async ({ page }) => {
@@ -92,7 +85,7 @@ test('editor metadata direct actions preserve source, focus, summaries and respo
       });
       await dialog.getByRole('button', { name: 'Change creator', exact: true }).click();
       await expect(dialog).toBeHidden();
-      await expect(page.getByLabel('Info', { exact: true })).toBeFocused();
+      await expect(page.getByRole('button', { name: 'More', exact: true })).toBeFocused();
       await expect(await info(page)).toContainText('New creator');
       const proof = await run(page, 'proof');
       expect(proof.requests.map((r: { action: string }) => r.action)).toEqual([
@@ -147,7 +140,7 @@ test('refusal, busy close and uncertain check never replay a submitted metadata 
   page,
 }) => {
   await mount(page);
-  await page.getByTestId('source-toggle').click();
+  await (await readerAction(page, 'Source')).click();
   const area = page.locator('#source-edit');
   await area.fill('<h1>Keep this unsaved source draft</h1>');
   await page.getByRole('button', { name: 'Close Source', exact: true }).click();
@@ -158,7 +151,7 @@ test('refusal, busy close and uncertain check never replay a submitted metadata 
   await expect(dialog).toContainText('No saved agent matches that name or ID.');
   await page.screenshot({ path: capturePath('5195-refused.png'), fullPage: true });
   await dialog.getByRole('button', { name: 'Close', exact: true }).click();
-  await page.getByTestId('source-toggle').click();
+  await (await readerAction(page, 'Source')).click();
   await expect(area).toHaveValue('<h1>Keep this unsaved source draft</h1>');
   await page.getByRole('button', { name: 'Close Source', exact: true }).click();
   await run(page, 'script', 'waiting');

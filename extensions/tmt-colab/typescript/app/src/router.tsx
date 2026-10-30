@@ -1141,7 +1141,9 @@ function Shell() {
   const isPage = pathname.startsWith('/pages/');
   const isHome = pathname === '/';
   // Colab's own shell has the shared bar's Search on every route, and the bar owns the one shortcut.
-  const ownShell = useContext(ShellHostSlot) === null;
+  const hostSlot = useContext(ShellHostSlot);
+  const ownShell = hostSlot === null;
+  const sharedSearch = ownShell || hostSlot.topBarReady();
   return (
     <RemotePresenceProvider owner={transport.remotePresence}>
       <QuickSwitcherHost
@@ -1150,7 +1152,7 @@ function Shell() {
         pageId={isPage ? pathname.slice('/pages/'.length) : undefined}
         routeKey={pathname}
         allowed={ownShell || isPage || isHome}
-        shortcut={!ownShell}
+        shortcut={!sharedSearch}
         navigate={(pageId) => router.navigate({ to: '/pages/$pageId', params: { pageId } })}
         pageHref={(pageId) =>
           router.history.createHref(

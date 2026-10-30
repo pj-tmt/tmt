@@ -219,7 +219,9 @@ test('paired writers retain anchored annotation conversations, direct exact send
       console.log(
         JSON.stringify({ width, windowScrollTop, frameScrollTop, marker: 'END OF PAGE' }),
       );
-      expect((await first.locator('.tmt-ui-header:visible').boundingBox())?.y).toBe(0);
+      expect(
+        (await first.locator('.tmt-ui-shell-bar > .tmt-ui-topbar:visible').boundingBox())?.y,
+      ).toBe(0);
       await first.screenshot({
         path: `${captureDir}/1587-native-${width}-light-long-scrolled.png`,
       });
@@ -320,7 +322,7 @@ test('paired writers retain anchored annotation conversations, direct exact send
         agent.pane,
       );
       await expect(first.locator('iframe')).not.toHaveAttribute('data-source-digest', digest!);
-      await expect(first.locator('.tmt-ui-header .status')).toContainText('Live');
+      await expect(first.locator('.tmt-ui-topbar .status')).toContainText('Live');
     };
     await replaceSource(
       html.replace('An &amp; <em>🌍 exact quote</em> for review.', 'The source was updated.'),

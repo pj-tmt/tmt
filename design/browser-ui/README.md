@@ -160,26 +160,22 @@ The shell offers an opt-in shared top bar through the existing `./shell`, `./she
 and `./react` entries. The root installs `ShellControls.setCommonControls({ openSearch, remote })`;
 `ShellHost` delegates that setter, and `BrowserShell` accepts `commonControls`. These bindings
 belong to the root, never a route module. A route calls `ShellSlot.setTopBar()` and receives
-only `readonly actions: HTMLElement`; React's `BrowserTopBar({ actions })` portals into that
-same renderer. Search is the first control in the left group, after the phone navigation
-button and before any host content. Its one hit, hover and focus box contains the icon and
-platform shortcut hint; the hint is hidden below 640px. Module actions stay in the right group,
-followed by Theme and Remote. This far-left placement is Ben’s approved deviation from the website.
-No title or avatar is drawn in this bar; the host's content supplies its real `h1`.
+only `readonly status` and `readonly actions` elements; React's `BrowserTopBar` portals into
+those slots. The status precedes the common controls; page actions follow them at the far right.
+Global Search is the first sidebar item, above Home and a divider; at the 900px shell breakpoint
+an icon beside the navigation button opens the same search. No title is drawn in the bar; the
+host's content supplies its real `h1`.
 
-`openSearch(opener)` connects the one existing product switcher and its focus return. The
-root supplies module/section navigation entries through the [search registry](#search-providers);
-the leaf reads no page or provider data and creates no second search surface. The platform shortcut admits a trusted, fresh Command/Ctrl+K
-outside an editor; untrusted, composing, repeated or modified requests do nothing. Product
-switcher bridges and module-bar adoption are separate owning changes, not shipped by the leaf.
+`openSearch(opener)` connects the existing product switcher and its focus return. The platform
+shortcut admits a trusted, fresh Command/Ctrl+K outside an editor; untrusted, composing,
+repeated or modified requests do nothing. The root supplies search providers and owns their data.
 
-Remote is `{ kind: 'confirmed', liveSessions, href }` or `{ kind: 'unconfirmed', href }`.
-The admitted projection counts live sessions, never devices or pages. Positive counts draw a
-badge; confirmed zero and unconfirmed draw only the rail's Remote glyph, with distinct truthful
-accessible names. The root retains acquisition, freshness and the existing target. Invalid
-counts are rejected before replacing the projection. Updates preserve
-the native link and its focus. Theme reuses the existing browser preference and menu owner;
-System follows the device and blocked storage still applies the current choice.
+The right group is Theme, Remote, then page actions. Remote is `{ kind: 'confirmed', liveSessions,
+href }` or `{ kind: 'unconfirmed', href }`. It counts live sessions, never devices or pages;
+positive counts draw a badge, while zero and unconfirmed remain distinct. The button opens a modal
+with the admitted status and settings link. The root owns acquisition and freshness, and invalid
+counts are rejected before replacing the projection. Theme uses the browser preference and the
+System/Light/Dark menu; System follows the device and blocked storage still applies the choice.
 
 The root must install common bindings before adopting the new bar. `ShellControls.topBarReady()`
 reads whether common controls are installed and the shell is live. `ShellSlot.topBarReady()`

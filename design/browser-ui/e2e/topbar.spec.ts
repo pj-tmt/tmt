@@ -13,7 +13,7 @@ const observe = (page: Page, value: string) =>
 for (const renderer of ['react', 'native', 'hosted'])
   for (const width of [1440, 390])
     for (const theme of ['light', 'dark'] as const)
-      test(`${renderer} common top bar ${width} ${theme}: one owner, counts and search focus`, async ({
+      test(`${renderer} common top bar ${width} ${theme}: order, modal and search focus`, async ({
         page,
       }) => {
         await page.setViewportSize({ width, height: 992 });
@@ -22,97 +22,68 @@ for (const renderer of ['react', 'native', 'hosted'])
         const bar = page.locator('.tmt-ui-topbar');
         await expect(bar).toHaveCount(1);
         await expect(bar).toHaveCSS('height', width === 390 ? '56px' : '62px');
-        await expect(bar.getByRole('heading')).toHaveCount(0);
-        await expect(page.getByRole('heading', { level: 1 })).toHaveCount(1);
-        await expect(bar.getByRole('button', { name: 'Module action', exact: true })).toHaveCount(
-          1,
+        const themeControl = bar.getByRole('button', { name: /^Theme:/ });
+        const remote = bar.getByRole('button', { name: 'Remote: 6 live sessions', exact: true });
+        const action = bar.getByRole('button', { name: 'Module action', exact: true });
+        const status = bar.getByText('Live', { exact: true });
+        const boxes = await Promise.all(
+          [status, themeControl, remote, action].map((item) => item.boundingBox()),
         );
-        await expect(bar.getByRole('button', { name: /^Theme:/ })).toHaveCount(1);
-        const search = bar.getByRole('button', { name: 'Search TMT', exact: true });
-        await expect(
-          bar
-            .locator('.tmt-ui-topbar-navigation')
-            .getByRole('button', { name: 'Search TMT', exact: true }),
-        ).toHaveCount(1);
-        await expect(
-          bar
-            .locator('.tmt-ui-topbar-controls')
-            .getByRole('button', { name: 'Search TMT', exact: true }),
-        ).toHaveCount(0);
-        const hint = search.locator('kbd');
-        if (width < 640) await expect(hint).toBeHidden();
-        else await expect(hint).toBeVisible();
-        const contained = await search.evaluate((button) => {
-          const box = button.getBoundingClientRect();
-          return [...button.querySelectorAll('svg,kbd')]
-            .filter((node) => node.getClientRects().length)
-            .every((node) => {
-              const child = node.getBoundingClientRect();
-              return (
-                child.left >= box.left &&
-                child.right <= box.right &&
-                child.top >= box.top &&
-                child.bottom <= box.bottom
-              );
-            });
-        });
-        expect(contained).toBe(true);
-        await search.focus();
-        await page.keyboard.press('Tab');
-        await expect(bar.getByRole('button', { name: 'Module action', exact: true })).toBeFocused();
-        const remote = bar.getByRole('link', { name: 'Remote: 6 live sessions', exact: true });
-        await expect(remote).toHaveAttribute('href', '/settings');
+        for (let i = 1; i < boxes.length; i++)
+          expect(boxes[i]!.x).toBeGreaterThanOrEqual(boxes[i - 1]!.x + boxes[i - 1]!.width);
         await expect(remote.locator('.tmt-ui-count')).toHaveText('6');
-        await remote.focus();
+        await remote.click();
+        const remoteDialog = page.getByRole('dialog', { name: 'Remote', exact: true });
+        await expect(remoteDialog).toBeVisible();
+        await expect(remoteDialog).toContainText('Remote: 6 live sessions');
+        await remoteDialog.dispatchEvent('keydown', { key: 'Escape' });
+        await expect(remoteDialog).toBeVisible();
+        await expect(remoteDialog.getByRole('link', { name: 'Remote settings' })).toHaveAttribute(
+          'href',
+          '/settings',
+        );
+        await page.keyboard.press('Escape');
+        await expect(remoteDialog).toBeHidden();
+        await expect(remote).toBeFocused();
         await observe(page, 'zero');
-        await expect(remote).toHaveCount(0);
-        const zero = bar.getByRole('link', { name: 'Remote: no live sessions', exact: true });
+        const zero = bar.getByRole('button', { name: 'Remote: no live sessions', exact: true });
         await expect(zero).toBeFocused();
         await expect(zero.locator('.tmt-ui-count')).toBeHidden();
         await observe(page, 'unknown');
-        const unknown = bar.getByRole('link', {
+        const unknown = bar.getByRole('button', {
           name: 'Remote: session count unconfirmed',
           exact: true,
         });
         await expect(unknown).toBeFocused();
         await expect(unknown.locator('.tmt-ui-count')).toBeHidden();
-        await expect(unknown).toHaveAttribute('href', '/settings');
-        await page.keyboard.press('Tab');
-        const frames = await focusFrames(page, '.tmt-ui-topbar');
-        expect(frames.checked).toBeGreaterThan(2);
-        expect(frames.clipped).toEqual([]);
-        expect(frames.doubled).toEqual([]);
-        expect(await textAtSurfaceEdge(page, '.tmt-ui-topbar')).toEqual([]);
-        expect((await controlRadii(page, '.tmt-ui-topbar')).off).toEqual([]);
+        await unknown.click();
+        await expect(remoteDialog).toContainText('session count unconfirmed');
+        await remoteDialog.getByRole('button', { name: 'Close' }).click();
+        const search =
+          width === 390
+            ? bar.getByRole('button', { name: 'Search TMT', exact: true })
+            : page
+                .locator('nav.tmt-ui-rail')
+                .getByRole('button', { name: 'Search TMT', exact: true });
         await search.click();
         const dialog = page.getByRole('dialog', { name: 'Search TMT', exact: true });
         await expect(dialog).toBeVisible();
         await expect(
           dialog.getByRole('button', { name: 'Colab pages', exact: true }),
         ).toBeVisible();
-        await expect(dialog.getByRole('button', { name: 'Ops timers', exact: true })).toBeVisible();
-        await expect(
-          dialog.getByRole('button', { name: 'Remote devices', exact: true }),
-        ).toBeVisible();
         await page.keyboard.press('Escape');
-        await expect(dialog).toBeHidden();
         await expect(search).toBeFocused();
         await page.keyboard.press(await shortcut(page));
-        await expect(dialog).toBeVisible();
         await dialog.getByLabel('Search', { exact: true }).fill('digest');
         await expect(dialog.getByRole('button', { name: 'Digest', exact: true })).toBeVisible();
-        await expect(dialog.getByRole('button', { name: 'Ops timers', exact: true })).toHaveCount(
-          0,
-        );
         await page.keyboard.press('Escape');
         await expect(search).toBeFocused();
-        if (width === 390) {
-          const nav = bar.getByRole('button', { name: 'Open navigation', exact: true });
-          await nav.click();
-          await expect(nav).toHaveAttribute('aria-expanded', 'true');
-          await page.keyboard.press('Escape');
-          await expect(nav).toHaveAttribute('aria-expanded', 'false');
-        }
+        const frames = await focusFrames(page, '.tmt-ui-topbar');
+        expect(frames.checked).toBeGreaterThan(2);
+        expect(frames.clipped).toEqual([]);
+        expect(frames.doubled).toEqual([]);
+        expect(await textAtSurfaceEdge(page, '.tmt-ui-topbar')).toEqual([]);
+        expect((await controlRadii(page, '.tmt-ui-topbar')).off).toEqual([]);
       });
 
 for (const renderer of ['react', 'native', 'hosted']) {
@@ -189,7 +160,7 @@ test('host route transition releases the old module action and installs one comm
   await page.getByRole('button', { name: 'Module action', exact: true }).click();
   await expect(page.getByTestId('module-actions')).toHaveText('2');
   await expect(
-    page.getByRole('link', { name: 'Remote: 6 live sessions', exact: true }),
+    page.getByRole('button', { name: 'Remote: 6 live sessions', exact: true }),
   ).toHaveCount(1);
 });
 
@@ -211,17 +182,28 @@ test('a route load settling after root disposal cannot install a header or Searc
   await expect(page.locator('.tmt-ui-topbar')).toHaveCount(0);
 });
 
-for (const width of [639, 640])
-  test(`Search hint breakpoint and full focus box at ${width}`, async ({ page }) => {
-    await page.setViewportSize({ width, height: 992 });
-    await page.goto('/?frame=topbar&renderer=native');
-    const search = page.getByRole('button', { name: 'Search TMT', exact: true });
-    if (width < 640) await expect(search.locator('kbd')).toBeHidden();
-    else {
-      await expect(search.locator('kbd')).toBeVisible();
-      const box = (await search.boundingBox())!;
-      const hint = (await search.locator('kbd').boundingBox())!;
-      expect(hint.x).toBeGreaterThanOrEqual(box.x);
-      expect(hint.x + hint.width).toBeLessThanOrEqual(box.x + box.width);
-    }
-  });
+test('global search lives above Home and remains beside navigation on phones', async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.goto('/?frame=topbar&renderer=native');
+  const rail = page.locator('nav.tmt-ui-rail');
+  const search = rail.getByRole('button', { name: 'Search TMT', exact: true });
+  const home = rail.locator('a[data-id="home"]');
+  await expect(search).toBeVisible();
+  const [searchBox, homeBox] = await Promise.all([search.boundingBox(), home.boundingBox()]);
+  expect(searchBox!.y + searchBox!.height).toBeLessThan(homeBox!.y);
+  await search.click();
+  await expect(page.getByRole('dialog', { name: 'Search TMT', exact: true })).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(search).toBeFocused();
+  await page.setViewportSize({ width: 390, height: 900 });
+  const bar = page.locator('.tmt-ui-topbar');
+  const navigation = bar.getByRole('button', { name: 'Open navigation', exact: true });
+  const mobileSearch = bar.getByRole('button', { name: 'Search TMT', exact: true });
+  await expect(mobileSearch).toBeVisible();
+  const [navBox, mobileBox] = await Promise.all([
+    navigation.boundingBox(),
+    mobileSearch.boundingBox(),
+  ]);
+  expect(mobileBox!.x).toBeGreaterThanOrEqual(navBox!.x + navBox!.width);
+  expect(mobileBox!.x - navBox!.x - navBox!.width).toBeLessThanOrEqual(16);
+});

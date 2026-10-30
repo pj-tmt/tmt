@@ -9,6 +9,7 @@ import {
 } from 'react';
 import {
   BrowserAction,
+  BrowserIconAction,
   BrowserDialog,
   BrowserField,
   BrowserShell,
@@ -20,11 +21,12 @@ import {
   type ShellCommonControls,
   type ShellControls,
   type ShellView,
+  type ShellTopBar,
 } from '../src/shell.js';
 import { startShellHost, type ShellHost, type ShellRoute } from '../src/shell-host.js';
 
 const rootNote =
-  'Search stays first at the left; its shortcut hint is hidden below 640px. Gallery root bindings only; product search remains in its owning adoption.';
+  'Search is first in the rail; on phones its icon sits beside navigation. Gallery root bindings only; product search remains in its owning adoption.';
 
 const destinations = [
   ['home', 'Home'],
@@ -69,7 +71,7 @@ const view: ShellView = {
 
 /** The gallery adopts only when its root has installed the common controls. */
 function ReadyTopBar({ actions }: { actions: ReactNode }) {
-  return useTopBarReady() ? <BrowserTopBar actions={actions} /> : null;
+  return useTopBarReady() ? <BrowserTopBar status={<span>Live</span>} actions={actions} /> : null;
 }
 
 function NativeTopBar({
@@ -93,7 +95,8 @@ function NativeTopBar({
   useLayoutEffect(() => {
     const node = root.current!;
     const main = node.querySelector<HTMLElement>('.tmt-ui-shell-main')!;
-    const fill = (actions: HTMLElement, title: string) => {
+    const fill = (slot: ShellTopBar, title: string) => {
+      slot.status.textContent = 'Live';
       latest.current.didMount();
       const heading = document.createElement('h1');
       heading.className = 'tmt-ui-page-title';
@@ -105,13 +108,14 @@ function NativeTopBar({
       heading.focus();
       const action = document.createElement('button');
       action.type = 'button';
-      action.className = 'tmt-ui-action';
-      action.dataset.variant = 'secondary';
-      action.textContent = 'Module action';
+      action.className = 'tmt-ui-action tmt-ui-icon-action-control';
+      action.dataset.variant = 'text';
+      action.setAttribute('aria-label', 'Module action');
+      action.textContent = '⋯';
       action.onclick = (event) => {
         if (event.isTrusted) latest.current.activate();
       };
-      actions.append(action);
+      slot.actions.append(action);
     };
     if (hosted) {
       const route = (id: string, label: string, path: string): ShellRoute => ({
@@ -123,7 +127,7 @@ function NativeTopBar({
           await gate;
           return {
             mount(slot) {
-              fill(slot.setTopBar().actions, label);
+              fill(slot.setTopBar(), label);
             },
           };
         },
@@ -136,7 +140,7 @@ function NativeTopBar({
     } else {
       const controls = mountShell(node, view, () => true);
       controls.setCommonControls(latest.current.common);
-      fill(controls.setTopBar().actions, 'Shared top bar');
+      fill(controls.setTopBar(), 'Shared top bar');
       owner.current = controls;
     }
     return () => {
@@ -224,10 +228,11 @@ export function TopBarFrame({ params }: { params: URLSearchParams }) {
           <BrowserShell view={view} commonControls={common} select={() => true}>
             <ReadyTopBar
               actions={
-                <BrowserAction
+                <BrowserIconAction
                   type="button"
-                  variant="secondary"
+                  variant="text"
                   label="Module action"
+                  icon={<span aria-hidden="true">⋯</span>}
                   onActivate={activate}
                 />
               }

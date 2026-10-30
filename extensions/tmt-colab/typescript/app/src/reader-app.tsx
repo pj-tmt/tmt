@@ -2,11 +2,10 @@ import { WorkBand } from './work-band.js';
 import { useEditLockLayer } from './edit-lock-layer.js';
 import { ShellNotice } from './shell-notice.js';
 import { usePageLinks } from './page-link-bar.js';
-import { browserUiClasses as ui } from '@tmt/browser-ui/static';
 import { Circle, Info, X } from 'lucide-react';
 import type { AttachmentBinding } from './attachment-service.js';
 import { FilesSurface } from './files-panel.js';
-import { BusyMark } from '@tmt/browser-ui/react';
+import { BrowserDialog, BrowserMenu, BusyMark } from '@tmt/browser-ui/react';
 import { ColabHeader } from './colab-header.js';
 import { ReaderMetadataInfo } from './reader-metadata.js';
 import type { ReaderMetadata } from './link-metadata.js';
@@ -50,7 +49,9 @@ export function ReaderApp({
   /** A verified link-own request writer, never the owner metadata publisher. */
   metadata?: ReaderMetadata;
 }) {
-  const information = useRef<HTMLDetailsElement>(null);
+  const [information, setInformation] = useState(false);
+  const moreButton = () =>
+    document.querySelector<HTMLButtonElement>('.tmt-ui-header button[aria-label="More"]');
   const [files, setFiles] = useState(false);
   const [sourceOpen, setSourceOpen] = useState(false);
   const shell = state.kind === 'ready' && state.view.pageType === 'shell';
@@ -62,9 +63,8 @@ export function ReaderApp({
   const host = useRef<HTMLDivElement>(null);
   const bar = useRef<HTMLElement>(null);
   const noteBox = useRef<HTMLElement>(null);
-  /** The note's height with its margins: it sits above the page frame, so a frame that fills the
-   * viewport leaves room for it (`frameLead`), and so does the page's minimum height
-   * (`reader-style.css`). */
+  const statusRow = useRef<HTMLDivElement>(null);
+  /** Trusted content above the frame takes room from its viewport-sized minimum. */
   const [noteSize, setNoteSize] = useState(0);
   const [workBandSize, setWorkBandSize] = useState(0);
   const bandSize = useRef(workBandSize);
@@ -79,7 +79,8 @@ export function ReaderApp({
     return (
       box.getBoundingClientRect().height +
       Number.parseFloat(style.marginTop) +
-      Number.parseFloat(style.marginBottom)
+      Number.parseFloat(style.marginBottom) +
+      (statusRow.current?.getBoundingClientRect().height ?? 0)
     );
   };
   const ready = state.kind === 'ready';
@@ -93,6 +94,7 @@ export function ReaderApp({
     measure();
     const observer = new ResizeObserver(measure);
     observer.observe(box);
+    if (statusRow.current) observer.observe(statusRow.current);
     return () => observer.disconnect();
     // `noteHeight` only reads the note's box, which `ready` decides is there.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -164,6 +166,8 @@ export function ReaderApp({
     <>
       {pageLinkBar}
       <ColabHeader
+        reader
+        brandOnly={state.kind !== 'ready'}
         headerRef={bar}
         caption={
           state.kind === 'ready' && state.view.originalAuthor !== undefined
@@ -180,83 +184,23 @@ export function ReaderApp({
                 : text.error
         }
         actions={
-          <>
-            {state.kind === 'ready' && (
-              <>
-                <span className="chip" data-mode={canEdit && !shell ? 'edit' : 'read'}>
-                  {mode}
-                </span>
-                <span
-                  className={`status ${render === 'ready' ? 'live' : render === 'loading' ? 'waiting' : 'blocked'}`}
-                  role="status"
-                >
-                  {render === 'ready' ? (
-                    <Circle className="status-dot" fill="currentColor" aria-hidden />
-                  ) : render === 'loading' ? (
-                    <BusyMark />
-                  ) : (
-                    <X aria-hidden />
-                  )}{' '}
-                  {render === 'ready'
-                    ? text.readerLive
-                    : render === 'loading'
-                      ? text.readerLoading
-                      : text.readerStopped}
-                </span>
-              </>
-            )}
-            {state.kind === 'ready' && edit && !shell && (
-              <button
-                className={ui.action}
-                data-variant="text"
-                data-testid="source-toggle"
-                aria-expanded={sourceOpen}
-                onClick={(event) => {
-                  if (event.isTrusted) setSourceOpen((open) => !open);
-                }}
-              >
-                {text.source}
-              </button>
-            )}
-            {descriptors.length > 0 && (
-              <button
-                className={ui.action}
-                data-variant="text"
-                data-testid="files-toggle"
-                aria-expanded={files}
-                onClick={(event) => {
-                  if (event.isTrusted) setFiles((open) => !open);
-                }}
-              >
-                {text.files} {descriptors.length}
-              </button>
-            )}
-            <details className="reader-information" ref={information}>
-              <summary className={ui.action} data-variant="text" aria-label={text.readerInfo}>
-                <Info aria-hidden />
-              </summary>
-              <div className="reader-information-panel">
-                {state.kind === 'ready' && (
-                  <ReaderMetadataInfo
-                    key={metadata?.scope ?? state.pageId ?? 'reader'}
-                    view={state.view}
-                    metadata={canEdit ? metadata : undefined}
-                    onOpen={() => {
-                      information.current?.removeAttribute('open');
-                      information.current?.querySelector('summary')?.focus({ preventScroll: true });
-                      setSourceOpen(false);
-                      setFiles(false);
-                    }}
-                    focusFallback={() => information.current?.querySelector('summary') ?? null}
-                  />
-                )}
-                <section>
-                  <h3>{text.aboutScripts}</h3>
-                  <p>{text.warning}</p>
-                </section>
-              </div>
-            </details>
-          </>
+          <BrowserMenu
+            label={text.more}
+            items={[
+              ...(state.kind === 'ready' && edit && !shell
+                ? [{ key: 'source', label: text.source }]
+                : []),
+              ...(descriptors.length > 0
+                ? [{ key: 'files', label: `${text.files} ${descriptors.length}` }]
+                : []),
+              { key: 'info', label: text.readerInfo },
+            ]}
+            onSelect={(key) => {
+              if (key === 'source') setSourceOpen(true);
+              else if (key === 'files') setFiles(true);
+              else setInformation(true);
+            }}
+          />
         }
       />
       <main
@@ -267,6 +211,30 @@ export function ReaderApp({
           } as CSSProperties
         }
       >
+        {state.kind === 'ready' && (
+          <div className="reader-status-row" ref={statusRow}>
+            <span className="chip" data-mode={canEdit && !shell ? 'edit' : 'read'}>
+              {mode}
+            </span>
+            <span
+              className={`status ${render === 'ready' ? 'live' : render === 'loading' ? 'waiting' : 'blocked'}`}
+              role="status"
+            >
+              {render === 'ready' ? (
+                <Circle className="status-dot" fill="currentColor" aria-hidden />
+              ) : render === 'loading' ? (
+                <BusyMark />
+              ) : (
+                <X aria-hidden />
+              )}{' '}
+              {render === 'ready'
+                ? text.readerLive
+                : render === 'loading'
+                  ? text.readerLoading
+                  : text.readerStopped}
+            </span>
+          </div>
+        )}
         {notice}
         {state.kind === 'ready' && (
           <aside ref={noteBox} className="reader-note" aria-labelledby="reader-note-title">
@@ -331,6 +299,33 @@ export function ReaderApp({
           </NoticeCard>
         )}
       </main>
+      <BrowserDialog
+        keepMounted
+        open={information}
+        title={text.readerInfo}
+        onDismiss={() => setInformation(false)}
+        focusFallback={moreButton}
+      >
+        <div className="reader-information-panel">
+          {state.kind === 'ready' && (
+            <ReaderMetadataInfo
+              key={metadata?.scope ?? state.pageId ?? 'reader'}
+              view={state.view}
+              metadata={canEdit ? metadata : undefined}
+              onOpen={() => {
+                setInformation(false);
+                setSourceOpen(false);
+                setFiles(false);
+              }}
+              focusFallback={moreButton}
+            />
+          )}
+          <section>
+            <h3>{text.aboutScripts}</h3>
+            <p>{text.warning}</p>
+          </section>
+        </div>
+      </BrowserDialog>
       {state.kind === 'ready' && edit && (
         <ReaderSource
           source={state.view.source}
@@ -341,7 +336,7 @@ export function ReaderApp({
       )}
       {state.kind === 'ready' && (
         <FilesSurface
-          focusFallback={() => document.querySelector<HTMLButtonElement>('.tmt-ui-header button')}
+          focusFallback={moreButton}
           open={files && descriptors.length > 0}
           onDismiss={() => setFiles(false)}
           descriptors={descriptors}
