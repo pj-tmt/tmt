@@ -833,6 +833,7 @@ exec ${quote(peer)} ${quote(fixture.executables.cli.executable)} ${quote(scenari
       // Agents tab opens on the Squads tree: first row (Common pool), then the squad row below it.
       fixture.tmux(['send-keys', '-t', shell.pane, 'Home', 'Down']);
       await fixture.waitForCapture((screen) => screen.includes('SQUAD / AGENT'), shell.pane);
+      // `,` opens the ? panel on its settings rows, below the keys.
       fixture.tmux(['send-keys', '-t', shell.pane, ',']);
       await fixture.waitForCapture(
         (screen) => screen.includes('Squad settings: product'),
@@ -861,15 +862,16 @@ exec ${quote(peer)} ${quote(fixture.executables.cli.executable)} ${quote(scenari
       expect(read.json!.entries.find((entry) => entry.key === 'idle_alert.enabled')?.value).toBe(
         true
       );
+      // Esc on the sheet shows the ? panel again on its settings rows.
       fixture.tmux(['send-keys', '-t', shell.pane, 'Escape']);
       await fixture.waitForCapture(
         (screen) =>
-          screen.includes('Squad settings: product') && screen.includes('Workspace settings'),
+          screen.includes('Squad settings: product') && screen.includes('Enter apply or open'),
         shell.pane
       );
       // Leave the board before the fixture removes the state it still writes.
       fixture.tmux(['send-keys', '-t', shell.pane, 'Escape']);
-      await fixture.waitForCapture((screen) => !screen.includes('Workspace settings'), shell.pane);
+      await fixture.waitForCapture((screen) => !screen.includes('Enter apply or open'), shell.pane);
       fixture.tmux(['send-keys', '-t', shell.pane, 'q']);
       await fixture.waitForCapture((screen) => screen.includes('IDLE_BOARD_EXIT=0'), shell.pane);
     });
@@ -1511,7 +1513,7 @@ exec ${quote(peer)} ${quote(fixture.executables.cli.executable)} ${quote(scenari
     });
   });
 
-  it('uses Workspace settings Actions for an empty room and persists explicit checklist updates without dispatch', async () => {
+  it('uses the settings Actions row for an empty room and persists explicit checklist updates without dispatch', async () => {
     await withE2EFixture(async (fixture) => {
       installSquad(fixture);
       expectJsonResult(await fixture.runJsonCli(['identity', 'create', 'Ben']));
@@ -1540,7 +1542,7 @@ exec ${quote(peer)} ${quote(fixture.executables.cli.executable)} ${quote(scenari
         );
         fixture.tmux(['send-keys', '-t', shell.pane, ',']);
         await fixture.waitForCapture(
-          (screen) => screen.includes('Workspace settings') && screen.includes('Actions'),
+          (screen) => screen.includes('Enter apply or open') && screen.includes('Actions'),
           shell.pane
         );
         // Down saturates on the final entry (the selected squad's settings link); Up steps over the
@@ -1554,9 +1556,9 @@ exec ${quote(peer)} ${quote(fixture.executables.cli.executable)} ${quote(scenari
           'Up',
           'Enter',
         ]);
+        // The Actions menu opens as a layer over the ? panel.
         await fixture.waitForCapture(
-          (screen) =>
-            !screen.includes('Workspace settings') && screen.includes('Enter runs · Esc closes'),
+          (screen) => screen.includes('Enter runs · Esc closes'),
           shell.pane
         );
         // Checklist can be below the viewport until the action menu scrolls to it.

@@ -6,6 +6,10 @@ use ratatui::{Frame, layout::Rect};
 pub(super) fn render(frame: &mut Frame, app: &App, body: Rect, look: crate::look::Look) {
     app.peek_areas.clear();
     let set = |overlay, outer| app.peek_areas.set(overlay, outer);
+    // The `?` panel is the lowest layer: dialogs opened from its settings rows paint above it.
+    if app.help {
+        crate::board::help::render(frame, app, body);
+    }
     if let Some(switch) = &app.switch_tool
         && app.switch_tool_shown()
     {
@@ -58,9 +62,6 @@ pub(super) fn render(frame: &mut Frame, app: &App, body: Rect, look: crate::look
     }
     if let Some(unread) = &app.unread_overlay {
         unread.render(frame, app, body);
-    }
-    if app.help {
-        crate::board::help::render(frame, app, body);
     }
     if let Some(menu) = &app.menu {
         let anchor = menu.anchor;

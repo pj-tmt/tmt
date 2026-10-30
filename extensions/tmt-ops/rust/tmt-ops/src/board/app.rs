@@ -2069,7 +2069,6 @@ impl App {
         overlay.opening_focus = self.focus;
         overlay.squad_keys = self.squad_keys.clone();
         self.settings = Some(overlay);
-        self.help = false;
         Ok(())
     }
 
@@ -2106,7 +2105,6 @@ impl App {
             .as_ref()
             .map(|view| crate::staleness::Snapshot::for_preview(&view.document));
         self.settings = Some(overlay);
-        self.help = false;
         Ok(())
     }
 
@@ -3867,8 +3865,6 @@ impl App {
             Some(Overlay::Notes)
         } else if self.discovery_shown() {
             Some(Overlay::Discovery)
-        } else if self.help {
-            Some(Overlay::Help)
         } else if self.settings.is_some() {
             Some(Overlay::Settings)
         } else if self.panels_picker.is_some() {
@@ -3877,6 +3873,9 @@ impl App {
             Some(Overlay::Theme)
         } else if self.cron_list.is_some() {
             Some(Overlay::CronList)
+        } else if self.help {
+            // Lowest: a dialog opened from its settings rows is a layer above it.
+            Some(Overlay::Help)
         } else {
             None
         }
@@ -3930,6 +3929,16 @@ impl App {
                 match input? {
                     super::help::Input::Close => self.help = false,
                     super::help::Input::Scroll => {}
+                    // A value row applies and the panel stays; a dialog row opens above it, and
+                    // closing that dialog shows the panel again on the same row.
+                    super::help::Input::Choose(index) => {
+                        let choice = self
+                            .workspace_setting_entries()?
+                            .into_iter()
+                            .nth(index)?
+                            .choice;
+                        return Some(self.choose(choice));
+                    }
                 }
                 Some(Effect::None)
             }
@@ -3951,14 +3960,8 @@ impl App {
                         }
                         super::settings::Input::Close => {
                             self.settings_preview();
-                            let from_menu = self
-                                .settings
-                                .take()
-                                .is_some_and(|overlay| overlay.from_menu);
-                            if from_menu {
-                                // Back to the Workspace settings menu the overlay was opened from.
-                                self.workspace_settings();
-                            }
+                            // Opened from the `?` panel's settings rows, which stay underneath.
+                            self.settings = None;
                             Effect::CancelSettings
                         }
                         super::settings::Input::Pick("actions") => {
@@ -5094,7 +5097,7 @@ pub(crate) mod tests {
         app.apply(snapshot("product", json!([])));
         let current = app.current.clone();
         let focus = app.focus;
-        app.help_state.borrow_mut().open();
+        app.help_state.borrow_mut().open(false);
         app.help = true;
         let mut released = KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE);
         released.kind = KeyEventKind::Release;
@@ -5128,7 +5131,7 @@ pub(crate) mod tests {
             app.key(KeyEvent::new(KeyCode::Char('r'), KeyModifiers::CONTROL)),
             Effect::Refresh
         );
-        app.help_state.borrow_mut().open();
+        app.help_state.borrow_mut().open(false);
         app.help = true;
         assert_eq!(
             app.key(KeyEvent::new(KeyCode::Char('c'), KeyModifiers::CONTROL)),

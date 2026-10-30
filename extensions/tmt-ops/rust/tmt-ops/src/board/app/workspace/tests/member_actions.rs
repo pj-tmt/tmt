@@ -449,14 +449,15 @@ fn agents_shortcuts_keyboard_settings_reaches_named_unbound_member_actions() {
     let mut app = board();
     key(&mut app, KeyCode::Char(','));
     let actions = app
-        .menu
-        .as_ref()
+        .workspace_setting_entries()
         .unwrap()
-        .entries
         .iter()
         .position(|entry| entry.label == "Actions")
         .unwrap();
-    app.menu.as_mut().unwrap().selected = actions;
+    paint(&app, 160, 36);
+    while app.help_state.borrow().selected_setting() != Some(actions) {
+        key(&mut app, KeyCode::Down);
+    }
     key(&mut app, KeyCode::Enter);
     let entries = &app.menu.as_ref().unwrap().entries;
     for ui in [OpsUiAction::RenameMember, OpsUiAction::RemoveMember] {
@@ -465,6 +466,9 @@ fn agents_shortcuts_keyboard_settings_reaches_named_unbound_member_actions() {
         assert!(entry.key.is_empty());
     }
     app.menu = None;
+    // The ? panel the Actions row opened from is still beneath; Esc closes it.
+    assert!(app.help);
+    key(&mut app, KeyCode::Esc);
     key(&mut app, KeyCode::Char('m'));
     assert!(app.workspace_form.is_none());
     assert!(app.moving.is_some(), "m lifts the agent in place");

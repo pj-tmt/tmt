@@ -48,7 +48,7 @@ fn help_captures_board_actions_and_restores_selection_focus_and_scroll() {
     ] {
         assert_eq!(key(&mut app, code), Effect::None);
     }
-    assert!(app.help_state.borrow().scroll.offset() > 0);
+    assert!(app.help_state.borrow().scroll().offset() > 0);
     assert_eq!(
         (
             app.current.clone(),
@@ -69,7 +69,7 @@ fn help_captures_board_actions_and_restores_selection_focus_and_scroll() {
         key(&mut app, KeyCode::Char('?'));
         assert!(app.help);
         draw(&app, 100, 30);
-        assert_eq!(app.help_state.borrow().scroll.offset(), 0);
+        assert_eq!(app.help_state.borrow().scroll().offset(), 0);
     }
     assert_eq!(
         app.key(KeyEvent::new(KeyCode::Char('c'), KeyModifiers::CONTROL)),
@@ -94,11 +94,12 @@ fn help_chrome_is_opaque_and_end_keeps_its_footer_at_every_capture_width() {
         for line in &top[first + 1..last] {
             assert!(line.starts_with("│ ") && line.ends_with('│'), "{line}");
         }
-        assert!(top[last - 1].contains(super::super::super::help::FOOTER));
+        assert!(top[last - 1].contains(super::super::super::help::READING_FOOTER));
         key(&mut app, KeyCode::End);
         let end = draw(&app, width, 30);
         assert_ne!(end, top);
-        assert!(end.iter().any(|line| line.contains("Alt-Backspace")));
+        // The settings rows end the panel, under the keys.
+        assert!(end.iter().any(|line| line.contains("Panels")), "{end:?}");
         assert_eq!(end[last - 1], top[last - 1]);
         key(&mut app, KeyCode::Home);
         assert_eq!(draw(&app, width, 30), top);
@@ -118,10 +119,10 @@ fn help_mouse_scrolls_its_content_and_an_outside_press_closes_it() {
         modifiers: KeyModifiers::NONE,
     };
     assert_eq!(app.mouse(event, Instant::now()), Effect::None);
-    assert_eq!(app.help_state.borrow().scroll.offset(), 3);
+    assert_eq!(app.help_state.borrow().scroll().offset(), 3);
     event.row = 0;
     app.mouse(event, Instant::now());
-    assert_eq!(app.help_state.borrow().scroll.offset(), 3);
+    assert_eq!(app.help_state.borrow().scroll().offset(), 3);
     // A press inside the sheet never reaches the base rows under it.
     event.kind = MouseEventKind::Down(MouseButton::Left);
     event.row = 5;
@@ -156,7 +157,7 @@ fn help_pages_by_the_painted_viewport_after_resizing_an_editor() {
         draw(&app, width, height);
         let (page, limit) = {
             let help = app.help_state.borrow();
-            let viewport = help.scroll.viewport();
+            let viewport = help.scroll().viewport();
             if height == 7 {
                 assert_eq!(
                     viewport.height, 0,
@@ -173,11 +174,11 @@ fn help_pages_by_the_painted_viewport_after_resizing_an_editor() {
             }
             (
                 usize::from(viewport.height).saturating_sub(1).max(1),
-                help.scroll.limit(),
+                help.scroll().limit(),
             )
         };
         assert!(limit > 0);
-        assert_eq!(app.help_state.borrow().scroll.offset(), 0);
+        assert_eq!(app.help_state.borrow().scroll().offset(), 0);
         if height == 8 {
             key(&mut app, KeyCode::Esc);
             assert!(!app.help);
@@ -185,10 +186,10 @@ fn help_pages_by_the_painted_viewport_after_resizing_an_editor() {
             continue;
         }
         key(&mut app, KeyCode::PageDown);
-        assert_eq!(app.help_state.borrow().scroll.offset(), page.min(limit));
+        assert_eq!(app.help_state.borrow().scroll().offset(), page.min(limit));
         draw(&app, width, height);
         key(&mut app, KeyCode::PageUp);
-        assert_eq!(app.help_state.borrow().scroll.offset(), 0);
+        assert_eq!(app.help_state.borrow().scroll().offset(), 0);
         key(&mut app, KeyCode::Esc);
         assert!(!app.help);
         assert_eq!(app.workspace.selected, selected);

@@ -179,7 +179,7 @@ fn covered_editor_is_not_typing_owner_and_destination_keeps_its_uuid_draft() {
     for ch in "kept".chars() {
         key(&mut app, KeyCode::Char(ch));
     }
-    app.help_state.borrow_mut().open();
+    app.help_state.borrow_mut().open(false);
     app.help = true;
     assert_eq!(
         app.workspace_input_owner(),

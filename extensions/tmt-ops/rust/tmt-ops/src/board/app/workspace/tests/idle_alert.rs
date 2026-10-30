@@ -92,13 +92,17 @@ fn the_squad_row_names_the_alert_and_counts_the_members_over_only_while_it_is_on
 }
 
 fn menu_labels(app: &App) -> Vec<String> {
-    app.menu
-        .as_ref()
+    app.workspace_setting_entries()
         .unwrap()
-        .entries
         .iter()
         .map(|entry| entry.label.clone())
         .collect()
+}
+
+/// The label of the `?` panel's selected settings row.
+fn selected_setting(app: &App) -> String {
+    let index = app.help_state.borrow().selected_setting().unwrap();
+    menu_labels(app)[index].clone()
 }
 
 fn settings_config(name: &str, text: &str) -> (std::path::PathBuf, Config) {
@@ -112,15 +116,15 @@ fn settings_config(name: &str, text: &str) -> (std::path::PathBuf, Config) {
 }
 
 #[test]
-fn the_workspace_menu_ends_with_a_rule_and_the_selected_squads_settings_only_when_one_is_selected()
-{
+fn the_settings_rows_end_with_a_rule_and_the_selected_squads_settings_only_when_one_is_selected() {
     let mut app = board();
     app.workspace_settings();
+    assert!(app.help && app.help_state.borrow().settings_focus());
     let labels = menu_labels(&app);
     assert_eq!(labels.last().unwrap(), "Squad settings: product");
     assert!(labels[labels.len() - 2].chars().all(|ch| ch == '─'));
     assert!(matches!(
-        app.menu.as_ref().unwrap().entries.last().unwrap().choice,
+        app.workspace_setting_entries().unwrap().last().unwrap().choice,
         Choice::SquadSettings(ref squad) if squad == "product"
     ));
     // Down saturates on the link; Up steps over the rule to the entry before it.
@@ -128,12 +132,11 @@ fn the_workspace_menu_ends_with_a_rule_and_the_selected_squads_settings_only_whe
     for _ in 0..40 {
         key(&mut app, KeyCode::Down);
     }
-    let menu = app.menu.as_ref().unwrap();
-    assert_eq!(menu.entries[menu.selected].label, "Squad settings: product");
+    assert_eq!(selected_setting(&app), "Squad settings: product");
     key(&mut app, KeyCode::Up);
-    let menu = app.menu.as_ref().unwrap();
-    assert_eq!(menu.entries[menu.selected].label, "Panels");
-    app.menu = None;
+    assert_eq!(selected_setting(&app), "Panels");
+    key(&mut app, KeyCode::Esc);
+    assert!(!app.help);
     app.workspace.selected = Some(OpsTarget::Pool);
     app.workspace_settings();
     let labels = menu_labels(&app);
@@ -146,11 +149,12 @@ fn the_workspace_menu_ends_with_a_rule_and_the_selected_squads_settings_only_whe
 }
 
 #[test]
-fn choosing_squad_settings_opens_the_overlay_for_that_squad_and_escape_returns_to_the_menu() {
+fn choosing_squad_settings_opens_the_overlay_for_that_squad_and_escape_returns_to_the_panel() {
     let mut app = board();
     app.workspace_settings();
-    let last = app.menu.as_ref().unwrap().entries.len() - 1;
-    app.menu.as_mut().unwrap().selected = last;
+    paint(&app, 160, 36);
+    key(&mut app, KeyCode::End);
+    assert_eq!(selected_setting(&app), "Squad settings: product");
     assert_eq!(
         key(&mut app, KeyCode::Enter),
         Effect::SquadSettings("product".into())
@@ -199,7 +203,11 @@ fn choosing_squad_settings_opens_the_overlay_for_that_squad_and_escape_returns_t
     assert!(app.settings.is_some());
     assert_eq!(key(&mut app, KeyCode::Esc), Effect::CancelSettings);
     assert!(app.settings.is_none());
-    assert_eq!(menu_labels(&app).last().unwrap(), "Squad settings: product");
+    assert!(
+        app.help && app.help_state.borrow().settings_focus(),
+        "closing the sheet shows the ? panel again"
+    );
+    assert_eq!(selected_setting(&app), "Squad settings: product");
     std::fs::remove_file(path).unwrap();
 }
 

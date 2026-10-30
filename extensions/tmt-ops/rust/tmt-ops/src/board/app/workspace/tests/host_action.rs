@@ -3,20 +3,32 @@ use super::*;
 #[test]
 fn workspace_settings_down_saturation_selects_its_final_actions_entry() {
     let mut app = board();
-    // With no squad selected the menu ends at Panels; a squad adds its settings link after a rule.
+    // With no squad selected the rows end at Panels; a squad adds its settings link after a rule.
     app.workspace.selected = Some(OpsTarget::Pool);
     assert_eq!(app.workspace_settings(), Effect::None);
-    let last = app.menu.as_ref().unwrap().entries.last().unwrap();
+    let entries = app.workspace_setting_entries().unwrap();
+    let last = entries.last().unwrap();
     assert_eq!(last.label, "Panels");
     assert!(matches!(&last.choice, Choice::Panels));
     paint(&app, 160, 36);
     for _ in 0..40 {
         assert_eq!(key(&mut app, KeyCode::Down), Effect::None);
     }
-    let menu = app.menu.as_ref().unwrap();
-    assert_eq!(menu.selected, menu.entries.len() - 1);
+    assert_eq!(
+        app.help_state.borrow().selected_setting(),
+        Some(entries.len() - 1)
+    );
     assert_eq!(key(&mut app, KeyCode::Enter), Effect::None);
     assert!(app.panels_picker.is_some());
+    assert!(app.help, "Panels opens as a layer over the ? panel");
+    paint(&app, 160, 36);
+    key(&mut app, KeyCode::Esc);
+    assert!(app.panels_picker.is_none() && app.help);
+    assert_eq!(
+        app.help_state.borrow().selected_setting(),
+        Some(entries.len() - 1),
+        "back on the same row"
+    );
 }
 
 #[test]

@@ -2558,6 +2558,8 @@ mod tests {
                     events
                         .send(acted(false, true, Ok("Workspace preferences saved.")))
                         .unwrap();
+                    // A value row keeps the ? panel open; Esc closes it before the board's `j`.
+                    events.send(key(KeyCode::Esc)).unwrap();
                     events.send(key(KeyCode::Char('j'))).unwrap();
                 }
                 lane::Job::Jump {

@@ -1247,16 +1247,14 @@ fn window_choice_is_view_state_and_never_relabels_old_evidence() {
     };
     let mut app = savings_board();
     let selected = app.workspace.selected.clone();
-    app.workspace_settings();
-    let menu = app.menu.as_ref().unwrap();
+    let entries = app.workspace_setting_entries().unwrap();
     for window in DigestWindow::ALL {
         assert!(
-            menu.entries
+            entries
                 .iter()
                 .any(|entry| entry.choice == Choice::DigestWindow(window))
         );
     }
-    app.menu = None;
     let preferences = app.workspace_snapshot().unwrap().preferences.clone();
     assert_eq!(
         app.choose(Choice::DigestWindow(DigestWindow::Week)),
