@@ -311,10 +311,13 @@
 .work-body {
   min-height: 0;
   max-height: calc(100dvh - var(--page-bar-size, 0px) - 44px);
-  overflow-y: auto;
+  overflow: hidden;
   margin: 0;
   padding: 0;
   border: 0;
+}
+.work-body-transition[data-open='true'] .work-body {
+  overflow-y: auto;
 }
 .work-body-content {
   padding: 8px 20px 20px;

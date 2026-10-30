@@ -659,6 +659,7 @@ test('the attach picker does not offer shell pages', async ({ page }) => {
 test('status band exposes the spec meter and keeps tasks behind their chip', async ({ page }) => {
   const host = await mountBand(page, 'panel');
   await expect(host.locator('.work-head .tmt-ui-meter')).toBeVisible();
+  await expect(host.locator('.work-body')).toHaveCSS('overflow-y', 'hidden');
   const done = host.locator('.work-segments [data-state=done]');
   const working = host.locator('.work-segments [data-state=in-progress]');
   expect((await done.boundingBox())!.width).toBeGreaterThan(0);
@@ -670,6 +671,7 @@ test('status band exposes the spec meter and keeps tasks behind their chip', asy
     /tmt-ui-action/,
   );
   await expand(page);
+  await expect(host.locator('.work-body')).toHaveCSS('overflow-y', 'auto');
   await expect(host.getByRole('button', { name: /Tasks/ })).toHaveClass(/tmt-ui-count-chip/);
   await expect(host.locator('.work-tasks')).toHaveCount(0);
 });
