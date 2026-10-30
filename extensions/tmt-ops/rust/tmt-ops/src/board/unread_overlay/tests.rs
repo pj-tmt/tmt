@@ -2350,7 +2350,7 @@ fn writer_settles_a_manual_read_even_when_the_ui_never_consumes_its_event() {
 
 #[test]
 fn older_core_only_metadata_does_not_change_the_existing_attention_sort() {
-    let mut app = capture_case("unread-overlay-older", crate::look::Look::default());
+    let app = capture_case("unread-overlay-older", crate::look::Look::default());
     assert_eq!(
         app.unread_count(MEMBER).total,
         1,
