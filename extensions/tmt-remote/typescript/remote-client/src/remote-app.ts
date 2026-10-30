@@ -140,17 +140,16 @@ export async function remoteApp(
     button.addEventListener(
       'keydown',
       (event) => {
-        const visibleTabs = tabs;
-        const index = visibleTabs.indexOf(item);
+        const index = tabs.indexOf(item);
         const next =
           event.key === 'Home'
-            ? visibleTabs[0]
+            ? tabs[0]
             : event.key === 'End'
-              ? visibleTabs.at(-1)
+              ? tabs.at(-1)
               : event.key === 'ArrowRight'
-                ? visibleTabs[(index + 1) % visibleTabs.length]
+                ? tabs[(index + 1) % tabs.length]
                 : event.key === 'ArrowLeft'
-                  ? visibleTabs[(index + visibleTabs.length - 1) % visibleTabs.length]
+                  ? tabs[(index + tabs.length - 1) % tabs.length]
                   : undefined;
         if (!next) return;
         event.preventDefault();

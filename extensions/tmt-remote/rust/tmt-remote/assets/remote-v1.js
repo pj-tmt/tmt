@@ -4635,13 +4635,11 @@ function remoteRegistryPage(initialBlocked = () => "", shell) {
 	}
 	const subheader = createPageSubheader({
 		title: "My Remotes",
-		count: 0,
 		subtitle: "Names and addresses stay in this browser.",
 		actions
 	});
 	head.replaceChildren(...subheader.childNodes);
 	head.className = subheader.className;
-	const count = head.querySelector(".tmt-ui-shell-count");
 	const subtitle = head.querySelector(".tmt-ui-subheader-text p");
 	const status = document.getElementById("remote-status");
 	const joinHost = document.getElementById("remote-join");
@@ -4845,7 +4843,6 @@ function remoteRegistryPage(initialBlocked = () => "", shell) {
 		});
 		const visibleSummary = observed === "Connected" && observedRole === "owner" ? summary : void 0;
 		summaryListeners.forEach((listener) => listener(visibleSummary));
-		count.textContent = String(projection.rows.length);
 		if (subtitle) subtitle.textContent = `${projection.rows.length} ${projection.rows.length === 1 ? "remote" : "remotes"} · Names and addresses stay in this browser.`;
 		footer.replaceChildren(node$1("span", `${projection.rows.length} ${projection.rows.length === 1 ? "remote" : "remotes"} in this view`), node$1("span", "Saved in this browser · Forget leaves access unchanged"));
 		listeners.forEach((listener) => listener(projection));
@@ -9686,9 +9683,8 @@ async function remoteApp(shell, main, bar, settingsStyles, pages) {
 		button.setAttribute("aria-controls", `remote-panel-${item.id}`);
 		button.addEventListener("click", () => shell.navigate(new URL(item.path, location.href).href), { signal: shell.signal });
 		button.addEventListener("keydown", (event) => {
-			const visibleTabs = tabs;
-			const index = visibleTabs.indexOf(item);
-			const next = event.key === "Home" ? visibleTabs[0] : event.key === "End" ? visibleTabs.at(-1) : event.key === "ArrowRight" ? visibleTabs[(index + 1) % visibleTabs.length] : event.key === "ArrowLeft" ? visibleTabs[(index + visibleTabs.length - 1) % visibleTabs.length] : void 0;
+			const index = tabs.indexOf(item);
+			const next = event.key === "Home" ? tabs[0] : event.key === "End" ? tabs.at(-1) : event.key === "ArrowRight" ? tabs[(index + 1) % tabs.length] : event.key === "ArrowLeft" ? tabs[(index + tabs.length - 1) % tabs.length] : void 0;
 			if (!next) return;
 			event.preventDefault();
 			shell.navigate(new URL(next.path, location.href).href);

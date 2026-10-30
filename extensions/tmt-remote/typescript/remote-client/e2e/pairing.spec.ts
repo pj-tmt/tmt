@@ -99,9 +99,9 @@ async function feedbackBounds(page: Page, selector: string) {
 }
 
 /** At phone width the visible cells share the host's two aligned tracks. */
-async function assertPhoneTable(page: Page, selector: string) {
+async function assertPhoneTable(page: Page, selector: string, width = 390) {
   const previous = page.viewportSize()!;
-  await page.setViewportSize({ width: 390, height: 900 });
+  await page.setViewportSize({ width, height: 900 });
   const table = page.locator(selector);
   await expect(table).not.toHaveAttribute('style');
   const positions = await table
@@ -119,7 +119,7 @@ async function assertPhoneTable(page: Page, selector: string) {
   expect(positions[0]!.center).toBeCloseTo(positions[1]!.center, 0);
   expect(positions[2]!.left).toBeCloseTo(positions[0]!.left, 0);
   expect(positions[3]!.left).toBeCloseTo(positions[1]!.left, 0);
-  await expect(page.locator('html')).toHaveJSProperty('scrollWidth', 390);
+  await expect(page.locator('html')).toHaveJSProperty('scrollWidth', width);
   await page.setViewportSize(previous);
 }
 
@@ -5265,6 +5265,11 @@ test('landing registry keeps two origins independent and confirms public-only ha
         'studio',
       );
       await assertPhoneTable(page, '.remote-registry-table');
+      await assertPhoneTable(page, '.remote-registry-table', 700);
+      await expect(page.locator('#remote-head .tmt-ui-shell-count')).toHaveCount(0);
+      await expect(page.locator('#remote-head .tmt-ui-subheader-text p')).toContainText(
+        '2 remotes',
+      );
       await expect(page.locator('[data-remote="studio"]')).toContainText('This machine');
       await expect(page.locator('[data-remote="studio"] [data-role]')).toHaveText('Member');
       await expect(page.getByRole('link', { name: 'Open studio', exact: true })).toBeVisible();
@@ -5302,6 +5307,7 @@ test('landing registry keeps two origins independent and confirms public-only ha
       expect(network.filter((url) => url.startsWith(secondOrigin))).toEqual([]);
       await page.locator('#remotes').scrollIntoViewIfNeeded();
       await overflow.blur();
+      await page.mouse.move(1, 1);
       await capture(
         'list',
         'Current access is verified; the other origin is not probed or marked.',
@@ -6295,7 +6301,9 @@ test('Remote tab frame keeps unknown, Member locks and designated Admin separate
       'aria-label',
       'People · 1 person',
     );
-    await expect.poll(() => operations.includes('remote.members.summary')).toBe(true);
+    await expect
+      .poll(() => operations.filter((op) => op === 'remote.members.summary').length)
+      .toBe(1);
     await expect(page.locator('.remote-tab-content .tmt-ui-subheader p:visible')).toContainText(
       '1 person · Sending is off',
     );
@@ -6309,6 +6317,7 @@ test('Remote tab frame keeps unknown, Member locks and designated Admin separate
     await expect(page.locator('#people-content')).not.toContainText('Invitation:');
     await expect(page.locator('#people-content')).not.toContainText('Route cleanup:');
     await assertPhoneTable(page, '.remote-people-table');
+    await assertPhoneTable(page, '.remote-people-table', 700);
     const ownerRow = page
       .locator('#people-content .people-person')
       .filter({ hasText: ' · Owner · ' });
@@ -6387,6 +6396,8 @@ test('Remote tab frame keeps unknown, Member locks and designated Admin separate
       undefined,
       capture,
     );
+    // Registry updates and tab changes must not issue another summary for this session.
+    expect(operations.filter((op) => op === 'remote.members.summary')).toHaveLength(1);
     await page.reload();
     await expect(tabs.getByRole('tab', { name: 'Settings', exact: true })).toHaveAttribute(
       'aria-selected',

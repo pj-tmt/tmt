@@ -2108,13 +2108,11 @@ function remoteRegistryPage(initialBlocked = () => "", shell) {
 	}
 	const subheader = createPageSubheader({
 		title: "My Remotes",
-		count: 0,
 		subtitle: "Names and addresses stay in this browser.",
 		actions
 	});
 	head.replaceChildren(...subheader.childNodes);
 	head.className = subheader.className;
-	const count = head.querySelector(".tmt-ui-shell-count");
 	const subtitle = head.querySelector(".tmt-ui-subheader-text p");
 	const status = document.getElementById("remote-status");
 	const joinHost = document.getElementById("remote-join");
@@ -2318,7 +2316,6 @@ function remoteRegistryPage(initialBlocked = () => "", shell) {
 		});
 		const visibleSummary = observed === "Connected" && observedRole === "owner" ? summary : void 0;
 		summaryListeners.forEach((listener) => listener(visibleSummary));
-		count.textContent = String(projection.rows.length);
 		if (subtitle) subtitle.textContent = `${projection.rows.length} ${projection.rows.length === 1 ? "remote" : "remotes"} · Names and addresses stay in this browser.`;
 		footer.replaceChildren(node$2("span", `${projection.rows.length} ${projection.rows.length === 1 ? "remote" : "remotes"} in this view`), node$2("span", "Saved in this browser · Forget leaves access unchanged"));
 		listeners.forEach((listener) => listener(projection));
