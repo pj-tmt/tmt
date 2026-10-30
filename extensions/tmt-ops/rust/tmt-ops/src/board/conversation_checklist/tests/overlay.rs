@@ -259,7 +259,7 @@ fn checklist_captions_keep_the_held_member_when_the_selection_changes() {
         };
         assert!(screen.contains(title), "{screen}");
         assert!(screen.contains("Title ›"), "{screen}");
-        assert!(screen.contains("Tab title/link"), "{screen}");
+        assert!(screen.contains("Enter save"), "{screen}");
         assert!(!screen.contains("Note ›"), "{screen}");
         assert_eq!(app.notes_overlay.as_ref().unwrap().key, key);
     }
@@ -471,7 +471,7 @@ fn a_link_in_the_second_field_titles_by_the_note() {
     let (mut app, _) = opened(vec![]);
     press(&mut app, KeyCode::Char('a'));
     type_text(&mut app, "design review");
-    press(&mut app, KeyCode::Tab);
+    press(&mut app, KeyCode::Down);
     type_text(&mut app, "https://example.com/d");
     let (_, write) = write_of(press(&mut app, KeyCode::Enter));
     assert_eq!(
@@ -959,7 +959,7 @@ fn the_explicit_todo_kind_does_not_infer_a_link_from_its_title() {
             .reference
             .is_none()
     );
-    press_with(&mut app, KeyCode::BackTab, KeyModifiers::SHIFT);
+    press(&mut app, KeyCode::Up);
     press(&mut app, KeyCode::Right);
     assert_eq!(
         app.notes.draft(&key).unwrap().seed.as_ref().unwrap().kind,
@@ -971,8 +971,8 @@ fn the_explicit_todo_kind_does_not_infer_a_link_from_its_title() {
         "a Link requires its Link field"
     );
     assert!(paint(&app).contains("Type a link first"));
-    press(&mut app, KeyCode::Tab);
-    press(&mut app, KeyCode::Tab);
+    press(&mut app, KeyCode::Down);
+    press(&mut app, KeyCode::Down);
     type_text(&mut app, "https://example.com/full?q=1");
     let (_, write) = write_of(press(&mut app, KeyCode::Enter));
     assert!(
@@ -1598,5 +1598,33 @@ fn the_member_checklist_follows_the_close_rule() {
         &mut open(),
         &mut open(),
         crate::board::app::Overlay::Notes,
+    );
+}
+
+#[test]
+fn a_kept_draft_reopens_with_discard_reached_by_arrows() {
+    let (mut app, key) = opened(vec![]);
+    press(&mut app, KeyCode::Char('a'));
+    assert!(
+        !paint(&app).contains("Discard"),
+        "a fresh form has no Discard"
+    );
+    press(&mut app, KeyCode::Tab);
+    assert_eq!(app.notes.draft(&key).unwrap().focus, 0, "Tab does nothing");
+    type_text(&mut app, "half a thought");
+    press(&mut app, KeyCode::Esc);
+    assert!(app.notes_overlay.is_none() && app.notes.draft(&key).is_some());
+
+    assert_eq!(app.open_notes(), Effect::None);
+    assert!(app.notes.draft(&key).unwrap().reopened);
+    assert!(paint(&app).contains("Discard"));
+    // Title → Link → Discard.
+    press(&mut app, KeyCode::Down);
+    press(&mut app, KeyCode::Down);
+    assert!(paint(&app).contains("› Discard"));
+    assert_eq!(press(&mut app, KeyCode::Enter), Effect::None);
+    assert!(
+        app.notes.draft(&key).is_none(),
+        "Discard drops the kept draft"
     );
 }

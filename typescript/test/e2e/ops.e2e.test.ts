@@ -1564,7 +1564,8 @@ exec ${quote(peer)} ${quote(fixture.executables.cli.executable)} ${quote(scenari
         await fixture.waitForCapture((screen) => /›\s*Checklist\b/.test(screen), shell.pane);
         fixture.tmux(['send-keys', '-t', shell.pane, 'Enter']);
         await fixture.waitForCapture((screen) => screen.includes('No checklist yet'), shell.pane);
-        fixture.tmux(['send-keys', '-t', shell.pane, 'Tab', 'Tab', 'Enter']);
+        // ↓ on the empty list reaches the Filter chip; → moves to Actions.
+        fixture.tmux(['send-keys', '-t', shell.pane, 'Down', 'Right', 'Enter']);
         await fixture.waitForCapture((screen) => screen.includes('Create item'), shell.pane);
         fixture.tmux(['send-keys', '-t', shell.pane, 'Down', 'Enter']);
         await fixture.waitForCapture((screen) => screen.includes('Authored fields'), shell.pane);
@@ -1602,7 +1603,8 @@ exec ${quote(peer)} ${quote(fixture.executables.cli.executable)} ${quote(scenari
         await fixture.waitForCapture((screen) => screen.includes('acknowledged'), shell.pane);
         fixture.tmux(['send-keys', '-t', shell.pane, 'Enter']);
         await fixture.waitForCapture((screen) => screen.includes('Complete'), shell.pane);
-        fixture.tmux(['send-keys', '-t', shell.pane, 'Tab', 'Down', 'Enter']);
+        // ↓ past the short reading reaches the actions (Back, Edit, Complete).
+        fixture.tmux(['send-keys', '-t', shell.pane, 'Down', 'Down', 'Down', 'Enter']);
         await fixture.waitForCapture(
           (screen) => screen.includes('Review exact update') && screen.includes('item revision 1'),
           shell.pane

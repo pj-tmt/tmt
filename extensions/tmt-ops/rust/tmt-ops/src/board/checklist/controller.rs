@@ -105,6 +105,9 @@ impl App {
             self.checklist = Some(Controller::new(self.checklist_generation, room));
         }
         let controller = self.checklist.as_mut().unwrap();
+        if !controller.active && controller.screen == Screen::Form {
+            controller.form_reopened = true;
+        }
         controller.active = true;
         controller.return_to = Some(return_to);
         controller.read()
@@ -398,55 +401,90 @@ impl Controller {
                     self.active = false;
                     return Effect::None;
                 }
-                if self.screen == Screen::List || self.screen == Screen::Rooms {
-                    self.active = false;
-                    return Effect::None;
-                }
-                return self.screen(Screen::List, None);
+                // A confirm or a menu is its own layer and closes first, back to its parent;
+                // any other screen hides the dialog where it is.
+                return match self.screen.clone() {
+                    Screen::Confirm => self.choose("cancel", opener),
+                    Screen::Actions | Screen::Filters | Screen::Members(None) => {
+                        self.screen(Screen::List, None)
+                    }
+                    Screen::Members(Some(item)) => self.screen(Screen::Details(item), None),
+                    Screen::OrderActions(item) => self.screen(Screen::Reorder, Some(item.as_str())),
+                    _ => {
+                        self.active = false;
+                        self.invalidate();
+                        Effect::None
+                    }
+                };
             }
             if self.pending.is_some() {
                 return Effect::None;
             }
-            if matches!(key.code, KeyCode::Tab | KeyCode::BackTab) {
-                if matches!(self.screen, Screen::Details(_)) {
-                    self.focus = (self.focus + 1) % 2;
-                    return Effect::None;
-                }
-                if self.screen == Screen::List {
-                    let controls = self.controls.get();
-                    let available: Vec<_> = std::iter::once(0)
-                        .chain(
-                            controls
-                                .iter()
-                                .enumerate()
-                                .filter(|(_, rect)| rect.width > 0)
-                                .map(|(index, _)| index + 1),
-                        )
-                        .collect();
-                    let index = available
-                        .iter()
-                        .position(|focus| *focus == self.focus)
-                        .unwrap_or(0);
-                    let reverse =
-                        key.code == KeyCode::BackTab || key.modifiers.contains(KeyModifiers::SHIFT);
-                    let next = if reverse {
-                        (index + available.len() - 1) % available.len()
-                    } else {
-                        (index + 1) % available.len()
-                    };
-                    self.focus = available[next];
-                    return Effect::None;
-                }
-                let code = if key.code == KeyCode::BackTab
-                    || key.modifiers.contains(KeyModifiers::SHIFT)
+            if self.screen == Screen::List && key.modifiers.is_empty() {
+                // ↓ past the last row reaches the Filters/Actions chips below the list; ←→
+                // move between them and ↑ returns.
+                let chips: Vec<_> = self
+                    .controls
+                    .get()
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, rect)| rect.width > 0)
+                    .map(|(index, _)| index + 1)
+                    .collect();
+                let last = self
+                    .rows()
+                    .into_iter()
+                    .rev()
+                    .find(|row| !row.disabled)
+                    .map(|row| row.id);
+                if self.focus == 0
+                    && key.code == KeyCode::Down
+                    && !chips.is_empty()
+                    && (last.is_none()
+                        || self.list.borrow().picker.list.selected() == last.as_deref())
                 {
-                    KeyCode::Up
-                } else {
-                    KeyCode::Down
+                    self.focus = chips[0];
+                    return Effect::None;
+                }
+                if self.focus > 0 {
+                    match key.code {
+                        KeyCode::Up => self.focus = 0,
+                        KeyCode::Left | KeyCode::Right if !chips.is_empty() => {
+                            let at = chips.iter().position(|c| *c == self.focus).unwrap_or(0);
+                            let n = chips.len();
+                            self.focus =
+                                chips[(at + if key.code == KeyCode::Left { n - 1 } else { 1 }) % n];
+                        }
+                        _ => {}
+                    }
+                    if key.code != KeyCode::Enter {
+                        return Effect::None;
+                    }
+                }
+            }
+            if let Screen::Details(_) = self.screen
+                && key.modifiers.is_empty()
+            {
+                // ↓ past the end of the reading reaches the actions; ↑ on the first one reads.
+                let first = self
+                    .rows()
+                    .into_iter()
+                    .find(|row| !row.disabled)
+                    .map(|row| row.id);
+                let to_actions = self.focus == 0 && key.code == KeyCode::Down && {
+                    let reading = self.reading.borrow();
+                    let scroll = &reading.picker.list.scroll;
+                    scroll.offset() >= scroll.limit()
                 };
-                let mut key = *key;
-                key.code = code;
-                return self.input(&Event::Key(key), opener);
+                let to_reading = self.focus == 1
+                    && key.code == KeyCode::Up
+                    && first.is_some()
+                    && self.panel.borrow().picker.list.selected() == first.as_deref();
+                if to_actions || to_reading {
+                    self.focus = usize::from(to_actions);
+                    self.invalidate();
+                    return Effect::None;
+                }
             }
             if self.screen == Screen::List && self.focus > 0 {
                 if key.code == KeyCode::Enter && self.controls.get()[self.focus - 1].width > 0 {
@@ -612,7 +650,10 @@ impl Controller {
                 "refresh" => self.read(),
                 "create" if self.writable() => self.task(load::Job::Ids),
                 "unknown" => self.screen(Screen::Unknown, None),
-                "resume" => self.screen(Screen::Form, None),
+                "resume" => {
+                    self.form_reopened = true;
+                    self.screen(Screen::Form, None)
+                }
                 "resume-operation" => self.screen(Screen::Confirm, Some("cancel")),
                 "reorder" if self.manager() && self.writable() => {
                     self.target_label = None;
@@ -649,6 +690,7 @@ impl Controller {
                 self.screen(Screen::List, None)
             }
             Screen::Details(item) => match id {
+                "back" => self.screen(Screen::List, None),
                 "refresh" => self.read(),
                 "edit" if self.writable() => {
                     self.draft = self
@@ -681,9 +723,15 @@ impl Controller {
                 _ => Effect::None,
             },
             Screen::Form => match id {
-                "cancel" => {
+                // Back keeps the draft for Actions → Resume; only Discard drops it.
+                "back" => {
+                    self.form_reopened = false;
+                    self.screen(Screen::List, None)
+                }
+                "discard" => {
                     self.draft = None;
                     self.submit = None;
+                    self.form_reopened = false;
                     self.screen(Screen::List, None)
                 }
                 "review" => self.review(),

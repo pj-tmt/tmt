@@ -193,7 +193,7 @@ fn app_checklist_text_captures_q_digits_and_its_buttons_allow_destination_keys()
         .borrow_mut()
         .picker
         .list
-        .select("cancel");
+        .select("back");
     assert!(!app.checklist.as_ref().unwrap().owns_typing());
     assert_eq!(
         app.key(KeyEvent::new(KeyCode::Char('2'), KeyModifiers::NONE)),
@@ -218,7 +218,7 @@ fn key(code: KeyCode) -> Event {
 }
 fn pick(c: &mut Controller, id: &str) -> Effect {
     if matches!(c.screen, Screen::Details(_)) && c.focus == 0 {
-        c.input(&key(KeyCode::Tab), None);
+        c.focus = 1;
     }
     let rows = c.choice_rows();
     let state = if c.screen == Screen::List {
@@ -662,8 +662,19 @@ fn long_details_have_keyboard_reading_focus_before_actions() {
     c.input(&key(KeyCode::Home), None);
     assert_eq!(c.reading.borrow().picker.list.scroll.offset(), 0);
     c.input(&key(KeyCode::Tab), None);
+    assert_eq!(c.focus, 0, "Tab does nothing");
+    // ↓ at the end of the reading reaches the actions, Back first.
+    c.input(&key(KeyCode::End), None);
+    render(&c, 80, 12);
+    c.input(&key(KeyCode::Down), None);
     assert_eq!(c.focus, 1);
     render(&c, 80, 12);
+    assert_eq!(c.panel.borrow().picker.list.selected(), Some("back"));
+    c.input(&key(KeyCode::Up), None);
+    assert_eq!(c.focus, 0, "↑ on the first action reads again");
+    c.focus = 1;
+    render(&c, 80, 12);
+    c.input(&key(KeyCode::Down), None);
     assert_eq!(c.panel.borrow().picker.list.selected(), Some("reference"));
     c.input(&key(KeyCode::Down), None);
     assert_eq!(c.panel.borrow().picker.list.selected(), Some("edit"));
@@ -803,4 +814,86 @@ fn esc_hides_a_running_update_and_the_status_line_follows_it_to_its_result() {
     );
     assert_eq!(f.literal()["items"][0]["completion"], "complete");
     assert!(app.checklist.is_some(), "the result is kept for reopening");
+}
+#[test]
+fn esc_hides_a_screen_and_closes_a_menu_or_confirm_first() {
+    let f = Fixture::new();
+    seed(&f, ITEM, InventoryExpectation::Absent);
+    let mut c = controller(&f);
+    c.screen = Screen::Details(id(ITEM));
+    c.input(&key(KeyCode::Esc), None);
+    assert!(
+        !c.active && c.screen == Screen::Details(id(ITEM)),
+        "hides where it is"
+    );
+
+    let mut c = controller(&f);
+    c.screen = Screen::Actions;
+    c.input(&key(KeyCode::Esc), None);
+    assert!(c.active && c.screen == Screen::List, "a menu closes first");
+    c.input(&key(KeyCode::Esc), None);
+    assert!(!c.active && c.screen == Screen::List);
+
+    let mut c = controller(&f);
+    c.screen = Screen::Members(Some(id(ITEM)));
+    c.input(&key(KeyCode::Esc), None);
+    assert!(c.active && c.screen == Screen::Details(id(ITEM)));
+
+    let mut c = controller(&f);
+    c.screen = Screen::Details(id(ITEM));
+    pick(&mut c, "delete");
+    assert_eq!(c.screen, Screen::Confirm);
+    c.input(&key(KeyCode::Esc), None);
+    assert!(
+        c.active && c.screen == Screen::List && c.submit.is_none(),
+        "the confirm cancels"
+    );
+}
+#[test]
+fn form_back_keeps_the_draft_and_only_discard_drops_it() {
+    let f = Fixture::new();
+    let mut c = controller(&f);
+    c.screen = Screen::Form;
+    c.draft = Some(forms::Draft::create(
+        c.preview.as_ref().unwrap(),
+        (id(CHECKLIST), id(ITEM)),
+    ));
+    assert_eq!(c.choice_rows()[3].id, "back", "Back follows the fields");
+    assert!(c.choice_rows().iter().all(|row| row.id != "discard"));
+    c.draft.as_mut().unwrap().title = "kept".into();
+    pick(&mut c, "back");
+    assert_eq!(c.screen, Screen::List);
+    assert_eq!(
+        c.draft.as_ref().unwrap().title,
+        "kept",
+        "Back keeps the draft"
+    );
+    c.screen = Screen::Actions;
+    pick(&mut c, "resume");
+    assert_eq!(c.screen, Screen::Form);
+    let ids: Vec<_> = c.choice_rows().into_iter().map(|row| row.id).collect();
+    assert_eq!(&ids[3..5], ["back", "discard"]);
+    pick(&mut c, "discard");
+    assert!(c.screen == Screen::List && c.draft.is_none());
+}
+#[test]
+fn down_past_the_last_row_reaches_the_chips_and_up_returns() {
+    let f = Fixture::new();
+    seed(&f, ITEM, InventoryExpectation::Absent);
+    let mut c = controller(&f);
+    render(&c, 120, 30);
+    c.input(&key(KeyCode::Tab), None);
+    assert_eq!(c.focus, 0, "Tab does nothing");
+    for _ in 0..20 {
+        c.input(&key(KeyCode::Down), None);
+        if c.focus > 0 {
+            break;
+        }
+        render(&c, 120, 30);
+    }
+    assert_eq!(c.focus, 1, "Filter chip");
+    c.input(&key(KeyCode::Right), None);
+    assert_eq!(c.focus, 2, "Actions chip");
+    c.input(&key(KeyCode::Up), None);
+    assert_eq!(c.focus, 0);
 }

@@ -106,7 +106,7 @@ impl Controller {
         };
         let list = self.screen == Screen::List;
         let value = json!({"rows":rows_value,"query":self.heading(),"status":status,"notes":notes.iter().flat_map(|r|r.label.split('\n').enumerate().map(|(index,text)|json!({"id":format!("{}:{index}",r.id),"text":text,"role":if r.muted{"muted"}else{"text"}}))).collect::<Vec<_>>(),
-            "footer":if list{format!("{}Filter · {}Actions · Tab focus · Enter opens · Esc board",if self.focus==1{"›"}else{" "},if self.focus==2{"›"}else{" "})}else if self.screen==Screen::Unknown{"↑↓ / PgUp/PgDn read · Esc list".into()}else if matches!(self.screen,Screen::Details(_)){"↑↓ / PgUp/PgDn read · Tab actions · Esc list".into()}else if self.screen==Screen::Form{"Tab fields · type / Ctrl-U clear · Esc retains".into()}else{"↑↓ / Tab choose · Enter select · Esc list".into()}});
+            "footer":if list{format!("{}Filter · {}Actions · ↓ at the end: these · Enter opens · Esc close",if self.focus==1{"›"}else{" "},if self.focus==2{"›"}else{" "})}else if self.screen==Screen::Unknown{"↑↓ / PgUp/PgDn read · Esc close".into()}else if matches!(self.screen,Screen::Details(_)){if self.focus==0{"↑↓ / PgUp/PgDn read · ↓ at the end: actions · Esc close".into()}else{"↑↓ choose · Enter select · ↑ at the top: read · Esc close".into()}}else if self.screen==Screen::Form{"↑↓ fields · type / Ctrl-U clear · Esc keeps the draft".into()}else if self.screen==Screen::Confirm{"↑↓ choose · Enter select · Esc cancel".into()}else if matches!(self.screen,Screen::Actions|Screen::Filters|Screen::Members(_)|Screen::OrderActions(_)){"↑↓ choose · Enter select · Esc back".into()}else{"↑↓ choose · Enter select · Esc close".into()}});
         if reading {
             state.render_modal(FILE, template, value, frame, look, body);
         } else {
@@ -394,6 +394,9 @@ impl Controller {
                     }
                     if let Some(link) = &item.content.reference {
                         rows.push(Row::text("detail-reference", link.clone()));
+                    }
+                    rows.push(Row::choice("back", "Back"));
+                    if item.content.reference.is_some() {
                         rows.push(Row::choice("reference", "Open reference"));
                     }
                     if self.writable()
@@ -417,6 +420,7 @@ impl Controller {
                         "missing",
                         "The exact item is no longer available.",
                     ));
+                    rows.push(Row::choice("back", "Back"));
                 }
                 rows.push(Row::choice("refresh", "Refresh"));
             }
@@ -430,9 +434,12 @@ impl Controller {
                         ]
                         .map(|(id, label)| Row::choice(id, label)),
                     );
+                    rows.push(Row::choice("back", "Back"));
+                    if self.form_reopened {
+                        rows.push(Row::choice("discard", "Discard"));
+                    }
                     rows.extend(
                         [
-                            ("cancel", "Cancel and discard draft"),
                             ("refresh", "Refresh current state"),
                             ("review", "Review current expectations"),
                             ("apply", "Preview update…"),
@@ -499,7 +506,7 @@ impl Controller {
                 );
             }
             Screen::Reorder => {
-                rows.push(Row::choice("cancel", "Cancel reorder"));
+                rows.push(Row::choice("cancel", "Back"));
                 if let Some(Request {
                     action: Action::Reorder { order, .. },
                     ..

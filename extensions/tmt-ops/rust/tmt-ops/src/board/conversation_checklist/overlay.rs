@@ -376,15 +376,17 @@ impl Controller {
                     return Effect::None;
                 }
                 _ if sent => {}
+                KeyCode::Enter if app.notes.draft(&key).is_some_and(Draft::on_discard) => {
+                    app.notes.drop_draft(&key);
+                    self.invalidate();
+                    return Effect::None;
+                }
                 KeyCode::Enter => return self.submit(app),
-                KeyCode::Tab | KeyCode::BackTab | KeyCode::Up | KeyCode::Down => {
+                KeyCode::Up | KeyCode::Down => {
                     if let Some(draft) = app.notes.draft_mut(&key) {
-                        if draft.seed.is_some() {
-                            let backwards = matches!(press.code, KeyCode::BackTab | KeyCode::Up);
-                            draft.focus = (draft.focus + if backwards { 2 } else { 1 }) % 3;
-                        } else {
-                            draft.focus ^= 1;
-                        }
+                        let stops = draft.stops();
+                        let back = press.code == KeyCode::Up;
+                        draft.focus = (draft.focus + if back { stops - 1 } else { 1 }) % stops;
                     }
                 }
                 KeyCode::Left | KeyCode::Right
@@ -545,9 +547,10 @@ impl App {
             );
         }
         let mut controller = Controller::new(key.clone());
-        if self.notes.draft(&key).is_some() {
+        if let Some(draft) = self.notes.draft_mut(&key) {
+            draft.reopened = !draft.untouched();
             controller.notice =
-                Some("Your existing checklist draft is kept; finish or clear it first.".into());
+                Some("Your existing checklist draft is kept; finish or discard it first.".into());
         } else {
             self.notes.keep(&key, Draft::seeded(seed));
         }
@@ -564,6 +567,10 @@ impl App {
             return self.say("Select a squad member before opening the checklist.");
         };
         self.menu = None;
+        // A kept draft with text comes back with Discard.
+        if let Some(draft) = self.notes.draft_mut(&key) {
+            draft.reopened = !draft.untouched();
+        }
         self.notes_overlay = Some(Controller::new(key));
         Effect::None
     }

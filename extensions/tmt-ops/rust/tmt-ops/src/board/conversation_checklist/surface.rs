@@ -206,6 +206,14 @@ impl Controller {
             form.insert(0, json!({ "id":"kind", "text":"Kind", "role":"muted" }));
             form.push(json!({"id":"source", "text":safe(&format!("From   {}", seed.source.label())), "role":"muted"}));
         }
+        if let Some(draft) = draft.filter(|draft| draft.reopened) {
+            let focused = draft.on_discard();
+            form.push(json!({
+                "id": "discard",
+                "text": if focused { "› Discard" } else { "  Discard" },
+                "role": if focused { "accent" } else { "muted" },
+            }));
+        }
         let status = if let Some(notice) = &self.notice {
             safe(notice)
         } else if app.notes.writing(&self.key) {
@@ -225,9 +233,9 @@ impl Controller {
         let enter_ticks = app.view.as_ref().map(|view| view.checklist_enter)
             == Some(crate::config::ChecklistEnter::Tick);
         let footer = if form_only {
-            "Tab title/link · ←→ kind · Enter save · Esc keep draft"
+            "↑↓ fields · ←→ kind · Enter save · Esc keep draft"
         } else if draft.is_some() {
-            "Tab title/link · Enter save · Esc close, keeping the draft"
+            "↑↓ title/link · Enter save · Esc close, keeping the draft"
         } else if deleting.is_some() {
             "Enter delete · Esc keep"
         } else if enter_ticks {

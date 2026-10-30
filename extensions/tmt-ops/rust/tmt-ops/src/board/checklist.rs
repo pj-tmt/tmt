@@ -72,6 +72,8 @@ pub(in crate::board) struct Controller {
     focus: usize,
     pending: Option<load::Key>,
     draft: Option<forms::Draft>,
+    /// The Form shows a kept draft again (reopened or resumed): Discard drops it.
+    form_reopened: bool,
     submit: Option<Request>,
     reviewed: bool,
     target_label: Option<String>,
@@ -110,6 +112,7 @@ impl Controller {
             focus: 0,
             pending: None,
             draft: None,
+            form_reopened: false,
             submit: None,
             reviewed: false,
             target_label: None,
