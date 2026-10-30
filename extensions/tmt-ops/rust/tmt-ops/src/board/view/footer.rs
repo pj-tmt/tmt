@@ -588,6 +588,8 @@ fn workspace_pairs(app: &App, width: usize) -> Vec<Hint> {
                             | OpsUiAction::ScrollBottom
                             | OpsUiAction::ScrollPageUp
                             | OpsUiAction::ScrollPageDown
+                            // The top bar's `g  Web` button carries its key.
+                            | OpsUiAction::OpenWeb
                     )
                 )
                 && (action.verb != Verb::Ui(OpsUiAction::SavingsUnit) || app.savings_visible())

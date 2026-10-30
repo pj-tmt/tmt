@@ -355,7 +355,10 @@ no raw key interception or default binding is added.
 `board::keycap` projects effective configured keys through the shared style
 keycap painter; tab, filter, search and Snapshots hosts retain their activation
 and geometry owners. Snapshots uses the existing recovery controller on every tab,
-after editor and modal key ownership.
+after editor and modal key ownership. The top bar paints Snapshots and `Web` (Web yields first); `board::web` runs
+`tmt remote open --open` on the action lane through `Core::text` and shows Remote's own
+result line, or its error line with the install or serve command. `--json` would skip
+opening until Remote #5713 lets `--open` win.
 `workspace::observe` projects the same acquired room/document/identity snapshots;
 `workspace::OpsWorkspace` owns UUID selection, expansion and filter/sort ordering.
 The [workspace reference](board-home.md) owns geometry, count truth and modal

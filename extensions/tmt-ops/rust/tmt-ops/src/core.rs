@@ -240,6 +240,29 @@ impl Core {
         )
     }
 
+    /// Runs `tmt <args>` in human mode and returns its stdout text; on failure the error is its
+    /// first stderr line without the `error:` mark, under the code `COMMAND_FAILED`.
+    pub fn text(&self, args: &[&str]) -> Result<String, SquadError> {
+        let argv: Vec<OsString> = args.iter().map(OsString::from).collect();
+        let finished = self.finish(&argv, b"", TIMEOUT, tmt_invoke::EnvironmentPolicy::Inherit)?;
+        if finished.success {
+            return Ok(String::from_utf8_lossy(&finished.stdout).into_owned());
+        }
+        let stderr = String::from_utf8_lossy(&finished.stderr);
+        let message = stderr
+            .lines()
+            .map(str::trim)
+            .find(|line| !line.is_empty())
+            .map(|line| {
+                line.strip_prefix("error:")
+                    .unwrap_or(line)
+                    .trim()
+                    .to_owned()
+            })
+            .unwrap_or_else(|| "tmt failed without a message.".to_owned());
+        Err(SquadError::new("COMMAND_FAILED", message))
+    }
+
     /// Runs `tmt <args> --json` and returns its document, or core's own error.
     pub fn json(&self, args: &[&str]) -> Result<Value, SquadError> {
         let mut argv: Vec<OsString> = args.iter().map(OsString::from).collect();

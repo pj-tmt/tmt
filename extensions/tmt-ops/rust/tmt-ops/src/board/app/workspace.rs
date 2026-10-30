@@ -1209,6 +1209,7 @@ impl App {
                 return self.show_digest_details(self.digest_details.next());
             }
             WorkspaceSnapshots => return self.open_recovery(),
+            OpenWeb => return Effect::Act(Request::OpenWeb),
             DiscoverAgents => return self.open_discovery(),
             Previous => self.workspace_select(self.selected.saturating_sub(1)),
             Next => self.workspace_select(self.selected.saturating_add(1)),

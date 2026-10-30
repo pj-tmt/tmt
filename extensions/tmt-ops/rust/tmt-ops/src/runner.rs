@@ -46,6 +46,8 @@ pub struct Finished {
     pub code: Option<u32>,
     /// Core results/errors use stdout. Invoke also drains bounded stderr.
     pub stdout: Vec<u8>,
+    /// A human-mode command's error lines, kept for callers that read them.
+    pub stderr: Vec<u8>,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -130,6 +132,7 @@ pub(crate) fn run_cancellable_with_environment(
         success: output.status.success(),
         code: output.status.code,
         stdout: output.stdout,
+        stderr: output.stderr,
     })
 }
 
@@ -177,6 +180,7 @@ pub fn run_inherited(
         success: output.status.success(),
         code: output.status.code,
         stdout: output.stdout,
+        stderr: output.stderr,
     })
 }
 

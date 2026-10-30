@@ -5,7 +5,7 @@
     "width": 160,
     "height": 24,
     "lines": [
-      " ▚ TMT   OPS / UI                                                                                               w  Snapshots   ● 1 online  ○ … todo  ✗ 0 blocked",
+      " ▚ TMT   OPS / UI                                                                                     w  Snapshots    g  Web   ● 1 online  ○ … todo  ✗ 0 blocked",
       "   1  Agents    2  Digest",
       "",
       " Usage · last 1h · — tok                                                                                                    Range 1h ▾    5m per bar (auto) ▾",
@@ -37,7 +37,7 @@
     "width": 100,
     "height": 24,
     "lines": [
-      " ▚ TMT   OPS / UI                                   w  Snapshots   ● 1 online  ○ … todo  ✗ 0 blocked",
+      " ▚ TMT   OPS / UI                         w  Snapshots    g  Web   ● 1 online  ○ … todo  ✗ 0 blocked",
       "   1  Agents    2  Digest",
       "",
       " Usage · last 1h · — tok                                        Range 1h ▾    5m per bar (auto) ▾",
@@ -69,7 +69,7 @@
     "width": 80,
     "height": 24,
     "lines": [
-      " ▚ TMT   OPS / UI               w  Snapshots   ● 1 online  ○ … todo  ✗ 0 blocked",
+      " ▚ TMT   OPS / UI     w  Snapshots    g  Web   ● 1 online  ○ … todo  ✗ 0 blocked",
       "   1  Agents    2  Digest",
       "",
       " Usage · last 1h · — tok                    Range 1h ▾    5m per bar (auto) ▾",
@@ -101,7 +101,7 @@
     "width": 160,
     "height": 24,
     "lines": [
-      " ▚ TMT   OPS / UI                                                                                               w  Snapshots   ● 1 online  ○ … todo  ✗ 0 blocked",
+      " ▚ TMT   OPS / UI                                                                                     w  Snapshots    g  Web   ● 1 online  ○ … todo  ✗ 0 blocked",
       "   1  Agents    2  Digest",
       "",
       " Usage · last 1h · — tok                                                                                                    Range 1h ▾    5m per bar (auto) ▾",
@@ -133,7 +133,7 @@
     "width": 100,
     "height": 24,
     "lines": [
-      " ▚ TMT   OPS / UI                                   w  Snapshots   ● 1 online  ○ … todo  ✗ 0 blocked",
+      " ▚ TMT   OPS / UI                         w  Snapshots    g  Web   ● 1 online  ○ … todo  ✗ 0 blocked",
       "   1  Agents    2  Digest",
       "",
       " Usage · last 1h · — tok                                        Range 1h ▾    5m per bar (auto) ▾",
@@ -165,7 +165,7 @@
     "width": 80,
     "height": 24,
     "lines": [
-      " ▚ TMT   OPS / UI               w  Snapshots   ● 1 online  ○ … todo  ✗ 0 blocked",
+      " ▚ TMT   OPS / UI     w  Snapshots    g  Web   ● 1 online  ○ … todo  ✗ 0 blocked",
       "   1  Agents    2  Digest",
       "",
       " Usage · last 1h · — tok                    Range 1h ▾    5m per bar (auto) ▾",
@@ -197,7 +197,7 @@
     "width": 160,
     "height": 24,
     "lines": [
-      " ▚ TMT   OPS / UI                                                                                               w  Snapshots   ● 1 online  ○ … todo  ✗ 0 blocked",
+      " ▚ TMT   OPS / UI                                                                                     w  Snapshots    g  Web   ● 1 online  ○ … todo  ✗ 0 blocked",
       "   1  Agents    2  Digest",
       "",
       " Usage · last 1h · — tok                                                                                                    Range 1h ▾    5m per bar (auto) ▾",
@@ -229,7 +229,7 @@
     "width": 100,
     "height": 24,
     "lines": [
-      " ▚ TMT   OPS / UI                                   w  Snapshots   ● 1 online  ○ … todo  ✗ 0 blocked",
+      " ▚ TMT   OPS / UI                         w  Snapshots    g  Web   ● 1 online  ○ … todo  ✗ 0 blocked",
       "   1  Agents    2  Digest",
       "",
       " Usage · last 1h · — tok                                        Range 1h ▾    5m per bar (auto) ▾",
@@ -261,7 +261,7 @@
     "width": 80,
     "height": 24,
     "lines": [
-      " ▚ TMT   OPS / UI               w  Snapshots   ● 1 online  ○ … todo  ✗ 0 blocked",
+      " ▚ TMT   OPS / UI     w  Snapshots    g  Web   ● 1 online  ○ … todo  ✗ 0 blocked",
       "   1  Agents    2  Digest",
       "",
       " Usage · last 1h · — tok                    Range 1h ▾    5m per bar (auto) ▾",
@@ -293,7 +293,7 @@
     "width": 160,
     "height": 24,
     "lines": [
-      " ▚ TMT   OPS / UI                                                                                               w  Snapshots   ● 1 online  ○ … todo  ✗ 0 blocked",
+      " ▚ TMT   OPS / UI                                                                                     w  Snapshots    g  Web   ● 1 online  ○ … todo  ✗ 0 blocked",
       "   1  Agents    2  Digest",
       "",
       " Usage · last 1h · — tok                                                                                                    Range 1h ▾    5m per bar (auto) ▾",
@@ -325,7 +325,7 @@
     "width": 100,
     "height": 24,
     "lines": [
-      " ▚ TMT   OPS / UI                                   w  Snapshots   ● 1 online  ○ … todo  ✗ 0 blocked",
+      " ▚ TMT   OPS / UI                         w  Snapshots    g  Web   ● 1 online  ○ … todo  ✗ 0 blocked",
       "   1  Agents    2  Digest",
       "",
       " Usage · last 1h · — tok                                        Range 1h ▾    5m per bar (auto) ▾",
@@ -357,7 +357,7 @@
     "width": 80,
     "height": 24,
     "lines": [
-      " ▚ TMT   OPS / UI               w  Snapshots   ● 1 online  ○ … todo  ✗ 0 blocked",
+      " ▚ TMT   OPS / UI     w  Snapshots    g  Web   ● 1 online  ○ … todo  ✗ 0 blocked",
       "   1  Agents    2  Digest",
       "",
       " Usage · last 1h · — tok                    Range 1h ▾    5m per bar (auto) ▾",
@@ -389,7 +389,7 @@
     "width": 160,
     "height": 24,
     "lines": [
-      " ▚ TMT   OPS / UI                                                                                               w  Snapshots   ● 1 online  ○ … todo  ✗ 0 blocked",
+      " ▚ TMT   OPS / UI                                                                                     w  Snapshots    g  Web   ● 1 online  ○ … todo  ✗ 0 blocked",
       "   1  Agents    2  Digest",
       "",
       " Usage · last 1h · — tok                                                                                                    Range 1h ▾    5m per bar (auto) ▾",
@@ -421,7 +421,7 @@
     "width": 100,
     "height": 24,
     "lines": [
-      " ▚ TMT   OPS / UI                                   w  Snapshots   ● 1 online  ○ … todo  ✗ 0 blocked",
+      " ▚ TMT   OPS / UI                         w  Snapshots    g  Web   ● 1 online  ○ … todo  ✗ 0 blocked",
       "   1  Agents    2  Digest",
       "",
       " Usage · last 1h · — tok                                        Range 1h ▾    5m per bar (auto) ▾",
@@ -453,7 +453,7 @@
     "width": 80,
     "height": 24,
     "lines": [
-      " ▚ TMT   OPS / UI               w  Snapshots   ● 1 online  ○ … todo  ✗ 0 blocked",
+      " ▚ TMT   OPS / UI     w  Snapshots    g  Web   ● 1 online  ○ … todo  ✗ 0 blocked",
       "   1  Agents    2  Digest",
       "",
       " Usage · last 1h · — tok                    Range 1h ▾    5m per bar (auto) ▾",
@@ -485,7 +485,7 @@
     "width": 160,
     "height": 24,
     "lines": [
-      " ▚ TMT   OPS / UI                                                                                               w  Snapshots   ● 1 online  ○ … todo  ✗ 0 blocked",
+      " ▚ TMT   OPS / UI                                                                                     w  Snapshots    g  Web   ● 1 online  ○ … todo  ✗ 0 blocked",
       "   1  Agents    2  Digest",
       "",
       " Usage · last 1h · — tok                                                                                                    Range 1h ▾    5m per bar (auto) ▾",
@@ -517,7 +517,7 @@
     "width": 100,
     "height": 24,
     "lines": [
-      " ▚ TMT   OPS / UI                                   w  Snapshots   ● 1 online  ○ … todo  ✗ 0 blocked",
+      " ▚ TMT   OPS / UI                         w  Snapshots    g  Web   ● 1 online  ○ … todo  ✗ 0 blocked",
       "   1  Agents    2  Digest",
       "",
       " Usage · last 1h · — tok                                        Range 1h ▾    5m per bar (auto) ▾",
@@ -549,7 +549,7 @@
     "width": 80,
     "height": 24,
     "lines": [
-      " ▚ TMT   OPS / UI               w  Snapshots   ● 1 online  ○ … todo  ✗ 0 blocked",
+      " ▚ TMT   OPS / UI     w  Snapshots    g  Web   ● 1 online  ○ … todo  ✗ 0 blocked",
       "   1  Agents    2  Digest",
       "",
       " Usage · last 1h · — tok                    Range 1h ▾    5m per bar (auto) ▾",
