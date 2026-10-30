@@ -769,7 +769,8 @@ Existing-name text never selects an identity; known choices are advisory
 previously observed evidence, and another/offline UUID can be entered directly.
 Esc hides the dialog where it is, and the same key reopens it on that screen (a confirm
 reopens on the screen that asks for it again). Back, first among the actions, steps to the
-previous screen; Esc on a confirm cancels just the confirm. ↑↓ read and pick actions: ↓
+previous screen; Esc or Cancel on a confirm cancels just the confirm, back on the screen
+that asked for it (Restore: Preview, Delete: the list, bind: the form with its text). ↑↓ read and pick actions: ↓
 past the end of the reading, or from the name field, reaches the actions, and ↑ on the
 first one goes back. Tab does nothing. A reopened name field with text offers Discard
 after Back. Actions that write still check the current state when chosen.

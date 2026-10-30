@@ -398,6 +398,9 @@ impl Controller {
         }
         match id {
             "scan" => return self.scan(self.scope.clone()),
+            // A cancelled confirm returns to the Form that asked for it, with the typed text,
+            // where its reopen lands too.
+            "cancel" if self.screen == Screen::Confirm => self.changed(),
             "back" | "cancel" => {
                 self.screen = Screen::Candidates;
                 self.reopened = false;
