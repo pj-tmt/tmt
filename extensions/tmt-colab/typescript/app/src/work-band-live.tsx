@@ -4,7 +4,7 @@ import { text } from './strings.js';
 import { SaveRefused, saveMessage } from './save.js';
 import type { PageState } from './bootstrap.js';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
-import { WorkBand, stateIcon, type WorkBandProps } from './work-band.js';
+import { WorkBand, stateIcon, stateTone, type WorkBandProps } from './work-band.js';
 import { AddTask, AttachSubpage, TaskControls, useWorkRun } from './work-controls.js';
 import type { PageBinding, PageTransport } from './transport.js';
 import { useLinkedPages } from './work-stages.js';
@@ -99,7 +99,7 @@ function PageStateMenu({ binding, state }: { binding?: PageBinding; state?: Page
   const label = state ? text.workBand.taskState[state] : text.workBand.stateUnavailable;
   if (!binding?.canMetadata?.() || !binding.metadata || !binding.metadataRevision || state == null)
     return (
-      <span className={`work-page-state ${ui.countChip}`}>
+      <span className={`work-page-state ${ui.countChip}`} data-tone={stateTone(state)}>
         {state && stateIcon(state, 'tmt-ui-icon')}
         {label}
       </span>
@@ -124,7 +124,7 @@ function PageStateMenu({ binding, state }: { binding?: PageBinding; state?: Page
         label={text.workBand.pageState}
         variant="count"
         valueLabel={label}
-        tone={state === 'in-progress' ? 'attention' : 'neutral'}
+        tone={stateTone(state)}
         icon={stateIcon(state, 'tmt-ui-icon')}
         disabled={busy}
         onOpenChange={(open) => {

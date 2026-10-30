@@ -25,6 +25,10 @@ export interface WorkParent {
   taskTitle?: string;
 }
 
+export function stateTone(state: PageState | null | undefined): 'attention' | 'neutral' {
+  return state === 'in-progress' ? 'attention' : 'neutral';
+}
+
 export function stateIcon(state: PageState | null | undefined, className?: string): ReactNode {
   if (state === 'done') return <CircleCheck className={className} />;
   if (state === 'in-progress') return <CircleDot className={className} />;
@@ -121,7 +125,11 @@ export function WorkBand({
     <section ref={section} className="work-band" aria-label={t.label}>
       <div className="work-head">
         {stateControl ?? (
-          <span className={`work-page-state ${ui.countChip}`} data-state={pageState ?? 'unknown'}>
+          <span
+            className={`work-page-state ${ui.countChip}`}
+            data-state={pageState ?? 'unknown'}
+            data-tone={stateTone(pageState)}
+          >
             {pageState && stateIcon(pageState, 'tmt-ui-icon')}
             {pageState ? t.taskState[pageState] : t.stateUnavailable}
           </span>
