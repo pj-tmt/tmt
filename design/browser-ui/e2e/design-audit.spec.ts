@@ -204,13 +204,11 @@ for (const width of [1586, 390])
         await expect(page.locator('.tmt-ui-rail-item').first()).toHaveCSS('height', '45px');
         await expect(page.locator('.tmt-ui-rail-sub-item').first()).toHaveCSS('height', '33px');
         const indent = await page.evaluate(() => {
-          const parent = document.querySelector(
-            '.tmt-ui-rail-item[aria-current="page"] .tmt-ui-shell-icon',
-          )!;
+          const parent = document.querySelector('.tmt-ui-rail-sub-item')!;
           const label = document.querySelector('.tmt-ui-rail-sub-item .tmt-ui-module-menu-label')!;
           return label.getBoundingClientRect().x - parent.getBoundingClientRect().x;
         });
-        expect(indent).toBeCloseTo(8, 1);
+        expect(indent).toBe(36);
         await expect(page.getByRole('button', { name: /sidebar/i })).toHaveCount(0);
         const badgeInset = await page
           .locator('.tmt-ui-rail-item .tmt-ui-shell-count')
@@ -247,17 +245,14 @@ for (const theme of ['light', 'dark'] as const)
         await page.goto(`/?frame=shell&counts&theme=${theme}&page=${selected}`);
         const root = page.locator('.tmt-ui-rail-sub');
         if (width === 390) {
-          await expect(root).toHaveCount(0);
-          const tabs = page.locator('.tmt-ui-module-menu-item');
-          await expect(tabs).toHaveCount(5);
-          await tabs.first().focus();
+          await expect(root).toBeHidden();
+          await page.getByRole('button', { name: 'Open navigation', exact: true }).click();
+          await expect(root).toBeVisible();
+          const children = root.getByRole('link');
+          await children.first().focus();
           await page.keyboard.press('Tab');
-          await expect(tabs.nth(1)).toBeFocused();
-          await expect(page.locator('.tmt-ui-module-menu [aria-current="page"]')).toHaveAttribute(
-            'href',
-            selected === 'project' ? /\/colab\/p\/release$/ : /\/colab\/pages$/,
-          );
-          return;
+          await expect(children.nth(1)).toBeFocused();
+          await expect(page.locator('.tmt-ui-module-menu')).toBeHidden();
         }
         const group = root.getByRole('list', { name: 'Projects', exact: true });
         await expect(group.getByRole('link')).toHaveCount(2);
@@ -273,7 +268,7 @@ for (const theme of ['light', 'dark'] as const)
           link
             .locator('.tmt-ui-module-menu-label')
             .evaluate((node) => node.getBoundingClientRect().x);
-        expect((await labelX(project)) - (await labelX(all))).toBe(8);
+        expect(await labelX(project)).toBe(await labelX(all));
         expect(await labelX(settings)).toBe(await labelX(all));
         const allBox = (await all.boundingBox())!;
         const projectBox = (await project.boundingBox())!;
@@ -298,18 +293,27 @@ for (const theme of ['light', 'dark'] as const)
           return {
             ratio: (Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05),
             outline: style.outlineColor,
-            ink: style.color,
+            focus: getComputedStyle(node).getPropertyValue('--tmt-ui-color-focus').trim(),
             marker: getComputedStyle(node, '::before').content,
           };
         });
         expect(colors.ratio).toBeGreaterThanOrEqual(4.5);
-        expect(colors.outline).toBe(colors.ink);
+        expect(colors.outline).toBe(
+          await current.evaluate((node) => {
+            const probe = document.createElement('span');
+            probe.style.color = 'var(--tmt-ui-color-focus)';
+            node.append(probe);
+            const result = getComputedStyle(probe).color;
+            probe.remove();
+            return result;
+          }),
+        );
         expect(colors.marker).toBe('none');
         expect(
           await page
-            .locator('.tmt-ui-rail-item[aria-current="page"]')
+            .locator('.tmt-ui-rail-item[data-module-current]')
             .evaluate((node) => getComputedStyle(node, '::before').content),
-        ).not.toBe('none');
+        ).toBe('none');
         const frames = await focusFrames(page, '.tmt-ui-rail');
         expect(frames.clipped).toEqual([]);
         expect(frames.doubled).toEqual([]);
@@ -342,7 +346,7 @@ for (const width of [1440, 390])
         await page.keyboard.press('Escape');
         await expect(rail).toBeHidden();
         await expect(open).toBeFocused();
-        await expect(page.locator('.tmt-ui-module-menu [aria-current="page"]')).toHaveAttribute(
+        await expect(rail.locator('.tmt-ui-rail-sub [aria-current="page"]')).toHaveAttribute(
           'href',
           /\/colab\/p\/release$/,
         );

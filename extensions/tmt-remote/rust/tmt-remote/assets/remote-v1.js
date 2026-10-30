@@ -5065,7 +5065,7 @@ function createShellTopBar(root, bar, navigation, railSearch) {
 /** The counts a menu entry draws, in order: a plain total only above zero (a page list of none has
 * nothing to count), then the needs-you count, which exists only above zero. */
 function entryCounts(item) {
-	return [...item.total ? [shellCount(item.total, "plain")] : [], ...item.count ? [item.count] : []];
+	return [...item.total && item.total > 0 ? [shellCount(item.total, "plain")] : [], ...item.count && item.count.text !== "0" ? [item.count] : []];
 }
 /** Counts above 99 read `99+`; needs-you counts carry the ◆ mark and colour. */
 function shellCount(value, kind = "needs-you") {
@@ -5264,7 +5264,7 @@ function count(document, value) {
 * `.tmt-ui-shell-content` with the host's `.tmt-ui-shell-bar` (its one header) and
 * `.tmt-ui-shell-main`. On wide screens the TMT mark and the bar form one header row
 * (TMT, then the host's `<module> / <page>`), over the rail, the module menu column and the main
-* area; on phones the module menu becomes tabs under the title bar. `select` may take over a plain click
+* area; phones show the same nested tree inside the navigation drawer. `select` may take over a plain click
 * on an item (an SPA route or Colab's search); it returns true when it handled the click.
 */
 function mountShell(root, view, select) {
@@ -5376,12 +5376,12 @@ function mountShell(root, view, select) {
 		if (root.dataset.drawer === "open" && !rail.contains(target) && !open.contains(target)) setDrawer(false);
 	};
 	document.addEventListener("pointerdown", outside);
-	const link = (className, item) => {
+	const link = (className, item, selected) => {
 		const anchor = document.createElement("a");
 		anchor.className = className;
 		anchor.href = item.href;
 		anchor.dataset.id = item.id;
-		if (item.current) anchor.setAttribute("aria-current", "page");
+		if (selected) anchor.setAttribute("aria-current", "page");
 		const disabled = "disabled" in item && item.disabled;
 		if (disabled) anchor.setAttribute("aria-disabled", "true");
 		anchor.onclick = (event) => {
@@ -5392,8 +5392,8 @@ function mountShell(root, view, select) {
 		};
 		return anchor;
 	};
-	const menuEntry = (className, item) => {
-		const anchor = link(className, item);
+	const menuEntry = (className, item, selected) => {
+		const anchor = link(className, item, item === selected);
 		if (item.note) anchor.title = item.note;
 		const label = document.createElement("span");
 		label.className = "tmt-ui-module-menu-label";
@@ -5409,96 +5409,101 @@ function mountShell(root, view, select) {
 		}
 		return anchor;
 	};
-	const nested = (menuView) => {
+	const command = (className, action, activate, mark) => {
+		const button = document.createElement("button");
+		button.type = "button";
+		button.className = className;
+		button.title = action.label;
+		if (mark) {
+			button.setAttribute("aria-label", action.label);
+			button.append(icon(document, mark));
+			tipFor(button, action.label);
+		} else button.textContent = action.label;
+		button.onclick = () => {
+			setDrawer(false);
+			activate();
+		};
+		return button;
+	};
+	const nested = (menuView, selected) => {
 		const list = document.createElement("ul");
 		list.className = "tmt-ui-rail-sub";
 		list.setAttribute("aria-label", menuView.title);
-		for (const group of menuView.groups) {
+		menuView.groups.forEach((group, index) => {
 			let entries = list;
-			if (group.label) {
+			if (group.label || group.action) {
 				const section = document.createElement("li");
 				const heading = document.createElement("div");
 				heading.className = "tmt-ui-rail-sub-group";
-				heading.textContent = group.label;
+				const label = document.createElement("span");
+				label.textContent = group.label ?? "";
+				label.title = group.label ?? "";
+				heading.append(label);
+				if (group.action) heading.append(command("tmt-ui-rail-group-action", group.action, () => latest.menu?.groups[index]?.action?.onActivate(), group.action.icon));
 				entries = document.createElement("ul");
 				entries.className = "tmt-ui-rail-sub-items";
-				entries.setAttribute("aria-label", group.label);
+				if (group.label) entries.setAttribute("aria-label", group.label);
 				section.append(heading, entries);
 				list.append(section);
 			}
 			for (const item of group.items) {
 				const row = document.createElement("li");
-				row.append(menuEntry("tmt-ui-module-menu-item tmt-ui-rail-sub-item", item));
+				row.append(menuEntry("tmt-ui-module-menu-item tmt-ui-rail-sub-item", item, selected));
 				entries.append(row);
 			}
+			if (group.add) {
+				const row = document.createElement("li");
+				row.append(command("tmt-ui-rail-sub-item tmt-ui-rail-add", group.add, () => latest.menu?.groups[index]?.add?.onActivate()));
+				entries.append(row);
+			}
+		});
+		if (menuView.settings) {
+			const row = document.createElement("li");
+			row.className = "tmt-ui-rail-settings";
+			row.append(menuEntry("tmt-ui-module-menu-item tmt-ui-rail-sub-item", menuView.settings, selected));
+			list.append(row);
 		}
 		return list;
 	};
-	const railList = (items, extra, pages) => {
+	const railList = (items, current, selected, extra, pages) => {
 		const list = document.createElement("ul");
 		list.className = extra ? `tmt-ui-rail-items ${extra}` : "tmt-ui-rail-items";
 		for (const item of items) {
-			const anchor = link("tmt-ui-rail-item", item);
-			const named = item.count ? `${item.label}, ${item.count.text}${item.count.needsYou ? item.count.text === "1" ? " needs you" : " need you" : ""}` : item.label;
-			if (item.count) anchor.setAttribute("aria-label", named);
+			const anchor = link("tmt-ui-rail-item", item, item === current && !selected);
+			if (item === current) anchor.dataset.moduleCurrent = "";
+			const badge = item.count?.needsYou && item.count.text !== "0" ? item.count : void 0;
+			if (badge) anchor.setAttribute("aria-label", `${item.label}, ${badge.text}${badge.text === "1" ? " needs you" : " need you"}`);
+			anchor.title = item.note ?? item.label;
 			if (item.note) tipFor(anchor, `${item.label}: ${item.note}`);
 			const label = document.createElement("span");
 			label.className = "tmt-ui-rail-label";
 			label.textContent = item.label;
 			anchor.append(icon(document, item.icon), label);
-			if (item.count) anchor.append(count(document, item.count));
+			if (badge) anchor.append(count(document, badge));
 			const row = document.createElement("li");
 			row.append(anchor);
-			if (item.current && pages) row.append(nested(pages));
+			if (item === current && pages) row.append(nested(pages, selected));
 			list.append(row);
 		}
 		return list;
 	};
 	let shown = "";
 	let latest = view;
-	const phone = typeof window !== "undefined" && typeof window.matchMedia === "function" ? window.matchMedia("(max-width: 900px)") : void 0;
 	const render = (next) => {
 		latest = next;
-		const onPhone = phone?.matches === true;
-		const key = JSON.stringify([onPhone, next]);
+		const key = JSON.stringify(next);
 		if (key === shown) return;
 		shown = key;
 		hideTip();
 		const railTop = rail.scrollTop;
-		rail.replaceChildren(brand, railSearch, railList(next.rail.main, void 0, onPhone ? void 0 : next.menu), railList(next.rail.bottom, "tmt-ui-rail-bottom", onPhone ? void 0 : next.menu));
+		const current = [...next.rail.main, ...next.rail.bottom].find((item) => item.current);
+		const selected = current ? [...next.menu?.groups.flatMap((group) => group.items) ?? [], ...next.menu?.settings ? [next.menu.settings] : []].find((item) => item.current) : void 0;
+		rail.replaceChildren(brand, railSearch, railList(next.rail.main, current, selected, void 0, next.menu), railList(next.rail.bottom, current, selected, "tmt-ui-rail-bottom", next.menu));
 		rail.scrollTop = railTop;
 		syncRailScroll();
 		root.dataset.menu = next.menu ? "shown" : "none";
-		if (!next.menu || !onPhone) {
-			menu.replaceChildren();
-			if (next.menu && !onPhone) menu.setAttribute("aria-label", next.menu.title);
-			else menu.removeAttribute("aria-label");
-			return;
-		}
-		menu.setAttribute("aria-label", next.menu.title);
-		const left = menu.scrollLeft;
 		menu.replaceChildren();
-		for (const group of next.menu.groups) {
-			const list = document.createElement("ul");
-			list.className = "tmt-ui-module-menu-items";
-			for (const item of group.items) {
-				const row = document.createElement("li");
-				row.append(menuEntry("tmt-ui-module-menu-item", item));
-				list.append(row);
-			}
-			menu.append(list);
-		}
-		menu.scrollLeft = left;
-		const current = menu.querySelector("[aria-current=\"page\"]");
-		if (current && menu.scrollWidth > menu.clientWidth) {
-			const strip = menu.getBoundingClientRect();
-			const box = current.getBoundingClientRect();
-			if (box.left < strip.left) menu.scrollLeft -= strip.left - box.left;
-			else if (box.right > strip.right) menu.scrollLeft += box.right - strip.right;
-		}
 	};
-	const rewidth = () => render(latest);
-	phone?.addEventListener("change", rewidth);
 	setDrawer(false);
 	render(view);
 	return {
@@ -5513,7 +5518,6 @@ function mountShell(root, view, select) {
 			watchTools?.disconnect();
 			root.style.removeProperty("--tmt-ui-shell-tools-width");
 			if (!drawn) toolsRoot.remove();
-			phone?.removeEventListener("change", rewidth);
 			document.removeEventListener("keydown", close);
 			document.removeEventListener("pointerdown", outside);
 			hideTip();
