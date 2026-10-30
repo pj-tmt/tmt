@@ -11,6 +11,7 @@ import {
   withE2EFixture as withFixture,
   type E2EFixture,
 } from './harness.js';
+import { sessionLearning } from './identity-state-oracle.js';
 import { installTmuxTrace, type TmuxTrace } from './tmux-trace.js';
 import { waitForFileContent } from './wait-for-file.js';
 
@@ -1039,7 +1040,10 @@ describe('Codex native channel product routing', { concurrent: false }, () => {
             expect(own.json!.digest).toBeUndefined();
             await step('boundary');
             const continuations = events(s, 'digest-continuation');
-            expect(continuations).toHaveLength(1);
+            expect(
+              continuations,
+              `Session learning: ${JSON.stringify(sessionLearning(f))}`
+            ).toHaveLength(1);
             expect(notices()).toHaveLength(legacy && !resume ? 1 : 0);
             if (legacy && !resume)
               expect(notices()[0]).toMatchObject({

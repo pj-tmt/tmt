@@ -8,6 +8,7 @@ import { fileURLToPath } from 'node:url';
 import { describe, expect, it, vi } from 'vite-plus/test';
 import { expectJsonResult } from './cli-assertions.js';
 import { publishDigestStep } from './claude-digest-step.js';
+import { sessionLearning } from './identity-state-oracle.js';
 import {
   readCompleteJsonLines,
   withE2EFixture as withFixture,
@@ -317,18 +318,6 @@ function sql<T>(fixture: E2EFixture, run: (database: Database.Database) => T): T
   const database = new Database(path.join(fixture.globalDir, 'tmt.db'));
   try {
     return run(database);
-  } finally {
-    database.close();
-  }
-}
-
-/** Why a Digest Stop printed nothing, as its launch row names it (#4871). Read only. */
-function learning(fixture: E2EFixture): unknown[] {
-  const database = new Database(path.join(fixture.globalDir, 'tmt.db'), { readonly: true });
-  try {
-    return database
-      .prepare('SELECT status,step,reason,detail FROM launch_observations ORDER BY created_at_ms')
-      .all();
   } finally {
     database.close();
   }
@@ -874,9 +863,10 @@ describe('Claude channel delivery', { concurrent: false }, () => {
               .filter((value) => value.systemMessage);
           if (quietNotice) {
             await digestStep('quiet-notice-stop');
-            expect(notices(), `Session learning: ${JSON.stringify(learning(fixture))}`).toEqual([
-              { systemMessage: noticeText },
-            ]);
+            expect(
+              notices(),
+              `Session learning: ${JSON.stringify(sessionLearning(fixture))}`
+            ).toEqual([{ systemMessage: noticeText }]);
           }
           const id = identityId(fixture, name);
           const created = await fixture.runJsonCli<{ identity: { id: string } }>([
@@ -1014,7 +1004,7 @@ describe('Claude channel delivery', { concurrent: false }, () => {
                 )
                 .all()
             ),
-            learning: learning(fixture),
+            learning: sessionLearning(fixture),
           }));
           const feedback = named(worker, 'digest-continuation');
           expect(feedback).toHaveLength(1);
@@ -1149,12 +1139,12 @@ describe('Claude channel delivery', { concurrent: false }, () => {
         }
         await publishDigestStep(worker.log, { event: 'partial-stop', partialDigestOutput: true });
         await waitForEvent(fixture, worker, 'partial-stop', () => ({
-          learning: learning(fixture),
+          learning: sessionLearning(fixture),
         }));
         // A Digest Stop that refuses publishes nothing; its launch row names why (#5172).
         expect(
           named(worker, 'digest-partial-handoff'),
-          `Session learning: ${JSON.stringify(learning(fixture))}`
+          `Session learning: ${JSON.stringify(sessionLearning(fixture))}`
         ).toMatchObject([{ partialBytes: 4096, complete: false, code: 0 }]);
         expect(named(worker, 'digest-continuation')).toEqual([]);
         const before = snapshot();
