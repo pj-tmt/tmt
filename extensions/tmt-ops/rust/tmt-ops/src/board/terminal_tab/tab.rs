@@ -88,6 +88,16 @@ pub(in crate::board) struct Tab {
     zoomed: bool,
     /// Where the last frame drew the screen, which is the size the program is given.
     area: Cell<Option<Rect>>,
+    /// Where the last frame put the real cursor for the program while typing.
+    caret: Cell<Option<Caret>>,
+}
+
+/// The real cursor while typing: on the program's cursor cell, so an input method draws
+/// uncommitted text there. Hidden when the program hides its cursor, but still moved.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(in crate::board) struct Caret {
+    pub at: ratatui::layout::Position,
+    pub shown: bool,
 }
 
 impl Tab {
@@ -296,6 +306,15 @@ impl Tab {
 
     pub(in crate::board) fn drew(&self, area: Rect) {
         self.area.set(Some(area));
+    }
+
+    /// Where the frame being drawn puts the real cursor for the program; none until painted.
+    pub(in crate::board) fn caret(&self) -> Option<Caret> {
+        self.caret.get()
+    }
+
+    pub(in crate::board) fn place_caret(&self, caret: Option<Caret>) {
+        self.caret.set(caret);
     }
 
     /// While typing, the program is given the room the screen has: the size when typing began,

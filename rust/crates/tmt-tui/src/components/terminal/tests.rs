@@ -43,6 +43,18 @@ fn the_cursor_is_hidden_when_the_program_hides_it() {
 }
 
 #[test]
+fn the_caret_stays_where_a_hidden_cursor_is_parked() {
+    let mut screen = Screen::from_snapshot(8, 2, b"x");
+    assert_eq!(screen.frame().caret, Some((1, 0)));
+    screen.feed(b"\x1b[?25l\x1b[2;4H");
+    let frame = screen.frame();
+    assert_eq!(frame.cursor, None, "hidden");
+    assert_eq!(frame.caret, Some((3, 1)), "but still placed");
+    screen.feed(b"\x1b[?25h");
+    assert_eq!(screen.frame().cursor, Some((3, 1)));
+}
+
+#[test]
 fn a_wide_character_takes_two_columns() {
     let screen = Screen::from_snapshot(8, 1, "界a".as_bytes());
     let frame = screen.frame();

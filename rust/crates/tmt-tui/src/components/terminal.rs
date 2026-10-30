@@ -83,6 +83,9 @@ pub struct Frame {
     pub cells: Vec<Cell>,
     /// Where the cursor is, `(column, row)`, when the program shows it.
     pub cursor: Option<(u16, u16)>,
+    /// Where the cursor is, shown or hidden. A program that hides its cursor may still park it
+    /// where it takes text, which is where an input method draws what is not yet committed.
+    pub caret: Option<(u16, u16)>,
     pub modes: Modes,
 }
 
@@ -202,12 +205,14 @@ impl Screen {
             }
         }
         let (cursor_row, cursor_column) = screen.cursor_position();
+        let caret =
+            (cursor_row < rows && cursor_column < cols).then_some((cursor_column, cursor_row));
         Frame {
             cols,
             rows,
             cells,
-            cursor: (!screen.hide_cursor() && cursor_row < rows && cursor_column < cols)
-                .then_some((cursor_column, cursor_row)),
+            cursor: caret.filter(|_| !screen.hide_cursor()),
+            caret,
             modes: self.modes(),
         }
     }

@@ -25,7 +25,8 @@ development reference below; unexplained differences block handoff.
 ## Terminal screen
 
 `components::terminal` shows another program's screen: `Screen` takes bytes and a size and
-publishes a `Frame` of cells (colours, attributes, wide characters, cursor, input modes); `key_bytes`,
+publishes a `Frame` of cells (colours, attributes, wide characters, cursor, input modes; `caret` is
+the cursor cell even while the program hides it); `key_bytes`,
 `paste_bytes`, `wheel_bytes` and `is_leave` (Ctrl-\) are the bytes a key, a paste or a wheel turn
 sends back. It parses with `vt100` at the workspace pin (the parser that formats a built-in host's
 snapshot), keeps no scrollback and does no I/O, and it knows nothing of the stream that carries the

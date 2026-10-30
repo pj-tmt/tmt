@@ -621,7 +621,11 @@ Actions menu otherwise. `paint` lays the cells on the pane with the program's ow
 (`foreign::style`): a bigger screen is cut at the edge (a wide character that would straddle it is
 left out), a smaller one leaves the rest blank, and the screen is dimmed while the stream is not
 live. The program's cursor shows as one reversed cell (not the terminal cursor) in the live state only,
-hidden when the program hides it.
+hidden when the program hides it. While typing, the terminal's real cursor goes to the program's
+cursor cell instead (`Frame::caret`, recorded as `tab::Caret` by `paint`): `view::render` shows it
+there, and when the program hides its cursor `App::park_hidden_caret` moves it there after the draw,
+still hidden, so an input method draws uncommitted text at the program's input. A cell outside the
+drawn screen places nothing; leaving typing gives the caret back to the board.
 
 Typing: `⏎` (the `talk` action while the terminal shows) starts it; after the stream ended it attaches
 again instead. A clean built-in New member create calls `Tab::show_typing`, so that member's stream
