@@ -710,7 +710,7 @@ describe('bounded observational release view', () => {
   function client(
     pageRows: (page: number) => unknown[],
     lastPage = 7,
-    linkPath = '/repos/pj-tmt/tmt/releases'
+    linkPath = `/repos/${options.repository}/releases`
   ) {
     const cache = mkdtempSync(path.join(os.tmpdir(), 'infra-tick-releases-'));
     const pages: number[] = [];
@@ -719,10 +719,11 @@ describe('bounded observational release view', () => {
       cache,
       execute: (_program, args) => {
         const endpoint = args[1];
-        if (endpoint === 'repos/pj-tmt/tmt') return '{"id":42,"permissions":{"push":true}}';
+        if (endpoint === `repos/${options.repository}`)
+          return '{"id":42,"permissions":{"push":true}}';
         const url = new URL(`https://api.github.com/${endpoint}`);
         const page = Number(url.searchParams.get('page'));
-        expect(url.pathname).toBe('/repos/pj-tmt/tmt/releases');
+        expect(url.pathname).toBe(`/repos/${options.repository}/releases`);
         expect(url.searchParams.get('per_page')).toBe('100');
         pages.push(page);
         return `HTTP/2 200 OK\r\nLink: <https://api.github.com${linkPath}?per_page=100&page=${lastPage}>; rel="last"\r\n\r\n${JSON.stringify(pageRows(page))}`;
@@ -1396,8 +1397,8 @@ const endpoint=args.find(arg=>arg.startsWith('repos/'));
 if(process.env.FAIL_READ==='true'){process.stderr.write(process.env.GH_TOKEN);process.exit(1);}
 if(args[1]==='graphql'&&process.env.QUEUE_FAIL==='true'){process.stderr.write(process.env.GH_TOKEN);process.exit(1);}
 if(args[1]==='graphql')console.log(JSON.stringify({data:{repository:{mergeQueue:{entries:{totalCount:0,pageInfo:{hasNextPage:false},nodes:[]}}}}}));
-else if(endpoint==='repos/pj-tmt/tmt')console.log('{"permissions":{"push":true}}');
-else if(endpoint.includes('/releases?'))process.stdout.write(process.env.RELEASE_FAIL==='true'?'HTTP/2 200 OK\\r\\nLink: <https://api.github.com/repos/pj-tmt/tmt/releases?per_page=100&page=7>; rel="last"\\r\\n\\r\\n[]':'HTTP/2 200 OK\\r\\n\\r\\n[]');
+else if(endpoint==='repos/pj-tmt/tmt')console.log('{"id":42,"permissions":{"push":true}}');
+else if(endpoint.includes('/releases?'))process.stdout.write(process.env.RELEASE_FAIL==='true'?'HTTP/2 200 OK\\r\\nLink: <https://api.github.com/repositories/42/releases?per_page=100&page=7>; rel="last"\\r\\n\\r\\n[]':'HTTP/2 200 OK\\r\\n\\r\\n[]');
 else if(endpoint.includes('/actions/runs?'))console.log('{"total_count":0,"workflow_runs":[]}');
 else if(endpoint.includes('/pulls?')||endpoint.includes('/issues?state=closed'))console.log('[]');
 else throw Error('Unexpected endpoint');
