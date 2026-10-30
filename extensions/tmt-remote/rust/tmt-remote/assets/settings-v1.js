@@ -2393,7 +2393,11 @@ function remoteRegistryPage(initialBlocked = () => "", shell) {
 				box.append(value);
 				return box;
 			};
-			if (entry.thisMachine && entry.name !== "This machine") label.append(chip("This machine"));
+			if (entry.thisMachine && entry.name !== "This machine") {
+				const current = chip("This machine");
+				current.className += " remote-role";
+				label.append(current);
+			}
 			const role = chip(entry.roleLabel);
 			role.className += " remote-role";
 			role.dataset.role = "";
@@ -2402,7 +2406,7 @@ function remoteRegistryPage(initialBlocked = () => "", shell) {
 			description.className = browserUiClasses.listDescription;
 			title.append(label, description);
 			const state = node$2("div");
-			state.className = `${browserUiClasses.listState} ${browserUiClasses.chip}`;
+			state.className = `${browserUiClasses.listState} ${browserUiClasses.chip} remote-stage`;
 			paintConnection(state, entry.connection);
 			const actions = node$2("div");
 			actions.className = browserUiClasses.listActions;
@@ -3720,7 +3724,7 @@ function mountMembersPage(root, page, signal, otherBusy, changed = () => {}, obs
 		const sendingText = node("span");
 		sendingText.className = "tmt-ui-chip-label";
 		const sendingChip = node("span");
-		sendingChip.className = "tmt-ui-chip";
+		sendingChip.className = "tmt-ui-chip remote-stage";
 		const sendingMark = node("span");
 		sendingMark.className = "tmt-ui-state-mark";
 		sendingMark.dataset.shape = "dot";
