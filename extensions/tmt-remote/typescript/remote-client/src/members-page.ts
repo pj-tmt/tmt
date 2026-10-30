@@ -260,14 +260,15 @@ export function mountMembersPage(
   const facts = node('p');
   const table = createListTable(
     [
-      { id: 'icon', label: '', track: '48px', hideBelow: 'phone' },
-      { id: 'person', label: 'Person', track: 'minmax(0, 2.2fr)' },
-      { id: 'role', label: 'Role', track: 'minmax(0, .9fr)' },
-      { id: 'sending', label: 'Sending', track: 'minmax(0, 1fr)' },
-      { id: 'machines', label: 'Machines', track: 'minmax(0, 1.2fr)' },
-      { id: 'actions', label: '', track: '36px' },
+      { id: 'icon', label: '', hideBelow: 'phone' },
+      { id: 'person', label: 'Person' },
+      { id: 'role', label: 'Role' },
+      { id: 'sending', label: 'Sending' },
+      { id: 'machines', label: 'Machines' },
+      { id: 'actions', label: '' },
     ],
     'People',
+    'remote-people-table',
   );
   const list = table.body;
   const footer = node('p');

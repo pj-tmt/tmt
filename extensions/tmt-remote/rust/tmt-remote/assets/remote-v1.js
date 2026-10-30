@@ -4093,14 +4093,12 @@ function mountBrowserMenu(container, initial) {
 }
 //#endregion
 //#region ../../../../design/browser-ui/src/list-table-host.ts
-var listTableTracks = (columns) => columns.map((column) => column.track).join(" ");
 /** Framework-free owner for the same table presentation used by the React entry. */
-function createListTable(columns, label) {
+function createListTable(columns, label, className) {
 	const root = document.createElement("div");
-	root.className = "tmt-ui-list-table";
+	root.className = ["tmt-ui-list-table", className].filter(Boolean).join(" ");
 	root.setAttribute("role", "table");
 	root.setAttribute("aria-label", label);
-	root.style.setProperty("--tmt-ui-list-tracks", listTableTracks(columns));
 	const header = document.createElement("div");
 	header.className = "tmt-ui-list-columns";
 	header.setAttribute("role", "row");
@@ -4508,42 +4506,35 @@ function remoteRegistryPage(initialBlocked = () => "", shell) {
 		{
 			id: "icon",
 			label: "",
-			track: "48px",
 			hideBelow: "phone"
 		},
 		{
 			id: "name",
-			label: "Name",
-			track: "minmax(0, 2.4fr)"
+			label: "Name"
 		},
 		{
 			id: "connection",
-			label: "Connection",
-			track: "minmax(0, 1.2fr)"
+			label: "Connection"
 		},
 		{
 			id: "role",
-			label: "Your role",
-			track: "minmax(0, .9fr)"
+			label: "Your role"
 		},
 		{
 			id: "members",
 			label: "Members",
-			track: "minmax(0, 1fr)",
 			hideBelow: "phone"
 		},
 		{
 			id: "active",
 			label: "Last active",
-			track: "minmax(0, 1fr)",
 			hideBelow: "phone"
 		},
 		{
 			id: "actions",
-			label: "",
-			track: "36px"
+			label: ""
 		}
-	], "My Remotes");
+	], "My Remotes", "remote-registry-table");
 	const list = table.body;
 	list.id = "remote-list";
 	oldList.replaceWith(table.root);

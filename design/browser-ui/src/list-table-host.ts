@@ -2,19 +2,18 @@
 export interface ListTableColumn {
   id: string;
   label: string;
-  track: string;
   hideBelow?: 'phone';
 }
-export const listTableTracks = (columns: readonly ListTableColumn[]): string =>
-  columns.map((column) => column.track).join(' ');
-
 /** Framework-free owner for the same table presentation used by the React entry. */
-export function createListTable(columns: readonly ListTableColumn[], label: string) {
+export function createListTable(
+  columns: readonly ListTableColumn[],
+  label: string,
+  className?: string,
+) {
   const root = document.createElement('div');
-  root.className = 'tmt-ui-list-table';
+  root.className = ['tmt-ui-list-table', className].filter(Boolean).join(' ');
   root.setAttribute('role', 'table');
   root.setAttribute('aria-label', label);
-  root.style.setProperty('--tmt-ui-list-tracks', listTableTracks(columns));
   const header = document.createElement('div');
   header.className = 'tmt-ui-list-columns';
   header.setAttribute('role', 'row');
