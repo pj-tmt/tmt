@@ -6250,3 +6250,19 @@ pub(in crate::board) fn assert_list_input_owner(app: &App) {
         crate::board::shell::OpsInputOwner::List
     );
 }
+#[test]
+fn only_a_removal_review_starts_on_cancel() {
+    use crate::board::workspace::manage::review_start;
+    use tmt_tui::components::Focus;
+    for (kind, start) in [
+        (Kind::Remove, 0),
+        (Kind::RemoveMember, 0),
+        (Kind::Create, 1),
+        (Kind::Add, 1),
+        (Kind::Lead, 1),
+        (Kind::RenameSquad, 1),
+        (Kind::RenameMember, 1),
+    ] {
+        assert_eq!(review_start(kind).focus, Focus::Buttons(start), "{kind:?}");
+    }
+}

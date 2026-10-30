@@ -227,20 +227,31 @@ fn configured_r_keeps_its_meaning_and_unassigned_member_uses_the_same_rename() {
 }
 
 #[test]
-fn initial_enter_and_escape_cancel_without_clicking_through_to_the_member() {
-    for close in [KeyCode::Enter, KeyCode::Esc] {
+fn initial_enter_applies_and_escape_cancels_without_clicking_through_to_the_member() {
+    let review = || {
         let mut app = board();
-        let selected = app.workspace.selected.clone();
         member_menu_action(&mut app, OpsUiAction::RenameMember);
         app.input.as_mut().unwrap().text = "different".into();
         assert_eq!(key(&mut app, KeyCode::Enter), Effect::None);
         assert_eq!(app.workspace_form.as_ref().unwrap().stage, Stage::Review);
         paint(&app, 160, 36);
-        assert_eq!(key(&mut app, close), Effect::None);
-        assert!(app.workspace_form.is_none());
-        assert_eq!(app.workspace.selected, selected);
-        assert!(app.input.is_none());
-    }
+        app
+    };
+    let mut app = review();
+    let selected = app.workspace.selected.clone();
+    assert_eq!(key(&mut app, KeyCode::Esc), Effect::None);
+    assert!(app.workspace_form.is_none());
+    assert_eq!(app.workspace.selected, selected);
+    assert!(app.input.is_none());
+
+    // A rename review opens on its apply button, so Enter applies what was reviewed.
+    let mut app = review();
+    assert!(matches!(
+        key(&mut app, KeyCode::Enter),
+        Effect::Act(Request::WorkspaceOperation(_))
+    ));
+    assert_eq!(app.workspace_form.as_ref().unwrap().stage, Stage::Pending);
+    assert_eq!(app.workspace.selected, selected);
 }
 
 #[test]

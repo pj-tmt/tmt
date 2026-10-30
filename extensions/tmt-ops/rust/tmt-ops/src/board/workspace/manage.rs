@@ -85,13 +85,17 @@ pub struct Draft {
     pub timer_impact: Option<usize>,
     pub scroll: RefCell<ScrollState>,
     pub controls: Cell<[Option<Rect>; 2]>,
-    /// The Review stage's Cancel / apply cursor; it starts on Cancel.
+    /// The Review stage's Cancel / apply cursor (`review_start`).
     pub review: tmt_tui::components::DialogState,
 }
-/// Review starts on Cancel: Enter there never applies a membership change by accident.
-const REVIEW_START: tmt_tui::components::DialogState = tmt_tui::components::DialogState {
-    focus: tmt_tui::components::Focus::Buttons(0),
-};
+/// Review of a removal starts on Cancel, so a stray Enter never takes an agent out of a squad;
+/// any other review starts on its apply button, so Enter applies what was just reviewed.
+pub(in crate::board) fn review_start(kind: Kind) -> tmt_tui::components::DialogState {
+    let destructive = matches!(kind, Kind::Remove | Kind::RemoveMember);
+    tmt_tui::components::DialogState {
+        focus: tmt_tui::components::Focus::Buttons(usize::from(!destructive)),
+    }
+}
 impl Draft {
     fn validate_field(&self, text: &str) -> Result<(), String> {
         let index = self.values.len();
@@ -851,7 +855,7 @@ impl App {
             timer_impact,
             scroll: Default::default(),
             controls: Cell::new([None, None]),
-            review: REVIEW_START,
+            review: review_start(kind),
         });
         self.workspace_form_next()
     }
@@ -878,7 +882,7 @@ impl App {
         if draft.kind == Kind::RemoveMember {
             let draft = self.workspace_form.as_mut().unwrap();
             draft.stage = Stage::Review;
-            draft.review = REVIEW_START;
+            draft.review = review_start(draft.kind);
             draft.invalidate();
             return Effect::None;
         }
@@ -893,7 +897,7 @@ impl App {
         let draft = self.workspace_form.as_mut().unwrap();
         draft.operation = Some(operation);
         draft.stage = Stage::Review;
-        draft.review = REVIEW_START;
+        draft.review = review_start(draft.kind);
         draft.invalidate();
         *draft.scroll.borrow_mut() = Default::default();
         Effect::None
