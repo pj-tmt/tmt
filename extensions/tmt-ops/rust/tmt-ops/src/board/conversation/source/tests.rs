@@ -158,7 +158,7 @@ fn refresh_keeps_the_selected_literal_quote_without_request_identity_checks() {
     assert_eq!(input.literal_quotes()[0].text, "literal passage");
     assert_eq!(
         input.text.as_str(),
-        "literal passage\n",
+        "literal passage\n\n",
         "Editor owns the full quote source"
     );
     assert!(
@@ -1581,6 +1581,41 @@ fn copying_rendered_rows_gives_their_markdown_source() {
     assert_eq!(
         drag_copy(&mut app, (intro.0 + 2, intro.1), (intro.0 + 7, intro.1)).as_deref(),
         Some("tro **l")
+    );
+}
+
+#[test]
+fn a_few_words_of_a_list_item_or_quote_copy_and_quote_as_exactly_those_words() {
+    let source = "- alpha beta gamma\n\n> quoted words here\n\n## Heading words";
+    let mut app = fixture(source);
+    let screen = draw(&mut app, 100, TALL);
+    for words in ["beta gamma", "quoted words", "Heading"] {
+        let at = locate(&screen, words).unwrap();
+        assert_eq!(
+            drag_copy(&mut app, at, (at.0 + words.len() as u16, at.1)).as_deref(),
+            Some(words)
+        );
+    }
+    // The whole item is its Markdown source.
+    let item = locate(&screen, "alpha").unwrap();
+    assert_eq!(
+        drag_copy(&mut app, (item.0 - 2, item.1), (item.0 + 16, item.1)).as_deref(),
+        Some("- alpha beta gamma")
+    );
+    // Quote takes the same words.
+    let mut app = fixture(source);
+    pick(&mut app, "words");
+    draw(&mut app, 100, TALL);
+    let quote = quote_button(&app).unwrap();
+    mouse(
+        &mut app,
+        MouseEventKind::Down(MouseButton::Left),
+        quote.x + 1,
+        quote.y,
+    );
+    assert_eq!(
+        app.input.as_ref().unwrap().literal_quotes()[0].text,
+        "words"
     );
 }
 

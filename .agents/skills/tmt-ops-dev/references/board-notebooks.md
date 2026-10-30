@@ -350,15 +350,21 @@ pane and falls back to the frame when the pane is too short (no room at all, no 
 keys still work). Keys and mouse run the same entries; a press on the border or the hint
 neither acts nor starts a selection.
 Copy and Quote carry the Markdown source of the selected messages
-(`conversation/copy.rs`; each displayed line keeps its message and source line): tables,
-code (with its fences), headings, lists and quotes as whole source lines, and a selection
-that starts or ends inside a plain paragraph line as the exact source characters. Rows
+(`conversation/copy.rs`; each displayed line keeps its message and source line). A selection
+end inside any source line (list item, quote, heading, table row, code or paragraph) cuts
+there, so a few words are exactly those characters; painted-only glyphs (bullets, quote bars,
+borders) are skipped when aligning, and text that cannot be aligned copies what it shows.
+Markers come with a line selected whole, and code fences or a table's header and delimiter
+only with a whole line of that block. Rows
 without a source (headers, status lines, pane output) keep their displayed text. Quoting never
 depends on the agent's state. The
 `q Quote` entry, `q` or Enter inserts a literal quote fold after the logical line
 containing the composer caret. The whole current line and later text remain;
-the fold occupies its own line and the caret lands on the following empty answer
-line. An empty draft starts with the fold and answer line. Repeating the gesture
+the fold occupies its own line and the caret lands on the answer line after it. At the
+end of the draft an empty line separates the fold from that answer line, so typed text
+starts its own paragraph; inside the draft the following line break already does. Sending
+also ends each quote with an empty line when the text after it would otherwise continue
+the quote. An empty draft starts with the fold, an empty line and the answer line. Repeating the gesture
 keeps quotes and answers in draft order. Before admission, quote CRLF and lone CR
 breaks become LF and one terminal break is removed; additional empty lines remain.
 Editor owns those admitted bytes and fold ranges; `composer::chat_quotes` retains

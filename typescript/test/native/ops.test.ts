@@ -5414,9 +5414,10 @@ describe('large board responsiveness', () => {
             interval: 50,
           });
           capture('one-chip-draft');
-          // The quote is an Editor fold on the preceding line. Moving to it
-          // keeps the caret in the Editor and Ctrl-P previews its full source.
-          tmux(['send-keys', '-t', pane, 'Home', 'Up', 'End', 'C-p']);
+          // The quote is an Editor fold above the empty line before the answer.
+          // Moving to it keeps the caret in the Editor and Ctrl-P previews its
+          // full source.
+          tmux(['send-keys', '-t', pane, 'Home', 'Up', 'Up', 'End', 'C-p']);
           await vi.waitFor(() => expect(screen()).toContain('Quote · 16 chars · 1 line'), {
             timeout: 10_000,
             interval: 50,
@@ -5466,7 +5467,7 @@ describe('large board responsiveness', () => {
           });
           capture('sent');
           expect(JSON.parse(delivered.stdout).prompt.message).toBe(
-            '[product · worker]\n> "first **styled**"\ntyped comment'
+            '[product · worker]\n> "first **styled**"\n\ntyped comment'
           );
           expect(
             JSON.parse((await runCli(sandbox, ['result', request, '--json'])).stdout).response

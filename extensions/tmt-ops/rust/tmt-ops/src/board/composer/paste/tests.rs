@@ -1032,6 +1032,7 @@ fn quote_preview_retains_full_source_at_narrow_width_without_editing() {
         draw(&mut app, width, 36);
         key(&mut app, KeyCode::Home);
         key(&mut app, KeyCode::Up);
+        key(&mut app, KeyCode::Up);
         app.key(KeyEvent::new(KeyCode::Char('p'), KeyModifiers::CONTROL));
         assert!(app.paste_preview_shown());
         let expected = (0..30)

@@ -3536,6 +3536,9 @@ var browserUiClasses = Object.freeze({
 	page: "tmt-ui-page",
 	pageHead: "tmt-ui-page-head",
 	pageTitle: "tmt-ui-page-title",
+	topBarTitlePrefix: "tmt-ui-topbar-title-prefix",
+	topBarTitleCurrent: "tmt-ui-topbar-title-current",
+	topBarTitleChips: "tmt-ui-topbar-title-chips",
 	pageSubtitle: "tmt-ui-page-subtitle",
 	stats: "tmt-ui-stats",
 	stat: "tmt-ui-stat",
@@ -4795,6 +4798,8 @@ function createShellTopBar(root, bar, navigation, railSearch) {
 		const left = document.createElement("div");
 		left.className = "tmt-ui-topbar-navigation";
 		left.append(navigation);
+		const title = document.createElement("div");
+		title.className = "tmt-ui-topbar-title";
 		const right = document.createElement("div");
 		right.className = "tmt-ui-topbar-controls";
 		const statusSlot = document.createElement("div");
@@ -4867,7 +4872,7 @@ function createShellTopBar(root, bar, navigation, railSearch) {
 		};
 		const searchHelp = help(search, "Search TMT");
 		const remoteHelp = help(remote, "Remote: session count unconfirmed");
-		left.append(searchHelp.wrapper);
+		left.append(searchHelp.wrapper, title);
 		common.append(theme, remoteHelp.wrapper);
 		right.append(statusSlot, common, actions);
 		header.append(left, right);
@@ -4987,6 +4992,7 @@ function createShellTopBar(root, bar, navigation, railSearch) {
 		update();
 		return {
 			slot: {
+				title,
 				actions,
 				status: statusSlot
 			},
@@ -5598,6 +5604,7 @@ function startShellHost(root, routes, options = {}) {
 		tools: controls.tools,
 		topBarReady: () => !disposed && current?.generation === mine && controls.topBarReady(),
 		setTopBar: () => current?.generation === mine ? controls.setTopBar() : {
+			title: document.createElement("div"),
 			actions: document.createElement("div"),
 			status: document.createElement("div")
 		},

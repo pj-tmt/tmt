@@ -207,3 +207,115 @@ test('global search lives above Home and remains beside navigation on phones', a
   expect(mobileBox!.x).toBeGreaterThanOrEqual(navBox!.x + navBox!.width);
   expect(mobileBox!.x - navBox!.x - navBox!.width).toBeLessThanOrEqual(16);
 });
+
+for (const renderer of ['react', 'native', 'hosted'])
+  test(`${renderer}: route title belongs to the top bar left group`, async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 900 });
+    await page.goto(`/?frame=topbar&renderer=${renderer}`);
+    await expect(
+      page.locator('.tmt-ui-topbar-navigation').getByRole('heading', { level: 1 }),
+    ).toHaveText('Shared top bar');
+  });
+
+// These are shared-slot examples of the approved route identities, not product-route adoption.
+const routeTitles = [
+  ['home', 'Home'],
+  ['colab-list', 'pm'],
+  ['colab-page', 'Night design: editor hints and history cleanup'],
+  ['colab-settings', 'Settings'],
+  ['remote', 'Remote'],
+  ['remote-members', 'Members'],
+  ['ops', 'Agents'],
+  ['digest', 'Digest'],
+  ['settings', 'General'],
+  ['reader', 'Weekly plan'],
+  ['pair', 'tmt'],
+] as const;
+for (const renderer of ['react', 'native'])
+  for (const width of [1440, 390])
+    for (const theme of ['light', 'dark'] as const)
+      for (const [identity, title] of routeTitles)
+        test(`${renderer} route identity ${identity} ${width} ${theme}`, async ({ page }, info) => {
+          await page.setViewportSize({ width, height: 992 });
+          await page.emulateMedia({ colorScheme: theme, reducedMotion: 'reduce' });
+          await page.goto(
+            `/?frame=topbar&renderer=${renderer}&identity=${identity}&theme=${theme}`,
+          );
+          const bar = page.locator('.tmt-ui-topbar');
+          const left = bar.locator('.tmt-ui-topbar-navigation');
+          const heading = left.getByRole('heading', { level: 1 });
+          await expect(heading).toBeVisible();
+          await expect(page.getByRole('heading', { level: 1 })).toHaveCount(1);
+          const current = heading.locator('.tmt-ui-topbar-title-current');
+          await expect(current).toHaveText(title);
+          await expect(current).toHaveCSS('text-overflow', 'ellipsis');
+          const right = bar.locator('.tmt-ui-topbar-controls');
+          const [leftBox, headingBox, rightBox] = await Promise.all([
+            left.boundingBox(),
+            heading.boundingBox(),
+            right.boundingBox(),
+          ]);
+          expect(headingBox!.x).toBeGreaterThanOrEqual(leftBox!.x);
+          expect(headingBox!.x + headingBox!.width).toBeLessThanOrEqual(rightBox!.x);
+          for (const prefix of await heading.locator('.tmt-ui-topbar-title-prefix').all()) {
+            if (width <= 900) await expect(prefix).toBeHidden();
+            else await expect(prefix).toBeVisible();
+          }
+          if (identity === 'colab-page') {
+            const chips = left.locator('.tmt-ui-topbar-title-chips');
+            if (width <= 900) {
+              await expect(chips).toBeHidden();
+              expect(await current.evaluate((node) => node.scrollWidth > node.clientWidth)).toBe(
+                true,
+              );
+            } else await expect(chips).toBeVisible();
+          }
+          if (identity === 'colab-page' || identity === 'reader') {
+            const author = left.getByText('by Ben', { exact: true });
+            if (width <= 900) await expect(author).toBeHidden();
+            else {
+              await expect(author).toBeVisible();
+              await expect(author).toHaveCSS(
+                'color',
+                await heading
+                  .locator('.tmt-ui-topbar-title-prefix')
+                  .evaluate((node) => getComputedStyle(node).color),
+              );
+              if (identity === 'colab-page') {
+                const pin = left.getByRole('button', { name: 'Pin page', exact: true });
+                expect((await author.boundingBox())!.x).toBeGreaterThan(
+                  (await pin.boundingBox())!.x,
+                );
+              }
+            }
+          }
+          if (width <= 900) {
+            const navigation = left.getByRole('button', { name: 'Open navigation', exact: true });
+            const search = left.getByRole('button', { name: 'Search TMT', exact: true });
+            const [navBox, searchBox] = await Promise.all([
+              navigation.boundingBox(),
+              search.boundingBox(),
+            ]);
+            expect(searchBox!.x).toBeGreaterThanOrEqual(navBox!.x + navBox!.width);
+            expect(headingBox!.x).toBeGreaterThanOrEqual(searchBox!.x + searchBox!.width);
+          }
+          await bar.screenshot({
+            path: info.outputPath(`title-${identity}-${renderer}-${width}-${theme}.png`),
+          });
+        });
+
+for (const width of [900, 901])
+  test(`route title compact boundary ${width}`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 992 });
+    await page.goto('/?frame=topbar&renderer=react&identity=colab-page');
+    const bar = page.locator('.tmt-ui-topbar');
+    const prefix = bar.locator('.tmt-ui-topbar-title-prefix');
+    const chips = bar.locator('.tmt-ui-topbar-title-chips');
+    if (width === 900) {
+      await expect(prefix).toBeHidden();
+      await expect(chips).toBeHidden();
+    } else {
+      await expect(prefix).toBeVisible();
+      await expect(chips).toBeVisible();
+    }
+  });

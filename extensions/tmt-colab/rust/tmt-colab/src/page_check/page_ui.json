@@ -253,6 +253,10 @@
   "tmt-ui-topbar-remote",
   "tmt-ui-topbar-search",
   "tmt-ui-topbar-status",
+  "tmt-ui-topbar-title",
+  "tmt-ui-topbar-title-chips",
+  "tmt-ui-topbar-title-current",
+  "tmt-ui-topbar-title-prefix",
   "tmt-ui-visually-hidden",
   "tmt-ui-wordmark"
  ],
