@@ -203,9 +203,9 @@ for (const width of [1440, 390])
     const items = page.getByRole('menuitem');
     await expect(items.nth(0)).toHaveText(/^Share…/);
     await expect(items.nth(1)).toHaveText('Questions…');
-    await expect(items.nth(2)).toHaveText('Set creator…');
-    await expect(items.nth(3)).toHaveText('Agent status');
-    await expect(items.nth(4)).toHaveText('Source');
+    await expect(items.nth(2)).toHaveText('Creator');
+    await expect(items.nth(3)).toHaveText('Source');
+    await expect(items.nth(4)).toHaveText('Export page');
     await expect(page.getByRole('menuitem', { name: /^Remote:/ })).toHaveCount(0);
     await page.keyboard.press('Escape');
     await fixture(page, { unconfirmed: true });

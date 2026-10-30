@@ -389,7 +389,7 @@ test('native attach lists a file for every device, reads back byte-equal, and re
 
 /** The Files entry says how many files the page lists (in More for an owner page). */
 async function expectFilesCount(page: Page, count: number, timeout = 30_000) {
-  await expect(await pageAction(page, 'Files')).toHaveAccessibleName(`${text.files} (${count})`, {
+  await expect(await pageAction(page, 'Files')).toHaveAccessibleName(`${text.files} ${count}`, {
     timeout,
   });
 }
@@ -437,12 +437,12 @@ test('files added to the page reach another device and a read-only link byte-ide
     await (await chooser).setFiles(all);
     await expect(panel.getByTestId('attachment-chip')).toHaveCount(3);
     // Choosing stored and wrote nothing: the other device still shows no files.
-    await expect(await pageAction(second, 'Files')).toHaveAccessibleName('Files (0)');
+    await expect(await pageAction(second, 'Files')).toHaveAccessibleName('Files 0');
 
     await panel.getByRole('button', { name: text.filesAdd, exact: true }).click();
     await expect(panel.getByTestId('file-row')).toHaveCount(3, { timeout: 30_000 });
-    await expect(await pageAction(first, 'Files')).toHaveAccessibleName('Files (3)');
-    await expect(await pageAction(second, 'Files')).toHaveAccessibleName('Files (3)', {
+    await expect(await pageAction(first, 'Files')).toHaveAccessibleName('Files 3');
+    await expect(await pageAction(second, 'Files')).toHaveAccessibleName('Files 3', {
       timeout: 30_000,
     });
 
@@ -485,7 +485,7 @@ test('files added to the page reach another device and a read-only link byte-ide
     await check(second, true);
 
     const reader = await openReaderLink(world, door, readerPath, 'files-reader');
-    await expect(await pageAction(reader.page, 'Files')).toHaveText(`${text.files} 3`, {
+    await expect(await pageAction(reader.page, 'Files')).toHaveAccessibleName(`${text.files} 3`, {
       timeout: 30_000,
     });
     await (await pageAction(reader.page, 'Files')).click();
@@ -502,10 +502,10 @@ test('files added to the page reach another device and a read-only link byte-ide
       .click();
     await first.getByRole('button', { name: text.filesRemoveConfirm, exact: true }).click();
     await expect(panel.getByTestId('file-row')).toHaveCount(2, { timeout: 30_000 });
-    await expect(await pageAction(second, 'Files')).toHaveAccessibleName('Files (2)', {
+    await expect(await pageAction(second, 'Files')).toHaveAccessibleName('Files 2', {
       timeout: 30_000,
     });
-    await expect(await pageAction(reader.page, 'Files')).toHaveText(`${text.files} 2`, {
+    await expect(await pageAction(reader.page, 'Files')).toHaveAccessibleName(`${text.files} 2`, {
       timeout: 30_000,
     });
 
