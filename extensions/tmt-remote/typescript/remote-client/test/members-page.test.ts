@@ -47,6 +47,9 @@ function fixture() {
   let effectError = false;
   const client: RemoteMembers = {
     clientId: 'current',
+    async summary() {
+      throw new Error('The People page must not request row summaries.');
+    },
     async list() {
       calls.lists++;
       if (readError) throw new Error('unavailable');

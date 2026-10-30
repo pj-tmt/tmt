@@ -41,6 +41,14 @@ impl From<Member> for Person {
         }
     }
 }
+/// Durable row facts only; neither timestamp nor count is a presence observation.
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Summary {
+    pub remote_id: String,
+    pub member_count: Option<u64>,
+    pub last_active_at_ms: Option<u64>,
+}
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Roster {
@@ -155,6 +163,27 @@ pub fn roster(store: &Store, caller: Caller<'_>, page: Page, now: u64) -> Result
         .remote_name()
         .map(str::to_owned);
     Ok(view)
+}
+pub(crate) fn summary(store: &Store, caller: Caller<'_>, now: u64) -> Result<Summary> {
+    let scope = scope(&store.connection, caller, now)?;
+    super::projection::summary(&store.connection, &scope)
+}
+/// A designation can change while the admitted grant remains live. Facts are disclosed only
+/// after rechecking the current administrator boundary, just like the full roster.
+pub(crate) fn validate_summary(
+    store: &Store,
+    caller: Caller<'_>,
+    view: &Summary,
+    now: u64,
+) -> Result<()> {
+    let current = scope(&store.connection, caller, now)?;
+    if current.remote != view.remote_id
+        || (!current.administrator()
+            && (view.member_count.is_some() || view.last_active_at_ms.is_some()))
+    {
+        return Err(denied());
+    }
+    Ok(())
 }
 pub fn machines(
     store: &Store,

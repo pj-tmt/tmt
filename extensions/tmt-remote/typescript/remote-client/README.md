@@ -342,6 +342,14 @@ the database or invent a replacement ID to bypass the limit. Compaction is defer
 ### Members and machine policy
 
 `members(session)` shares the verified Session lane and immutable management journal.
+Use `summary()` for the current Remote's `{remoteId,memberCount,lastActiveAtMs}` row facts.
+Only the current designated owner browser receives the count and recorded-use timestamp;
+otherwise each remains null. These facts never imply presence or online status. There is no
+foreign-Remote selector or probe, and the private control adapter does not expose this read.
+The [protocol](../../../../contracts/remote-channel-v1.md#remote-management-protocol) defines
+the count and historical-use semantics. Like other reads, a lost answer needs a new explicit
+signed read, not management-journal recovery or an automatic retry.
+
 Use `list({cursor:null,limit:50})` for the current Remote roster and
 `machines({memberId,cursor:null,limit:50})` for one person's bounded machine page.
 Follow `nextCursor` only for an explicit next-page read. The

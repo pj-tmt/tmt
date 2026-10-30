@@ -34,6 +34,12 @@ export type MemberInvitationView =
 export type MemberRouteView =
   | { state: 'unavailable' | 'not-recorded' }
   | { state: 'recorded'; publicationPending: boolean; removalPending: boolean };
+/** Recorded row facts, never presence or online status. Null means unavailable or unauthorized. */
+export interface MemberSummary {
+  remoteId: string;
+  memberCount: number | null;
+  lastActiveAtMs: number | null;
+}
 export interface MemberRoster {
   remoteId: string;
   administrator: boolean;
@@ -86,6 +92,7 @@ export type MemberOutcome =
 export type MemberOriginalOutcome = MemberOutcome | ManagementOutcome;
 export interface RemoteMembers {
   readonly clientId: string;
+  summary(): Promise<MemberSummary>;
   list(page: MemberPage): Promise<MemberRoster>;
   machines(page: MemberPage & { memberId: string }): Promise<MemberMachines>;
   rename(change: MemberChange & { name: string }): Promise<MemberOutcome>;
@@ -292,6 +299,13 @@ export function members(session: Session, options: { timeoutMs?: number } = {}):
   }
   return {
     clientId,
+    summary: () =>
+      call('remote.members.summary', crypto.randomUUID(), {}, (value) => {
+        const row = object(value);
+        exact(row, ['remoteId', 'memberCount', 'lastActiveAtMs']);
+        valid(row.remoteId === remoteId && time(row.memberCount) && time(row.lastActiveAtMs));
+        return row as unknown as MemberSummary;
+      }),
     list: (value) => {
       inputKeys(value, ['cursor', 'limit']);
       page(value);

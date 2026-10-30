@@ -672,7 +672,7 @@ pub(crate) fn append(
         return invitation_requests::append(permit, owner_invitations);
     }
     match operation {
-        "remote.members.list" | "remote.members.machines" => {
+        "remote.members.list" | "remote.members.machines" | "remote.members.summary" => {
             return crate::members::reads::signed(permit, member_observations);
         }
         "remote.settings.show" => {

@@ -586,7 +586,7 @@ payloads. The signed batch payload binds their exact bytes/order. Set nextCursor
 returned entry cursor, or to the input cursor on timeout; initially an empty stream returns its
 beginning cursor. The fixed observational operations (`capabilities`, `agents.list`, `identities.status`,
 `check`, `requests.show`, `result`, `dispatch.show`, `operation.show`, `remote.settings.show`,
-`remote.devices.list`, `remote.members.list`, `remote.members.machines`,
+`remote.devices.list`, `remote.members.list`, `remote.members.machines`, `remote.members.summary`,
 `remote.management.operation`) return live signed results without adopting
 the read ID, observed-read metadata or new ownership rows. `operation.show` is recovery observation:
 stable or still-unresolved originals are pure reads; a definitive outcome learned for an unresolved
@@ -1040,12 +1040,27 @@ The retained `remote.devices.list` follows the same administrator/self visibilit
 
 | Operation                 | Exact input                                                      | Result                                             |
 | ------------------------- | ---------------------------------------------------------------- | -------------------------------------------------- |
+| `remote.members.summary`  | `{}`                                                             | Recorded row facts; nullable when unauthorized     |
 | `remote.members.list`     | `{cursor:null\|string,limit:integer}`                            | Member roster; limit 1–50                          |
 | `remote.members.machines` | `{memberId,cursor:null\|string,limit:integer}`                   | Machine page; limit 1–50                           |
 | `remote.members.rename`   | `{operationId,remoteId,memberId,memberRevision,name}`            | Member outcome; Admin any member, Member self only |
 | `remote.members.sending`  | `{operationId,remoteId,memberId,memberRevision,enabled:boolean}` | Member outcome; Admin only                         |
 | `remote.members.revoke`   | `{operationId,remoteId,memberId,memberRevision}`                 | Member outcome; Admin only                         |
 | `remote.name.set`         | `{operationId,remoteId,name}`                                    | Remote-name outcome; Admin only                    |
+
+`remote.members.summary` is an owner-browser management read only, on the existing signed
+path, with no new authority, transport or ceremony. It returns exactly
+`{remoteId,memberCount:null|integer,lastActiveAtMs:null|integer}` for the current Remote;
+no Remote selector is accepted. Only the exact currently designated owner browser receives
+these facts; other admitted browsers receive both nullable fields as null. The private
+local-owner control adapter does not expose this operation. `memberCount` counts non-revoked
+people, including the owner, once regardless of associated machine count. `lastActiveAtMs`
+is the latest durable accepted authenticated use recorded for an associated machine, including
+historical use by a now-revoked machine. Null means not recorded or not authorized, not
+zero people or never used. Neither field establishes presence or online status.
+Session counts, active probes and provider calls
+do not contribute. Current grant, Remote and designation disclosure boundaries are rechecked
+before returning the signed result. Summary reads do not adopt an original management ID.
 
 `remoteId` is the current Remote UUID; existing member/client IDs remain opaque, including
 legacy IDs. `memberRevision` is a positive JSON-safe integer and must match the target at the
