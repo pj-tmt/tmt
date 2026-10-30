@@ -507,6 +507,11 @@ impl State {
         self.lists.get(key).is_some_and(|entry| entry.writing)
     }
 
+    /// How many unsent or unacknowledged drafts are kept.
+    #[cfg(test)]
+    pub fn draft_count(&self) -> usize {
+        self.drafts.len()
+    }
     pub fn draft(&self, key: &Key) -> Option<&Draft> {
         self.drafts.get(key)
     }

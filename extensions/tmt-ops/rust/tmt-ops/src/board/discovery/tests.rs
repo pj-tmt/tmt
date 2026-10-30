@@ -899,11 +899,22 @@ fn capture_fitted_discovery_review() {
 }
 
 #[test]
-fn an_outside_press_closes_the_discovery_window() {
-    let mut app = crate::board::app::workspace::tests::board();
-    app.discovery = Some(controller());
-    crate::board::home::tests::dialog_dismiss::assert_outside_press_closes(
-        &mut app,
+fn the_discovery_window_follows_the_close_rule() {
+    // On the candidate list; Esc on a later screen still steps back until PR 6 of #5647.
+    let open = || {
+        let mut c = Controller::new(1, scope());
+        let task = c.scan(scope()).unwrap();
+        c.loaded(load::Completed {
+            task,
+            result: Ok(Outcome::Scan(ScanObservation::decode(&document()).unwrap())),
+        });
+        let mut app = crate::board::app::workspace::tests::board();
+        app.discovery = Some(c);
+        app
+    };
+    crate::board::home::tests::dialog_dismiss::assert_close_rule(
+        &mut open(),
+        &mut open(),
         crate::board::app::Overlay::Discovery,
     );
 }

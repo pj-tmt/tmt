@@ -392,18 +392,23 @@ fn closed_rename_stays_reachable_through_actions_after_its_member_disappears() {
 }
 
 #[test]
-fn an_outside_press_closes_the_workspace_form() {
-    let mut app = board();
-    assert_eq!(
-        member_menu_action(&mut app, OpsUiAction::RenameMember),
-        Effect::None
-    );
-    app.input.as_mut().unwrap().text = "renamed".into();
-    assert_eq!(key(&mut app, KeyCode::Enter), Effect::None);
-    assert_eq!(app.workspace_form.as_ref().unwrap().stage, Stage::Review);
-    crate::board::home::tests::dialog_dismiss::assert_outside_press_closes(
-        &mut app,
+fn the_workspace_form_follows_the_close_rule() {
+    let open = || {
+        let mut app = board();
+        assert_eq!(
+            member_menu_action(&mut app, OpsUiAction::RenameMember),
+            Effect::None
+        );
+        app.input.as_mut().unwrap().text = "renamed".into();
+        assert_eq!(key(&mut app, KeyCode::Enter), Effect::None);
+        assert_eq!(app.workspace_form.as_ref().unwrap().stage, Stage::Review);
+        app
+    };
+    let mut outside = open();
+    crate::board::home::tests::dialog_dismiss::assert_close_rule(
+        &mut open(),
+        &mut outside,
         crate::board::app::Overlay::Workspace,
     );
-    assert!(app.workspace_form.is_none());
+    assert!(outside.workspace_form.is_none());
 }

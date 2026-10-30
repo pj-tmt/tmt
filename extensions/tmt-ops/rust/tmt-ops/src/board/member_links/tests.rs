@@ -269,6 +269,11 @@ mod interaction_tests {
             ["Message", "Jump to host", "Show in Agents"],
             "missing copy fields and an unobserved lead hide those actions"
         );
+        // An outside press closes the menu where it was last painted, never an unseen one.
+        Terminal::new(TestBackend::new(60, 24))
+            .unwrap()
+            .draw(|frame| crate::board::view::render(frame, &app))
+            .unwrap();
         app.mouse(
             MouseEvent {
                 kind: MouseEventKind::Down(MouseButton::Left),

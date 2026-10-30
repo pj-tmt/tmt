@@ -497,7 +497,7 @@ See [member references and source](board-notebooks.md#inert-text-and-independent
   the chip, or below when necessary, within half the conversation pane. A final
   line break does not add a blank preview row; additional empty lines remain visible.
   Escape and outside presses dismiss the preview without changing the draft;
-  the outside press continues to its underlying control. The chip's × removes its source range.
+  an outside press on the composer continues to it, and one anywhere else is taken. The chip's × removes its source range.
   Pasting while previewing closes the preview and admits that paste once at the
   kept editor caret/selection. A size refusal keeps the exact draft and displays
   the existing notice; paste never submits.

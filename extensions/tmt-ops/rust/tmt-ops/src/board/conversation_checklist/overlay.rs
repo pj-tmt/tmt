@@ -76,13 +76,12 @@ impl Controller {
         notes.draft(&self.key).is_some_and(|draft| !draft.sent())
     }
 
-    /// Drops the form that has not been sent. Esc keeps it for the next open; a press outside
-    /// the sheet does not.
-    pub(in crate::board) fn discard_unsent(&self, notes: &mut State) {
-        if !self.owns_typing(notes) {
-            return;
+    /// Esc or an outside press: the unsent form's text is kept for the next open, except an
+    /// empty form or an edit that changed nothing, which is not worth keeping.
+    pub(in crate::board) fn close(&self, notes: &mut State) {
+        if self.owns_typing(notes) && notes.draft(&self.key).is_some_and(Draft::untouched) {
+            notes.drop_draft(&self.key);
         }
-        notes.drop_draft(&self.key);
     }
 
     /// Where the sheet was last painted.
@@ -372,10 +371,7 @@ impl Controller {
         match event {
             Event::Key(press) if press.kind != KeyEventKind::Release => match press.code {
                 KeyCode::Esc => {
-                    // An empty form, or an edit that changed nothing, is not worth keeping.
-                    if !sent && app.notes.draft(&key).is_some_and(Draft::untouched) {
-                        app.notes.drop_draft(&key);
-                    }
+                    self.close(&mut app.notes);
                     self.closed = true;
                     return Effect::None;
                 }

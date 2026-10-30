@@ -1401,7 +1401,7 @@ pub(in crate::board) fn dialog(frame: &mut Frame, app: &App, body: Rect) {
     modal.paint(areas, frame.buffer_mut(), &look.theme, look.depth);
     app.input_band.set(Some(areas.outer));
     app.peek_areas
-        .set_dialog(crate::board::app::Overlay::Workspace, Some(areas.outer));
+        .set(crate::board::app::Overlay::Workspace, Some(areas.outer));
     if draft.stage == Stage::Fields {
         let prompt_height = (lines
             .len()

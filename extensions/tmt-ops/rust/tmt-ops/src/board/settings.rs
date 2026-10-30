@@ -1259,17 +1259,21 @@ pub(in crate::board) mod tests {
     use ratatui::{Terminal, backend::TestBackend, crossterm::event::KeyModifiers};
 
     #[test]
-    fn an_outside_press_closes_the_settings_sheet() {
-        let mut f = fixture("outside-press", "");
-        crate::board::home::tests::dialog_dismiss::assert_outside_press_closes(
+    fn the_settings_sheet_follows_the_close_rule() {
+        let mut esc = fixture("close-rule-esc", "");
+        let mut f = fixture("close-rule", "");
+        crate::board::home::tests::dialog_dismiss::assert_close_rule(
+            &mut esc.app,
             &mut f.app,
             crate::board::app::Overlay::Settings,
         );
-        assert_eq!(
-            std::fs::read_to_string(&f.path).unwrap(),
-            f.original,
-            "closing writes nothing"
-        );
+        for f in [esc, f] {
+            assert_eq!(
+                std::fs::read_to_string(&f.path).unwrap(),
+                f.original,
+                "closing writes nothing"
+            );
+        }
     }
 
     #[test]

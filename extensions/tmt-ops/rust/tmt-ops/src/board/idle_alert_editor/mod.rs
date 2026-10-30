@@ -26,6 +26,8 @@ pub(in crate::board) struct Controller {
     focus: usize,
     choice: usize,
     pending: bool,
+    /// False while a save runs behind a closed editor; reopening shows it.
+    shown: bool,
     notice: Option<String>,
     readable: Cell<bool>,
     hits: RefCell<Vec<(Rect, Control)>>,
@@ -177,7 +179,41 @@ impl Controller {
     }
 }
 impl App {
+    pub(in crate::board) fn idle_alert_shown(&self) -> bool {
+        self.idle_alert_editor.as_ref().is_some_and(|c| c.shown)
+    }
+    fn idle_alert_reopen_hint(&self) -> String {
+        self.reopen_hint(
+            crate::action::OpsUiAction::IdleAlert,
+            "i",
+            "this idle alert",
+            "Idle alert on a squad row",
+        )
+    }
+    /// A running save hides and keeps going; a load or a finished editor closes.
+    pub(in crate::board) fn idle_alert_close(&mut self) -> Effect {
+        let reopen = self.idle_alert_reopen_hint();
+        let Some(c) = &mut self.idle_alert_editor else {
+            return Effect::None;
+        };
+        if !(c.pending && c.config.is_some()) {
+            self.idle_alert_editor = None;
+            return Effect::None;
+        }
+        c.shown = false;
+        c.invalidate();
+        let text = format!("◌ Saving idle alert · {}. {reopen}", c.name);
+        self.say(&text)
+    }
     pub(in crate::board) fn open_idle_alert(&mut self, room: Option<String>) -> Effect {
+        if let Some(c) = &mut self.idle_alert_editor
+            && !c.shown
+        {
+            c.shown = true;
+            c.invalidate();
+            self.menu = None;
+            return Effect::None;
+        }
         if self.shell.tab != super::shell::OpsTab::Agents
             || self.input.is_some()
             || self.searching
@@ -250,6 +286,7 @@ impl App {
             focus: 0,
             choice: 0,
             pending: true,
+            shown: true,
             notice: None,
             readable: Cell::new(false),
             hits: RefCell::new(Vec::new()),
@@ -261,6 +298,17 @@ impl App {
         Effect::IdleAlert(task)
     }
     pub(in crate::board) fn finished_idle_alert(&mut self, completed: Completed) -> Effect {
+        let effect = self.finish_idle_alert(completed);
+        if let Some(c) = &self.idle_alert_editor
+            && !c.shown
+            && let Some(notice) = &c.notice
+        {
+            let text = format!("{notice} · {}", self.idle_alert_reopen_hint());
+            self.set_notice(Some(text), false);
+        }
+        effect
+    }
+    fn finish_idle_alert(&mut self, completed: Completed) -> Effect {
         let Some(c) = &mut self.idle_alert_editor else {
             return Effect::None;
         };
@@ -299,9 +347,8 @@ impl App {
         let mut action = None;
         match event {
             Event::Key(key) if key.kind != KeyEventKind::Release => {
-                if key.code == KeyCode::Esc && (!c.pending || c.config.is_none()) {
-                    self.idle_alert_editor = None;
-                    return Some(Effect::None);
+                if key.code == KeyCode::Esc {
+                    return Some(self.idle_alert_close());
                 }
                 if c.pending {
                     return Some(Effect::None);
@@ -374,10 +421,7 @@ impl App {
         }
         if let Some(action) = action {
             match action {
-                Control::Cancel => {
-                    self.idle_alert_editor = None;
-                    return Some(Effect::None);
-                }
+                Control::Cancel => return Some(self.idle_alert_close()),
                 Control::On(on) => {
                     c.notice = None;
                     c.enabled = on;

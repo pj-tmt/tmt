@@ -2310,3 +2310,19 @@ fn notes_sources_follow_message_ids_not_equal_text_and_keep_pane_observations_di
         "Source: unavailable"
     );
 }
+
+#[test]
+fn the_reply_reader_follows_the_close_rule() {
+    let open = || {
+        let mut app = fixture();
+        draw(&app, 80, 18);
+        app.scroll_pane(Pane::Replies, Step::Top);
+        app.view_row_reply();
+        app
+    };
+    crate::board::home::tests::dialog_dismiss::assert_close_rule(
+        &mut open(),
+        &mut open(),
+        crate::board::app::Overlay::ReplyReader,
+    );
+}

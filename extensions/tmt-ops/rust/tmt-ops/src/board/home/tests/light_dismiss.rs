@@ -111,7 +111,7 @@ fn a_window_with_no_fresh_paint_never_dismisses() {
 }
 
 #[test]
-fn an_open_draft_keeps_the_window_on_an_outside_press() {
+fn an_outside_press_closes_the_window_over_an_open_draft_and_is_taken() {
     let mut app = board();
     open_timers(&mut app);
     app.ask(
@@ -121,10 +121,20 @@ fn an_open_draft_keeps_the_window_on_an_outside_press() {
         },
         crate::board::app::workspace::tests::ROOM.into(),
     );
-    assert!(app.input.is_some());
+    app.input.as_mut().unwrap().text = "half typed".into();
     let (x, y, _) = other_row(&app);
+    let before = app.selected;
     click(&mut app, x, y);
-    assert!(app.cron_list.is_some());
+    assert!(app.cron_list.is_none(), "the window closes");
+    assert_eq!(
+        app.selected, before,
+        "the press does not land under a draft"
+    );
+    assert_eq!(
+        app.input.as_ref().map(|input| input.text.to_string()),
+        Some("half typed".into()),
+        "the draft is kept"
+    );
 }
 
 #[test]
@@ -165,4 +175,47 @@ fn the_agent_details_and_subscription_windows_close_on_an_outside_press() {
     paint(&app);
     click(&mut app, 0, 0);
     assert!(app.quota_details.is_none());
+}
+
+#[test]
+fn every_peek_follows_the_close_rule() {
+    use crate::board::app::Overlay;
+    type Open = fn(&mut App);
+    let opens: [(Overlay, Open); 6] = [
+        (Overlay::Help, |app| app.help = true),
+        (Overlay::CronList, open_timers),
+        (Overlay::MonitorDetails, |app| {
+            assert_eq!(app.overview_details(), Effect::None);
+        }),
+        (Overlay::QuotaDetails, |app| {
+            app.shell.tab = crate::board::shell::OpsTab::Agents;
+            app.workspace.filter = crate::board::workspace::AgentsFilter::Agents;
+            assert_eq!(app.open_quota_details(), Effect::None);
+        }),
+        (Overlay::EstimateBasis, |app| {
+            app.open_estimate_basis();
+        }),
+        (Overlay::PastePreview, |app| {
+            press(app, KeyCode::Enter);
+            app.paste(
+                &(0..100)
+                    .map(|line| format!("source line {line}\r\n"))
+                    .collect::<String>(),
+            );
+            paint(app);
+            app.key(KeyEvent::new(KeyCode::Char('p'), KeyModifiers::CONTROL));
+        }),
+    ];
+    for (overlay, open) in opens {
+        let opened = || {
+            let mut app = board();
+            open(&mut app);
+            app
+        };
+        crate::board::home::tests::dialog_dismiss::assert_close_rule(
+            &mut opened(),
+            &mut opened(),
+            overlay,
+        );
+    }
 }

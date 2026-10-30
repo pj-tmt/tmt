@@ -1220,7 +1220,7 @@ fn a_press_inside_the_sheet_keeps_the_list_open() {
 }
 
 #[test]
-fn an_outside_press_drops_an_unsent_form_with_the_list() {
+fn an_outside_press_keeps_an_unsent_form_for_the_next_open() {
     let (mut app, key) = opened(vec![todo(1)]);
     press(&mut app, KeyCode::Char('a'));
     type_text(&mut app, "half typed");
@@ -1229,7 +1229,10 @@ fn an_outside_press_drops_an_unsent_form_with_the_list() {
     let (x, y) = outside(&app);
     click_at(&mut app, x, y);
     assert!(app.notes_overlay.is_none());
-    assert!(app.notes.draft(&key).is_none(), "the draft is discarded");
+    assert!(
+        app.notes.draft(&key).is_some(),
+        "the draft is kept, as Esc keeps it"
+    );
 }
 
 #[test]
@@ -1580,5 +1583,20 @@ fn a_web_link_inside_a_title_highlights_under_the_pointer_and_opens_on_a_press()
             .list
             .selected(),
         Some(id(2).as_str())
+    );
+}
+
+#[test]
+fn the_member_checklist_follows_the_close_rule() {
+    let open = || {
+        let (mut app, _) = opened(vec![todo(1)]);
+        press(&mut app, KeyCode::Char('a'));
+        type_text(&mut app, "half typed");
+        app
+    };
+    crate::board::home::tests::dialog_dismiss::assert_close_rule(
+        &mut open(),
+        &mut open(),
+        crate::board::app::Overlay::Notes,
     );
 }

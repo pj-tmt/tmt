@@ -272,10 +272,10 @@ fn modal_revision_hide_hint_uses_the_effective_switch_binding() {
 }
 
 #[test]
-fn an_outside_press_closes_the_switch_tool_form() {
-    let mut app = form();
-    crate::board::home::tests::dialog_dismiss::assert_outside_press_closes(
-        &mut app,
+fn the_switch_tool_form_follows_the_close_rule() {
+    crate::board::home::tests::dialog_dismiss::assert_close_rule(
+        &mut form(),
+        &mut form(),
         crate::board::app::Overlay::SwitchTool,
     );
 }

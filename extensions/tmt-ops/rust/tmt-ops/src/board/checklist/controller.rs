@@ -113,6 +113,32 @@ impl App {
         let opener = self.view.as_ref().and_then(|v| v.opener.clone());
         let mut controller = self.checklist.take()?;
         let effect = controller.input(event, opener);
+        let hidden = !controller.active && controller.submitting();
+        self.checklist_restore(&mut controller);
+        self.checklist = Some(controller);
+        if hidden {
+            return Some(self.say(CHECKLIST_RUNNING));
+        }
+        Some(effect)
+    }
+    /// Esc or an outside press: a running update hides and keeps going, as Esc does.
+    pub(in crate::board) fn checklist_close(&mut self) -> Effect {
+        let Some(mut controller) = self.checklist.take() else {
+            return Effect::None;
+        };
+        controller.active = false;
+        controller.invalidate();
+        let hidden = controller.submitting();
+        self.checklist_restore(&mut controller);
+        self.checklist = Some(controller);
+        if hidden {
+            self.say(CHECKLIST_RUNNING)
+        } else {
+            Effect::None
+        }
+    }
+    /// After Checklist closes, the board returns to the row and pane it was opened from.
+    fn checklist_restore(&mut self, controller: &mut Controller) {
         if !controller.active
             && let Some(saved) = controller.return_to.take()
         {
@@ -140,19 +166,41 @@ impl App {
                 }
             }
         }
-        self.checklist = Some(controller);
-        Some(effect)
     }
     pub(in crate::board) fn finished_checklist(&mut self, completed: load::Completed) {
-        if let Some(controller) = &mut self.checklist
-            && controller.loaded(completed)
+        let Some(controller) = &mut self.checklist else {
+            return;
+        };
+        let hidden = !controller.active && controller.submitting();
+        if controller.loaded(completed)
             && let Some(current) = controller.current()
         {
             self.notes.observe_room(current, std::time::Instant::now());
         }
+        let Some(controller) = &self.checklist else {
+            return;
+        };
+        if hidden && !controller.submitting() {
+            let line = controller
+                .failure
+                .as_ref()
+                .map(|error| format!("✗ {}", error.message))
+                .or_else(|| controller.notice.clone());
+            if let Some(line) = line {
+                self.set_notice(Some(format!("{line} · {CHECKLIST_REOPEN}")), false);
+            }
+        }
     }
 }
+/// Room Checklist has no key of its own; it opens from Actions or the squad's checklist chip.
+const CHECKLIST_REOPEN: &str = "Checklist in Actions reopens it or its result.";
+const CHECKLIST_RUNNING: &str =
+    "◌ Updating the checklist. Checklist in Actions reopens it or its result.";
 impl Controller {
+    /// A submitted update whose result has not arrived.
+    fn submitting(&self) -> bool {
+        self.pending.is_some() && self.submit.is_some()
+    }
     fn holds_intent(&self) -> bool {
         self.draft.is_some() || self.submit.is_some() || !self.unknown.is_empty()
     }
@@ -346,8 +394,9 @@ impl Controller {
             if matches!(key.code, KeyCode::Esc | KeyCode::Char('q'))
                 && !(self.screen == Screen::Form && key.code == KeyCode::Char('q'))
             {
-                if self.pending.as_ref().is_some_and(|_| self.submit.is_some()) {
-                    return self.problem("Update in progress; its outcome will be retained.");
+                if self.submitting() {
+                    self.active = false;
+                    return Effect::None;
                 }
                 if self.screen == Screen::List || self.screen == Screen::Rooms {
                     self.active = false;

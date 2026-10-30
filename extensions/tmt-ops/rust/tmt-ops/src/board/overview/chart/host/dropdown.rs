@@ -217,7 +217,8 @@ impl Dropdown {
             None => false,
         }
     }
-    pub fn render(&mut self, frame: &mut Frame, look: crate::look::Look, screen: Rect) {
+    /// Paints the dropdown and returns the rectangle it occupies.
+    pub fn render(&mut self, frame: &mut Frame, look: crate::look::Look, screen: Rect) -> Rect {
         let usable = Rect {
             height: screen.height.saturating_sub(1),
             ..screen
@@ -267,5 +268,6 @@ impl Dropdown {
         );
         self.surface
             .render(&self.entries, self.selected, frame, look, area);
+        area
     }
 }

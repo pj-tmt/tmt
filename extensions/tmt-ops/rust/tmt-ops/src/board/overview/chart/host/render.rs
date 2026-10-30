@@ -189,7 +189,9 @@ pub(in crate::board) fn render_controls(frame: &mut Frame, app: &App, _body: Rec
     let State { dropdown, hits, .. } = &mut *state;
     if let Some(dropdown) = dropdown {
         dropdown.reanchor(hits);
-        dropdown.render(frame, look, frame.area());
+        let area = dropdown.render(frame, look, frame.area());
+        app.peek_areas
+            .set(crate::board::app::Overlay::UsageControls, Some(area));
     }
 }
 fn paint_chart(

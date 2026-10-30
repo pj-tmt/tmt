@@ -141,26 +141,12 @@ impl Controller {
 }
 impl App {
     fn switch_tool_reopen_hint(&self) -> String {
-        use crate::action::{OpsUiAction, Verb};
-        let bindings = self.bindings();
-        let action = Verb::Ui(OpsUiAction::SwitchTool);
-        let key = bindings
-            .get("S")
-            .filter(|a| a.verb == action)
-            .map(|_| "S")
-            .or_else(|| {
-                bindings
-                    .iter()
-                    .find(|(_, a)| a.verb == action)
-                    .map(|(key, _)| key.as_str())
-            });
-        match key {
-            Some(key) => format!(
-                "{} reopens this switch or its result.",
-                super::view::footer::key_label(key)
-            ),
-            None => "Switch tool on an agent row reopens this switch or its result.".into(),
-        }
+        self.reopen_hint(
+            crate::action::OpsUiAction::SwitchTool,
+            "S",
+            "this switch",
+            "Switch tool on an agent row",
+        )
     }
     pub(in crate::board) fn switch_tool_shown(&self) -> bool {
         self.switch_tool.as_ref().is_some_and(|c| c.shown)
@@ -269,9 +255,27 @@ impl App {
             Effect::None
         }
     }
+    /// A running switch hides and keeps going; any other stage closes.
+    pub(in crate::board) fn switch_tool_close(&mut self) -> Effect {
+        let reopen = self.switch_tool_reopen_hint();
+        let Some(c) = &mut self.switch_tool else {
+            return Effect::None;
+        };
+        if c.stage != Stage::Pending {
+            self.switch_tool = None;
+            return Effect::None;
+        }
+        c.shown = false;
+        c.invalidate();
+        let name = c
+            .source
+            .as_ref()
+            .map_or("selected agent", |s| s.name.as_str());
+        let text = format!("◌ Switching · {name}. {reopen}");
+        self.say(&text)
+    }
     pub(in crate::board) fn switch_tool_event(&mut self, event: &Event) -> Option<Effect> {
         let changed = self.switch_tool_changed();
-        let reopen = self.switch_tool_reopen_hint();
         let c = self.switch_tool.as_mut()?;
         if !c.shown {
             return None;
@@ -324,25 +328,13 @@ impl App {
                 return Some(Effect::None);
             }
             if key.code == KeyCode::Esc {
-                match c.stage {
-                    Stage::Pending => {
-                        c.shown = false;
-                        c.invalidate();
-                        let name = c
-                            .source
-                            .as_ref()
-                            .map_or("selected agent", |s| s.name.as_str());
-                        let text = format!("◌ Switching · {name}. {reopen}");
-                        return Some(self.say(&text));
-                    }
-                    Stage::Review => {
-                        c.stage = Stage::Form;
-                        c.focus = 0;
-                        c.invalidate();
-                    }
-                    _ => self.switch_tool = None,
+                if c.stage == Stage::Review {
+                    c.stage = Stage::Form;
+                    c.focus = 0;
+                    c.invalidate();
+                    return Some(Effect::None);
                 }
-                return Some(Effect::None);
+                return Some(self.switch_tool_close());
             }
             if c.stage == Stage::Pending {
                 return Some(Effect::None);

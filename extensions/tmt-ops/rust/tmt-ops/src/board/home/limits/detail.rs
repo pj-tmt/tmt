@@ -271,7 +271,8 @@ impl Details {
         .expect("admitted quota details surface")
         .areas
         .outer;
-        app.peek_areas.set(crate::board::peek::Peek::Quota, outer);
+        app.peek_areas
+            .set(crate::board::app::Overlay::QuotaDetails, Some(outer));
         if self.scroll.viewport().height > 0 {
             app.frame_clocks
                 .borrow_mut()

@@ -3,7 +3,7 @@ use super::model::Slot;
 use super::*;
 impl App {
     pub(in crate::board) fn new_member_event(&mut self, event: &Event) -> Option<Effect> {
-        let c = self.new_member.as_mut()?;
+        let c = self.new_member.as_mut().filter(|c| c.shown)?;
         if matches!(event, Event::Resize(..)) {
             c.invalidate();
             return Some(Effect::None);
@@ -72,13 +72,6 @@ impl App {
             }
             if key.code == KeyCode::Esc {
                 match c.stage {
-                    Stage::Launching | Stage::Saving => {
-                        c.notice = Some(if c.stage == Stage::Saving {
-                            "Template save is in progress; the member draft is kept.".into()
-                        } else {
-                            "Launch is in progress; its outcome will be reported. No retry or window close.".into()
-                        });
-                    }
                     Stage::Template => {
                         c.stage = if c.destination == Destination::Settings {
                             Stage::Hosts
@@ -93,7 +86,7 @@ impl App {
                         c.list = None;
                         c.invalidate();
                     }
-                    _ => self.new_member = None,
+                    _ => return Some(self.new_member_close()),
                 }
                 return Some(Effect::None);
             }
@@ -257,7 +250,7 @@ impl App {
                         c.list = None;
                         c.invalidate();
                     }
-                    _ => self.new_member = None,
+                    _ => return Some(self.new_member_close()),
                 };
                 return Some(Effect::None);
             }

@@ -305,8 +305,7 @@ impl Overlay {
         };
         let areas = modal.areas(body, [70, 7], true, false);
         modal.paint(areas, frame.buffer_mut(), &look.theme, look.depth);
-        app.peek_areas
-            .set_dialog(OverlayId::Unread, Some(areas.outer));
+        app.peek_areas.set(OverlayId::Unread, Some(areas.outer));
         self.confirm_hits.set(None);
         let ready = areas.content.width >= 30 && areas.content.height >= 3;
         if !ready {
@@ -376,8 +375,7 @@ impl Overlay {
         };
         let areas = modal.areas(body, [body.width, body.height], true, true);
         modal.paint(areas, frame.buffer_mut(), &look.theme, look.depth);
-        app.peek_areas
-            .set_dialog(OverlayId::Unread, Some(areas.outer));
+        app.peek_areas.set(OverlayId::Unread, Some(areas.outer));
         if narrow && self.detail_open {
             self.render_detail(frame, app, actor, areas.content);
         } else {

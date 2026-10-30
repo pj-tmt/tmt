@@ -61,6 +61,8 @@ pub(in crate::board) struct Controller {
     draft: model::Draft,
     loaded: Option<Loaded>,
     stage: Stage,
+    /// False while a launch or save runs behind a closed form; reopening shows it.
+    shown: bool,
     review: Option<model::Review>,
     /// The Hosts and Template stages' focus; the form uses `at`.
     focus: usize,
@@ -199,7 +201,50 @@ impl App {
     pub(in crate::board) fn open_launch_templates(&mut self) -> Effect {
         self.open_member_form(Destination::Settings)
     }
+    pub(in crate::board) fn new_member_shown(&self) -> bool {
+        self.new_member.as_ref().is_some_and(|c| c.shown)
+    }
+    fn new_member_reopen_hint(&self) -> String {
+        self.reopen_hint(
+            crate::action::OpsUiAction::NewMember,
+            "n",
+            "this new member",
+            "New member on the Agents tab",
+        )
+    }
+    /// A running launch or template save hides and keeps going; any other stage closes.
+    pub(in crate::board) fn new_member_close(&mut self) -> Effect {
+        let reopen = self.new_member_reopen_hint();
+        let Some(c) = &mut self.new_member else {
+            return Effect::None;
+        };
+        let running = match c.stage {
+            Stage::Launching => "Launching",
+            Stage::Saving => "Saving the launch template",
+            _ => {
+                self.new_member = None;
+                return Effect::None;
+            }
+        };
+        c.shown = false;
+        c.invalidate();
+        let name = c.draft.text(model::Slot::Name).to_owned();
+        let text = if name.is_empty() {
+            format!("◌ {running}. {reopen}")
+        } else {
+            format!("◌ {running} · {name}. {reopen}")
+        };
+        self.say(&text)
+    }
     fn open_member_form(&mut self, destination: Destination) -> Effect {
+        if let Some(c) = &mut self.new_member
+            && !c.shown
+        {
+            c.shown = true;
+            c.invalidate();
+            self.menu = None;
+            return Effect::None;
+        }
         if destination == Destination::Member && self.shell.tab != super::shell::OpsTab::Agents
             || self.input.is_some()
             || self.searching
@@ -218,6 +263,7 @@ impl App {
             } else {
                 Stage::Form
             },
+            shown: true,
             review: None,
             focus: 0,
             at: Focus::Slot(model::Slot::Name),
@@ -236,6 +282,22 @@ impl App {
         Effect::NewMember(task)
     }
     pub(in crate::board) fn finished_new_member(&mut self, completed: Completed) -> Effect {
+        let effect = self.finish_new_member(completed);
+        if let Some(c) = &self.new_member
+            && !c.shown
+        {
+            let line = match &c.stage {
+                Stage::Result(text) => Some(text.lines().next().unwrap_or(text).to_owned()),
+                _ => c.notice.clone(),
+            };
+            if let Some(line) = line {
+                let text = format!("{line} · {}", self.new_member_reopen_hint());
+                self.set_notice(Some(text), false);
+            }
+        }
+        effect
+    }
+    fn finish_new_member(&mut self, completed: Completed) -> Effect {
         let created = if let Ok(Outcome::Created { id, room, .. }) = &completed.result {
             Some(OpsTarget::Member {
                 room_id: room.clone(),

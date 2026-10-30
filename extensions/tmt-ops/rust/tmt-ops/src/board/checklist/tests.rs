@@ -760,12 +760,47 @@ fn configuration_read_failure_is_storage_error_in_the_worker_lane() {
 }
 
 #[test]
-fn an_outside_press_closes_the_squad_checklist() {
+fn the_squad_checklist_follows_the_close_rule() {
     let f = Fixture::new();
-    let mut app = crate::board::app::workspace::tests::board();
-    app.checklist = Some(controller(&f));
-    crate::board::home::tests::dialog_dismiss::assert_outside_press_closes(
-        &mut app,
+    let open = || {
+        let mut app = crate::board::app::workspace::tests::board();
+        app.checklist = Some(controller(&f));
+        app
+    };
+    crate::board::home::tests::dialog_dismiss::assert_close_rule(
+        &mut open(),
+        &mut open(),
         crate::board::app::Overlay::Checklist,
     );
+}
+#[test]
+fn esc_hides_a_running_update_and_the_status_line_follows_it_to_its_result() {
+    use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+    let f = Fixture::new();
+    seed(&f, ITEM, InventoryExpectation::Absent);
+    let mut app = crate::board::app::workspace::tests::board();
+    let mut c = controller(&f);
+    let mut lane = load::Lane::seeded(1, id(ROOM), f.manager());
+    c.screen = Screen::Details(id(ITEM));
+    pick(&mut c, "complete");
+    render(&c, 100, 30);
+    let Effect::Checklist(task) = pick(&mut c, "confirm") else {
+        panic!("room write")
+    };
+    app.checklist = Some(c);
+    app.key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
+    assert_eq!(app.overlay(), None, "Esc hides the running update");
+    assert_eq!(
+        app.notice.as_deref(),
+        Some("◌ Updating the checklist. Checklist in Actions reopens it or its result.")
+    );
+    app.finished_checklist(lane.complete(&f.core, task));
+    let finished = app.notice.clone().unwrap_or_default();
+    assert!(
+        finished.starts_with("✓ Completed")
+            && finished.ends_with(" · Checklist in Actions reopens it or its result."),
+        "{finished}"
+    );
+    assert_eq!(f.literal()["items"][0]["completion"], "complete");
+    assert!(app.checklist.is_some(), "the result is kept for reopening");
 }

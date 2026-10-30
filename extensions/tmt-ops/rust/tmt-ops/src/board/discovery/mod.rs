@@ -258,7 +258,7 @@ impl Controller {
             Some(self.issue(Job::Scan(scope)))
         }
     }
-    fn close(&mut self) {
+    pub(in crate::board) fn close(&mut self) {
         self.active = false;
         self.requested_scan = None;
         self.changed();

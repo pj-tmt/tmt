@@ -390,3 +390,20 @@ fn dropdown_fill_covers_keys_labels_and_remainder_without_coloring_the_gutter() 
         }
     });
 }
+
+#[test]
+fn the_chart_dropdown_follows_the_close_rule() {
+    crate::status::with_now_ms(fixtures::NOW, || {
+        let _no_commands = crate::runner::forbid_commands();
+        let open = || {
+            let mut app = retained_board(160);
+            super::super::open_dropdown(&mut app, Focus::Each);
+            app
+        };
+        crate::board::home::tests::dialog_dismiss::assert_close_rule(
+            &mut open(),
+            &mut open(),
+            crate::board::app::Overlay::UsageControls,
+        );
+    });
+}

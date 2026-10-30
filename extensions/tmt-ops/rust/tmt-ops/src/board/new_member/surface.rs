@@ -127,7 +127,7 @@ impl Controller {
         modal.paint(areas, frame.buffer_mut(), &look.theme, look.depth);
         app.input_band.set(Some(areas.outer));
         app.peek_areas
-            .set_dialog(crate::board::app::Overlay::NewMember, Some(areas.outer));
+            .set(crate::board::app::Overlay::NewMember, Some(areas.outer));
         let content = areas.content;
         let mut complete = content.width >= 34;
         let paint = |frame: &mut Frame, text: &str, row: usize, role: Role| {

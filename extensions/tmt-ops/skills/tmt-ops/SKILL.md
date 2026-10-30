@@ -687,7 +687,8 @@ member. A left drag over the screen selects its text and copies it with the chat
 While typing into a program that asked for the mouse, Ops ignores a plain drag (only
 the wheel reaches the program); drag with your terminal's selection bypass (often Shift,
 Option in iTerm2) to select. A failed or uncertain launch keeps the draft; never retry before checking public
-state. A created member whose squad add fails remains visible in Common pool with
+state. Esc during a launch or template save hides the form: the launch goes on, the status
+line says it is running and then shows its result, and `n` reopens the form on that result. A created member whose squad add fails remains visible in Common pool with
 its repair command.
 
 `e` on Host or a button opens its launch template, also available from Comma Settings
@@ -1309,7 +1310,8 @@ when disabled; Common pool has no setting. Hover highlights the editable cell. C
 press `i` on a squad or member, to open `Idle alert · <squad>`. A flat-list member in several
 squads first chooses one. Authored bindings take precedence. Use On/Off chips, type After or
 choose 15m/30m/1h/2h; ↑↓ changes rows and ←→ changes choices. The dialog previews who would
-no longer count as over. Invalid times refuse Save; Esc/Cancel changes nothing. Save uses the
+no longer count as over. Invalid times refuse Save; Esc/Cancel changes nothing. Esc during a save hides the dialog;
+the save goes on and the status line shows its result and the key that reopens it. Save uses the
 same settings writer as Settings, After first and then Alert. If only After saves, the dialog
 reports `After saved, Alert not changed` and keeps the draft. Settings remains available through
 `,` → `Squad settings: <squad>`.
@@ -1331,7 +1333,8 @@ Press `,`, choose **Actions** after the layout/Theme/Token window choices, then
 in Agents or Digest uses its exact room; the flat list, Common pool and hidden/missing targets
 ask you to choose a room explicitly. Opening
 Checklist does not select or assign a member. Esc from the action menu returns
-directly to the board.
+directly to the board. Esc during an update hides Checklist; the update goes on and the
+status line shows its result.
 
 The checklist starts with Open items, Squad-wide assignment scope and archived
 items excluded. Tab/Shift-Tab reaches **Filter** and **Actions**; Enter opens their

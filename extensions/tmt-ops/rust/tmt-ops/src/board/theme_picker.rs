@@ -277,12 +277,16 @@ mod tests {
     }
 
     #[test]
-    fn an_outside_press_closes_the_theme_picker() {
-        let (path, config) = fixture("outside-press", "[board.theme]\nbase = \"tmt\"\n");
-        let mut app = crate::board::app::workspace::tests::board();
-        app.theme_picker = Some(Picker::open(config, None).unwrap());
-        crate::board::home::tests::dialog_dismiss::assert_outside_press_closes(
-            &mut app,
+    fn the_theme_picker_follows_the_close_rule() {
+        let (path, config) = fixture("close-rule", "[board.theme]\nbase = \"tmt\"\n");
+        let open = || {
+            let mut app = crate::board::app::workspace::tests::board();
+            app.theme_picker = Some(Picker::open(config.clone(), None).unwrap());
+            app
+        };
+        crate::board::home::tests::dialog_dismiss::assert_close_rule(
+            &mut open(),
+            &mut open(),
             crate::board::app::Overlay::Theme,
         );
         std::fs::remove_dir_all(path.parent().unwrap()).unwrap();
