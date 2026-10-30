@@ -20,7 +20,6 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
 import { restClient } from './merge-queue-metrics.mjs';
-import { readReleaseCatalog } from './release-cut-read.mjs';
 import { runPackedCommand } from './packed-command.mjs';
 import { resolveRepository } from './github-repository.mjs';
 import { heartbeatStatus, readWatchHeartbeat } from './ci-failure-watch.mjs';
@@ -31,6 +30,7 @@ const FAILED = new Set(['failure', 'timed_out', 'action_required', 'stale']);
 const INCOMPLETE_KINDS = new Set([
   'collection refused',
   'queue coverage unavailable',
+  'release coverage unavailable',
   'public-install release evidence unavailable',
 ]);
 const ACTIVE = new Set(['queued', 'in_progress', 'waiting', 'pending', 'requested']);
@@ -74,7 +74,7 @@ export const REVIEW_QUERY = `query InfraTickReviews($ids: [ID!]!) {
   }
 }`;
 export const COVERAGE =
-  'Run health uses 24 h/interval counts; failure, timed_out, action_required and stale details use bounded created-window searches, plus tracked older runs and older queued/in-progress runs. Worker metadata is complete; logs are sampled: first failed non-aggregate worker per attempt, newest runs first, at most three per tick. Unread logs are not retried automatically or asserted healthy; recurrence uses observed tokens only, including retained 24 h samples. Workflow startup_failure conclusions are not searched and remain outside detail coverage. An unobserved older rerun that starts and finishes between ticks is outside coverage. Review scope is open PRs updated since the tick boundary plus PRs merged in the interval. Statements are evidence, not scripted acceptance.';
+  'Release evidence is observational: at most the first two 100-record release pages; older releases not read, including historical failed drafts. This is not an atomic allocation catalogue. Run health uses 24 h/interval counts; failure, timed_out, action_required and stale details use bounded created-window searches, plus tracked older runs and older queued/in-progress runs. Worker metadata is complete; logs are sampled: first failed non-aggregate worker per attempt, newest runs first, at most three per tick. Unread logs are not retried automatically or asserted healthy; recurrence uses observed tokens only, including retained 24 h samples. Workflow startup_failure conclusions are not searched and remain outside detail coverage. An unobserved older rerun that starts and finishes between ticks is outside coverage. Review scope is open PRs updated since the tick boundary plus PRs merged in the interval. Statements are evidence, not scripted acceptance.';
 const hash = (text) => createHash('sha256').update(text).digest('hex');
 const time = (value) => {
   assert.ok(
@@ -99,6 +99,81 @@ function incompleteBanner(report) {
 function identity(row, label) {
   assert.ok(Number.isSafeInteger(row?.id) && row.id > 0, `Invalid ${label} identity.`);
   return row.id;
+}
+
+/** Observe a bounded recent view; historical allocation consistency belongs to the cut reader. */
+function recentReleases(repository, repositoryId, command) {
+  const releases = [];
+  const ids = new Set();
+  for (let page = 1; page <= 2; page++) {
+    const output = command(
+      'gh',
+      [
+        'api',
+        `repos/${repository}/releases?per_page=100&page=${page}`,
+        '--include',
+        '--method',
+        'GET',
+      ],
+      { cwd: ROOT, env: process.env, timeoutMs: 10_000 }
+    );
+    const boundary = /\r?\n\r?\n/.exec(output);
+    assert.ok(
+      boundary && /^HTTP\/\S+ 200(?: |\r?\n)/.test(output),
+      `Invalid recent release page ${page} response.`
+    );
+    const rows = JSON.parse(output.slice(boundary.index + boundary[0].length));
+    assert.ok(Array.isArray(rows) && rows.length <= 100, `Invalid recent release page ${page}.`);
+    const links = output.slice(0, boundary.index).match(/^link:\s*(.*)$/im)?.[1] ?? '';
+    let more = false;
+    const pagination = [...links.matchAll(/<([^>]+)>;\s*rel="([^"]+)"/g)];
+    assert.ok(!links || pagination.length > 0, `Invalid recent release page ${page} links.`);
+    for (const match of pagination) {
+      const url = new URL(match[1]);
+      const target = Number(url.searchParams.get('page'));
+      assert.ok(
+        url.origin === 'https://api.github.com' &&
+          (url.pathname === `/repos/${repository}/releases` ||
+            (Number.isSafeInteger(repositoryId) &&
+              repositoryId > 0 &&
+              url.pathname === `/repositories/${repositoryId}/releases`)) &&
+          url.searchParams.get('per_page') === '100' &&
+          Number.isSafeInteger(target) &&
+          target > 0,
+        `Foreign recent release page ${page} link.`
+      );
+      if (match[2] === 'next') {
+        assert.equal(target, page + 1, `Invalid recent release page ${page} next link.`);
+        more = true;
+      }
+      if (match[2] === 'last') {
+        assert.ok(target >= page, `Invalid recent release page ${page} last link.`);
+        more ||= target > page;
+      }
+    }
+    assert.ok(rows.length > 0 || (page === 1 && !more), `Empty recent release page ${page}.`);
+    assert.ok(!more || rows.length === 100, `Short recent release page ${page}.`);
+    for (const row of rows) {
+      identity(row, `recent release page ${page}`);
+      assert.ok(!ids.has(row.id), `Repeated recent release identity on page ${page}.`);
+      assert.ok(
+        typeof row.tag_name === 'string' &&
+          typeof row.draft === 'boolean' &&
+          Array.isArray(row.assets) &&
+          row.assets.every((asset) => typeof asset?.name === 'string'),
+        `Invalid recent release page ${page} metadata.`
+      );
+      ids.add(row.id);
+      releases.push({
+        id: row.id,
+        tag_name: row.tag_name,
+        draft: row.draft,
+        assets: row.assets.map(({ name }) => ({ name })),
+      });
+    }
+    if (!more) break;
+  }
+  return releases;
 }
 
 /** One shared API-call/deadline owner, including the two fixed read-only queries. */
@@ -276,7 +351,7 @@ export function createTickClient({
         })
       );
       assert.equal(repositoryEvidence.permissions?.push, true, 'Draft visibility unavailable.');
-      return readReleaseCatalog({ repository }, command);
+      return recentReleases(repository, repositoryEvidence.id, command);
     },
     queue: () => {
       const result = JSON.parse(
@@ -706,8 +781,16 @@ export function collectInfraTick(
     });
   }
   api.stage?.('release catalogue');
-  const releases = api.releases();
-  for (const release of releases) identity(release, 'release');
+  let releases = [];
+  try {
+    releases = api.releases();
+    for (const release of releases) identity(release, 'release');
+  } catch (error) {
+    releases = [];
+    anomaly('release coverage unavailable', {
+      message: redactCredentials(String(error?.message ?? error)),
+    });
+  }
   const failedDrafts = releases
     .filter(
       (release) =>
@@ -1140,6 +1223,7 @@ function anomalyPriority({ kind }) {
     case 'published release post-publication check failed':
     case 'public-install release evidence unavailable':
     case 'queue coverage unavailable':
+    case 'release coverage unavailable':
       return 0;
     case 'guide near or over budget':
       return 2;
@@ -1200,7 +1284,7 @@ export function renderInfraTick(report) {
   if (!report.anomalies.length) rows.push('No anomalies observed within the stated coverage.');
   rows.push(
     '',
-    `${report.health.createdSinceTick} newly created runs (${report.health.created24h} in 24 h); ${report.olderActive.length} older active runs; ${report.trackedCompletions.length} tracked completions; ${report.failures.length} observed failed workers; ${report.failedDrafts.length} failed drafts; ${new Set(report.postPublicationFailures.map((failure) => failure.releaseId)).size} published releases with failed public checks.`,
+    `${report.health.createdSinceTick} newly created runs (${report.health.created24h} in 24 h); ${report.olderActive.length} older active runs; ${report.trackedCompletions.length} tracked completions; ${report.failures.length} observed failed workers; ${report.failedDrafts.length} failed drafts (bounded release view); ${new Set(report.postPublicationFailures.map((failure) => failure.releaseId)).size} published releases with failed public checks.`,
     `Host: ${(report.host.freeBytes / 1024 ** 3).toFixed(1)} GiB free; 1-minute load ${report.host.load1}.`,
     `Evidence: ${report.evidence.requests ?? 'fixture'} API calls. Shared-path statements: ${report.reviewEvidence.length} PRs; acceptance requires lead judgement.`,
     ''

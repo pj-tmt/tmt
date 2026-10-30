@@ -700,8 +700,148 @@ describe('prepared Infra tick evidence', () => {
   });
 });
 
+describe('bounded observational release view', () => {
+  const releases = Array.from({ length: 700 }, (_, index) => ({
+    id: index + 1,
+    tag_name: `v5.0.0-alpha.${index + 1}`,
+    draft: index === 0,
+    assets: index === 0 ? [{ name: 'verification-failed.json' }] : [],
+  }));
+  function client(
+    pageRows: (page: number) => unknown[],
+    lastPage = 7,
+    linkPath = `/repos/${options.repository}/releases`
+  ) {
+    const cache = mkdtempSync(path.join(os.tmpdir(), 'infra-tick-releases-'));
+    const pages: number[] = [];
+    const api = createTickClient({
+      repository: options.repository,
+      cache,
+      execute: (_program, args) => {
+        const endpoint = args[1];
+        if (endpoint === `repos/${options.repository}`)
+          return '{"id":42,"permissions":{"push":true}}';
+        const url = new URL(`https://api.github.com/${endpoint}`);
+        const page = Number(url.searchParams.get('page'));
+        expect(url.pathname).toBe(`/repos/${options.repository}/releases`);
+        expect(url.searchParams.get('per_page')).toBe('100');
+        pages.push(page);
+        return `HTTP/2 200 OK\r\nLink: <https://api.github.com${linkPath}?per_page=100&page=${lastPage}>; rel="last"\r\n\r\n${JSON.stringify(pageRows(page))}`;
+      },
+    });
+    return { api, pages, dispose: () => rmSync(cache, { recursive: true, force: true }) };
+  }
+  it.each(['shifted', 'empty'])('does not read a %s older page or claim full history', (mode) => {
+    const f = client((page) =>
+      page === 7
+        ? mode === 'empty'
+          ? []
+          : releases.slice(0, 100)
+        : releases.slice((page - 1) * 100, page * 100)
+    );
+    try {
+      const observed = f.api.releases();
+      expect(observed).toEqual(releases.slice(0, 200));
+      expect(f.pages).toEqual([1, 2]);
+      const report = collectInfraTick({ ...fixture(), releases: () => observed }, options);
+      expect(report.complete).toBe(true);
+      expect(report.failedDrafts).toEqual([{ id: 1, tag: 'v5.0.0-alpha.1' }]);
+      expect(renderInfraTick(report)).toContain('older releases not read');
+    } finally {
+      f.dispose();
+    }
+  });
+  it.each([
+    { repositoryId: 42, accepted: true },
+    { repositoryId: 99, accepted: false },
+  ])(
+    'admits only the observed numeric repository ID ($repositoryId)',
+    ({ repositoryId, accepted }) => {
+      const f = client(
+        (page) => releases.slice((page - 1) * 100, page * 100),
+        7,
+        `/repositories/${repositoryId}/releases`
+      );
+      try {
+        if (accepted) {
+          expect(f.api.releases()).toHaveLength(200);
+          expect(f.pages).toEqual([1, 2]);
+        } else {
+          expect(() => f.api.releases()).toThrow('Foreign recent release page 1 link');
+          expect(f.pages).toEqual([1]);
+        }
+      } finally {
+        f.dispose();
+      }
+    }
+  );
+  it.each([1, 2])('names an empty advertised recent page %i', (empty) => {
+    const f = client((page) => (page === empty ? [] : releases.slice(0, 100)));
+    try {
+      expect(() => f.api.releases()).toThrow(`Empty recent release page ${empty}`);
+      expect(f.pages).not.toContain(7);
+    } finally {
+      f.dispose();
+    }
+  });
+  it.each([
+    {
+      name: 'duplicate identity',
+      rows: [releases[0], releases[0]],
+      error: 'Repeated recent release identity',
+    },
+    {
+      name: 'missing assets',
+      rows: [{ ...releases[0], assets: null }],
+      error: 'Invalid recent release page 1 metadata',
+    },
+    {
+      name: 'oversized page',
+      rows: releases.slice(0, 101),
+      error: 'Invalid recent release page 1',
+    },
+  ])('refuses $name within the observed view', ({ rows, error }) => {
+    const f = client(() => rows, 1);
+    try {
+      expect(() => f.api.releases()).toThrow(error);
+    } finally {
+      f.dispose();
+    }
+  });
+  it('accepts an authenticated empty repository without advertised older pages', () => {
+    const f = client(() => [], 1);
+    try {
+      expect(f.api.releases()).toEqual([]);
+      expect(f.pages).toEqual([1]);
+    } finally {
+      f.dispose();
+    }
+  });
+  it('continues other sections but withholds completeness after a recent-page refusal', () => {
+    const api = fixture({ runs: [run(1)] });
+    const report = collectInfraTick(
+      {
+        ...api,
+        releases: () => {
+          throw new Error('Empty recent release page 2');
+        },
+      },
+      options
+    );
+    expect(report.health.createdSinceTick).toBe(1);
+    expect(report.reviewEvidence).toEqual([]);
+    expect(api.calls.some((call) => call.includes('/pulls?state=open'))).toBe(true);
+    expect(report.complete).toBe(false);
+    expect(report.anomalies).toContainEqual({
+      kind: 'release coverage unavailable',
+      message: 'Empty recent release page 2',
+    });
+    expect(renderInfraTick(report)).toContain('INCOMPLETE: release coverage unavailable');
+  });
+});
+
 // Frozen incident costs from #3962, scaled by identities rather than real sleeps.
-// Seven catalogue pages + one open review preserve the mandatory stage workload.
+// Seven historical pages expose the bounded two-page release view plus one open review.
 function timedFailureFixture(workers: number, attempts = 10, logCosts = [15_000, 25_000, 9_800]) {
   const jobsPerAttempt = workers / attempts;
   expect(Number.isInteger(jobsPerAttempt)).toBe(true);
@@ -709,7 +849,8 @@ function timedFailureFixture(workers: number, attempts = 10, logCosts = [15_000,
     runs: Array.from({ length: attempts }, (_, i) =>
       run(i + 1, {
         conclusion: 'failure',
-        created_at: new Date(Date.parse(options.since) + (i + 1) * 60_000).toISOString(),
+        // Keep the >60-attempt budget boundary inside the one-hour fixture window.
+        created_at: new Date(Date.parse(options.since) + (i + 1) * 30_000).toISOString(),
       })
     ),
     jobs: [
@@ -935,8 +1076,8 @@ describe('bounded failed-worker diagnostics', () => {
         expect(reads.every((call) => call.timeoutMs <= 20_000)).toBe(true);
         expect(report.logCoverage).toEqual({ read: 2, total: workers, attempted: 3 });
         expect(report.repeated.map((row) => row.test)).toEqual(['sampled_failure']);
-        expect(f.api.evidence().requests).toBe(40);
-        expect(f.now()).toBe(76_300);
+        expect(f.api.evidence().requests).toBe(33);
+        expect(f.now()).toBe(72_800);
         const firstLog = f.calls.indexOf(reads[0]);
         expect(f.calls.findIndex((call) => call.endpoint === 'graphql:queue')).toBeLessThan(
           firstLog
@@ -961,16 +1102,16 @@ describe('bounded failed-worker diagnostics', () => {
       }
     }
   );
-  it('completes the measured 53-attempt mandatory ceiling and refuses the 54th', () => {
-    for (const attempts of [53, 54]) {
+  it('completes the modeled 60-attempt mandatory ceiling and refuses the 61st', () => {
+    for (const attempts of [60, 61]) {
       const f = timedFailureFixture(attempts, attempts);
       try {
-        if (attempts === 53) {
+        if (attempts === 60) {
           const report = collectInfraTick(f.api, options);
           expect(report.complete).toBe(true);
-          expect(report.failures).toHaveLength(53);
-          expect(report.logCoverage).toEqual({ read: 0, total: 53, attempted: 0 });
-          expect(f.now()).toBe(108_900);
+          expect(report.failures).toHaveLength(60);
+          expect(report.logCoverage).toEqual({ read: 0, total: 60, attempted: 0 });
+          expect(f.now()).toBe(118_000);
         } else expect(() => collectInfraTick(f.api, options)).toThrow(/API call budget exhausted/);
         expect(f.api.evidence().requests).toBe(80);
         expect(f.calls.some((call) => call.endpoint.endsWith('/logs'))).toBe(false);
@@ -981,9 +1122,9 @@ describe('bounded failed-worker diagnostics', () => {
   });
   it('keeps the full sixty-second optional phase inside the measured workload bound', () => {
     for (const [workers, attempts, maximum] of [
-      [10, 10, 91_500],
-      [30, 10, 91_500],
-      [20, 20, 109_500],
+      [10, 10, 88_000],
+      [30, 10, 88_000],
+      [20, 20, 106_000],
     ]) {
       const f = timedFailureFixture(workers, attempts, [20_000]);
       try {
@@ -1256,8 +1397,8 @@ const endpoint=args.find(arg=>arg.startsWith('repos/'));
 if(process.env.FAIL_READ==='true'){process.stderr.write(process.env.GH_TOKEN);process.exit(1);}
 if(args[1]==='graphql'&&process.env.QUEUE_FAIL==='true'){process.stderr.write(process.env.GH_TOKEN);process.exit(1);}
 if(args[1]==='graphql')console.log(JSON.stringify({data:{repository:{mergeQueue:{entries:{totalCount:0,pageInfo:{hasNextPage:false},nodes:[]}}}}}));
-else if(endpoint==='repos/pj-tmt/tmt')console.log('{"permissions":{"push":true}}');
-else if(endpoint.includes('/releases?'))process.stdout.write('HTTP/2 200 OK\\r\\n\\r\\n[]');
+else if(endpoint==='repos/pj-tmt/tmt')console.log('{"id":42,"permissions":{"push":true}}');
+else if(endpoint.includes('/releases?'))process.stdout.write(process.env.RELEASE_FAIL==='true'?'HTTP/2 200 OK\\r\\nLink: <https://api.github.com/repositories/42/releases?per_page=100&page=7>; rel="last"\\r\\n\\r\\n[]':'HTTP/2 200 OK\\r\\n\\r\\n[]');
 else if(endpoint.includes('/actions/runs?'))console.log('{"total_count":0,"workflow_runs":[]}');
 else if(endpoint.includes('/pulls?')||endpoint.includes('/issues?state=closed'))console.log('[]');
 else throw Error('Unexpected endpoint');
@@ -1267,7 +1408,12 @@ else throw Error('Unexpected endpoint');
       const script = fileURLToPath(
         new URL('../../scripts/infra-tick-summary.mjs', import.meta.url)
       );
-      const execute = (fail: boolean, extra: string[] = [], queueFail = false) =>
+      const execute = (
+        fail: boolean,
+        extra: string[] = [],
+        queueFail = false,
+        releaseFail = false
+      ) =>
         spawnSync(
           process.execPath,
           [script, '--repo', 'pj-tmt/tmt', '--output', directory, '--review-map', map, ...extra],
@@ -1282,6 +1428,7 @@ else throw Error('Unexpected endpoint');
               GITHUB_TOKEN: secret,
               FAIL_READ: String(fail),
               QUEUE_FAIL: String(queueFail),
+              RELEASE_FAIL: String(releaseFail),
               TMT_AGENT: '1',
               BROWSER: 'true',
             },
@@ -1307,7 +1454,7 @@ else throw Error('Unexpected endpoint');
       expect(report.complete).toBe(true);
       expect(JSON.parse(cursor).baselineUntil).toBe(initialCursor.baselineUntil);
       expect(report.coverage).toContain(initialCursor.baselineUntil);
-      expect(report.evidence.requests).toBe(20);
+      expect(report.evidence.requests).toBe(18);
       expect(JSON.parse(cursor).until).toBe(report.until);
       expect(readFileSync(path.join(directory, 'summary.md'), 'utf8')).toBe(detail.stdout);
       const queueFailure = execute(false, [], true);
@@ -1326,6 +1473,17 @@ else throw Error('Unexpected endpoint');
         'INCOMPLETE: queue coverage unavailable; cursor not advanced'
       );
       expect(readFileSync(path.join(directory, 'summary.md'), 'utf8')).toBe(queueFailure.stdout);
+      expect(readFileSync(path.join(directory, 'cursor.json'), 'utf8')).toBe(cursor);
+      const releaseFailure = execute(false, [], false, true);
+      expect(releaseFailure.status).toBe(1);
+      const releaseReport = JSON.parse(readFileSync(path.join(directory, 'summary.json'), 'utf8'));
+      expect(releaseReport.complete).toBe(false);
+      expect(releaseReport.anomalies).toContainEqual({
+        kind: 'release coverage unavailable',
+        message: 'Empty recent release page 1.',
+      });
+      expect(releaseReport.reviewEvidence).toEqual([]);
+      expect(releaseFailure.stdout).toContain('INCOMPLETE: release coverage unavailable');
       expect(readFileSync(path.join(directory, 'cursor.json'), 'utf8')).toBe(cursor);
       const refused = execute(true);
       expect(refused.status).toBe(1);
@@ -1393,7 +1551,7 @@ it.each([0, 3])(
       expect(report.complete).toBe(true);
       expect(report.reviewEvidence).toHaveLength(30);
       expect(api.evidence()).toMatchObject({
-        requests: 21 + hydrated,
+        requests: 19 + hydrated,
         queueQueries: 1,
         reviewQueries: 1,
         reviewPoints: 1,
@@ -1734,7 +1892,7 @@ exec "$TICK_FIXTURE_NODE" "$fixture/gh-fixture.cjs" "$@"
       }
     }
   );
-  it.each([20, 30])('completes a %i-PR, 52-call non-review window in one invocation', (count) => {
+  it.each([20, 30])('completes a %i-PR, 50-call non-review window in one invocation', (count) => {
     const test = volume(count);
     try {
       const result = test.invoke();
@@ -1742,7 +1900,7 @@ exec "$TICK_FIXTURE_NODE" "$fixture/gh-fixture.cjs" "$@"
       expect(test.report()).toMatchObject({
         complete: true,
         until: options.until,
-        evidence: { requests: 53, reviewQueries: 1, reviewPoints: 1 },
+        evidence: { requests: 51, reviewQueries: 1, reviewPoints: 1 },
       });
       expect(
         test.report().reviewEvidence.map((row: any) => ({
@@ -1785,7 +1943,7 @@ exec "$TICK_FIXTURE_NODE" "$fixture/gh-fixture.cjs" "$@"
     try {
       const result = test.invoke();
       expect(result.status, result.stdout + result.stderr).toBe(0);
-      expect(test.report()).toMatchObject({ complete: true, evidence: { requests: 57 } });
+      expect(test.report()).toMatchObject({ complete: true, evidence: { requests: 55 } });
       const reads = test
         .calls()
         .filter((row) => /\/(?:pulls|issues)\/\d+/.test(row.endpoint ?? ''));
@@ -1818,7 +1976,7 @@ exec "$TICK_FIXTURE_NODE" "$fixture/gh-fixture.cjs" "$@"
             : { stage: 'PR review', prCount: 20 }
         );
       if (mode === 'hydration-budget') {
-        expect(test.report().evidence.requests).toBe(52);
+        expect(test.report().evidence.requests).toBe(50);
         expect(test.calls().some((row) => /\/pulls\/\d+$/.test(row.endpoint ?? ''))).toBe(false);
         expect(test.calls().some((row) => row.endpoint === 'graphql:InfraTickReviews')).toBe(false);
       }
