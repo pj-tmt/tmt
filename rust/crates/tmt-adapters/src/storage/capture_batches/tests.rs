@@ -110,17 +110,21 @@ impl World {
         self.now += 1;
         assert!(matches!(
             self.storage
-                .capture_turn_end(TurnCapture {
-                    expected: &expected,
-                    process: &self.process,
-                    activity: &activity,
-                    interrupted: false,
-                    response: Some(ResponseCapture {
-                        text: turn.final_text.unwrap()
-                    }),
-                    now_ms: self.now,
-                    deadline: Instant::now() + Duration::from_secs(2)
-                })
+                .capture_turn_end(
+                    &uuid::Uuid::new_v4().to_string(),
+                    None,
+                    TurnCapture {
+                        expected: &expected,
+                        process: &self.process,
+                        activity: &activity,
+                        interrupted: false,
+                        response: Some(ResponseCapture {
+                            text: turn.final_text.unwrap()
+                        }),
+                        now_ms: self.now,
+                        deadline: Instant::now() + Duration::from_secs(2)
+                    }
+                )
                 .unwrap(),
             TurnCaptureOutcome::Committed | TurnCaptureOutcome::Duplicate
         ));
@@ -294,21 +298,25 @@ fn rejected_turn_ends_distinguish_missing_starts_from_duplicates_interrupts_and_
         let lifecycle = crate::drivers::claude::ClaudeLifecycle;
         let outcome = w
             .storage
-            .capture_turn_end(TurnCapture {
-                expected: &expected,
-                process: &w.process,
-                activity: &activity,
-                response: Some(ResponseCapture {
-                    text: lifecycle.decode_turn(payload).unwrap().final_text.unwrap(),
-                }),
-                interrupted: case == "interrupted_without_start",
-                now_ms: match case {
-                    "clock_rollback" => w.now - 1,
-                    "continued_duplicate" => w.now,
-                    _ => w.now + 1,
+            .capture_turn_end(
+                &uuid::Uuid::new_v4().to_string(),
+                None,
+                TurnCapture {
+                    expected: &expected,
+                    process: &w.process,
+                    activity: &activity,
+                    response: Some(ResponseCapture {
+                        text: lifecycle.decode_turn(payload).unwrap().final_text.unwrap(),
+                    }),
+                    interrupted: case == "interrupted_without_start",
+                    now_ms: match case {
+                        "clock_rollback" => w.now - 1,
+                        "continued_duplicate" => w.now,
+                        _ => w.now + 1,
+                    },
+                    deadline: Instant::now() + Duration::from_secs(2),
                 },
-                deadline: Instant::now() + Duration::from_secs(2),
-            })
+            )
             .unwrap();
         assert_eq!(outcome, wanted, "{case}");
         assert_eq!(
@@ -486,17 +494,21 @@ fn stale_binding_and_expired_budget_cannot_capture_or_attach_failure() {
         };
         assert_eq!(
             w.storage
-                .capture_turn_end(TurnCapture {
-                    expected: &expected,
-                    process: &w.process,
-                    activity: &activity,
-                    interrupted: false,
-                    response: Some(ResponseCapture {
-                        text: turn.final_text.unwrap()
-                    }),
-                    now_ms: w.now + 1,
-                    deadline
-                })
+                .capture_turn_end(
+                    &uuid::Uuid::new_v4().to_string(),
+                    None,
+                    TurnCapture {
+                        expected: &expected,
+                        process: &w.process,
+                        activity: &activity,
+                        interrupted: false,
+                        response: Some(ResponseCapture {
+                            text: turn.final_text.unwrap()
+                        }),
+                        now_ms: w.now + 1,
+                        deadline
+                    }
+                )
                 .unwrap(),
             TurnCaptureOutcome::NotApplicable
         );
@@ -530,17 +542,21 @@ fn interruption_keeps_earlier_answers_but_closes_the_batch_without_capturing_par
     let activity = lifecycle.decode_activity(payload.as_bytes()).unwrap();
     assert_eq!(
         w.storage
-            .capture_turn_end(TurnCapture {
-                expected: &expected,
-                process: &w.process,
-                activity: &activity,
-                interrupted: true,
-                response: Some(ResponseCapture {
-                    text: turn.final_text.unwrap()
-                }),
-                now_ms: w.now + 1,
-                deadline: Instant::now() + Duration::from_secs(2)
-            })
+            .capture_turn_end(
+                &uuid::Uuid::new_v4().to_string(),
+                None,
+                TurnCapture {
+                    expected: &expected,
+                    process: &w.process,
+                    activity: &activity,
+                    interrupted: true,
+                    response: Some(ResponseCapture {
+                        text: turn.final_text.unwrap()
+                    }),
+                    now_ms: w.now + 1,
+                    deadline: Instant::now() + Duration::from_secs(2)
+                }
+            )
             .unwrap(),
         TurnCaptureOutcome::Committed
     );

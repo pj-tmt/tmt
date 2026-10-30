@@ -419,9 +419,21 @@ A distinct final survives a missing prompt boundary without changing newer turn 
 Separate continuations retain separate ids. A pre-upgrade turn without a batch gets a provisional id; queue serialization
 shares it across Stops even after acknowledgment, and ingestion creates it without
 displacing a newer turn. Retirement or a missing previously recorded batch leaves a
-durable failure receipt. On the queued path, append failure alone projects a capture-failure caption;
-committed queue work remains pending after a flusher failure. `storage::responses::capture` retains the direct synchronous adapter for
-the bounded compatibility fallback. Interrupted events retain no final.
+durable failure receipt. `storage::responses::capture` owns the shared terminal disposition
+for queued and bounded direct capture. A verified text-bearing `NoAdmittedStart` or
+`NotApplicable` with a still-owned recorded batch appends a `worker_error` failure there,
+unless exact retained-text replay is proven. The same transaction writes the existing
+event receipt: an event replay adds nothing, while distinct misses in one batch remain
+separate entries. Historical failure placement changes no newer activity, batch or
+passthrough. A changed binding cannot attribute a failure to another identity.
+Queue append failures keep their existing best-effort diagnostics; committed queue work
+remains pending after a flusher failure. Missing recorded batches and pre-enqueue failures
+have no new correlation rule. Interrupted events retain no final.
+
+Refused verified ends may carry text in the existing optional response slot; no queue
+field or version changes. A running old flusher still returns before consuming a refused
+admission's response, so it cannot store that text as an answer. It does not implement
+the new visible-failure disposition; the guarantee requires the updated consumer.
 
 After capture commits, the flusher owns only the existing Stop consented usage sampling
 and `commit_observation`, preserving consent and transcript-source fences. Failures remain

@@ -43,7 +43,7 @@ pub(super) fn blocks(entries: &[Entry]) -> Vec<Block> {
                 }
             }
             Kind::Failure { .. } => {
-                if failures.insert(entry.batch.as_ref().unwrap_or(&entry.id)) {
+                if failures.insert(&entry.id) {
                     blocks.push(Block::Failure(index));
                 }
             }
@@ -152,7 +152,7 @@ mod tests {
     }
 
     #[test]
-    fn submitted_replies_use_request_identity_and_failures_are_once_per_batch() {
+    fn submitted_replies_use_request_identity_and_failures_use_entry_identity() {
         let reply = |id: &str, request: &str| Entry {
             id: id.into(),
             acknowledgements: Vec::new(),
@@ -183,6 +183,7 @@ mod tests {
             final_entry("d", "rsp_A"),
             fail("e"),
             fail("f"),
+            fail("e"),
         ];
         assert_eq!(
             blocks(&entries),
@@ -190,7 +191,8 @@ mod tests {
                 Block::Reply(0),
                 Block::Reply(2),
                 Block::Final(3),
-                Block::Failure(4)
+                Block::Failure(4),
+                Block::Failure(5)
             ]
         );
     }

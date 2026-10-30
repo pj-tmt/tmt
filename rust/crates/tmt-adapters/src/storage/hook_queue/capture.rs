@@ -8,7 +8,7 @@ use crate::runtime::{
     driver_state,
     hook_protocol::{ActivityObservation, HookLaunch},
 };
-use rusqlite::{Connection, OpenFlags, OptionalExtension, params};
+use rusqlite::{Connection, OpenFlags, params};
 use serde::{Deserialize, Serialize};
 use std::{
     path::{Path, PathBuf},
@@ -48,7 +48,7 @@ impl From<super::super::TurnCaptureOutcome> for CaptureResult {
     }
 }
 impl CaptureResult {
-    fn token(self) -> &'static str {
+    pub(in crate::storage) fn token(self) -> &'static str {
         match self {
             Self::Committed => "committed",
             Self::Duplicate => "duplicate",
@@ -127,6 +127,12 @@ pub struct CaptureEvent {
 impl CaptureEvent {
     pub fn id(&self) -> &str {
         &self.id
+    }
+    pub fn recorded_batch(&self) -> Option<&str> {
+        self.capture
+            .as_ref()
+            .filter(|capture| !capture.provisional)
+            .and_then(|capture| capture.batch.as_deref())
     }
     /// A pre-upgrade active turn can lack an input batch. The queue keeps its
     /// provisional id across acknowledgments so two already-admitted Stops use
@@ -501,7 +507,7 @@ impl CaptureEvent {
                 response: capture
                     .response
                     .as_ref()
-                    .filter(|_| !capture.interrupted && admitted == CaptureResult::Committed)
+                    .filter(|_| !capture.interrupted)
                     .map(|r| KeptFinal {
                         text: r.text.text().into(),
                         original_bytes: r.text.original_bytes(),
@@ -707,23 +713,40 @@ fn ingest(db: &Connection, event: &CaptureEvent) -> Result<CaptureResult, Storag
     if !event.valid() {
         return Err(invalid("Invalid hook capture event"));
     }
-    let receipt: Option<String> = db
-        .query_row(
-            "SELECT outcome FROM hook_capture_receipts WHERE event_id=?",
-            [event.id()],
-            |r| r.get(0),
-        )
-        .optional()
-        .map_err(|e| classify(e, "Read capture ingestion receipt"))?;
-    if let Some(outcome) = receipt {
-        return serde_json::from_value(serde_json::Value::String(outcome))
-            .map_err(|_| invalid("Invalid capture receipt"));
+    if let Some(outcome) = responses::capture_receipt(db, event.id())? {
+        return Ok(outcome);
     }
     let result = match &event.capture {
         Some(c) => commit(db, c)?,
         None => CaptureResult::NotApplicable,
     };
-    db.execute("INSERT INTO hook_capture_receipts(event_id,identity_id,batch_id,outcome,committed_ms) VALUES(?,?,?,?,?)",params![event.id(),event.identity(),event.capture.as_ref().and_then(|c|c.batch.as_deref()),result.token(),crate::request_runtime::wall_time_ms() as i64]).map_err(|e|classify(e,"Commit capture ingestion receipt"))?;
+    if let Some(capture) = &event.capture {
+        let process = ProcessIncarnation::new(capture.pid, &capture.start)
+            .map_err(|_| invalid("Invalid capture process"))?;
+        let response = capture
+            .response
+            .as_ref()
+            .map(|r| r.decode().map(|text| responses::ResponseCapture { text }))
+            .transpose()?;
+        responses::finish_capture_disposition(
+            db,
+            &responses::CaptureDisposition {
+                event_id: event.id(),
+                identity: &capture.identity,
+                binding: &capture.binding,
+                batch: capture.batch.as_deref(),
+                provider: Some(&capture.provider),
+                session: Some(&capture.session),
+                process: &process,
+                response: response.as_ref(),
+                interrupted: capture.interrupted,
+                now_ms: capture.now_ms,
+                outcome: result,
+            },
+        )?;
+    } else {
+        db.execute("INSERT INTO hook_capture_receipts(event_id,identity_id,batch_id,outcome,committed_ms) VALUES(?,?,NULL,?,?)",params![event.id(),event.identity(),result.token(),crate::request_runtime::wall_time_ms() as i64]).map_err(|e|classify(e,"Commit metadata capture receipt"))?;
+    }
     Ok(result)
 }
 

@@ -287,6 +287,10 @@ fn direct_fallback_adopts_only_its_own_new_batch_for_follow_up() {
         .execute("DELETE FROM capture_batches", [])
         .unwrap();
     let mut queued = w.event("direct answer", false);
+    assert!(
+        queued.recorded_batch().is_none(),
+        "a provisional locator is not a recorded batch"
+    );
     let lifecycle = crate::drivers::claude::ClaudeLifecycle;
     let payload = br#"{"hook_event_name":"Stop","session_id":"fixture-session","last_assistant_message":"direct answer"}"#;
     let turn = lifecycle.decode_turn(payload).unwrap();
@@ -296,17 +300,21 @@ fn direct_fallback_adopts_only_its_own_new_batch_for_follow_up() {
         .unwrap();
     assert_eq!(
         w.storage
-            .capture_turn_end(TurnCapture {
-                expected: &expected,
-                process: &w.process,
-                activity: &activity,
-                response: Some(ResponseCapture {
-                    text: turn.final_text.unwrap()
-                }),
-                interrupted: false,
-                now_ms: w.now + 1,
-                deadline: Instant::now() + Duration::from_secs(2),
-            })
+            .capture_turn_end(
+                queued.id(),
+                queued.recorded_batch(),
+                TurnCapture {
+                    expected: &expected,
+                    process: &w.process,
+                    activity: &activity,
+                    response: Some(ResponseCapture {
+                        text: turn.final_text.unwrap()
+                    }),
+                    interrupted: false,
+                    now_ms: w.now + 1,
+                    deadline: Instant::now() + Duration::from_secs(2),
+                }
+            )
             .unwrap(),
         super::super::TurnCaptureOutcome::Committed
     );
@@ -848,28 +856,303 @@ fn hooks_do_not_create_a_missing_queue_and_core_provisions_before_publishing_sch
         .unwrap();
     assert_eq!(mode, "wal");
 }
+impl World {
+    fn refuse_end(&self, outcome: CaptureResult) {
+        let mut rows = BindingRows(self.storage.connection().unwrap());
+        let mut preferences = rows.session_preferences(&self.agent).unwrap();
+        preferences.remembered.as_mut().unwrap().state =
+            if outcome == CaptureResult::NoAdmittedStart {
+                None
+            } else {
+                crate::runtime::driver_state::after_activity(
+                    None,
+                    &ProviderSessionId::new("fixture-session").unwrap(),
+                    &self.process,
+                    &Event {
+                        kind: EventKind::TurnStarted,
+                        turn: None,
+                    },
+                    None,
+                    self.now + 50,
+                )
+            };
+        rows.set_session_preferences(&self.agent, &preferences)
+            .unwrap();
+    }
+    fn direct_end(&mut self, event: &CaptureEvent, text: &str) -> super::super::TurnCaptureOutcome {
+        let expected = Storage::context_by_identity(&self.path, &self.agent, self.now)
+            .unwrap()
+            .unwrap();
+        self.direct_end_with_snapshot(event, text, &expected)
+    }
+    fn direct_end_with_snapshot(
+        &mut self,
+        event: &CaptureEvent,
+        text: &str,
+        expected: &super::super::IdentityContextSnapshot,
+    ) -> super::super::TurnCaptureOutcome {
+        let lifecycle = crate::drivers::claude::ClaudeLifecycle;
+        let payload = serde_json::json!({"hook_event_name":"Stop","session_id":"fixture-session","last_assistant_message":text}).to_string();
+        let turn = lifecycle.decode_turn(payload.as_bytes()).unwrap();
+        let activity = lifecycle.decode_activity(payload.as_bytes()).unwrap();
+        self.storage
+            .capture_turn_end(
+                event.id(),
+                event.recorded_batch(),
+                TurnCapture {
+                    expected,
+                    process: &self.process,
+                    activity: &activity,
+                    response: Some(ResponseCapture {
+                        text: turn.final_text.unwrap(),
+                    }),
+                    interrupted: false,
+                    now_ms: self.now + 1,
+                    deadline: Instant::now() + Duration::from_secs(2),
+                },
+            )
+            .unwrap()
+    }
+    fn visible_failures(&mut self) -> Vec<serde_json::Value> {
+        let page = self
+            .storage
+            .conversation_timeline(&self.agent, 50, None, self.now + 100)
+            .unwrap();
+        page["entries"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|entry| entry["kind"] == "failure")
+            .cloned()
+            .collect()
+    }
+}
+
 #[test]
-fn no_admitted_start_queues_only_its_terminal_metadata_not_the_unadmitted_answer() {
+fn queued_and_direct_refusals_keep_a_visible_failure_in_the_recorded_batch() {
+    for queued in [false, true] {
+        for refused in [CaptureResult::NoAdmittedStart, CaptureResult::NotApplicable] {
+            let mut w = World::new();
+            w.refuse_end(refused);
+            let event = w.event("verified text could not be retained", false);
+            assert_eq!(event.admission(), refused);
+            assert!(
+                serde_json::to_string(&event)
+                    .unwrap()
+                    .contains("verified text")
+            );
+            let batch = event.recorded_batch().unwrap().to_owned();
+            let before = BindingRows(w.storage.connection().unwrap())
+                .session_preferences(&w.agent)
+                .unwrap();
+            if queued {
+                assert_eq!(w.storage.ingest_hook_capture(&event).unwrap(), refused);
+            } else {
+                assert_eq!(
+                    CaptureResult::from(
+                        w.direct_end(&event, "verified text could not be retained")
+                    ),
+                    refused
+                );
+            }
+            assert_eq!(w.final_count(), 0);
+            let failures = w.visible_failures();
+            assert_eq!(
+                failures.len(),
+                1,
+                "a verified refused final must not disappear"
+            );
+            assert_eq!(failures[0]["inputBatchId"], batch);
+            assert_eq!(failures[0]["failure"]["code"], "worker_error");
+            assert_eq!(
+                BindingRows(w.storage.connection().unwrap())
+                    .session_preferences(&w.agent)
+                    .unwrap(),
+                before
+            );
+            assert_eq!(
+                current(w.storage.connection().unwrap(), &w.agent)
+                    .unwrap()
+                    .as_deref(),
+                Some(batch.as_str())
+            );
+        }
+    }
+}
+
+#[test]
+fn two_refused_events_in_one_batch_are_visible_but_an_event_replay_is_not() {
+    for queued in [false, true] {
+        let mut w = World::new();
+        w.refuse_end(CaptureResult::NoAdmittedStart);
+        let first = w.event("first missed final", false);
+        let second = w.event("second missed final", false);
+        for (event, text) in [
+            (&first, "first missed final"),
+            (&first, "first missed final"),
+            (&second, "second missed final"),
+        ] {
+            if queued {
+                w.storage.ingest_hook_capture(event).unwrap();
+            } else {
+                w.direct_end(event, text);
+            }
+        }
+        let failures = w.visible_failures();
+        assert_eq!(failures.len(), 2);
+        assert_eq!(failures[0]["inputBatchId"], failures[1]["inputBatchId"]);
+        assert_ne!(failures[0]["entryId"], failures[1]["entryId"]);
+    }
+}
+
+#[test]
+fn a_refused_exact_text_replay_of_a_retained_final_has_no_failure() {
+    for queued in [false, true] {
+        let mut w = World::new();
+        let first = w.event("already visible", false);
+        w.storage.ingest_hook_capture(&first).unwrap();
+        w.refuse_end(CaptureResult::NoAdmittedStart);
+        let replay = w.event("already visible", false);
+        if queued {
+            w.storage.ingest_hook_capture(&replay).unwrap();
+        } else {
+            w.direct_end(&replay, "already visible");
+        }
+        assert_eq!(w.final_count(), 1);
+        assert!(w.visible_failures().is_empty());
+    }
+}
+
+#[test]
+fn a_refused_capture_cannot_write_through_a_reassigned_binding() {
+    for queued in [false, true] {
+        let mut w = World::new();
+        w.refuse_end(CaptureResult::NoAdmittedStart);
+        let event = w.event("belongs to the former binding", false);
+        let expected = Storage::context_by_identity(&w.path, &w.agent, w.now)
+            .unwrap()
+            .unwrap();
+        let other = tmt_core::identity::create_or_resolve(&mut w.storage, "Other", Lifetime::Saved)
+            .unwrap()
+            .identity
+            .id;
+        w.storage
+            .connection()
+            .unwrap()
+            .execute("UPDATE bindings SET identity_id=?", [&other])
+            .unwrap();
+        if queued {
+            w.storage.ingest_hook_capture(&event).unwrap();
+        } else {
+            w.direct_end_with_snapshot(&event, "belongs to the former binding", &expected);
+        }
+        assert!(w.visible_failures().is_empty());
+        let other_page = w
+            .storage
+            .conversation_timeline(&other, 50, None, w.now + 100)
+            .unwrap();
+        assert!(other_page["entries"].as_array().unwrap().is_empty());
+    }
+}
+
+#[test]
+fn delayed_refusal_only_adds_a_failure_to_its_old_batch() {
+    for queued in [false, true] {
+        let mut w = World::new();
+        w.refuse_end(CaptureResult::NoAdmittedStart);
+        let event = w.event("old verified text without a start", false);
+        let old = event.recorded_batch().unwrap().to_owned();
+        let expected = Storage::context_by_identity(&w.path, &w.agent, w.now)
+            .unwrap()
+            .unwrap();
+        let newer = w.new_prompt();
+        let db = w.storage.connection().unwrap();
+        db.execute("INSERT INTO request_attempts(attempt_id,request_id,route_kind,recipient_identity_id,originator_kind,originator_identity_id,wait_active,status,inject_preamble,cadence_reserved,prepared_at_ms,expires_at_ms,retention_expires_at_ms)
+            VALUES('new-input','new-input','inbox',?1,'explicit',?1,0,'sent',0,0,?2,?3,?3)",params![w.agent,w.now as i64,(w.now+60_000) as i64]).unwrap();
+        db.execute("INSERT INTO request_passthrough(request_id,delivered_at_ms,state,bound_session,bound_at_ms,folded) VALUES('new-input',?1,'bound','fixture-session',?1,1)",[w.now as i64]).unwrap();
+        let before = BindingRows(db).session_preferences(&w.agent).unwrap();
+        if queued {
+            w.storage.ingest_hook_capture(&event).unwrap();
+        } else {
+            w.direct_end_with_snapshot(&event, "old verified text without a start", &expected);
+        }
+        let failures = w.visible_failures();
+        assert_eq!(failures.len(), 1);
+        assert_eq!(failures[0]["inputBatchId"], old);
+        assert_eq!(w.final_count(), 0);
+        let db = w.storage.connection().unwrap();
+        assert_eq!(
+            current(db, &w.agent).unwrap().as_deref(),
+            Some(newer.as_str())
+        );
+        assert_eq!(
+            BindingRows(db).session_preferences(&w.agent).unwrap(),
+            before
+        );
+        let state: String = db
+            .query_row(
+                "SELECT state FROM request_passthrough WHERE request_id='new-input'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(state, "bound");
+    }
+}
+
+#[test]
+fn a_refused_event_and_its_failure_share_the_receipt_transaction() {
     let mut w = World::new();
+    w.refuse_end(CaptureResult::NoAdmittedStart);
+    let event = w.event("atomic refused final", false);
+    w.storage.connection().unwrap().execute_batch("CREATE TEMP TRIGGER reject_refused_receipt BEFORE INSERT ON hook_capture_receipts BEGIN SELECT RAISE(ABORT,'receipt failure'); END;").unwrap();
+    assert!(w.storage.ingest_hook_capture(&event).is_err());
+    assert!(w.visible_failures().is_empty());
     w.storage
         .connection()
         .unwrap()
-        .execute(
-            "UPDATE identity_session_preferences SET driver_state=NULL,driver_state_version=NULL",
-            [],
-        )
+        .execute_batch("DROP TRIGGER reject_refused_receipt")
         .unwrap();
-    let event = w.event("unadmitted answer must be dropped", false);
-    assert!(
-        !serde_json::to_string(&event)
-            .unwrap()
-            .contains("unadmitted answer")
-    );
+    w.storage.ingest_hook_capture(&event).unwrap();
+    assert_eq!(w.visible_failures().len(), 1);
+}
+
+#[test]
+fn shipped_style_commit_returns_before_using_text_of_a_refused_admission() {
+    // Frozen decisive branch from the shipped pre-T-2a commit: response is
+    // consumed only after this return. Keeping Some(response) changes content,
+    // not the old decoder's shape or its permission to store an answer.
+    fn shipped_commit(admitted: CaptureResult, use_response: impl FnOnce()) -> CaptureResult {
+        if admitted != CaptureResult::Committed {
+            return admitted;
+        }
+        use_response();
+        CaptureResult::Committed
+    }
+    let mut used = false;
     assert_eq!(
-        w.storage.ingest_hook_capture(&event).unwrap(),
-        CaptureResult::NoAdmittedStart
+        shipped_commit(CaptureResult::Committed, || used = true),
+        CaptureResult::Committed
     );
-    assert_eq!(w.final_count(), 0);
+    assert!(
+        used,
+        "the shipped-style body is exercised for admitted ends"
+    );
+    for refused in [CaptureResult::NoAdmittedStart, CaptureResult::NotApplicable] {
+        let w = World::new();
+        w.refuse_end(refused);
+        let event = w.event("must not become an admitted old-build answer", false);
+        let wire = serde_json::to_value(&event).unwrap();
+        assert!(wire["capture"]["response"].is_object());
+        let old_shape: CaptureEvent = serde_json::from_value(wire).unwrap();
+        assert_eq!(
+            shipped_commit(old_shape.admission(), || panic!(
+                "old commit used refused text"
+            )),
+            refused
+        );
+        assert_eq!(w.final_count(), 0);
+    }
 }
 
 #[test]

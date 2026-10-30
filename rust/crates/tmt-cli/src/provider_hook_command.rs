@@ -409,7 +409,7 @@ fn observe_turn(
                     let mut storage =
                         Storage::open_hook(&paths.database, deadline).map_err(|_| ())?;
                     let outcome = if activity.is_some() {
-                        storage.capture_turn_end(capture)
+                        storage.capture_turn_end(event.id(), event.recorded_batch(), capture)
                     } else {
                         Ok(tmt_adapters::storage::TurnCaptureOutcome::NotApplicable)
                     };
