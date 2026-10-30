@@ -1145,8 +1145,6 @@ fn a_zoomed_watcher_gets_the_whole_room_and_unzoom_gives_the_normal_area_back() 
 #[test]
 fn unzoom_while_typing_leaves_no_refit_for_after_typing_ends() {
     let mut attached = Attached::new(b"hi");
-    text(&attached.app);
-    let normal = window(&attached.app);
     attached
         .app
         .key(key(KeyCode::Char('z'), KeyModifiers::NONE));
@@ -1161,8 +1159,8 @@ fn unzoom_while_typing_leaves_no_refit_for_after_typing_ends() {
     attached.app.terminal_sync();
     assert_eq!(
         attached.peer.expect(),
-        ClientMessage::Resize(normal),
-        "typing keeps the program at the normal area"
+        ClientMessage::Resize(window(&attached.app)),
+        "typing fits the program to the unzoomed area"
     );
     attached
         .app
