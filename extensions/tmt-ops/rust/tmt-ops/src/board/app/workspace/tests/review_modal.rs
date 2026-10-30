@@ -448,6 +448,7 @@ pub(in crate::board) const CRUD_SCENES: &[&str] = &[
     "crud-squad",
     "crud-pool",
     "crud-rename-fields",
+    "crud-rename-reopened",
     "crud-rename-review",
     "crud-rename-pending",
     "crud-rename-success",
@@ -497,6 +498,15 @@ pub(in crate::board) fn crud_capture_case(scene: &str, look: crate::look::Look) 
         }
         "crud-leave-squad" => {
             app.workspace_begin(Kind::Remove);
+        }
+        // A kept Rename draft opened again: its title names the agent and Discard joins Cancel.
+        // The fixture has one agent, so it reopens from the same row; the title rule holds on
+        // every reopen.
+        "crud-rename-reopened" => {
+            app.workspace_begin(Kind::RenameMember);
+            app.input.as_mut().unwrap().text = "worker-tw".into();
+            key(&mut app, KeyCode::Esc);
+            app.workspace_begin(Kind::RenameMember);
         }
         scene if scene.starts_with("crud-rename-") => {
             app.workspace_begin(Kind::RenameMember);
