@@ -262,7 +262,7 @@ for (const renderer of ['react', 'native'])
             else await expect(prefix).toBeVisible();
           }
           if (identity === 'colab-page') {
-            const chips = left.locator('.tmt-ui-topbar-title-chips').first();
+            const chips = left.locator('.tmt-ui-topbar-title-chips');
             if (width <= 900) {
               await expect(chips).toBeHidden();
               expect(await current.evaluate((node) => node.scrollWidth > node.clientWidth)).toBe(

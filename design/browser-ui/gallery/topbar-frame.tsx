@@ -59,30 +59,30 @@ function TitleContent({ identity }: { identity: Identity }) {
         {identity.prefix && <span className="tmt-ui-topbar-title-prefix">{identity.prefix}</span>}
         <span className="tmt-ui-topbar-title-current">{identity.current}</span>
       </h1>
-      {identity.chips && (
+      {(identity.chips || identity.author) && (
         <div className="tmt-ui-topbar-title-chips">
-          <span className="tmt-ui-chip">night-shift</span>
-          <span className="tmt-ui-chip">spec</span>
-          <BrowserIconAction
-            type="button"
-            variant="text"
-            label="Add project"
-            icon={<span aria-hidden="true">+</span>}
-            onActivate={() => {}}
-          />
-          <BrowserIconAction
-            type="button"
-            variant="text"
-            label="Pin page"
-            icon={<span aria-hidden="true">⌖</span>}
-            onActivate={() => {}}
-          />
+          {identity.chips && (
+            <>
+              <span className="tmt-ui-chip">night-shift</span>
+              <span className="tmt-ui-chip">spec</span>
+              <BrowserIconAction
+                type="button"
+                variant="text"
+                label="Add project"
+                icon={<span aria-hidden="true">+</span>}
+                onActivate={() => {}}
+              />
+              <BrowserIconAction
+                type="button"
+                variant="text"
+                label="Pin page"
+                icon={<span aria-hidden="true">⌖</span>}
+                onActivate={() => {}}
+              />
+            </>
+          )}
+          {identity.author && <span className="tmt-ui-caption">{identity.author}</span>}
         </div>
-      )}
-      {identity.author && (
-        <span className="tmt-ui-topbar-title-chips">
-          <span className="tmt-ui-caption">{identity.author}</span>
-        </span>
       )}
     </>
   );
