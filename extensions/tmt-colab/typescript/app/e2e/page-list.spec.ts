@@ -472,7 +472,7 @@ test('sort orders by title; the Archived tab shows archived pages and counts the
 
 const operations = (page: Page) => page.evaluate(() => window.__pageOperations);
 const confirmDialog = (page: Page, name: string) => page.getByRole('dialog', { name });
-const status = (page: Page) => app(page).locator('.page-list-status');
+const status = (page: Page) => app(page).locator('.page-list-status[role="status"]');
 
 test('a page waiting on the viewer shows a dot in the waiting colour with the word and its count', async ({
   page,
@@ -1133,7 +1133,7 @@ test('the page menu adds and removes a project with one whole-set request each',
   await expect(design).toHaveAttribute('aria-checked', 'false');
   await design.click();
   await expect(gamma.locator('.page-project-group-chip')).toBeVisible();
-  await expect(app(page).getByRole('status')).toHaveText('Projects saved.');
+  await expect(app(page).locator('.page-list-status[role="status"]')).toHaveText('Projects saved.');
   expect(await requests(page)).toEqual([
     {
       page: 'c0000003-1111-4111-8111-000000000001',
@@ -1529,6 +1529,8 @@ async function insideViewport(page: Page) {
       // Tab strips (the list's views, the phone module menu) scroll inside; their tabs may pass the
       // edge.
       .filter((node) => !node.parentElement?.closest('.tmt-ui-tab-list, .tmt-ui-module-menu'))
+      // Screen-reader announcements are deliberately clipped outside the visual layout.
+      .filter((node) => !node.closest('.tmt-ui-visually-hidden'))
       .map((node) => ({ node, box: node.getBoundingClientRect() }))
       .filter(({ box }) => box.width > 0 && (box.right > width + 0.5 || box.left < -0.5))
       .map(({ node }) => `${node.tagName}.${(node as HTMLElement).className}`);
