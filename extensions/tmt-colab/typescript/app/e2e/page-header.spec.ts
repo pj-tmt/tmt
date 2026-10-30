@@ -192,7 +192,8 @@ test.describe('the shell bar', () => {
       const gap = async () =>
         (await band.boundingBox())!.y -
         ((await bar(page).boundingBox())!.y + (await bar(page).boundingBox())!.height);
-      if (width <= 900) await expect(page.locator('.tmt-ui-module-menu')).toBeHidden();
+      if (width <= 900)
+        await expect(page.locator('#ask-page-fixture .tmt-ui-module-menu')).toBeHidden();
       await expect.poll(gap).toBeCloseTo(0, 0);
       await page.evaluate(() => {
         document.querySelector<HTMLElement>('#ask-page-fixture .canvas')!.style.minHeight =

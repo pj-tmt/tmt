@@ -4210,13 +4210,16 @@ for (const [width, theme] of [
         });
       }
       await page.mouse.move(1000, 600);
-      await page.getByRole('heading', { level: 1 }).hover();
+      if (width <= 900)
+        await page.getByRole('button', { name: 'Open navigation', exact: true }).click();
+      await modulePages(page).hover();
       const foreign = page.locator('[data-remote="foreign"] [data-action="open"]');
       await expect(foreign).toHaveAttribute('aria-disabled', 'true');
       await expect(foreign).toHaveAttribute(
         'title',
         'A request is in progress. Wait for its outcome.',
       );
+      if (width <= 900) await page.keyboard.press('Escape');
       await name.focus();
       await expect(name).toBeFocused();
       await name.fill('Unsent next draft');
@@ -4231,7 +4234,9 @@ for (const [width, theme] of [
     await expect(slot).toHaveAttribute('data-state', 'unknown');
     await expect(name).toBeFocused();
     await expect(name).toHaveValue('Unsent next draft');
-    await page.getByRole('heading', { level: 1 }).hover();
+    if (width <= 900)
+      await page.getByRole('button', { name: 'Open navigation', exact: true }).click();
+    await modulePages(page).hover();
     const foreign = page.locator('[data-remote="foreign"] [data-action="open"]');
     await expect(foreign).toHaveAttribute('aria-disabled', 'true');
     await expect(foreign).toHaveAttribute(
@@ -4243,7 +4248,8 @@ for (const [width, theme] of [
       'aria-disabled',
     );
     await expect(menu.getByRole('link', { name: 'My Remotes' })).toBeVisible();
-    // On a phone the module menu is tabs at the top; hovering it scrolled there, so return.
+    // Close the drawer before returning to the retained device draft.
+    if (width <= 900) await page.keyboard.press('Escape');
     await row.evaluate((form) => scrollTo(0, form.getBoundingClientRect().top + scrollY - 70));
     await name.focus();
     const originalId = writes.at(-1)!.input.operationId;

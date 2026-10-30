@@ -16,7 +16,8 @@ export async function showAllPages(page: Page) {
 /** Open the shell's one child tree when the phone drawer owns it. */
 export async function openModuleNavigation(page: Page, scope: Locator = page.locator('body')) {
   const open = scope.getByRole('button', { name: 'Open navigation', exact: true });
-  if (await open.isVisible()) {
+  if ((page.viewportSize()?.width ?? 1440) <= 900) {
+    await expect(open).toBeVisible();
     if ((await open.getAttribute('aria-expanded')) === 'false') await open.click();
   }
   const menu = scope.locator('.tmt-ui-rail-sub:visible');

@@ -1626,6 +1626,8 @@ test.describe('Settings General website presentation', () => {
             page.getByRole('heading', { name: 'TMT settings / Modules', exact: true }),
           ).toBeVisible();
           await expect(general).not.toContainText('Make TMT feel like yours.');
+          if (width === 390)
+            await page.getByRole('button', { name: 'Open navigation', exact: true }).click();
           await menu.getByRole('link', { name: 'Drivers & hooks', exact: true }).click();
           await expect(general).toHaveClass(/tmt-ui-page/);
           await expect(
@@ -1636,6 +1638,8 @@ test.describe('Settings General website presentation', () => {
             }),
           ).toBeVisible();
           await expect(general.getByRole('button', { name: 'Copy tmt driver ls' })).toBeVisible();
+          if (width === 390)
+            await page.getByRole('button', { name: 'Open navigation', exact: true }).click();
           await menu.getByRole('link', { name: 'General', exact: true }).click();
           await expect(
             general.getByRole('heading', { name: 'Appearance', exact: true }),
