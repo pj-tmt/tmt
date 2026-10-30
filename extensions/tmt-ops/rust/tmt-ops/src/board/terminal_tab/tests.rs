@@ -1321,5 +1321,5 @@ fn a_program_that_asked_for_the_mouse_keeps_the_drag_and_the_line_names_the_bypa
     let mut attached = Attached::new(b"hello\x1b[?1002h");
     attached.start_typing();
     assert_eq!(copied(drag(&mut attached, (0, 0), (4, 0))), None);
-    assert!(text(&attached.app).contains("Shift-drag selects"));
+    assert!(text(&attached.app).contains("bypass-drag selects"));
 }

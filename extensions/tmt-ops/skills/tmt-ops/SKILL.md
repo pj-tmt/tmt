@@ -669,9 +669,10 @@ squad. No existing identity is reused deliberately, and Core rechecks every laun
 A clean start on the built-in host closes the form, selects the member and shows
 its Terminal view, typing into it. The Terminal view is chosen per member (`t` or the
 Terminal chip); every other member opens on its chat, where Enter composes as for a tmux
-member. A left drag over the screen selects its text and copies it with the chat's Copy;
-while typing into a program that asked for the mouse, the drag is the program's and
-Shift-drag (your terminal's bypass modifier) selects instead. A failed or uncertain launch keeps the draft; never retry before checking public
+member. A left drag over the screen selects its text and copies it with the chat's Copy.
+While typing into a program that asked for the mouse, Ops ignores a plain drag (only
+the wheel reaches the program); drag with your terminal's selection bypass (often Shift,
+Option in iTerm2) to select. A failed or uncertain launch keeps the draft; never retry before checking public
 state. A created member whose squad add fails remains visible in Common pool with
 its repair command.
 

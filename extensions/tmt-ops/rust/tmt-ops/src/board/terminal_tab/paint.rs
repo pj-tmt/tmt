@@ -249,11 +249,11 @@ fn note(
 ) -> String {
     match condition {
         Condition::Live if typing && mouse && zoomed => {
-            format!(" Typing into {name}'s terminal · Shift-drag selects · Ctrl-\\ back")
+            format!(" Typing into {name}'s terminal · bypass-drag selects · Ctrl-\\ back")
         }
         Condition::Live if typing && mouse => {
             format!(
-                " Typing into {name}'s terminal · Shift-drag selects · Ctrl-\\ back to the list"
+                " Typing into {name}'s terminal · bypass-drag selects · Ctrl-\\ back to the list"
             )
         }
         Condition::Live if typing && zoomed => {
