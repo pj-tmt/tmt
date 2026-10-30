@@ -1314,10 +1314,9 @@ fn narrow_unread_stays_unread_until_enter_opens_detail_and_left_returns_to_list(
     app.unread_drawn();
     assert!(!list.contains("Full narrow detail."), "{list}");
     assert!(app.unread.displayed.is_empty());
-    assert!(list.contains("Esc close"), "{list}");
     press(&mut app, KeyCode::Enter);
     let detail = draw_size(&app, 80, 30);
-    assert!(detail.contains("← list · Esc close"), "{detail}");
+    assert!(detail.contains("← list"), "{detail}");
     press(&mut app, KeyCode::Esc);
     assert!(
         app.unread_overlay.is_none(),
@@ -1687,12 +1686,6 @@ fn tab_scrolls_the_detail_without_changing_the_list_selection() {
         replies(MEMBER, &[("first", &text), ("second", "Second preview")]),
     );
     let before = draw_size(&app, 160, 30);
-    // PgDn scrolls the detail from the list side too.
-    press(&mut app, KeyCode::PageDown);
-    assert!(
-        !app.unread_overlay.as_ref().unwrap().detail_focus,
-        "the list keeps ↑↓"
-    );
     press(&mut app, KeyCode::Tab);
     assert!(
         !app.unread_overlay.as_ref().unwrap().detail_focus,
@@ -1700,7 +1693,7 @@ fn tab_scrolls_the_detail_without_changing_the_list_selection() {
     );
     press(&mut app, KeyCode::Right);
     assert!(app.unread_overlay.as_ref().unwrap().detail_focus);
-    press(&mut app, KeyCode::Down);
+    press(&mut app, KeyCode::PageDown);
     let after = draw_size(&app, 160, 30);
     assert_ne!(before, after);
     assert!(

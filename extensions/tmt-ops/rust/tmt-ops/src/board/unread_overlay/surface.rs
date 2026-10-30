@@ -437,7 +437,7 @@ impl Overlay {
         let footer = if narrow && !self.detail_open {
             "↑↓ choose · Enter read · r toggle read · a all read · Esc close"
         } else if narrow {
-            "↑↓ PgUp PgDn scroll · Enter chat · r toggle read · a all read · ← list · Esc close"
+            "↑↓ PgUp PgDn scroll · Enter chat · r read · a all read · ← list · Esc close"
         } else {
             "↑↓ choose · Enter chat · r toggle read · a all read · → read detail · Esc close"
         };

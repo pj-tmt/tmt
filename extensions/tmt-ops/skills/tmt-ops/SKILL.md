@@ -491,8 +491,8 @@ conversation or jumping with `j` does not mark offscreen answers read. Clicking 
 composer's; each highlights under the pointer) or pressing `u` opens the Unread overlay: the unread answers of that
 agent, squad or pool (everyone for the top bar, or for `u` with nothing selected),
 grouped by agent, oldest first, with unread and read counts. The reader fills the board
-body with a list and selected answer detail side by side; ↑↓ choose, → moves ↑↓ into the
-detail and ← back to the list, and PgUp/PgDn scroll the detail from either side. Below 100
+body with a list and selected answer detail side by side; ↑↓ choose, → moves ↑↓ and
+PgUp/PgDn into the detail and ← back to the list. Below 100
 columns it opens with the list only; Enter opens detail and ← returns to the list. Esc
 closes Unread on the screen it is on, and the same scope reopens there; Tab does nothing. Only the selected
 detail's visible answer body or terminal unavailable caption is acknowledged after a

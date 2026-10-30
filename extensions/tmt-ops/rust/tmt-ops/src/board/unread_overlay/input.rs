@@ -192,12 +192,9 @@ impl Overlay {
                 self.detail_focus = true;
             }
         }
-        // PgUp/PgDn scroll the detail from either side.
-        let paging = matches!(event, Event::Key(key) if matches!(key.code, KeyCode::PageUp | KeyCode::PageDown));
         let detail_input = self.detail_visible()
             && ((self.narrow.get() && self.detail_open)
                 || self.detail_focus
-                || paging
                 || matches!(event, Event::Mouse(mouse) if self.scroll.borrow().viewport().contains((mouse.column,mouse.row).into())));
         if detail_input && self.scroll.borrow_mut().input(event) {
             return Input::None;
