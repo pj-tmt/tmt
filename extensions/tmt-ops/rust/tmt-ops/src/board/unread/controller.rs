@@ -17,12 +17,19 @@ impl App {
         let Some(actor) = self.view.as_ref().and_then(|view| view.me_id.as_deref()) else {
             return Default::default();
         };
-        let mut members: std::collections::BTreeSet<String> =
-            self.unread.local.members(actor).into_iter().collect();
-        if let Some(page) = self.unread_page() {
-            members.extend(page.replies.keys().cloned());
-        }
-        members.retain(|member| self.unread_count(member).total > 0);
+        // Historical overlay pages do not change Core's bounded sorting authority.
+        // Explicit local marks add their members independently of that head page.
+        let mut members: std::collections::BTreeSet<String> = self
+            .unread_page()
+            .map(|page| {
+                page.replies
+                    .keys()
+                    .filter(|member| page.count(member).total > 0)
+                    .cloned()
+                    .collect()
+            })
+            .unwrap_or_default();
+        members.extend(self.unread.local.members(actor));
         members
     }
 

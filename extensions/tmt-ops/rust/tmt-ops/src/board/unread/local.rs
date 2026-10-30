@@ -95,7 +95,7 @@ impl Marks {
             Change::Put(answer) => {
                 let key = Self::key(answer);
                 if !self.0.contains_key(&key) && self.0.len() >= MAX_MARKS {
-                    return Err("500 marks full; mark one read.".into());
+                    return Err("500 marks full; read one.".into());
                 }
                 if self
                     .0
