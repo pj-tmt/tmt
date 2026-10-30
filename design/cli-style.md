@@ -405,6 +405,8 @@ The same key means the same thing in every view and overlay.
 | Ctrl-C         | quit                                 | quit                            |
 
 A view may add its own keys, but never reuses one of these for something else.
+An overlay built on the shared dialog keys its ↑↓, ←→ and Tab differently; see
+[Dialogs](#dialogs).
 User bindings can change a key; help and footers always show the effective key.
 
 ### Footer and key help
@@ -445,6 +447,26 @@ fits, is a fit and not a step.
   Content that does not fit scrolls; the overlay never grows past the view.
 - A prompt is a short overlay docked above the footer, so the board stays
   visible as a live preview of the value being typed.
+
+### Dialogs
+
+An overlay built on the shared dialog (`tmt-tui` `Dialog`) is one of four
+kinds: a **confirm** (text and buttons), a **form** (fields and buttons), a
+**list** (choosable rows, optional buttons) or a **read-only** view (scrolling
+text). These rules apply to an overlay once it is built on the dialog; the
+overlays above keep their own keys until they move onto it.
+
+- Keys: ↑↓ move between fields and then the button row, or between rows; ←→
+  change a choice, move the text cursor in an input, or move between buttons.
+  Enter chooses the focused button, else the primary one; in a list it chooses
+  the row. Esc, and `q` outside a text field, close the dialog. Tab does nothing.
+- Mouse: a press on a button chooses it, a press on a field focuses it, and a
+  press outside the dialog closes it. A read-only view's outside press also
+  lands on the board underneath.
+- Closing loses no work: the editor keeps its draft and shows it on reopen;
+  only Enter or an explicit clear discards it. While an operation runs, closing
+  hides the dialog and the operation continues; reopening shows its result, and
+  the status line names it.
 
 ### Lists and selection
 

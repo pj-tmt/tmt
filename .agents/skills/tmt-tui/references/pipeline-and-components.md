@@ -82,6 +82,13 @@ Maintained module reference. Commands and admitted spellings are in [development
   demand). Breakpoint names and cell values come from `design/tokens/tokens.json`
   through `tmt-cli-style::breakpoint`; callers ask the modal for its width instead of
   repeating the rule.
+- `Dialog` composes `Modal` chrome with a left-aligned `Button` row on the footer line, as every board dialog has.
+  `DialogState` owns focus (`Field(i)` or the button cursor) and turns keys and presses
+  into `DialogInput`: ↑↓ walk fields then the row, ←→ edit a field or skip to the next
+  enabled button, Enter chooses the focused or primary button, Esc and a press outside
+  `outer` cancel, Tab and control chords are ignored, and list or read-only keys go to
+  the content owner as `Content`. `ButtonRow` paints padded chips through `strip`; hover
+  is the caller's rectangle, so a button never moves when it is hovered.
 - Key help measures one display-cell label column across all sections and stacks
   descriptions when fewer than 20 cells remain. Heading and spacing properties let
   a caller choose bold headings and one blank line between sections.
