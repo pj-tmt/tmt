@@ -13,7 +13,9 @@ pub const ORCH_MAX_GRANT_MS: u64 = 86_400_000;
 pub enum OrchRoute {
     Allowed,
     /// The rule restricts this route, but a live grant lets it through until `until_ms`.
-    Granted { until_ms: u64 },
+    Granted {
+        until_ms: u64,
+    },
     /// Refused before anything is stored.
     Restricted {
         sending: OrchSending,
@@ -92,8 +94,7 @@ mod tests {
     }
 
     #[test]
-    fn each_sending_value_decides_the_route_and_only_a_live_grant_lets_a_restricted_one_through()
-    {
+    fn each_sending_value_decides_the_route_and_only_a_live_grant_lets_a_restricted_one_through() {
         assert_eq!(
             route(&sending(OrchSending::Anyone), false, None, 10),
             OrchRoute::Allowed
@@ -115,7 +116,11 @@ mod tests {
                 route(&sending(value), false, Some(50), 10),
                 OrchRoute::Granted { until_ms: 50 }
             );
-            assert_eq!(route(&sending(value), false, Some(10), 10), restricted, "ended");
+            assert_eq!(
+                route(&sending(value), false, Some(10), 10),
+                restricted,
+                "ended"
+            );
         }
         assert!(matches!(
             route(&sending(OrchSending::Paused), true, None, 10),
