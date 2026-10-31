@@ -3873,8 +3873,9 @@ impl App {
             Some(Overlay::Theme)
         } else if self.cron_list.is_some() {
             Some(Overlay::CronList)
-        } else if self.help {
-            // Lowest: a dialog opened from its settings rows is a layer above it.
+        } else if self.help && self.menu.is_none() {
+            // Lowest: a dialog opened from its settings rows is a layer above it, and a menu
+            // opened from them (Actions) takes the keys until it closes.
             Some(Overlay::Help)
         } else {
             None
