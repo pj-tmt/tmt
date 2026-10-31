@@ -238,7 +238,11 @@ opens completion at `@` or full-width `＠` after non-address-like text, includi
 `AnnotationInput` owns the draft, trusted action, current content/Ask admission and
 immutable one-comment send capture. Echo turns reserve their recipients' status footprint and
 remain until the original send settles and its admitted outcomes replace them, so an intent
-awaiting its first state cannot flash recovery uncertainty. `message-send-refusal.ts` shares its button and
+awaiting its first state cannot flash recovery uncertainty. `use-annotations` owns the open annotation
+windows: each is a keyed composer, only one is visible, and a closed one stays mounted while its
+send runs. It is dropped once that send records, while a first comment that failed stays hidden
+with its draft until the same quote is annotated again. Only a status change fences opening,
+closing and Resolve all. `message-send-refusal.ts` shares its button and
 explicit-submit presentation gates and classifies closed failure references. The
 composer keeps a visible, announced refusal below the field until a deliberate
 text edit, retry or successful Send; saved S2/S13 states stay neutral, without an
