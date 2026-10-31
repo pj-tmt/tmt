@@ -661,9 +661,7 @@ fn hold_first(service: &ObjectService<'_>, boundary: Pause) {
     let first = Arc::new(AtomicBool::new(true));
     service.set_hook(Some(Arc::new(move |pause, deadline| {
         if pause == boundary && first.swap(false, Ordering::AcqRel) {
-            while Instant::now() < deadline {
-                thread::yield_now();
-            }
+            spend_until(deadline);
         }
     })));
 }

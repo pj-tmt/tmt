@@ -630,9 +630,7 @@ fn upload_post_effect_deadline_and_result_write_spend_are_unknown_and_channel_li
             let selected = point == pause
                 && (pause != Pause::BeforeAdmitWrite || count.fetch_add(1, Ordering::AcqRel) == 2);
             if selected && count.fetch_add(1_000, Ordering::AcqRel) < 1_000 {
-                while Instant::now() < deadline {
-                    thread::yield_now();
-                }
+                spend_until(deadline);
             }
         })));
         service.activate(&env.mounts(&ALPHA), "alpha").unwrap();
@@ -893,9 +891,7 @@ fn upload_pre_effect_spend_has_zero_effects_and_keeps_channel() {
         let once = AtomicBool::new(true);
         service.set_hook(Some(Arc::new(move |point, deadline| {
             if point == pause && once.swap(false, Ordering::AcqRel) {
-                while Instant::now() < deadline {
-                    thread::yield_now();
-                }
+                spend_until(deadline);
             }
         })));
         service.activate(&env.mounts(&ALPHA), "alpha").unwrap();

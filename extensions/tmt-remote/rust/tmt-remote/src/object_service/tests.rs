@@ -600,6 +600,18 @@ fn decide(peer: &Peer, callback: u64, request: u64, decision: Decision) {
         }),
     );
 }
+/// Hold a test hook until a spent request's own deadline. That deadline comes from the
+/// short `set_first_request` bound; without it the request would have the contract bound
+/// and the hold would only make the test slow, so refuse it at once (#2860).
+fn spend_until(deadline: Instant) {
+    assert!(
+        deadline <= Instant::now() + Duration::from_secs(1),
+        "the spent request has a long bound: call set_first_request before activate"
+    );
+    while Instant::now() < deadline {
+        thread::yield_now();
+    }
+}
 /// The callback the service sent next; the test fails on any other frame.
 fn callback(peer: &Peer) -> Admit {
     match heard(peer) {
@@ -1073,9 +1085,7 @@ fn time_spent_between_acquire_and_disclose_is_unavailable_with_no_second_callbac
     let first = Arc::new(AtomicBool::new(true));
     service.set_hook(Some(Arc::new(move |pause: Pause, deadline: Instant| {
         if pause == Pause::BetweenAdmissions && first.swap(false, Ordering::AcqRel) {
-            while Instant::now() < deadline {
-                thread::yield_now();
-            }
+            spend_until(deadline);
         }
     })));
     service.activate(&env.mounts(&ALPHA), "alpha").unwrap();
