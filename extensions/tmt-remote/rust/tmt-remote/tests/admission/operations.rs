@@ -2334,3 +2334,113 @@ fn a_send_under_a_dropped_id_asks_core_first_and_never_resends() {
             >= 1
     );
 }
+
+#[test]
+fn conversation_refuses_nonbrowser_missing_scope_and_hidden_members_before_core() {
+    let member = uuid_v4().unwrap();
+    for kind in ["cli", "addon", "browser"] {
+        let scopes = if kind == "browser" {
+            vec!["agents.read".into()]
+        } else {
+            tmt_remote::store::SUPPORTED_SCOPES
+                .iter()
+                .map(|scope| (*scope).into())
+                .collect()
+        };
+        let owner = OwnerDoor::with_device(scopes, "direct", "all".into(), None, kind);
+        let core = Core::new();
+        let session = owner.open();
+        let payload = json!({"version":1,"operation":"requests.list","input":{"memberId":member}});
+        let wire = owner.wire(
+            &session,
+            "1",
+            "requests.list",
+            payload.to_string().as_bytes(),
+        );
+        let reply = append(&owner, core.operations(), &wire);
+        assert_eq!(
+            reply["error"]["code"], "REMOTE_SCOPE_DENIED",
+            "{kind}: {reply}"
+        );
+        assert!(
+            core.calls().is_empty(),
+            "{kind}: no Core call, including user.identity"
+        );
+    }
+    let owner = OwnerDoor::with_device(
+        vec!["results.read".into()],
+        "direct",
+        format!("[\"{}\"]", uuid_v4().unwrap()),
+        None,
+        "browser",
+    );
+    let core = Core::new();
+    let session = owner.open();
+    let payload = json!({"version":1,"operation":"requests.list","input":{"memberId":member}});
+    let wire = owner.wire(
+        &session,
+        "1",
+        "requests.list",
+        payload.to_string().as_bytes(),
+    );
+    let reply = append(&owner, core.operations(), &wire);
+    assert_eq!(reply["error"]["code"], "REMOTE_SCOPE_DENIED", "{reply}");
+    assert!(core.calls().is_empty());
+}
+
+#[test]
+fn conversation_owner_read_uses_one_public_core_call_and_never_creates_or_acknowledges() {
+    let owner = OwnerDoor::owner_browser("direct");
+    let core = Core::new();
+    let operations = core.operations();
+    let member = uuid_v4().unwrap();
+    let session = owner.open();
+    let page = json!({"viewerId":Core::PERSON,"member":"unknown","items":[],"nextBefore":null,"changePosition":"opaque_b"});
+    fs::write(core.root.join("conversation"), page.to_string()).unwrap();
+    let payload = json!({"version":1,"operation":"requests.list","input":{"memberId":member}});
+    let wire = owner.wire(
+        &session,
+        "1",
+        "requests.list",
+        payload.to_string().as_bytes(),
+    );
+    assert_eq!(append(&owner, Arc::clone(&operations), &wire), page);
+    assert_eq!(
+        core.calls(),
+        vec![
+            json!({"version":1,"operation":"requests.list","input":{"view":"conversation","memberId":member,"limit":20}})
+        ]
+    );
+    let mut bad = page.clone();
+    bad["viewerId"] = json!("not-a-person");
+    fs::write(core.root.join("conversation"), bad.to_string()).unwrap();
+    let wire = owner.wire(
+        &session,
+        "2",
+        "requests.list",
+        payload.to_string().as_bytes(),
+    );
+    assert_eq!(
+        append(&owner, Arc::clone(&operations), &wire)["error"]["code"],
+        "REMOTE_CORE_UNAVAILABLE"
+    );
+    assert_eq!(core.calls().len(), 2);
+    let mut huge = page.clone();
+    huge["private"] = json!("x".repeat(tmt_remote::limits::CONVERSATION_RESPONSE_BYTES));
+    fs::write(core.root.join("conversation"), huge.to_string()).unwrap();
+    let wire = owner.wire(
+        &session,
+        "3",
+        "requests.list",
+        payload.to_string().as_bytes(),
+    );
+    let refused = append(&owner, operations, &wire);
+    assert_eq!(refused["error"]["code"], "REMOTE_CORE_UNAVAILABLE");
+    assert_eq!(refused["error"]["message"], "Remote request refused.");
+    assert_eq!(core.calls().len(), 3);
+    assert!(
+        core.calls()
+            .iter()
+            .all(|call| call["operation"] == "requests.list")
+    );
+}

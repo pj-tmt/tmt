@@ -1,4 +1,5 @@
 //! Direct/held dispatch and same-ID observation through the public core API.
+mod conversation;
 use crate::{
     admission::MessagePermit,
     audit, canonical,
@@ -317,7 +318,10 @@ impl Operations {
         self
     }
     fn api(&self, input: &[u8]) -> Result<Value, RemoteError> {
-        let result = self.core.api(input, &self.stop);
+        self.api_with_limit(input, crate::core::OUTPUT_LIMIT)
+    }
+    fn api_with_limit(&self, input: &[u8], limit: usize) -> Result<Value, RemoteError> {
+        let result = self.core.api_with_limit(input, &self.stop, limit);
         if result
             .as_ref()
             .is_err_and(|e| e.code == "REMOTE_CORE_UNCERTAIN")
@@ -421,6 +425,9 @@ impl Operations {
             ];
             if permit.cloud() && permit.grant.permits_scope("agents.read") {
                 supported.push("squads.summary");
+            }
+            if permit.owner_browser() && permit.grant.permits_scope("results.read") {
+                supported.push("requests.list");
             }
             if permit.owner_browser() && permit.grant.permits_scope("talk") {
                 supported.push("requests.sendNow");
@@ -612,6 +619,7 @@ impl Operations {
         let mut agent = None;
         let mut request = None;
         let mut owned = None;
+        let mut conversation = None;
         match operation {
             "agents.list" if permit.message.input == json!({}) => {}
             "identities.status" => {
@@ -629,6 +637,23 @@ impl Operations {
                 }
                 resources.push(input.agent_id.clone());
                 agent = Some(input);
+            }
+            "requests.list" => {
+                if !permit.owner_browser() {
+                    return Err(RemoteError::new(
+                        "REMOTE_SCOPE_DENIED",
+                        "Conversation requires the owner browser.",
+                    ));
+                }
+                let input: Value = read_input(permit)?;
+                let query = conversation::request(&input)?;
+                resources.push(
+                    query["input"]["memberId"]
+                        .as_str()
+                        .expect("validated member")
+                        .to_owned(),
+                );
+                conversation = Some(query);
             }
             "requests.show" | "result" => {
                 let input: ResultInput = if operation == "requests.show" {
@@ -658,7 +683,7 @@ impl Operations {
             }
             _ => return Err(invalid()),
         }
-        if matches!(operation, "identities.status" | "check") {
+        if matches!(operation, "identities.status" | "check" | "requests.list") {
             if resources.iter().any(|id| !canonical::is_core_id(id)) {
                 return Err(invalid());
             }
@@ -696,6 +721,12 @@ impl Operations {
                         agents.push(projected);
                     }
                     Ok(json!({"identities":agents}))
+                },
+                "requests.list" => {
+                    let query = conversation.as_ref().expect("validated conversation input");
+                    let core = self.api_with_limit(query.to_string().as_bytes(), crate::limits::CONVERSATION_RESPONSE_BYTES)
+                        .map_err(|_| RemoteError::new("REMOTE_CORE_UNAVAILABLE", "Conversation is unavailable."))?;
+                    conversation::response(&core, query)
                 },
                 "identities.status" => self.api(&permit.message.payload),
                 "requests.show" => self.api(&permit.message.payload).map(|mut detail| {

@@ -334,3 +334,13 @@ pub const SQUAD_SUMMARY_MACHINES: usize = 32;
 /// Allow routing/status JSON overhead per row, without enlarging any carrier.
 pub const SQUAD_DIRECTORY_CONTROL_BYTES: usize =
     SQUAD_SUMMARY_MACHINES * (SQUAD_SUMMARY_BYTES + 1024) + 1024;
+
+/// Owner-browser conversation projection; Core owns the opaque cursor and retention.
+pub const CONVERSATION_PAGE_DEFAULT: u64 = 20;
+pub const CONVERSATION_PAGE_MAX: u64 = 50;
+pub const CONVERSATION_RESPONSE_BYTES: usize = 64 * 1024;
+pub const CONVERSATION_POSITION_BYTES: usize = 64;
+pub const CONVERSATION_PREVIEW_SCALARS: usize = 160;
+pub const CONVERSATION_PREVIEW_BYTES: usize = 640;
+pub const CONVERSATION_WITHDRAWAL_BYTES: usize = 1024;
+pub const CONVERSATION_RESPONSE_ID_BYTES: usize = 128;

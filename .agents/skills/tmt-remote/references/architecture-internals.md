@@ -44,6 +44,12 @@ Module owners (put a change in the existing owner; `canonical`, `crypto`, `wire`
 for sealed-document consumers, including Colab. It has no Core authority. Native carrier
 bytes/admission remain in `cloud_hpke`/`cloud_inbox`, while HTTP/Auth/budget is shared.
 
+`operations::conversation` validates the fixed viewer-resolved public Core query and
+allowlists its bounded response. The operation owner admits only the owner's own-origin
+browser with `results.read` and the selected member UUID, under the existing observation
+fence. Core positions remain opaque; no identity creation, acknowledgment or new store
+belongs to the projection. The Core subprocess and projected response each have a 64-KiB cap.
+
 `operations` forwards Core list evidence; the [operations contract](../../../../contracts/remote-channel-v1.md#operations)
 owns activity validation, post-read observation time and advisory decoding.
 

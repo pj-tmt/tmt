@@ -285,13 +285,15 @@ impl CoreClient {
             .map_err(agent_identity_error)
     }
     pub(crate) fn api(&self, input: &[u8], stop: &AtomicBool) -> Result<Value, RemoteError> {
-        self.call(
-            &["api"],
-            input,
-            stop,
-            crate::limits::CORE_CALL,
-            OUTPUT_LIMIT,
-        )
+        self.api_with_limit(input, stop, OUTPUT_LIMIT)
+    }
+    pub(crate) fn api_with_limit(
+        &self,
+        input: &[u8],
+        stop: &AtomicBool,
+        limit: usize,
+    ) -> Result<Value, RemoteError> {
+        self.call(&["api"], input, stop, crate::limits::CORE_CALL, limit)
     }
     fn call(
         &self,
