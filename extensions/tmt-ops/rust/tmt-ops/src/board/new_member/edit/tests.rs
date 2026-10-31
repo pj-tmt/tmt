@@ -725,3 +725,155 @@ fn a_short_edit_surface_explains_why_no_save_is_admitted_and_keeps_the_draft() {
         );
     }
 }
+
+#[test]
+fn rename_shortcut_opens_member_and_squad_edit_with_name_caret_at_end() {
+    let _ui = crate::runner::forbid_commands();
+    for squad in [false, true] {
+        let mut app = super::super::tests::edit_member_form();
+        app.new_member = None;
+        if squad {
+            app.workspace.selected = Some(OpsTarget::Squad(ROOM.into()));
+            app.workspace_reconcile();
+        }
+        paint(&app, 160, 36);
+        let effect = app.key(ratatui::crossterm::event::KeyEvent::new(
+            KeyCode::Char('r'),
+            KeyModifiers::NONE,
+        ));
+        assert!(
+            matches!(effect, Effect::NewMember(_)),
+            "r opens Edit before worker I/O: {effect:?}"
+        );
+        let c = app.new_member.as_ref().unwrap();
+        assert_eq!(
+            c.edit.as_ref().unwrap().dialog.focus,
+            tmt_tui::components::Focus::Field(0)
+        );
+        let name = &c.draft.fields[super::super::model::Slot::Name.index()];
+        assert_eq!(name.as_str(), if squad { "product" } else { "worker" });
+        assert_eq!(name.cursor(), name.as_str().len());
+        app.new_member = None;
+        app.search = "no-visible-match".into();
+        app.workspace_reconcile();
+        app.open_member_rename();
+        assert!(
+            app.new_member.is_none(),
+            "rename never bypasses hidden-target admission"
+        );
+    }
+}
+
+#[test]
+fn rename_defaults_replace_r_session_while_session_stays_in_the_action_menu() {
+    use crate::{action::OpsUiAction, config::OpsKeyScope};
+    for scope in [OpsKeyScope::Member, OpsKeyScope::Squad] {
+        let keys = crate::config::workspace_defaults(scope);
+        assert_eq!(keys.get("r").map(|a| a.text.as_str()), Some("rename"));
+    }
+    for scope in [
+        OpsKeyScope::Member,
+        OpsKeyScope::Squad,
+        OpsKeyScope::Pool,
+        OpsKeyScope::Reader,
+    ] {
+        assert!(
+            !crate::config::workspace_defaults(scope).contains_key("R"),
+            "{scope:?}"
+        );
+    }
+    let mut app = super::super::tests::edit_member_form();
+    app.new_member = None;
+    app.context_menu();
+    let entry = app.menu.as_ref().unwrap().entries.iter().find(|entry| {
+        matches!(&entry.choice, crate::board::app::Choice::Action(action) if action.verb == crate::action::Verb::Ui(OpsUiAction::MemberSession))
+    }).expect("Member session remains discoverable without a default key");
+    assert_eq!(entry.label, "Member session");
+    assert!(entry.key.is_empty());
+    assert!(
+        crate::board::help::model(&app)
+            .sections
+            .iter()
+            .flat_map(|s| &s.entries)
+            .any(|entry| entry.keys == "Member session" && entry.description.contains("Actions"))
+    );
+}
+
+#[test]
+fn rename_name_enter_uses_the_same_save_plan_and_one_cas_then_closes_its_result() {
+    let f = Fixture::new();
+    let mut app = f.app();
+    input(&mut app, KeyCode::Esc);
+    app.open_member_rename();
+    app.overlay_event(&Event::Paste("-renamed".into()));
+    let task = {
+        let _ui = crate::runner::forbid_commands();
+        let text = paint(&app, 160, 36);
+        assert!(text.contains("Enter rename"), "{text}");
+        let Effect::NewMember(task) = input(&mut app, KeyCode::Enter) else {
+            panic!("name-only Enter uses the existing Edit writer")
+        };
+        let Work::Edit(plan) = &task.work else {
+            panic!()
+        };
+        assert!(plan.only_rename());
+        task
+    };
+    let completed = super::super::load::complete(&f.core, task);
+    app.finished_new_member(completed);
+    assert_eq!(f.row()["name"], "worker-renamed");
+    assert_eq!(f.mutations(), "rename\n");
+    let text = paint(&app, 160, 36);
+    assert!(text.contains("✓ Applied · Name: worker-renamed"), "{text}");
+    input(&mut app, KeyCode::Enter);
+    assert!(!app.new_member_shown());
+    assert_eq!(f.mutations(), "rename\n");
+}
+
+#[test]
+fn rename_enter_reviews_other_kept_edits_and_escape_keeps_them_while_e_stays_next() {
+    let f = Fixture::new();
+    let mut app = f.app();
+    let c = app.new_member.as_mut().unwrap();
+    c.draft.set(super::super::model::Slot::Name, "renamed");
+    c.draft
+        .set(super::super::model::Slot::Model, "gpt-6.1-terra");
+    input(&mut app, KeyCode::Esc);
+    app.open_member_rename();
+    let text = paint(&app, 160, 36);
+    assert!(text.contains("Enter next"), "{text}");
+    assert_eq!(input(&mut app, KeyCode::Enter), Effect::None);
+    let c = app.new_member.as_ref().unwrap();
+    let edit = c.edit.as_ref().unwrap();
+    let tmt_tui::components::Focus::Buttons(index) = edit.dialog.focus else {
+        panic!("other changes require the explicit Save row")
+    };
+    assert_eq!(edit.buttons(c, true)[index].label, "Save");
+    assert!(f.mutations().is_empty());
+    input(&mut app, KeyCode::Esc);
+    app.open_member_rename();
+    let c = app.new_member.as_ref().unwrap();
+    assert_eq!(c.draft.text(super::super::model::Slot::Name), "renamed");
+    assert_eq!(
+        c.draft.text(super::super::model::Slot::Model),
+        "gpt-6.1-terra"
+    );
+    assert_eq!(c.draft.fields[0].cursor(), "renamed".len());
+    input(&mut app, KeyCode::Esc);
+    app.open_member_edit();
+    paint(&app, 160, 36);
+    input(&mut app, KeyCode::Enter);
+    assert_eq!(
+        app.new_member
+            .as_ref()
+            .unwrap()
+            .edit
+            .as_ref()
+            .unwrap()
+            .dialog
+            .focus,
+        tmt_tui::components::Focus::Field(1),
+        "e keeps the ordinary next-field rule"
+    );
+    assert!(f.mutations().is_empty());
+}

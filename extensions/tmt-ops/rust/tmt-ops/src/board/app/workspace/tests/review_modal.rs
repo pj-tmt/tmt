@@ -593,12 +593,12 @@ pub(in crate::board) fn crud_capture_case(scene: &str, look: crate::look::Look) 
 fn member_footer_uses_effective_crud_bindings_and_never_advertises_future_actions() {
     let mut app = board();
     let text = paint(&app, 150, 43).join("\n");
-    for hint in ["n new", "m move", "R resume", "x leave squad"] {
+    for hint in ["n new", "m move", "r rename", "x leave squad"] {
         assert!(text.contains(hint), "{hint}: {text}");
     }
     assert!(text.contains("e edit"), "{text}");
     assert!(!text.contains("S switch tool"));
-    assert!(!text.contains("r rename"));
+    assert!(!text.contains("R resume"));
     assert!(!text.contains("d remove"));
     app.shell.tab = OpsTab::Digest;
     let digest = paint(&app, 150, 43).join("\n");

@@ -26,6 +26,22 @@ pub(in crate::board::new_member) fn case(scene: &str, look: crate::look::Look) -
     let c = app.new_member.as_mut().unwrap();
     match scene {
         "edit-member-form" | "edit-squad-form" => {}
+        "edit-member-rename" | "edit-squad-rename" | "edit-member-rename-review" => {
+            c.edit.as_mut().unwrap().intent = Intent::Rename;
+            c.draft.set(
+                super::super::model::Slot::Name,
+                if scene == "edit-squad-rename" {
+                    "product-two"
+                } else {
+                    "worker-two"
+                },
+            );
+            if scene == "edit-member-rename-review" {
+                c.draft
+                    .set(super::super::model::Slot::Model, "gpt-6.1-terra");
+                c.reopened = true;
+            }
+        }
         "edit-member-changes" | "edit-member-copy-only" => {
             c.draft.set(super::super::model::Slot::Name, "worker-two");
             c.draft
@@ -87,7 +103,7 @@ pub(in crate::board::new_member) fn metadata(app: &App) -> Value {
             .map(|(field, area)| json!({"field": field.debug_name(), "rect": rect(*area)}))
             .collect()
     };
-    json!({
+    let mut value = json!({
         "kind": "edit",
         "fields": fields,
         "choices": c.fields.borrow().iter().map(|(field, area)| json!({"field": format!("{field:?}"), "rect": rect(*area)})).collect::<Vec<_>>(),
@@ -96,5 +112,9 @@ pub(in crate::board::new_member) fn metadata(app: &App) -> Value {
         "focus": format!("{:?}", edit.dialog.focus),
         "list": c.list.as_ref().map(|l| json!({"field": l.field.debug_name(), "filter": l.filter.as_str(), "row": l.row})),
         "stage": format!("{:?}", c.stage), "scroll": c.scroll.borrow().offset()
-    })
+    });
+    if edit.intent == Intent::Rename {
+        value["intent"] = json!("rename");
+    }
+    value
 }

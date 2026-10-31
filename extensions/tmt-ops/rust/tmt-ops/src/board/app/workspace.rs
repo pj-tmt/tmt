@@ -657,6 +657,7 @@ impl App {
                             | OpsUiAction::IdleAlert
                             | OpsUiAction::NewMember
                             | OpsUiAction::Edit
+                            | OpsUiAction::Rename
                             | OpsUiAction::SwitchTool
                             | OpsUiAction::DiscoverAgents
                             | OpsUiAction::RenameMember
@@ -1194,6 +1195,7 @@ impl App {
             IdleAlert => return self.open_idle_alert(None),
             NewMember => return self.open_new_member(),
             Edit => return self.open_member_edit(),
+            Rename => return self.open_member_rename(),
             SwitchTool => return self.open_switch_tool(),
             MonitorDetails => {
                 self.right_tab = super::super::shell::RightTab::Measure;

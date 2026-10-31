@@ -13,6 +13,7 @@ use tmt_tui::components::{Button, DialogHits, DialogInput, DialogKind, DialogSta
 
 pub(in crate::board::new_member) struct Edit {
     target: Target,
+    intent: Intent,
     actor: Option<String>,
     initial: [String; 7],
     preset: Result<model::Preset, String>,
@@ -22,6 +23,11 @@ pub(in crate::board::new_member) struct Edit {
     hidden: bool,
     dialog: DialogState,
     pub(super) hits: RefCell<DialogHits>,
+}
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Intent {
+    Edit,
+    Rename,
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum Field {
@@ -76,6 +82,24 @@ impl Edit {
             .filter(|s| *s != Slot::Effort || loaded.is_some_and(|l| !draft.efforts(l).is_empty()))
             .map(Field::Member)
             .collect(),
+        }
+    }
+    fn rename_on_enter(&self, c: &Controller, current: bool) -> bool {
+        current
+            && c.stage == Stage::Form
+            && self.intent == Intent::Rename
+            && self.dialog.focus == tmt_tui::components::Focus::Field(0)
+            && c.loaded
+                .as_ref()
+                .is_some_and(|l| self.plan(&c.draft, l).is_ok_and(|p| p.only_rename()))
+    }
+    fn enter_hint(&self, c: &Controller, current: bool) -> &'static str {
+        if self.rename_on_enter(c, current) {
+            "Enter rename"
+        } else if self.dialog.focus == tmt_tui::components::Focus::Field(0) {
+            "Enter next"
+        } else {
+            "Enter choose"
         }
     }
     fn buttons(&self, c: &Controller, current: bool) -> Vec<Button<'static>> {
@@ -284,9 +308,10 @@ impl Controller {
 impl App {
     pub(in crate::board) fn open_member_edit(&mut self) -> Effect {
         if let Some(c) = &mut self.new_member
-            && let Some(edit) = &c.edit
+            && let Some(edit) = &mut c.edit
             && !c.shown
         {
+            edit.intent = Intent::Edit;
             if self.workspace.selected.as_ref() != Some(&edit.target.selected()) {
                 c.shown = true;
                 c.reopened = c.stage == Stage::Form;
@@ -392,6 +417,7 @@ impl App {
         };
         let fields = [FieldKind::Text];
         let edit = Edit {
+            intent: Intent::Edit,
             initial: draft.fields.each_ref().map(|e| e.as_str().to_owned()),
             actor: self.view.as_ref().and_then(|v| v.me_id.clone()),
             preset: Err("Loading recorded launch settings…".into()),
@@ -414,6 +440,25 @@ impl App {
                 task.work = Work::LoadEdit(id.clone());
             }
             c.edit = Some(edit);
+        }
+        effect
+    }
+    pub(in crate::board) fn open_member_rename(&mut self) -> Effect {
+        let effect = self.open_member_edit();
+        if let Some(c) = self
+            .new_member
+            .as_mut()
+            .filter(|c| c.shown && c.stage == Stage::Form)
+            && let Some(edit) = c.edit.as_mut()
+        {
+            edit.intent = Intent::Rename;
+            edit.dialog.focus = tmt_tui::components::Focus::Field(0);
+            c.draft.fields[0].key(
+                ratatui::crossterm::event::KeyEvent::new(KeyCode::End, KeyModifiers::CONTROL),
+                c.editor_width.get().max(1),
+                1024,
+            );
+            c.invalidate();
         }
         effect
     }
@@ -444,6 +489,30 @@ impl App {
         let kinds = fields.iter().map(|f| f.kind()).collect::<Vec<_>>();
         let buttons = c.edit.as_ref()?.buttons(c, target_error.is_none());
         let prior = c.edit.as_ref()?.dialog.focus;
+        let name_enter = matches!(event, Event::Key(k) if k.code == KeyCode::Enter && k.kind != KeyEventKind::Release && k.modifiers.is_empty())
+            && prior == tmt_tui::components::Focus::Field(0)
+            && c.edit.as_ref()?.intent == Intent::Rename;
+        let rename_enter =
+            name_enter && c.edit.as_ref()?.rename_on_enter(c, target_error.is_none());
+        // One Save path below serves both the button and the name-only shortcut.
+        // A kept multi-field plan always goes to its Save row for explicit review.
+        if name_enter
+            && !rename_enter
+            && c.loaded.as_ref().is_some_and(|l| {
+                c.edit
+                    .as_ref()
+                    .unwrap()
+                    .plan(&c.draft, l)
+                    .is_ok_and(|p| !p.empty())
+            })
+            && let Some(index) = buttons
+                .iter()
+                .position(|b| b.label == "Save" || b.label == "Copy command")
+        {
+            c.edit.as_mut()?.dialog.focus = tmt_tui::components::Focus::Buttons(index);
+            c.invalidate();
+            return Some(Effect::None);
+        }
         if let Event::Key(key) = event
             && key.kind != KeyEventKind::Release
             && key.modifiers.contains(KeyModifiers::CONTROL)
@@ -462,43 +531,51 @@ impl App {
             c.invalidate();
             return Some(Effect::None);
         }
-        let input = match event {
-            Event::Key(key) => c
-                .edit
-                .as_mut()?
-                .dialog
-                .key(DialogKind::Form, key, &kinds, &buttons),
-            Event::Mouse(mouse) => {
-                let edit = c.edit.as_mut()?;
-                let hits = edit.hits.borrow().clone();
-                if hits.outer.is_empty() {
-                    DialogInput::Ignored
-                } else {
-                    edit.dialog.mouse(mouse, &hits, &buttons)
-                }
+        let input = if rename_enter {
+            match buttons.iter().position(|b| b.label == "Save") {
+                Some(index) => DialogInput::Choose(index),
+                None => DialogInput::Ignored,
             }
-            Event::Paste(text) => {
-                if !text.chars().any(char::is_control)
-                    && let tmt_tui::components::Focus::Field(i) = prior
-                    && let Some(field) = fields.get(i)
-                {
-                    match field {
-                        Field::Member(super::model::Slot::Name) => {
-                            c.draft.fields[0].insert(text, 1024);
-                        }
-                        Field::After => {
-                            c.edit.as_mut()?.after.insert(text, 64);
-                        }
-                        _ => {}
+        } else {
+            match event {
+                Event::Key(key) => {
+                    c.edit
+                        .as_mut()?
+                        .dialog
+                        .key(DialogKind::Form, key, &kinds, &buttons)
+                }
+                Event::Mouse(mouse) => {
+                    let edit = c.edit.as_mut()?;
+                    let hits = edit.hits.borrow().clone();
+                    if hits.outer.is_empty() {
+                        DialogInput::Ignored
+                    } else {
+                        edit.dialog.mouse(mouse, &hits, &buttons)
                     }
                 }
-                c.invalidate();
-                return Some(Effect::None);
+                Event::Paste(text) => {
+                    if !text.chars().any(char::is_control)
+                        && let tmt_tui::components::Focus::Field(i) = prior
+                        && let Some(field) = fields.get(i)
+                    {
+                        match field {
+                            Field::Member(super::model::Slot::Name) => {
+                                c.draft.fields[0].insert(text, 1024);
+                            }
+                            Field::After => {
+                                c.edit.as_mut()?.after.insert(text, 64);
+                            }
+                            _ => {}
+                        }
+                    }
+                    c.invalidate();
+                    return Some(Effect::None);
+                }
+                _ => DialogInput::Ignored,
             }
-            _ => DialogInput::Ignored,
         };
         if let DialogInput::Choose(index) = input
-            && !matches!(prior, tmt_tui::components::Focus::Field(_))
+            && (!matches!(prior, tmt_tui::components::Focus::Field(_)) || rename_enter)
             && c.edit
                 .as_ref()?
                 .hits
@@ -579,7 +656,7 @@ impl App {
         let field = match input {
             DialogInput::Field(i, _) => fields.get(i).copied(),
             // Enter on a field chooses or advances that field; it never invokes Save.
-            DialogInput::Choose(_) if entering => match prior {
+            DialogInput::Choose(_) if entering && !rename_enter => match prior {
                 tmt_tui::components::Focus::Field(i) => fields.get(i).copied(),
                 _ => None,
             },

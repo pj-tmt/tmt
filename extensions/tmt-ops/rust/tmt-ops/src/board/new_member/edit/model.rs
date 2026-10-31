@@ -71,6 +71,13 @@ pub(in crate::board) struct Plan {
     pub preferences: Option<(OpsPreferences, OpsPreferences)>,
 }
 impl Plan {
+    pub fn only_rename(&self) -> bool {
+        self.rename.is_some()
+            && self.membership.is_none()
+            && self.runtime.is_none()
+            && self.alert.is_none()
+            && self.preferences.is_none()
+    }
     pub fn empty(&self) -> bool {
         self.rename.is_none()
             && self.membership.is_none()

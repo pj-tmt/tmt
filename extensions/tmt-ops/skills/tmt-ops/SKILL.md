@@ -345,8 +345,12 @@ by oldest proven request, then unknown age and name/UUID; no waiting duration is
 shown. Blocked state alone does not imply waiting. A squad selection messages its
 observed lead; an agent selection uses that exact member. Missing evidence refuses
 rather than choosing another recipient. Search and refresh retain hidden UUID
-anchors. `e` opens full observed member values. `R` opens Session for the selected
-agent in either list or conversation focus. Host / Session shows the observed host
+anchors. `e` edits the selected agent or squad. `r` opens that same form with
+Name focused and the caret at the end. A name-only change shows Enter rename;
+Enter saves through the same writer. Other kept edits show Enter next and Enter
+moves to Save for explicit review. Esc keeps the draft. Full observed values are
+under Measure. Actions → Member session opens Session for the selected agent;
+there is no default R binding, and Help lists the action. Host / Session shows the observed host
 and remembered/unavailable state and yields first at narrow widths. Core's explicit
 `session.unbound: true` instead shows `! unbound`; a missing or null field does not imply it.
 Session explains the unbound provider session, previews and offers **Copy command** for its exact
@@ -587,7 +591,7 @@ In Agents, `n` opens New member on any row; `p` pins/unpins a squad. `N`
 creates a squad on a squad row or the Common pool, `C` opens the member's Checklist on a
 member row, `m` manages a squad or moves an agent in place, and `x` leaves only the
 selected squad membership. The Agents footer is one line of the keys the selected
-row needs; on a member row: `↑↓←→ move  ⏎ chat  n new  e edit  m move  x leave squad  R resume  C checklist  / search  ? help  q quit`.
+row needs; on a member row: `↑↓←→ move  ⏎ chat  n new  e edit  r rename  m move  x leave squad  C checklist  / search  ? help  q quit`.
 Squad, Common pool and Hidden group rows show their own keys. Narrow widths drop whole row
 keys from the right and keep search, help and quit; every other key still works and is listed in `?`.
 While the reply pane is focused, its selection guidance takes that line.

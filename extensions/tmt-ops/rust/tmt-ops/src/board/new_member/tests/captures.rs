@@ -1,6 +1,9 @@
 //! Literal reviewed form states through the production overlay and frame painter.
 use super::*;
 pub(in crate::board) const SCENES: &[&str] = &[
+    "edit-member-rename",
+    "edit-squad-rename",
+    "edit-member-rename-review",
     "edit-member-form",
     "edit-member-changes",
     "edit-member-list",

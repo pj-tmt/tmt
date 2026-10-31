@@ -319,6 +319,10 @@ pub(super) fn model(app: &App) -> KeyHelp {
                     "select a visible Agents row and open Actions; the settings menu also offers Actions",
                 ),
                 (
+                    "Member session",
+                    "open Actions → Member session to inspect the selected agent's host/session and review Resume here or Move here; no default key",
+                ),
+                (
                     "divider drag",
                     "drag a visible separator to resize; hover shows the axis; double-click restores its default",
                 ),

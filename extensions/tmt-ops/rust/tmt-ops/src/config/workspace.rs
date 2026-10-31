@@ -271,7 +271,6 @@ pub(crate) fn defaults(scope: OpsKeyScope) -> Bindings {
             ("o", "open"),
             ("D", "digest"),
             ("c", "timers"),
-            ("R", "member-session"),
             ("C", "member-checklist"),
             ("t", "terminal"),
             ("z", "terminal-zoom"),
@@ -300,7 +299,6 @@ pub(crate) fn defaults(scope: OpsKeyScope) -> Bindings {
             ("ctrl-r", "refresh"),
             (",", "settings"),
             ("c", "timers"),
-            ("R", "member-session"),
             ("M", "talk-measure"),
             ("u", "unread"),
             ("esc", "clear-scope"),
@@ -311,6 +309,7 @@ pub(crate) fn defaults(scope: OpsKeyScope) -> Bindings {
         OpsKeyScope::Reader => {}
         OpsKeyScope::Squad => entries.extend([
             ("e", "edit"),
+            ("r", "rename"),
             ("j", "jump"),
             ("o", "open"),
             ("D", "digest"),
@@ -323,6 +322,7 @@ pub(crate) fn defaults(scope: OpsKeyScope) -> Bindings {
         OpsKeyScope::Member => entries.extend([
             ("p", "pin"),
             ("e", "edit"),
+            ("r", "rename"),
             ("enter", "talk"),
             ("j", "jump"),
             ("o", "open"),
@@ -1182,8 +1182,13 @@ mod tests {
             OpsKeyScope::Reader,
         ] {
             let factory = config("").workspace_keys(scope, None, None).unwrap();
-            for key in ["r", "d", "a", "v"] {
+            for key in ["d", "a", "v"] {
                 assert!(!factory.bindings.contains_key(key), "{scope:?}: {key}");
+            }
+            if matches!(scope, OpsKeyScope::Member | OpsKeyScope::Squad) {
+                assert_eq!(factory.bindings["r"].text, "rename");
+            } else {
+                assert!(!factory.bindings.contains_key("r"));
             }
         }
     }
@@ -1542,7 +1547,7 @@ mod tests {
             .workspace_keys(OpsKeyScope::Member, None, None)
             .unwrap()
             .bindings;
-        assert!(!member.contains_key("r"));
+        assert_eq!(member["r"].text, "rename");
         assert_eq!(member["D"].text, "digest");
         assert_eq!(member["x"].text, "remove-membership");
         assert_eq!(squad["w"].text, "workspace-snapshots");
@@ -1582,10 +1587,10 @@ mod tests {
         );
     }
     #[test]
-    fn unbound_rename_accepts_explicit_global_host_and_section_bindings() {
+    fn rename_default_accepts_explicit_global_host_and_section_bindings() {
         let config = config("[bind]\nr='talk'\n[bind.tmux]\nr='open'\n");
         let section: Bindings = [("r".into(), Action::parse("copy").unwrap())].into();
-        assert!(!defaults(OpsKeyScope::Member).contains_key("r"));
+        assert_eq!(defaults(OpsKeyScope::Member)["r"].text, "rename");
         assert_eq!(
             config
                 .workspace_keys(OpsKeyScope::Member, None, None)
@@ -1610,7 +1615,7 @@ mod tests {
                 .verb,
             Verb::Copy
         );
-        for scope in [OpsKeyScope::Squad, OpsKeyScope::Pool, OpsKeyScope::Reader] {
+        for scope in [OpsKeyScope::Pool, OpsKeyScope::Reader] {
             assert!(!defaults(scope).contains_key("r"));
         }
     }

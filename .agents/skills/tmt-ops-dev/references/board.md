@@ -140,7 +140,12 @@ review; default member S is folded into Edit and squad S remains Show squad.
 
 Measure's Observed values control and named action reuse the existing full
 monitor projection and scroll reader; they add no metric acquisition. `e`
-always edits on Agents. `R` remains the independent Session handoff.
+always edits on Agents. `r` opens the same form with Name focused and its caret
+at the end. Enter on Name submits through the same writer only for a name-only
+plan; with other kept changes it focuses Save for explicit review. The hint says
+Enter rename or Enter next, and Esc keeps the draft. Opening with e restores the
+ordinary next-field behavior. Member session has no default key; it remains in
+Actions and Help, with authored bindings supported.
 
 `board/member_session` owns the selected member's public host/session projection and
 Session dialog. It reuses the global identity inventory and typed activity. The target
