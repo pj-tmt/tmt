@@ -734,3 +734,54 @@ fn an_unpainted_discard_never_drops_the_draft() {
     key(&mut app, KeyCode::Enter);
     assert!(app.new_member.is_none());
 }
+
+#[test]
+fn edit_member_key_opens_the_agent_form_before_worker_io() {
+    let _ui = crate::runner::forbid_commands();
+    let mut app = board();
+    let id = crate::board::app::workspace::tests::MEMBER;
+    app.references = crate::board::inventory::Inventory::from_listed(&Ok(json!({
+        "identities": [{"id": id, "name": "worker", "driverSupport": "full",
+            "runningDriver": "codex", "location": {"host": "tmux", "session": "work"},
+            "resume": {"driver": "codex", "session": "thread-worker"}}]
+    })));
+    let selected = app.workspace.selected.clone();
+    paint(&app, 160, 36);
+    app.key(ratatui::crossterm::event::KeyEvent::new(
+        KeyCode::Char('e'),
+        KeyModifiers::NONE,
+    ));
+    let text = paint(&app, 160, 36);
+    assert!(
+        text.contains("Edit member"),
+        "e must open the agent edit form"
+    );
+    assert!(
+        app.monitor_details.is_none(),
+        "observed values belong in Measure"
+    );
+    assert_eq!(
+        app.workspace.selected, selected,
+        "opening Edit does not retarget"
+    );
+}
+
+#[test]
+fn edit_squad_key_opens_the_squad_form_before_worker_io() {
+    let _ui = crate::runner::forbid_commands();
+    let mut app = board();
+    let room = crate::board::app::workspace::tests::ROOM;
+    app.workspace.selected = Some(OpsTarget::Squad(room.into()));
+    app.workspace_reconcile();
+    paint(&app, 160, 36);
+    app.key(ratatui::crossterm::event::KeyEvent::new(
+        KeyCode::Char('e'),
+        KeyModifiers::NONE,
+    ));
+    let text = paint(&app, 160, 36);
+    assert!(
+        text.contains("Edit squad"),
+        "e must open the selected squad edit form"
+    );
+    assert_eq!(app.workspace.selected, Some(OpsTarget::Squad(room.into())));
+}
