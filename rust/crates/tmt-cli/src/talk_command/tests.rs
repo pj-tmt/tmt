@@ -15,6 +15,7 @@ fn correlation() -> Correlation {
         inbox: false,
         delivery_uncertain: false,
         digest_until_ms: None,
+        held_for_person: false,
         passthrough: false,
     }
 }

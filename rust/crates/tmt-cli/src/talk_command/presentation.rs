@@ -45,6 +45,12 @@ pub(super) fn json_document(
             value["notification"] = "held".into();
             value["waitingFor"] = "digest_checklist".into();
         }
+        if correlation.held_for_person {
+            value["status"] = "held".into();
+            value["notification"] = "held".into();
+            value["waitingFor"] = "person".into();
+            value["suggestion"] = correlation.resume_hint().into();
+        }
     }
     if correlation.passthrough {
         value["mode"] = "passthrough".into();
@@ -94,6 +100,14 @@ pub(super) fn publish(report: Report, mode: OutputMode) -> io::Result<u8> {
             }
             // The responder's exact text, never styled or escaped.
             writeln!(stdout, "{}", response.body)?;
+        } else if correlation.held_for_person {
+            writeln!(
+                stdout,
+                "Held {}: the talk limit for this pair is reached, so it waits for a person. Nothing reached {}. {}",
+                correlation.request_id,
+                correlation.target,
+                correlation.resume_hint()
+            )?;
         } else if let Some(until) = correlation.digest_until_ms {
             writeln!(
                 stdout,
