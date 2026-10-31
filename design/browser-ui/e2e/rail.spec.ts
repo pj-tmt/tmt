@@ -133,3 +133,98 @@ for (const renderer of ['native', 'react'])
     await manage.click();
     await expect(page.getByRole('status')).toHaveText('Manage 0');
   });
+
+for (const renderer of ['native', 'react'])
+  for (const theme of ['light', 'dark'])
+    for (const width of [1440, 390])
+      test(`reorder replaces the leading icon without moving its label ${renderer} ${theme} ${width}`, async ({
+        page,
+      }, testInfo) => {
+        await page.setViewportSize({ width, height: 900 });
+        await page.goto(
+          `/?frame=rail&interactive=true&icons=true&renderer=${renderer}&theme=${theme}`,
+        );
+        if (width === 390) await page.getByRole('button', { name: 'Open navigation' }).click();
+        const row = page.locator('li[data-menu-item="project"]');
+        const link = row.locator(':scope > a');
+        const icon = link.locator(':scope > svg');
+        const grip = row.locator('[data-rail-part="drag"]');
+        const label = link.locator('.tmt-ui-module-menu-label');
+        const initial = (await label.boundingBox())!;
+        const slot = (await icon.boundingBox())!;
+        const capture = async (state: string) =>
+          testInfo.attach(`icon-grip-${state}`, {
+            body: await page.screenshot(),
+            contentType: 'image/png',
+          });
+        await expect(icon).toHaveAttribute('aria-hidden', 'true');
+        await expect(icon).toHaveCSS('opacity', '1');
+        await expect(grip).toBeHidden();
+        await capture('rest');
+        await link.hover();
+        await expect(icon).toHaveCSS('opacity', '0');
+        await expect(grip).toHaveCSS('opacity', '1');
+        await expect(grip).toHaveAccessibleName('Reorder Colab v1 · In progress');
+        const hit = (await grip.boundingBox())!;
+        expect(hit.width).toBe(24);
+        expect(hit.height).toBe(24);
+        expect(hit.x + hit.width / 2).toBeCloseTo(slot.x + slot.width / 2, 0);
+        expect(hit.y + hit.height / 2).toBeCloseTo(slot.y + slot.height / 2, 0);
+        expect((await label.boundingBox())!.x).toBe(initial.x);
+        await capture('hover');
+        await page.mouse.move(width - 5, 895);
+        await link.focus();
+        await expect(icon).toHaveCSS('opacity', '0');
+        await expect(grip).toHaveCSS('opacity', '1');
+        expect((await label.boundingBox())!.x).toBe(initial.x);
+        await capture('focus');
+        const target = (await page.locator('li[data-menu-item="notes"] > a').boundingBox())!;
+        await page.mouse.move(hit.x + hit.width / 2, hit.y + hit.height / 2);
+        await page.mouse.down();
+        await page.mouse.move(target.x + target.width / 2, target.y + target.height / 2, {
+          steps: 12,
+        });
+        await expect(row).toHaveAttribute('data-dragging', '');
+        await expect(icon).toHaveCSS('opacity', '0');
+        await expect(grip).toHaveCSS('opacity', '1');
+        expect((await label.boundingBox())!.x).toBe(initial.x);
+        await capture('drag');
+        await page.mouse.up();
+        await page.emulateMedia({ reducedMotion: 'reduce' });
+        await expect(icon).toHaveCSS('transition-duration', '0s');
+        await expect(grip).toHaveCSS('transition-duration', '0s, 0s');
+        await page
+          .getByRole('button', { name: 'Toggle reorder availability', exact: true })
+          .evaluate((node) => (node as HTMLButtonElement).click());
+        await link.focus();
+        await expect(row.locator('[data-rail-part="drag"]')).toHaveCount(0);
+        await expect(icon).toHaveCSS('opacity', '1');
+      });
+
+for (const renderer of ['native', 'react'])
+  test(`coarse pointer retains the leading icon and Manage without a grip ${renderer}`, async ({
+    browser,
+    baseURL,
+  }) => {
+    const context = await browser.newContext({
+      baseURL,
+      viewport: { width: 390, height: 900 },
+      isMobile: true,
+      hasTouch: true,
+      reducedMotion: 'reduce',
+    });
+    try {
+      const page = await context.newPage();
+      await page.goto(`/?frame=rail&interactive=true&icons=true&renderer=${renderer}`);
+      expect(await page.evaluate(() => matchMedia('(pointer: coarse)').matches)).toBe(true);
+      await page.getByRole('button', { name: 'Open navigation' }).click();
+      const row = page.locator('li[data-menu-item="project"]');
+      await row.locator(':scope > a').focus();
+      await expect(row.locator(':scope > a > svg')).toHaveCSS('opacity', '1');
+      await expect(row.locator('[data-rail-part="drag"]')).toBeHidden();
+      await page.getByRole('button', { name: 'Manage shortcuts', exact: true }).click();
+      await expect(page.locator('[data-host-status]')).toHaveText('Manage 0');
+    } finally {
+      await context.close();
+    }
+  });

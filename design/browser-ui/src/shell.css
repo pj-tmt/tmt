@@ -366,6 +366,8 @@
   white-space: nowrap;
 }
 a.tmt-ui-rail-sub-item > .tmt-ui-shell-icon {
+  opacity: 1;
+  transition: opacity var(--tmt-ui-motion-fast) var(--tmt-ui-motion-ease-out);
   width: var(--tmt-ui-rail-sub-icon-size);
   height: var(--tmt-ui-rail-sub-icon-size);
 }
@@ -495,11 +497,39 @@ a.tmt-ui-rail-sub-item > .tmt-ui-shell-icon {
   inset: 50% auto auto 8px;
   transform: translateY(-50%);
   visibility: hidden;
+  opacity: 0;
+  transition:
+    opacity var(--tmt-ui-motion-fast) var(--tmt-ui-motion-ease-out),
+    visibility var(--tmt-ui-motion-fast);
   cursor: grab;
 }
 .tmt-ui-rail-menu-row:is(:hover, :focus-within, [data-dragging])
   > :is(.tmt-ui-rail-row-actions, .tmt-ui-rail-drag) {
   visibility: visible;
+}
+.tmt-ui-rail-menu-row:has(> a > .tmt-ui-shell-icon) > .tmt-ui-rail-drag {
+  inset-inline-start: var(--tmt-ui-rail-sub-padding-inline);
+  /* Center the full hit target on the decorative icon's existing slot. */
+  transform: translate(calc(var(--tmt-ui-rail-sub-icon-size) / 2 - 50%), -50%);
+}
+.tmt-ui-rail-menu-row:is(:hover, :focus-within, [data-dragging]) > .tmt-ui-rail-drag {
+  opacity: 1;
+}
+.tmt-ui-rail-menu-row:has(> .tmt-ui-rail-drag):is(:hover, :focus-within, [data-dragging])
+  > a
+  > .tmt-ui-shell-icon {
+  opacity: 0;
+}
+@media (pointer: coarse) {
+  .tmt-ui-rail-menu-row:is(:hover, :focus-within, [data-dragging]) > .tmt-ui-rail-drag {
+    visibility: hidden;
+    opacity: 0;
+  }
+  .tmt-ui-rail-menu-row:has(> .tmt-ui-rail-drag):is(:hover, :focus-within, [data-dragging])
+    > a
+    > .tmt-ui-shell-icon {
+    opacity: 1;
+  }
 }
 .tmt-ui-rail-menu-row[data-actions]:is(:hover, :focus-within, [data-dragging])
   .tmt-ui-shell-counts {

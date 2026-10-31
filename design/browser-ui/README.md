@@ -160,7 +160,11 @@ Callbacks update without rebuilding an otherwise unchanged view or losing keyboa
 A `ShellMenuItem.actions` list provides up to two labelled icon commands. They are siblings
 of the navigation link and never activate it. On hover or focus within the row, commands
 replace the visible total and attention dot in their reserved trailing area; their icons are 16px with 1.75
-stroke and the button targets are at least 28px. Labels and row geometry do not shift. The left reorder handle follows the same hover/focus rule.
+stroke and the button targets are at least 28px. Labels and row geometry do not shift. The left reorder handle replaces a decorative leading icon on row hover, focus or drag,
+with an opacity crossfade on the fast motion token (instant under reduced motion).
+Its icon slot and full hit target stay centered, and labels do not move. Rows without
+reorder keep their icon. On coarse pointers the icon stays and the grip is hidden;
+Colab offers reorder through Manage.
 
 A `ShellMenuItem` may carry `children`, one nested level only (for example squad → member
 rows); a child's own `children` are not drawn. Disclosure is host-owned: the item says
