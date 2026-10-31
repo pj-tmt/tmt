@@ -26,6 +26,7 @@ async function mount(page: Page, owner = true, scenario: 'tree' | 'empty' = 'tre
   return band;
 }
 const head = (band: Locator) => band.locator('.work-head');
+const toggle = (band: Locator) => band.locator('.work-toggle');
 const row = (band: Locator, title: string) =>
   band
     .locator('.work-row-line')
@@ -35,9 +36,9 @@ const calls = (page: Page) => page.evaluate(() => window.__workPage!.calls);
 const blank = (band: Locator) =>
   head(band).evaluate((node) => ({ x: node.clientWidth - 80, y: node.clientHeight / 2 }));
 async function expand(band: Locator) {
-  await expect(head(band)).toHaveAttribute('aria-expanded', 'false');
+  await expect(toggle(band)).toHaveAttribute('aria-expanded', 'false');
   await head(band).click({ position: await blank(band) });
-  await expect(head(band)).toHaveAttribute('aria-expanded', 'true');
+  await expect(toggle(band)).toHaveAttribute('aria-expanded', 'true');
 }
 async function openAdd(page: Page, band: Locator) {
   await band.locator('.work-add-row').getByRole('button', { name: 'Add', exact: true }).click();
@@ -58,7 +59,10 @@ test('Mock 1: the collapsed head shows the page state and direct sub-page progre
     'aria-label',
     'Done 2, In progress 2, To do 0, Unknown 0',
   );
-  await expect(head(band)).toHaveCSS('cursor', 'pointer');
+  await expect(toggle(band)).toHaveCSS('cursor', 'pointer');
+  // The chip and the toggle keep their own roles: no control is nested in another.
+  await expect(band.locator('.work-head [role="button"]')).toHaveCount(0);
+  await expect(toggle(band)).toHaveAccessibleName('Expand work panel');
   const before = await head(band).evaluate((node) => getComputedStyle(node).backgroundColor);
   await head(band).hover({ position: await blank(band) });
   await expect
@@ -73,20 +77,20 @@ test('the whole head toggles the list, by pointer or Enter/Space, but its state 
   const width = await head(band).evaluate((node) => node.clientWidth);
   for (const x of [Math.round(width / 2), width - 20]) {
     await head(band).click({ position: { x, y: 22 } });
-    await expect(head(band)).toHaveAttribute('aria-expanded', 'true');
+    await expect(toggle(band)).toHaveAttribute('aria-expanded', 'true');
     await expect(band.getByRole('list', { name: 'Sub-pages' })).toBeVisible();
     await head(band).click({ position: { x, y: 22 } });
-    await expect(head(band)).toHaveAttribute('aria-expanded', 'false');
+    await expect(toggle(band)).toHaveAttribute('aria-expanded', 'false');
   }
   await band.getByRole('button', { name: 'Page state' }).click();
   await expect(page.getByRole('menuitemradio', { name: 'Done', exact: true })).toBeVisible();
-  await expect(head(band)).toHaveAttribute('aria-expanded', 'false');
+  await expect(toggle(band)).toHaveAttribute('aria-expanded', 'false');
   await page.keyboard.press('Escape');
-  await head(band).focus();
+  await toggle(band).focus();
   await page.keyboard.press('Enter');
-  await expect(head(band)).toHaveAttribute('aria-expanded', 'true');
+  await expect(toggle(band)).toHaveAttribute('aria-expanded', 'true');
   await page.keyboard.press(' ');
-  await expect(head(band)).toHaveAttribute('aria-expanded', 'false');
+  await expect(toggle(band)).toHaveAttribute('aria-expanded', 'false');
 });
 
 test('Mock 2: with nothing attached there is no bar, a quiet line and Add; the row opens Add', async ({
@@ -95,8 +99,8 @@ test('Mock 2: with nothing attached there is no bar, a quiet line and Add; the r
   const band = await mount(page, true, 'empty');
   await expect(head(band)).toContainText('No sub-pages yet');
   await expect(band.locator('.work-segments')).toHaveCount(0);
-  await expect(head(band)).not.toHaveAttribute('aria-expanded');
-  await expect(head(band)).toHaveAccessibleName('Add a sub-page');
+  await expect(toggle(band)).not.toHaveAttribute('aria-expanded');
+  await expect(toggle(band)).toHaveAccessibleName('Add a sub-page');
   await head(band).click({ position: await blank(band) });
   const dialog = page.getByRole('dialog', { name: 'Add a sub-page to “Release plan”' });
   await expect(dialog).toBeVisible();
@@ -109,7 +113,7 @@ test('Mock 2: with nothing attached there is no bar, a quiet line and Add; the r
   // A viewer who cannot add sees the line and no control.
   const shared = await mount(page, false, 'empty');
   await expect(head(shared)).toContainText('No sub-pages yet');
-  await expect(head(shared)).not.toHaveAttribute('role', 'button');
+  await expect(toggle(shared)).toHaveCount(0);
   await expect(shared.getByRole('button', { name: 'Add', exact: true })).toHaveCount(0);
 });
 
@@ -320,7 +324,7 @@ test('opening animates with the motion tokens and is instant under reduced motio
   await expect(transition).toHaveCSS('transition-duration', /0\.18s/);
   // A frame part-way through opening is shorter than the open list.
   const heights = await transition.evaluate(async (node) => {
-    node.closest('.work-band')!.querySelector<HTMLElement>('.work-head')!.click();
+    node.closest('.work-band')!.querySelector<HTMLElement>('.work-toggle')!.click();
     await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
     const mid = node.getBoundingClientRect().height;
     await new Promise((resolve) => setTimeout(resolve, 400));

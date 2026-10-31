@@ -188,7 +188,7 @@ for (const reader of [false, true]) {
     const frame = page.locator('iframe');
     const before = (await frame.boundingBox())!.height;
     const panel = page.getByRole('region', { name: 'Work on this page' });
-    await panel.getByRole('button', { name: 'Expand status panel' }).click();
+    await panel.getByRole('button', { name: 'Expand work panel' }).click();
     await expect.poll(async () => (await frame.boundingBox())!.height).toBeLessThan(before);
     await expect
       .poll(() =>
@@ -197,7 +197,7 @@ for (const reader of [false, true]) {
         ),
       )
       .toBeLessThanOrEqual(0);
-    await panel.getByRole('button', { name: 'Collapse status panel' }).click();
+    await panel.getByRole('button', { name: 'Collapse work panel' }).click();
     await expect.poll(async () => (await frame.boundingBox())!.height).toBe(before);
   });
 }

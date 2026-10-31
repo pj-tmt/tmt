@@ -670,8 +670,8 @@ export const text = {
   workBand: {
     label: 'Work on this page',
     stateUnavailable: 'State unavailable',
-    expandPanel: 'Expand status panel',
-    collapsePanel: 'Collapse status panel',
+    expandPanel: 'Expand work panel',
+    collapsePanel: 'Collapse work panel',
     unknown: 'Unknown',
     unknownPage: 'Unknown page',
     subpages: 'Sub-pages',

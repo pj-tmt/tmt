@@ -81,7 +81,7 @@ test('manual state persists, an empty band offers Add to the owner only, and sha
     await expect(shared.locator('.work-head')).toContainText('No sub-pages yet');
     await expect(shared.getByRole('button', { name: /Page state/ })).toHaveCount(0);
     await expect(shared.getByRole('button', { name: 'Add', exact: true })).toHaveCount(0);
-    await expect(shared.locator('.work-head')).not.toHaveAttribute('role', 'button');
+    await expect(shared.locator('.work-toggle')).toHaveCount(0);
     expect(
       reader.requests.filter((request) => /summary-details|api\/space/.test(request.url)),
     ).toEqual([]);
@@ -123,7 +123,7 @@ test('opening a page with sub-pages reads details once and never shows a wrong p
     const page = await openPage(door, browser, parent);
     const band = page.getByRole('region', { name: 'Work on this page' });
     await expect(band.locator('.work-progress .work-wide')).toHaveText('0 of 1 done');
-    await band.getByRole('button', { name: 'Expand status panel', exact: true }).click();
+    await band.getByRole('button', { name: 'Expand work panel', exact: true }).click();
     await expect(band.getByRole('link', { name: 'Status child', exact: true })).toBeVisible();
     expect(reads).toBe(1);
     const frames = await page.evaluate(
@@ -161,7 +161,7 @@ test('sub-pages attach, get created and detach at any depth through the owner ad
     expect(Object.values(tasks)).toEqual([
       expect.objectContaining({ title: 'Grand page', child: grand.pageId }),
     ]);
-    await band.getByRole('button', { name: 'Expand status panel' }).click();
+    await band.getByRole('button', { name: 'Expand work panel' }).click();
     await expect(band.getByRole('link', { name: 'Grand page', exact: true })).toBeVisible();
     // Create makes the page with the typed name and attaches it.
     await band.locator('.work-add-row').getByRole('button', { name: 'Add', exact: true }).click();

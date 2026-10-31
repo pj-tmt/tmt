@@ -24,20 +24,44 @@
   padding-inline: var(--work-gutter);
   transition: background-color var(--tmt-ui-motion-fast) var(--tmt-ui-motion-ease-out);
 }
-.work-head[role='button'] {
-  cursor: pointer;
+.work-head {
+  position: relative;
 }
-.work-head[role='button']:hover {
+.work-head:has(> .work-toggle:hover) {
   background: var(--tmt-ui-surface-hover);
 }
-.work-head:focus-visible {
+/* The toggle sits at the row's end; its hit area covers the whole row under the chip and Add. */
+.work-toggle {
+  display: grid;
+  flex: none;
+  place-items: center;
+  margin-left: auto;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--tmt-ui-color-secondary);
+  cursor: pointer;
+}
+.work-toggle::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+}
+.work-toggle:focus-visible {
+  outline: none;
+}
+.work-toggle:focus-visible::after {
   outline: var(--tmt-ui-focus-width) solid var(--tmt-ui-color-focus);
   outline-offset: calc(var(--tmt-ui-focus-width) * -1);
+}
+.work-head-chip,
+.work-head .work-add-text {
+  position: relative;
+  z-index: 1;
 }
 .work-head-chip {
   display: inline-flex;
   flex: none;
-  cursor: default;
 }
 .work-page-state {
   white-space: nowrap;
@@ -83,8 +107,6 @@
   flex: none;
   width: var(--tmt-ui-space-l);
   height: var(--tmt-ui-space-l);
-  margin-left: auto;
-  color: var(--tmt-ui-color-secondary);
   transition: rotate var(--tmt-ui-motion-base) var(--tmt-ui-motion-ease-out);
 }
 .work-chevron[data-open='true'] {

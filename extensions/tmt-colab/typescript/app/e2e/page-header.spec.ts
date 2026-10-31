@@ -215,7 +215,7 @@ test.describe('the shell bar', () => {
       });
       await expect.poll(() => page.evaluate(() => window.scrollY)).toBe(400);
       await expect.poll(gap).toBeCloseTo(0, 0);
-      const toggle = band.locator('.work-head');
+      const toggle = band.locator('.work-toggle');
       await toggle.click();
       await expect(toggle).toHaveAttribute('aria-expanded', 'true');
       await expect.poll(gap).toBeCloseTo(0, 0);

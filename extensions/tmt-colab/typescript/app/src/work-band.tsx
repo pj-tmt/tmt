@@ -6,9 +6,7 @@ import {
   useRef,
   useState,
   type CSSProperties,
-  type KeyboardEvent,
   type ReactNode,
-  type SyntheticEvent,
 } from 'react';
 import { text } from './strings.js';
 import type { PageState } from './bootstrap.js';
@@ -39,9 +37,6 @@ export interface WorkBandProps {
   /** Opens the one Add window; absent where this viewer cannot add. */
   onAdd?(): void;
 }
-
-/** Clicks and keys inside the head's own controls (its chip menu, Add) never toggle the band. */
-const keep = (event: SyntheticEvent) => event.stopPropagation();
 
 function StateChip({ state }: { state?: PageState | null }) {
   const t = text.workBand;
@@ -81,12 +76,6 @@ export function WorkBand({
   const empty = subpages.length === 0;
   // With nothing attached the head invites adding instead of toggling an empty list.
   const activate = empty ? onAdd : () => setOpen((now) => !now);
-  const onKeyDown = (event: KeyboardEvent) => {
-    if (event.target !== event.currentTarget || (event.key !== 'Enter' && event.key !== ' '))
-      return;
-    event.preventDefault();
-    activate?.();
-  };
   const progress = slots.counts?.(subpages);
   const buckets = progress
     ? ([
@@ -98,35 +87,15 @@ export function WorkBand({
     : [];
   return (
     <section ref={section} className="work-band" aria-label={t.label}>
-      <div
-        className="work-head"
-        role={activate ? 'button' : undefined}
-        tabIndex={activate ? 0 : undefined}
-        aria-expanded={empty ? undefined : open}
-        aria-controls={empty ? undefined : listId}
-        aria-label={
-          empty ? (activate ? t.addSubpage : undefined) : open ? t.collapsePanel : t.expandPanel
-        }
-        data-empty={empty}
-        onClick={activate}
-        onKeyDown={onKeyDown}
-      >
-        <span className="work-head-chip" onClick={keep} onKeyDown={keep}>
-          {stateControl ?? <StateChip state={pageState} />}
-        </span>
+      {/* The head is a plain row. Its toggle is one real button whose hit area stretches over the
+          free row (::after); the chip and Add sit above it and keep their own roles and names. */}
+      <div className="work-head" data-empty={empty}>
+        <span className="work-head-chip">{stateControl ?? <StateChip state={pageState} />}</span>
         {empty ? (
           <>
             <span className="work-quiet">{t.noSubpages}</span>
             {onAdd && (
-              <button
-                type="button"
-                className="work-add-text"
-                onClick={(event) => {
-                  keep(event);
-                  onAdd();
-                }}
-                onKeyDown={keep}
-              >
+              <button type="button" className="work-add-text" onClick={onAdd}>
                 <Plus aria-hidden="true" />
                 {t.add}
               </button>
@@ -161,8 +130,19 @@ export function WorkBand({
                 </span>
               </>
             )}
-            <ChevronDown className="work-chevron" data-open={open} aria-hidden="true" />
           </>
+        )}
+        {activate && (
+          <button
+            type="button"
+            className="work-toggle"
+            aria-label={empty ? t.addSubpage : open ? t.collapsePanel : t.expandPanel}
+            aria-expanded={empty ? undefined : open}
+            aria-controls={empty ? undefined : listId}
+            onClick={activate}
+          >
+            {!empty && <ChevronDown className="work-chevron" data-open={open} aria-hidden="true" />}
+          </button>
         )}
       </div>
       {!empty && (
