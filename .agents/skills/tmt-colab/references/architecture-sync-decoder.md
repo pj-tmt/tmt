@@ -101,6 +101,8 @@ Hosted owns the serialized own-record sender, never Firebase or content writes.
   discussion and edit-request record grammar (`ask.rs`, `threads.rs`, `edit_request.rs`; the
   browser mirror is `colab-client/src/edit-request.ts`, both pinned by `edit-request-v1.json`).
   An edit request is immutable like the other typed records and fits one own update.
+  Native own-fold validation also preserves published `needs-you-handled` viewer acknowledgements;
+  later updates may append unrelated records but cannot replace or remove an acknowledgement.
 - Limits are enforced before decoding and before returning output. Linux sets
   `RLIMIT_AS` in the child before reading input (a failed `setrlimit` rejects the job);
   other platforms, macOS included, report `memory limit unavailable`. This is crash and

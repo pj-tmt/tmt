@@ -1,6 +1,14 @@
 import { expect, test } from '@playwright/test';
 import { pairBrowser, startDoor } from './harness/browser.js';
-import { createPage, freePort, openPage, run, patchArgs } from './harness/ask.js';
+import {
+  createPage,
+  freePort,
+  openPage,
+  openChat,
+  annotationInput,
+  run,
+  patchArgs,
+} from './harness/ask.js';
 import { captureResponsive } from './harness/captures.js';
 import { disposeActiveWorlds, withWorld } from './harness/with-world.js';
 
@@ -308,8 +316,30 @@ test('Clear all persists exact viewer acknowledgements without answering or deci
     expect(ordinary[0].resolved).toBe(true);
     expect(ordinary[0].comments.map((comment: { body: string }) => comment.body)).toHaveLength(1);
     expect(ordinary[0].comments[0].body).toContain('Reading: 10000000-0000-4000-8000-000000000501');
+    // A later ordinary own write must preserve the exact viewer acknowledgements.
+    await openChat(page);
+    const chat = page.getByTestId('chat-panel');
+    const note = 'A later own note keeps the handled items.';
+    const noteInput = await annotationInput(chat);
+    await noteInput.fill(note);
+    await expect(noteInput).toHaveText(note, { useInnerText: true });
+    await expect(chat.getByRole('button', { name: /^Who is asked/ })).toHaveText('Comment only');
+    await chat.getByRole('button', { name: /^Send(?: · to .+)?$/, exact: true }).click();
+    await expect(chat.getByTestId('comment-entry').filter({ hasText: note })).toHaveCount(1);
+    await expect(chat.getByTestId('comment-echo')).toHaveCount(0);
     await page.reload();
     await expect(page.getByLabel('✓ Nothing waits', { exact: true })).toHaveCount(1);
+    await openChat(page);
+    await expect(chat.getByTestId('comment-entry').filter({ hasText: note })).toHaveCount(1);
+    await expect(pending(other, 3)).toBeVisible();
+    expect(proposals()).toEqual(before);
+    const retained = JSON.parse(
+      run(world, world.binaries.colab, ['threads', created.pageId, '--json']),
+    ).threads.find((thread: { id: string }) => thread.id === ordinary[0].id);
+    expect(retained.resolved).toBe(ordinary[0].resolved);
+    expect(retained.comments.map((comment: { body: string }) => comment.body)).toEqual(
+      ordinary[0].comments.map((comment: { body: string }) => comment.body),
+    );
     const changed = withProposal.replace('Question one?', 'Changed question?');
     run(
       world,

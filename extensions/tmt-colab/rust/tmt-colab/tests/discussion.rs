@@ -185,6 +185,135 @@ fn real_child_refuses_overwritten_and_removed_immutable_discussion_keys() {
     }
 }
 
+fn needs_you_acknowledgement() -> Value {
+    let f = fixture();
+    let thread = &f["thread"];
+    json!({
+        "version": 1,
+        "kind": "needs-you-handled",
+        "spaceId": thread["spaceId"],
+        "pageId": thread["pageId"],
+        "epoch": thread["epoch"],
+        "senderDevice": thread["senderDevice"],
+        "actionId": "00000000-0000-4000-8000-000000000901",
+        "at": thread["at"],
+        "items": [{
+            "kind": "answer",
+            "id": "question-a",
+            "version": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+        }]
+    })
+}
+
+fn assert_needs_you_acknowledgement_is_immutable(remove: bool) {
+    let value = needs_you_acknowledgement();
+    let key = format!("{}:needs-you-handled", value["actionId"].as_str().unwrap());
+    let mut decoder = Decoder::with_config(support::decoder_config(
+        env!("CARGO_BIN_EXE_tmt-colab").into(),
+    ))
+    .unwrap();
+    let doc = Doc::new();
+    for root in ["threads", "messages", "intents", "replies"] {
+        doc.get_or_insert_map(root);
+    }
+    let messages = doc.get_or_insert_map("messages");
+    messages.insert(
+        &mut doc.transact_mut(),
+        key.as_str(),
+        Any::from_json(&value.to_string()).unwrap(),
+    );
+    let baseline = doc
+        .transact()
+        .encode_state_as_update_v1(&StateVector::default());
+    let decode = |decoder: &mut Decoder, updates| {
+        decoder.decode(
+            UpdateBatch {
+                namespace: Namespace::Own,
+                baseline: &baseline,
+                updates,
+            },
+            Role::Commenter,
+            None,
+        )
+    };
+    assert_eq!(
+        decode(&mut decoder, &[]).unwrap().projection["messages"][&key],
+        value
+    );
+    let vector = doc.transact().state_vector();
+    if remove {
+        messages.remove(&mut doc.transact_mut(), &key);
+    } else {
+        let mut changed = value.clone();
+        changed["items"][0]["version"] = json!("AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAE");
+        messages.insert(
+            &mut doc.transact_mut(),
+            key.as_str(),
+            Any::from_json(&changed.to_string()).unwrap(),
+        );
+    }
+    let tail = doc.transact().encode_state_as_update_v1(&vector);
+    assert!(
+        decode(&mut decoder, &[&tail]).is_err(),
+        "native own decoder accepted {} of an existing acknowledgement",
+        if remove { "removal" } else { "replacement" },
+    );
+}
+
+#[test]
+fn real_child_refuses_removed_needs_you_acknowledgement() {
+    assert_needs_you_acknowledgement_is_immutable(true);
+}
+
+#[test]
+fn real_child_refuses_replaced_needs_you_acknowledgement() {
+    assert_needs_you_acknowledgement_is_immutable(false);
+}
+
+#[test]
+fn real_child_preserves_needs_you_acknowledgement_with_later_own_append() {
+    let value = needs_you_acknowledgement();
+    let key = format!("{}:needs-you-handled", value["actionId"].as_str().unwrap());
+    let doc = Doc::new();
+    for root in ["threads", "messages", "intents", "replies"] {
+        doc.get_or_insert_map(root);
+    }
+    let messages = doc.get_or_insert_map("messages");
+    messages.insert(
+        &mut doc.transact_mut(),
+        key.as_str(),
+        Any::from_json(&value.to_string()).unwrap(),
+    );
+    let baseline = doc
+        .transact()
+        .encode_state_as_update_v1(&StateVector::default());
+    let vector = doc.transact().state_vector();
+    let unrelated = json!({"kind": "fixture-note", "value": "Later independent own write."});
+    messages.insert(
+        &mut doc.transact_mut(),
+        "fixture-note",
+        Any::from_json(&unrelated.to_string()).unwrap(),
+    );
+    let tail = doc.transact().encode_state_as_update_v1(&vector);
+    let mut decoder = Decoder::with_config(support::decoder_config(
+        env!("CARGO_BIN_EXE_tmt-colab").into(),
+    ))
+    .unwrap();
+    let result = decoder
+        .decode(
+            UpdateBatch {
+                namespace: Namespace::Own,
+                baseline: &baseline,
+                updates: &[&tail],
+            },
+            Role::Commenter,
+            None,
+        )
+        .unwrap();
+    assert_eq!(result.projection["messages"][&key], value);
+    assert_eq!(result.projection["messages"]["fixture-note"], unrelated);
+}
+
 #[test]
 fn real_child_admits_status_actions_and_failures_and_refuses_their_mutation() {
     let f = fixture();
