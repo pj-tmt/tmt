@@ -840,7 +840,13 @@ exec ${quote(peer)} ${quote(fixture.executables.cli.executable)} ${quote(scenari
         shell.pane
       );
       // The entry is last; Down saturates there and never lands on the rule above it.
-      fixture.tmux(['send-keys', '-t', shell.pane, ...Array(40).fill('Down'), 'Enter']);
+      // Enter applies only the painted row, so it waits for the entry to show as focused.
+      fixture.tmux(['send-keys', '-t', shell.pane, ...Array(40).fill('Down')]);
+      await fixture.waitForCapture(
+        (screen) => /›\s*Squad settings: product\b/.test(screen),
+        shell.pane
+      );
+      fixture.tmux(['send-keys', '-t', shell.pane, 'Enter']);
       // The overlay opens with the idle alert switch selected, so Space is offered at once.
       await fixture.waitForCapture((screen) => screen.includes('Space on/off'), shell.pane);
       const config = path.join(fixture.globalDir, 'ops.toml');
@@ -1547,15 +1553,10 @@ exec ${quote(peer)} ${quote(fixture.executables.cli.executable)} ${quote(scenari
         );
         // Down saturates on the final entry (the selected squad's settings link); Up steps over the
         // rule and Panels to Actions, which precedes them. Preceding preference choices may grow.
-        fixture.tmux([
-          'send-keys',
-          '-t',
-          shell.pane,
-          ...Array(40).fill('Down'),
-          'Up',
-          'Up',
-          'Enter',
-        ]);
+        // Enter applies only the painted row, so it waits for Actions to show as focused.
+        fixture.tmux(['send-keys', '-t', shell.pane, ...Array(40).fill('Down'), 'Up', 'Up']);
+        await fixture.waitForCapture((screen) => /›\s*Actions\b/.test(screen), shell.pane);
+        fixture.tmux(['send-keys', '-t', shell.pane, 'Enter']);
         // The Actions menu opens as a layer over the ? panel.
         await fixture.waitForCapture(
           (screen) => screen.includes('Enter runs · Esc closes'),
