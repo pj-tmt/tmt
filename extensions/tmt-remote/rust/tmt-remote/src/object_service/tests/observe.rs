@@ -661,9 +661,7 @@ fn hold_first(service: &ObjectService<'_>, boundary: Pause) {
     let first = Arc::new(AtomicBool::new(true));
     service.set_hook(Some(Arc::new(move |pause, deadline| {
         if pause == boundary && first.swap(false, Ordering::AcqRel) {
-            while Instant::now() < deadline {
-                thread::yield_now();
-            }
+            spend_until(deadline);
         }
     })));
 }
@@ -672,15 +670,10 @@ fn hold_first(service: &ObjectService<'_>, boundary: Pause) {
 fn observation_absolute_deadline_is_unavailable_without_data_and_channel_lives() {
     let env = Env::new();
     let peer = Peer::start(&env, "alpha", Answer::Expect);
-    let service = env
-        .service(
-            &ALPHA,
-            ServiceBounds {
-                request: Duration::from_millis(400),
-                ..bounds()
-            },
-        )
-        .unwrap();
+    let service = env.service(&ALPHA, bounds()).unwrap();
+    // Only the first request is spent; the follow-up keeps the contract bound, so a slow
+    // host cannot spend it as well (#2860).
+    service.set_first_request(Duration::from_millis(400));
     hold_first(&service, Pause::BeforeResult);
     service.activate(&env.mounts(&ALPHA), "alpha").unwrap();
     let original = spec(Context::LocalExtension, 7, b"hello");
@@ -713,15 +706,10 @@ fn observation_absolute_deadline_is_unavailable_without_data_and_channel_lives()
 fn observation_spent_mounted_denial_is_unavailable_and_channel_lives() {
     let env = Env::new();
     let peer = Peer::start(&env, "alpha", Answer::Expect);
-    let service = env
-        .service(
-            &ALPHA,
-            ServiceBounds {
-                request: Duration::from_millis(400),
-                ..bounds()
-            },
-        )
-        .unwrap();
+    let service = env.service(&ALPHA, bounds()).unwrap();
+    // Only the first request is spent; the follow-up keeps the contract bound, so a slow
+    // host cannot spend it as well (#2860).
+    service.set_first_request(Duration::from_millis(400));
     hold_first(&service, Pause::BeforeRequest);
     service.activate(&env.mounts(&ALPHA), "alpha").unwrap();
     let before = fs::read(env.ledger()).unwrap();
@@ -751,15 +739,10 @@ fn observation_spent_mounted_denial_is_unavailable_and_channel_lives() {
 fn observation_callback_spent_before_write_is_unavailable_and_channel_lives() {
     let env = Env::new();
     let peer = Peer::start(&env, "alpha", Answer::Expect);
-    let service = env
-        .service(
-            &ALPHA,
-            ServiceBounds {
-                request: Duration::from_millis(400),
-                ..bounds()
-            },
-        )
-        .unwrap();
+    let service = env.service(&ALPHA, bounds()).unwrap();
+    // Only the first request is spent; the follow-up keeps the contract bound, so a slow
+    // host cannot spend it as well (#2860).
+    service.set_first_request(Duration::from_millis(400));
     hold_first(&service, Pause::BeforeAdmitWrite);
     service.activate(&env.mounts(&ALPHA), "alpha").unwrap();
     let original = spec(Context::LocalExtension, 7, b"hello");

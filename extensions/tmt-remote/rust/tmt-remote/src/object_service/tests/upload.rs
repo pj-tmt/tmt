@@ -621,23 +621,16 @@ fn upload_post_effect_deadline_and_result_write_spend_are_unknown_and_channel_li
     ] {
         let env = Env::new();
         let peer = Peer::start(&env, "alpha", Answer::Expect);
-        let service = env
-            .service(
-                &ALPHA,
-                ServiceBounds {
-                    request: Duration::from_millis(400),
-                    ..bounds()
-                },
-            )
-            .unwrap();
+        let service = env.service(&ALPHA, bounds()).unwrap();
+        // Only the first request is spent; the follow-up keeps the contract bound, so a
+        // slow host cannot spend it as well (#2860).
+        service.set_first_request(Duration::from_millis(400));
         let count = Arc::new(AtomicUsize::new(0));
         service.set_hook(Some(Arc::new(move |point, deadline| {
             let selected = point == pause
                 && (pause != Pause::BeforeAdmitWrite || count.fetch_add(1, Ordering::AcqRel) == 2);
             if selected && count.fetch_add(1_000, Ordering::AcqRel) < 1_000 {
-                while Instant::now() < deadline {
-                    thread::yield_now();
-                }
+                spend_until(deadline);
             }
         })));
         service.activate(&env.mounts(&ALPHA), "alpha").unwrap();
@@ -891,21 +884,14 @@ fn upload_pre_effect_spend_has_zero_effects_and_keeps_channel() {
     for pause in [Pause::BeforeRequest, Pause::BeforeAdmitWrite] {
         let env = Env::new();
         let peer = Peer::start(&env, "alpha", Answer::Expect);
-        let service = env
-            .service(
-                &ALPHA,
-                ServiceBounds {
-                    request: Duration::from_millis(400),
-                    ..bounds()
-                },
-            )
-            .unwrap();
+        let service = env.service(&ALPHA, bounds()).unwrap();
+        // Only the first request is spent; the follow-up keeps the contract bound, so a
+        // slow host cannot spend it as well (#2860).
+        service.set_first_request(Duration::from_millis(400));
         let once = AtomicBool::new(true);
         service.set_hook(Some(Arc::new(move |point, deadline| {
             if point == pause && once.swap(false, Ordering::AcqRel) {
-                while Instant::now() < deadline {
-                    thread::yield_now();
-                }
+                spend_until(deadline);
             }
         })));
         service.activate(&env.mounts(&ALPHA), "alpha").unwrap();
