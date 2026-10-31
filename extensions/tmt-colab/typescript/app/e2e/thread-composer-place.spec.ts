@@ -1,6 +1,7 @@
 import { expect, test, type Locator, type Page } from '@playwright/test';
 import { capturePath } from './captures.js';
 import { commentsClose } from '../test/comments-region.js';
+import { attach } from '../test/attachment-page.js';
 
 /**
  * A reply that arrives while the reader is in a thread never moves the composer under them
@@ -119,9 +120,9 @@ test('a Discussion view switched to another thread starts from that thread’s o
   expect(Math.abs(switched.height - control.height)).toBeLessThanOrEqual(1);
 });
 
-async function history(page: Page) {
+async function history(page: Page, attachments = false) {
   await page.goto('/');
-  await run(page, 'mount', { history: 'thread' });
+  await run(page, 'mount', { history: 'thread', attachments });
   await page.frameLocator('#ask-page-fixture iframe').locator('[data-colab-thread]').click();
   const thread = page.getByTestId('comment-thread');
   await expect(thread).toBeVisible();
@@ -160,8 +161,29 @@ test('in a long thread a reader scrolled up is held and the composer holds', asy
   );
   const top = await messages.evaluate((node) => node.scrollTop);
   const before = await place(composer);
+  const beforeBox = (await composer.boundingBox())!;
   await run(page, 'scrollArrival');
   await expect(thread.getByTestId('comment-entry')).toHaveCount(41);
   await expect.poll(() => messages.evaluate((node) => node.scrollTop)).toBe(top);
   expect(await place(composer)).toEqual(before);
+  expect(Math.abs((await composer.boundingBox())!.y - beforeBox.y)).toBeLessThanOrEqual(0.01);
+});
+
+test('a draft with an attachment stays fixed when a thread receives a message', async ({
+  page,
+}) => {
+  const thread = await history(page, true);
+  const composer = thread.locator('.conversation-composer');
+  const input = thread.getByRole('combobox', { name: 'Message', exact: true });
+  await input.fill('A retained draft');
+  await attach(page, [{ name: 'notes.txt', mimeType: 'text/plain', buffer: Buffer.from('Notes') }]);
+  await expect(thread.getByTestId('attachment-chip')).toHaveCount(1);
+  const before = (await composer.boundingBox())!;
+  await run(page, 'scrollArrival');
+  await expect(thread.getByTestId('comment-entry')).toHaveCount(41);
+  const after = (await composer.boundingBox())!;
+  expect(Math.abs(after.y - before.y)).toBeLessThanOrEqual(0.01);
+  expect(Math.abs(after.height - before.height)).toBeLessThanOrEqual(0.01);
+  await expect(input).toHaveText('A retained draft', { useInnerText: true });
+  await expect(thread.getByTestId('attachment-chip')).toHaveCount(1);
 });

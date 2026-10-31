@@ -78,8 +78,11 @@ test('Chat shares the non-modal Discussion frame and keeps the page interactive'
   await expect(
     page.locator('#ask-page-fixture .tmt-ui-drawer[data-panel="chat"][open]'),
   ).toHaveCount(0);
-  await frame.locator('p').first().click();
+  await frame.getByText('Keep the preview focused.', { exact: true }).click();
   await expect(chat).toBeVisible();
+  await frame.locator('[data-colab-thread]').filter({ hasText: /^1$/ }).click();
+  await expect(chat).toBeHidden();
+  await expect(commentsRegion(page).getByRole('heading', { level: 2 })).toHaveText('Discussion');
 });
 
 const highlights = (frame: ReturnType<Page['frameLocator']>) =>

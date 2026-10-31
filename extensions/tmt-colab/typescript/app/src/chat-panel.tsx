@@ -1,6 +1,6 @@
 import type { ComposerConnectionPresentation } from './router.js';
 import { ConversationPresentation } from './components/conversation-presentation.js';
-import { Fragment } from 'react';
+import { Fragment, useMemo } from 'react';
 import { ConversationWindow } from './components/conversation-window.js';
 import { conversationRecordKey } from './conversation-record-key.js';
 import { text } from './strings.js';
@@ -58,7 +58,7 @@ export function ChatPanel({
 }) {
   const chats = threads.filter(isChatThread);
   const own = chats.find((thread) => thread.ref.writer === discussion?.deviceId);
-  const legacy = asks.filter((ask) => !ask.thread);
+  const legacy = useMemo(() => asks.filter((ask) => !ask.thread), [asks]);
   const [echoes, echoHost, held] = useMessageEcho(own?.comments ?? []);
   // Called where the verified record will render, so it takes the same day heading.
   const echoTurn = () =>
@@ -139,6 +139,7 @@ export function ChatPanel({
     <ConversationPresentation value="chat">
       <ConversationWindow
         notificationDestination="Chat"
+        waitForFonts
         className="chat-panel"
         data-testid="chat-panel"
         aria-label="Page chat"

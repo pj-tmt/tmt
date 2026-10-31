@@ -196,6 +196,8 @@ test('read refusals show ephemeral copy without changing the admitted operation 
     await run(page, 'refuseRead', code);
     await page.getByRole('button', { name: 'Check again' }).click();
     await expect(page.locator('.ask-panel [role=alert]')).toContainText(copy);
+    await page.getByTestId('chat-panel').getByRole('combobox', { name: 'Message' }).fill('Draft');
+    await expect(page.locator('.ask-panel [role=alert]')).toContainText(copy);
     await expect(page.getByTestId('ask-state').first()).toHaveAttribute('data-state', 'uncertain');
     expect((await run(page, 'proof')).sends).toEqual([]);
   }

@@ -1811,3 +1811,17 @@ for (const width of [320, 390])
         Math.min(...frames.map((frame) => frame.lastY)),
     ).toBeLessThanOrEqual(1);
   });
+
+for (const width of [390, 1440])
+  test(`Chat history opens while fonts are delayed at ${width}`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 900 });
+    await page.goto('/');
+    await run(page, 'mount', { history: 'chat' });
+    const host = page.locator('#ask-page-fixture');
+    await expect(host.locator('.status')).toContainText('Live');
+    await page.evaluate(() => {
+      Object.defineProperty(document.fonts, 'ready', { value: new Promise(() => {}) });
+    });
+    await (await pageAction(host, 'Chat')).click();
+    await expect(host.locator('.chat-panel .conversation-history')).toBeVisible({ timeout: 1000 });
+  });

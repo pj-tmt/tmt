@@ -46,6 +46,7 @@ export function ConversationWindow({
   footer,
   overlay,
   notificationDestination,
+  waitForFonts = false,
   children,
   className = '',
   ...attributes
@@ -66,6 +67,8 @@ export function ConversationWindow({
   footer?: ReactNode;
   overlay?: ReactNode;
   notificationDestination?: string;
+  /** Let fonts settle briefly before the initial history layout. */
+  waitForFonts?: boolean;
 }) {
   if (hideHeader && !historyLabel)
     throw new Error('A headerless conversation requires a history label');
@@ -78,6 +81,7 @@ export function ConversationWindow({
   const following = useRef(true);
   const position = useRef<ReturnType<typeof scrollPosition> | undefined>(undefined);
   const [pending, setPending] = useState(false);
+  const [historyReady, setHistoryReady] = useState(!waitForFonts);
   const notification = useNotificationConversation(notificationDestination);
   const notificationRef = useRef(notification);
   const revealFrame = useRef<number>(undefined);
@@ -162,6 +166,25 @@ export function ConversationWindow({
     reportReading();
   }, [clearPending, reportReading]);
   useLayoutEffect(() => {
+    if (!waitForFonts) return;
+    let active = true;
+    const show = () => {
+      if (active) setHistoryReady(true);
+    };
+    const timeout = window.setTimeout(show, 100);
+    void document.fonts.ready.then(() => {
+      window.clearTimeout(timeout);
+      show();
+    });
+    return () => {
+      active = false;
+      window.clearTimeout(timeout);
+    };
+  }, [waitForFonts]);
+  useLayoutEffect(() => {
+    if (waitForFonts && historyReady) latest();
+  }, [historyReady, latest, waitForFonts]);
+  useLayoutEffect(() => {
     const ids = new Set(messageIds);
     const opened = previous.current === undefined;
     const added = [...ids].filter((id) => !previous.current?.has(id));
@@ -229,7 +252,7 @@ export function ConversationWindow({
       )}
       {notice}
       {collapsed && summary}
-      <div className="conversation-history" hidden={collapsed}>
+      <div className="conversation-history" hidden={collapsed || !historyReady}>
         <div
           className={`conversation-messages ${historyClassName}`}
           ref={history}
