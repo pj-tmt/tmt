@@ -124,7 +124,7 @@
       "                                                                           │",
       "                                                                           │   ⏎ to message worker",
       " 1–3 / 3 rows  ·  0 more ↓                               1 squad · 1 agent │ worker  ● 0 unread                               ⏎ send  Alt+⏎ new line  @ mention",
-      " ↑↓←→ move  ⏎ chat  n new  e edit  r rename  m move  x leave squad  C checklist  / search  ? help  q quit"
+      " ↑↓←→ move  ⏎ chat  n new  e edit  r rename  m move  x close  C checklist  / search  ? help  q quit"
     ]
   },
   {
@@ -156,7 +156,7 @@
       "",
       "   ⏎ to message worker",
       " worker  ● 0 unread                                               ⏎ send  Alt+⏎ new line  @ mention",
-      " ↑↓←→ move  ⏎ chat  n new  e edit  r rename  m move  x leave squad  / search  ? help  q quit"
+      " ↑↓←→ move  ⏎ chat  n new  e edit  r rename  m move  x close  C checklist  / search  ? help  q quit"
     ]
   },
   {
@@ -316,7 +316,7 @@
       "                                                                           │",
       "                                                                           │   ⏎ to message worker",
       " 1–3 / 3 rows  ·  0 more ↓                               1 squad · 1 agent │ worker  ● 0 unread                               ⏎ send  Alt+⏎ new line  @ mention",
-      " ↑↓←→ move  ⏎ chat  n new  e edit  r rename  m move  x leave squad  C checklist  / search  ? help  q quit"
+      " ↑↓←→ move  ⏎ chat  n new  e edit  r rename  m move  x close  C checklist  / search  ? help  q quit"
     ]
   },
   {
@@ -348,7 +348,7 @@
       "                                               │",
       "                                               │   ⏎ to message worker",
       " 1–3 / 3 rows  ·  0 more ↓                     │ worker  ● 0 unread                     ⏎  Alt+⏎  @",
-      " ↑↓←→ move  ⏎ chat  n new  e edit  r rename  m move  x leave squad  / search  ? help  q quit"
+      " ↑↓←→ move  ⏎ chat  n new  e edit  r rename  m move  x close  C checklist  / search  ? help  q quit"
     ]
   },
   {
@@ -508,7 +508,7 @@
       "",
       "   ⏎ to message worker",
       " worker  ● 0 unread                                                                                                           ⏎ send  Alt+⏎ new line  @ mention",
-      " ↑↓←→ move  ⏎ chat  n new  e edit  r rename  m move  x leave squad  C checklist  / search  ? help  q quit"
+      " ↑↓←→ move  ⏎ chat  n new  e edit  r rename  m move  x close  C checklist  / search  ? help  q quit"
     ]
   },
   {
@@ -540,7 +540,7 @@
       "",
       "   ⏎ to message worker",
       " worker  ● 0 unread                                               ⏎ send  Alt+⏎ new line  @ mention",
-      " ↑↓←→ move  ⏎ chat  n new  e edit  r rename  m move  x leave squad  / search  ? help  q quit"
+      " ↑↓←→ move  ⏎ chat  n new  e edit  r rename  m move  x close  C checklist  / search  ? help  q quit"
     ]
   },
   {
