@@ -16,7 +16,7 @@ use std::{
 use tmt_cli_style::{Role, grid::Align, mark::Mark, table::escape};
 use tmt_tui::{
     binding::Schema,
-    components::{ListRow, PickerField},
+    components::{Editor, ListRow, PickerField},
 };
 use unicode_width::UnicodeWidthStr;
 
@@ -148,7 +148,9 @@ pub(super) struct Overlay {
     display_path: String,
     config: Option<Config>,
     pub draft: Option<Config>,
-    editing: Option<(String, String)>,
+    editing: Option<(String, Editor)>,
+    /// The Scope row, below a binding command, holds the horizontal scope keys.
+    binding_scope: bool,
     notice: Option<SettingNotice>,
     section: Option<usize>,
     pub squad_keys: Vec<String>,
@@ -195,6 +197,7 @@ impl Overlay {
             config: None,
             draft: None,
             editing: None,
+            binding_scope: false,
             notice: None,
             section: None,
             squad_keys: Vec::new(),
@@ -514,34 +517,71 @@ impl Overlay {
         }
     }
     pub fn key(&mut self, key: KeyEvent) -> Input {
-        if self.host_action.is_some()
-            && self.editing.is_some()
-            && matches!(
-                key.code,
-                KeyCode::Up
-                    | KeyCode::Down
-                    | KeyCode::PageUp
-                    | KeyCode::PageDown
-                    | KeyCode::Home
-                    | KeyCode::End
-            )
-            && self
-                .prompt
-                .borrow_mut()
-                .picker
-                .list
-                .scroll
-                .input(&Event::Key(key))
-        {
-            return Input::Preview;
-        }
-        if self.editing.is_some()
-            && matches!(key.code, KeyCode::Left | KeyCode::Right)
-            && let Some(host) = &mut self.host_action
-        {
-            host.cycle_destination(self.config.as_ref().unwrap(), key.code == KeyCode::Right);
-            self.preview();
-            return Input::Preview;
+        if self.host_action.is_some() && self.editing.is_some() {
+            let readonly = self
+                .selected_pick()
+                .is_some_and(|pick| pick.id != "host-custom");
+            match key.code {
+                KeyCode::Down if !readonly => {
+                    self.binding_scope = true;
+                    self.prompt
+                        .borrow_mut()
+                        .picker
+                        .list
+                        .scroll
+                        .step(tmt_tui::components::Step::Top);
+                    return Input::Preview;
+                }
+                KeyCode::Up if !readonly => {
+                    self.binding_scope = false;
+                    self.prompt
+                        .borrow_mut()
+                        .picker
+                        .list
+                        .scroll
+                        .step(tmt_tui::components::Step::Top);
+                    return Input::Preview;
+                }
+                KeyCode::Left | KeyCode::Right if readonly || self.binding_scope => {
+                    self.host_action.as_mut().unwrap().cycle_destination(
+                        self.config.as_ref().unwrap(),
+                        key.code == KeyCode::Right,
+                    );
+                    self.preview();
+                    return Input::Preview;
+                }
+                KeyCode::PageUp | KeyCode::PageDown => {
+                    if self
+                        .prompt
+                        .borrow_mut()
+                        .picker
+                        .list
+                        .scroll
+                        .input(&Event::Key(key))
+                    {
+                        return Input::Preview;
+                    }
+                    return Input::None;
+                }
+                KeyCode::Home | KeyCode::End if readonly || self.binding_scope => {
+                    if self
+                        .prompt
+                        .borrow_mut()
+                        .picker
+                        .list
+                        .scroll
+                        .input(&Event::Key(key))
+                    {
+                        return Input::Preview;
+                    }
+                    return Input::None;
+                }
+                _ => {}
+            }
+            if !readonly && self.binding_scope && !matches!(key.code, KeyCode::Enter | KeyCode::Esc)
+            {
+                return Input::None;
+            }
         }
         if self.host_action.is_some()
             && self.editing.is_some()
@@ -569,8 +609,8 @@ impl Overlay {
                 KeyCode::Esc => {
                     let (name, text) = self.editing.take().expect("an open edit");
                     match self.edit_start.take() {
-                        Some(start) if start != text => {
-                            self.kept.insert(name, (text, start));
+                        Some(start) if start != text.as_str() => {
+                            self.kept.insert(name, (text.into_string(), start));
                         }
                         _ => {
                             self.kept.remove(&name);
@@ -592,17 +632,7 @@ impl Overlay {
                     };
                 }
                 KeyCode::Char('u') if key.modifiers.contains(KeyModifiers::CONTROL) => text.clear(),
-                KeyCode::Char(ch)
-                    if !key
-                        .modifiers
-                        .intersects(KeyModifiers::CONTROL | KeyModifiers::ALT)
-                        && !ch.is_control() =>
-                {
-                    text.push(ch)
-                }
-                KeyCode::Backspace => {
-                    text.pop();
-                }
+                _ if text.key(key, u16::MAX, usize::MAX) => {}
                 _ => return Input::None,
             }
             self.preview();
@@ -631,7 +661,7 @@ impl Overlay {
                     {
                         self.edit_start = Some(line.clone());
                         self.edit_kept = false;
-                        self.editing = Some(("bind.j".into(), line));
+                        self.editing = Some(("bind.j".into(), line.into()));
                         self.begin_binding("j");
                         self.preview();
                         return Input::Preview;
@@ -641,7 +671,7 @@ impl Overlay {
             }
             KeyCode::Char(' ') if self.config.is_some() && self.selected_toggle().is_some() => {
                 let (key, on) = self.selected_toggle().expect("a toggle row");
-                self.editing = Some((key, (!on).to_string()));
+                self.editing = Some((key, (!on).to_string().into()));
                 self.preview();
                 return if self.draft.is_some() {
                     Input::Save
@@ -674,7 +704,7 @@ impl Overlay {
                         Some(_) => {
                             self.edit_start = Some(text.clone());
                             self.edit_kept = false;
-                            self.editing = Some((key, text));
+                            self.editing = Some((key, text.into()));
                             self.preview();
                             self.notice = Some(SettingNotice {
                                 message: "kept text dropped: value changed".into(),
@@ -686,7 +716,7 @@ impl Overlay {
                     };
                     self.edit_start = Some(text.clone());
                     self.edit_kept = kept.is_some();
-                    self.editing = Some((key, kept.unwrap_or(text)));
+                    self.editing = Some((key, kept.unwrap_or(text).into()));
                     self.preview();
                 }
                 return Input::Preview;
@@ -699,6 +729,7 @@ impl Overlay {
         Input::None
     }
     fn begin_binding(&mut self, event: &str) {
+        self.binding_scope = false;
         self.host_action
             .as_mut()
             .unwrap()
@@ -1095,7 +1126,7 @@ pub(super) fn render(frame: &mut Frame, overlay: &Overlay, look: Look, body: Rec
             });
         }
         let template = &cache.as_ref().unwrap().template;
-        overlay.prompt.borrow_mut().render_modal(FILE, template, json!({"rows":[], "query":format!("{name}: {text}▏"), "status":status, "footer":if overlay.edit_kept {"kept text · Enter save · Esc keep · Ctrl-U clear"} else {"Enter save · Esc keep · Ctrl-U clear"}, "height":height, "width":body.width}), frame, look, body);
+        overlay.prompt.borrow_mut().render_modal(FILE, template, json!({"rows":[], "query":format!("{name}: {}▏{}", &text[..text.cursor()], &text[text.cursor()..]), "status":status, "footer":if overlay.edit_kept {"kept text · Enter save · Esc keep · Ctrl-U clear"} else {"Enter save · Esc keep · Ctrl-U clear"}, "height":height, "width":body.width}), frame, look, body);
         return;
     }
     let width = usize::from(body.width.saturating_sub(4));
@@ -1352,14 +1383,14 @@ pub(in crate::board) mod tests {
         let overlay = f.app.settings.as_mut().unwrap();
         overlay.surface.borrow_mut().select("board.refresh");
         overlay.key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
-        let start = overlay.editing.as_ref().unwrap().1.clone();
+        let start = overlay.editing.as_ref().unwrap().1.as_str().to_owned();
         overlay.key(KeyEvent::new(KeyCode::Char('9'), KeyModifiers::NONE));
         let typed = format!("{start}9");
         overlay.key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
         assert!(!overlay.editing(), "Esc closes the prompt");
         overlay.key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
         assert_eq!(
-            overlay.editing.as_ref().unwrap().1,
+            overlay.editing.as_ref().unwrap().1.as_str(),
             typed,
             "the same key reopens the kept text"
         );
@@ -1386,10 +1417,10 @@ pub(in crate::board) mod tests {
         // Ctrl-U clears it; Esc on the starting text keeps nothing.
         overlay.key(KeyEvent::new(KeyCode::Char('u'), KeyModifiers::CONTROL));
         assert_eq!(overlay.editing.as_ref().unwrap().1, "");
-        overlay.editing.as_mut().unwrap().1 = start.clone();
+        overlay.editing.as_mut().unwrap().1 = start.clone().into();
         overlay.key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
         overlay.key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
-        assert_eq!(overlay.editing.as_ref().unwrap().1, start);
+        assert_eq!(overlay.editing.as_ref().unwrap().1.as_str(), start);
         assert!(!overlay.edit_kept);
         assert_eq!(
             std::fs::read_to_string(&f.path).unwrap(),
@@ -1417,7 +1448,7 @@ pub(in crate::board) mod tests {
         let fresh = crate::settings::display(&entry.value);
         overlay.key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
         assert_eq!(
-            overlay.editing.as_ref().unwrap().1,
+            overlay.editing.as_ref().unwrap().1.as_str(),
             fresh,
             "the prompt opens on the new value"
         );

@@ -711,7 +711,8 @@ Temporary copies only the launch line. Copy never creates an identity or members
 
 The `?` panel's **Bindings · j presets** row lists every admitted key, including unassigned
 keys, its effective command and winning global/host/section source. Enter edits the
-command; ←→ choose a write scope (Tab does nothing). A masked lower-scope edit names the
+command; ←→ move the caret in the command field. ↓ reaches the Scope row below it,
+where ←→ choose the write scope; ↑ returns to the command (Tab does nothing). A masked lower-scope edit names the
 binding that still wins. Save publishes through Config; Esc keeps the file unchanged;
 `r` removes only the selected authored override and reveals inheritance. The `j`
 presets offer Focus agent, directional Swap beside board, or Custom command. A swap keeps the board focused and exchanges the

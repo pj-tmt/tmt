@@ -507,7 +507,8 @@ fn typed_destination_keeps_host_masking_visible_and_conflict_keeps_the_draft() {
         Some(crate::config::BindingLocation::Host("tmux".into())),
         "Tab does nothing in the dialog"
     );
-    // ← and → step through the write scopes both ways.
+    // ↓ reaches Scope; ← and → step through the write scopes both ways.
+    overlay.key(KeyEvent::new(KeyCode::Down, KeyModifiers::NONE));
     overlay.key(KeyEvent::new(KeyCode::Right, KeyModifiers::NONE));
     let next = overlay.host_action.as_ref().unwrap().destination.clone();
     overlay.key(KeyEvent::new(KeyCode::Left, KeyModifiers::NONE));
@@ -582,7 +583,7 @@ fn preview_inventory_pages_and_wheels_without_changing_command_text() {
     assert!(overlay.prompt.borrow().picker.list.scroll.offset() < offset);
     overlay.key(KeyEvent::new(KeyCode::Char('j'), KeyModifiers::NONE));
     assert_eq!(
-        overlay.editing.as_ref().unwrap().1,
+        overlay.editing.as_ref().unwrap().1.as_str(),
         format!("{}j", draft.as_ref().unwrap().1)
     );
     overlay.key(KeyEvent::new(KeyCode::End, KeyModifiers::NONE));
@@ -656,6 +657,7 @@ pub(in crate::board) fn capture_case(
             }
             .into();
             if state == "bindings-masked" {
+                overlay.key(KeyEvent::new(KeyCode::Down, KeyModifiers::NONE));
                 overlay.key(KeyEvent::new(KeyCode::Right, KeyModifiers::NONE));
             }
             overlay.preview();
@@ -667,6 +669,11 @@ pub(in crate::board) fn capture_case(
         _ => unreachable!("known binding fixture"),
     }
     if state == "bindings-inventory-scrolled" {
+        f.app
+            .settings
+            .as_mut()
+            .unwrap()
+            .key(KeyEvent::new(KeyCode::Down, KeyModifiers::NONE));
         let mut terminal = Terminal::new(TestBackend::new(width, height)).unwrap();
         terminal
             .draw(|frame| crate::board::view::render(frame, &f.app))
@@ -681,4 +688,106 @@ pub(in crate::board) fn capture_case(
         ));
     }
     std::mem::replace(&mut f.app, crate::board::app::App::new(None))
+}
+
+#[test]
+fn binding_command_arrows_move_the_caret_without_changing_scope() {
+    let mut f = fixture("binding-caret", "[bind]\nj='run echo abc'\n");
+    open(&mut f, Some("%9"));
+    let overlay = f.app.settings.as_mut().unwrap();
+    overlay.surface.borrow_mut().select("pick:host-custom");
+    overlay.key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+    let destination = overlay.host_action.as_ref().unwrap().destination.clone();
+    overlay.key(KeyEvent::new(KeyCode::Left, KeyModifiers::NONE));
+    overlay.key(KeyEvent::new(KeyCode::Left, KeyModifiers::NONE));
+    overlay.key(KeyEvent::new(KeyCode::Right, KeyModifiers::NONE));
+    overlay.key(KeyEvent::new(KeyCode::Char('X'), KeyModifiers::NONE));
+    assert_eq!(
+        overlay.editing.as_ref().unwrap().1.as_str(),
+        "run echo abXc"
+    );
+    assert_eq!(
+        overlay.host_action.as_ref().unwrap().destination,
+        destination
+    );
+    assert_eq!(std::fs::read_to_string(&f.path).unwrap(), f.original);
+}
+
+#[test]
+fn binding_scope_row_owns_scope_arrows_and_returns_to_the_command() {
+    let mut f = fixture("binding-scope-row", "[bind]\nj='run echo abc'\n");
+    open(&mut f, Some("%9"));
+    let overlay = f.app.settings.as_mut().unwrap();
+    overlay.surface.borrow_mut().select("pick:host-custom");
+    overlay.key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+    let destination = overlay.host_action.as_ref().unwrap().destination.clone();
+    overlay.key(KeyEvent::new(KeyCode::Down, KeyModifiers::NONE));
+    overlay.key(KeyEvent::new(KeyCode::Char('Z'), KeyModifiers::NONE));
+    assert_eq!(
+        overlay.editing.as_ref().unwrap().1.as_str(),
+        "run echo abc",
+        "Scope is not a text field"
+    );
+    let mut screen = Terminal::new(TestBackend::new(60, 36)).unwrap();
+    screen
+        .draw(|frame| render(frame, overlay, crate::look::Look::default(), frame.area()))
+        .unwrap();
+    let text = screen
+        .backend()
+        .buffer()
+        .content
+        .iter()
+        .map(|cell| cell.symbol())
+        .collect::<String>();
+    assert!(text.contains("› Scope"), "{text}");
+    assert!(
+        text.contains("←→ scope · Enter save · ↑ command · Esc keep"),
+        "{text}"
+    );
+    assert!(
+        !text.contains("abc▏"),
+        "Scope does not paint an active command caret"
+    );
+
+    overlay.key(KeyEvent::new(KeyCode::Right, KeyModifiers::NONE));
+    assert_ne!(
+        overlay.host_action.as_ref().unwrap().destination,
+        destination
+    );
+    overlay.key(KeyEvent::new(KeyCode::Left, KeyModifiers::NONE));
+    assert_eq!(
+        overlay.host_action.as_ref().unwrap().destination,
+        destination
+    );
+    overlay.key(KeyEvent::new(KeyCode::Up, KeyModifiers::NONE));
+    overlay.key(KeyEvent::new(KeyCode::Left, KeyModifiers::NONE));
+    overlay.key(KeyEvent::new(KeyCode::Char('X'), KeyModifiers::NONE));
+    assert_eq!(
+        overlay.editing.as_ref().unwrap().1.as_str(),
+        "run echo abXc"
+    );
+    assert_eq!(
+        overlay.host_action.as_ref().unwrap().destination,
+        destination
+    );
+    screen
+        .draw(|frame| render(frame, overlay, crate::look::Look::default(), frame.area()))
+        .unwrap();
+    let text = screen
+        .backend()
+        .buffer()
+        .content
+        .iter()
+        .map(|cell| cell.symbol())
+        .collect::<String>();
+    assert!(text.contains("abX▏c"), "{text}");
+    assert!(
+        text.contains("Enter save · ↓ scope · Esc keep · Ctrl-U clear"),
+        "{text}"
+    );
+    assert!(matches!(
+        overlay.key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)),
+        Input::Save
+    ));
+    assert_eq!(std::fs::read_to_string(&f.path).unwrap(), f.original);
 }
