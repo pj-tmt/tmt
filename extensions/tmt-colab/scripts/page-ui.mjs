@@ -6,11 +6,16 @@
 import { createRequire } from 'node:module';
 import { readFile } from 'node:fs/promises';
 
+// The injected page UI CSS cap, in bytes, the one figure the build and the runtime check share: the exact
+// measured size, no headroom (GUI lead, #5794): 119,949 -> 125,075 bytes for the type ramp and the
+// editorial layer. A change that grows it re-measures and asks again; #5809 cuts the injected static.css
+// to what an author page can use and lowers this to its new exact figure.
+export const PAGE_UI_LIMIT = 125_075;
+
 export async function buildPageUi() {
   // The design system the frame injects into every page (#5057): the leaf's static.css, whole, in the
   // `tmt-ui` layer, with the page host profile. The layer order is declared first, so the frame's own
   // rules win over the starter's, which win over the classes; an author's unlayered CSS beats all three.
-  const PAGE_UI_LIMIT = 120_000;
   const compactCss = (css) =>
     css
       .replace(/\/\*[\s\S]*?\*\//g, '')
@@ -21,6 +26,14 @@ export async function buildPageUi() {
     new URL('../../../design/browser-ui/generated/static.css', import.meta.url),
     'utf8',
   );
+  // The editorial layer (#5794) sets an author page's own text: its `.tmt-ui-prose` container is the
+  // painted page's body, in the starter's layer, so the classes and an author's CSS both win over it.
+  const editorialCss = (
+    await readFile(
+      new URL('../../../design/browser-ui/generated/editorial.css', import.meta.url),
+      'utf8',
+    )
+  ).replaceAll(':where(.tmt-ui-prose)', ':where([data-colab-design] body)');
   const hostCss = await readFile(
     new URL('../typescript/app/src/page-host.css', import.meta.url),
     'utf8',
@@ -43,12 +56,12 @@ export async function buildPageUi() {
   const quoted = (css) => css.match(/"(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*'/g) ?? [];
   if (quoted(compactCss(schemed)).join('\n') !== quoted(schemed).join('\n'))
     throw new Error('Compacting static.css would change a quoted string');
-  const pageUiStyle = `@layer colab-frame,tmt-starter,tmt-ui;${compactCss(baseCss)}@layer tmt-ui{${compactCss(schemed)}${compactCss(hostCss)}}`
+  const pageUiStyle = `@layer colab-frame,tmt-starter,tmt-ui;${compactCss(baseCss)}@layer tmt-starter{${compactCss(editorialCss)}}@layer tmt-ui{${compactCss(schemed)}${compactCss(hostCss)}}`
     // Double quotes keep the formatter from rewriting the single-quoted literal that holds it.
     .replaceAll("'", '"');
-  if (pageUiStyle.length > PAGE_UI_LIMIT)
+  if (Buffer.byteLength(pageUiStyle) > PAGE_UI_LIMIT)
     throw new Error(
-      `The injected page UI CSS is ${pageUiStyle.length} bytes, over its ${PAGE_UI_LIMIT} byte cap`,
+      `The injected page UI CSS is ${Buffer.byteLength(pageUiStyle)} bytes, over its ${PAGE_UI_LIMIT} byte cap`,
     );
   // `<tmt-icon name="check">` (#5057): the frame expands the element to inline SVG from the Lucide icons
   // the page runtime already lists (src/runtime/icons.ts is the one list), so a page names an icon in
@@ -123,5 +136,5 @@ window.addEventListener('load', measure);`;
   ])
     if (text.includes('<!--') || text.toLowerCase().includes(end))
       throw new Error(`The page UI ${name} could end its own element or open a comment`);
-  return { staticCss, pageUiStyle, iconNodes, pageIcons, pageUiScript };
+  return { staticCss, editorialCss, pageUiStyle, iconNodes, pageIcons, pageUiScript };
 }

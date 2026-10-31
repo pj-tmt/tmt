@@ -33,6 +33,7 @@ import {
 } from '../src/shell.js';
 import { startShellHost, type ShellSlot } from '../src/shell-host.js';
 import { FramePair, Section, noop } from './kit.js';
+import { EditorialSection } from './editorial.js';
 import { menuItems, NoticeSection } from './components.js';
 import { UiOverlayFrame } from './ui-overlays.js';
 import { createIcon } from '../src/glyph.js';
@@ -636,6 +637,12 @@ export function frameFor(name: string, params: URLSearchParams): ReactNode {
       );
     case 'charts':
       return <ChartsSection />;
+    case 'prose':
+      return (
+        <main className="gallery-main">
+          <EditorialSection />
+        </main>
+      );
     case 'rail':
       return <RailFrame params={params} />;
     case 'shell':

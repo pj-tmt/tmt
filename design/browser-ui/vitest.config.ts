@@ -4,7 +4,7 @@ export default defineConfig({
   lint: lintConfig,
   fmt: {
     // The checked distribution is minified by its generator; source CSS remains formatted.
-    ignorePatterns: ['generated/static.css'],
+    ignorePatterns: ['generated/static.css', 'generated/editorial.css'],
     singleQuote: true,
     trailingComma: 'all',
     printWidth: 100,

@@ -1,0 +1,112 @@
+/* The editorial layer (#5794): long-form text on the type ramp, inside one `.tmt-ui-prose` container.
+   The container is `:where`-scoped and its rules nest under it, so each weighs one element and any
+   component class or author rule wins. The scope appears once: a host can rescope the whole layer. */
+:where(.tmt-ui-prose) {
+  color: var(--tmt-ui-color-text);
+  font: var(--tmt-ui-type-body-size) / var(--tmt-ui-type-body-line-height) var(--tmt-ui-font-body);
+  overflow-wrap: anywhere;
+  & :where(h1, h2, h3, h4) {
+    margin: var(--tmt-ui-space-xl) 0 var(--tmt-ui-space-s);
+  }
+  & h1 {
+    font: var(--tmt-ui-type-h1-weight) var(--tmt-ui-type-h1-size) /
+      var(--tmt-ui-type-h1-line-height) var(--tmt-ui-font-display);
+    letter-spacing: var(--tmt-ui-type-h1-tracking);
+  }
+  & h2 {
+    margin-top: var(--tmt-ui-space-2xl);
+    font: var(--tmt-ui-type-h2-weight) var(--tmt-ui-type-h2-size) /
+      var(--tmt-ui-type-h2-line-height) var(--tmt-ui-font-display);
+    letter-spacing: var(--tmt-ui-type-h2-tracking);
+  }
+  & h3 {
+    font: var(--tmt-ui-type-h3-weight) var(--tmt-ui-type-h3-size) /
+      var(--tmt-ui-type-h3-line-height) var(--tmt-ui-font-display);
+  }
+  & h4 {
+    font: var(--tmt-ui-type-h4-weight) var(--tmt-ui-type-h4-size) /
+      var(--tmt-ui-type-h4-line-height) var(--tmt-ui-font-display);
+  }
+  /* Rhythm: blocks are a block gap apart, list items a step apart; the container adds no outer space. */
+  & :where(p, ul, ol, blockquote, pre, table, figure) {
+    margin: 0 0 var(--tmt-ui-space-l);
+  }
+  /* The first content block, also after a page's leading `<style>`, `<script>` or `<meta>`. */
+  & > :where(:first-child, style + *, script + *, meta + *) {
+    margin-top: 0;
+  }
+  & > :last-child {
+    margin-bottom: 0;
+  }
+  & :where(ul, ol) {
+    padding-left: var(--tmt-ui-space-xl);
+  }
+  /* A list with a class is a component or a mock's own markup and keeps its own spacing. */
+  & :where(ul, ol):not([class]) > li + li {
+    margin-top: var(--tmt-ui-space-xs);
+  }
+  & a {
+    color: var(--tmt-ui-color-link);
+    text-decoration-thickness: var(--tmt-ui-rule-width);
+    text-underline-offset: 0.15em;
+  }
+  & blockquote {
+    padding-left: var(--tmt-ui-space-l);
+    border-left: var(--tmt-ui-indicator-width) solid var(--tmt-ui-color-edge);
+    color: var(--tmt-ui-color-secondary);
+  }
+  & hr {
+    margin: var(--tmt-ui-space-xl) 0;
+    border: 0;
+    border-top: var(--tmt-ui-rule-width) solid var(--tmt-ui-surface-rule);
+  }
+  & small {
+    font-size: var(--tmt-ui-type-small-size);
+    line-height: var(--tmt-ui-type-small-line-height);
+  }
+  /* A figure holds an image, a chart from the chart pieces or a table; its caption reads under it. */
+  & :where(img, video) {
+    max-width: 100%;
+    height: auto;
+  }
+  & figcaption {
+    margin-top: var(--tmt-ui-space-s);
+    color: var(--tmt-ui-color-secondary);
+    font-size: var(--tmt-ui-type-caption-size);
+    line-height: var(--tmt-ui-type-caption-line-height);
+  }
+  /* Code wraps rather than scrolling sideways, so a phone never pans a block. */
+  & code {
+    padding: 0.1em 0.35em;
+    border-radius: var(--tmt-ui-radius-s);
+    background: var(--tmt-ui-surface-code);
+    font: 0.9em var(--tmt-ui-font-mono);
+    /* A wrapped run keeps its padding on every line, so no text touches the fill's edge. */
+    box-decoration-break: clone;
+  }
+  & pre {
+    padding: var(--tmt-ui-space-m) var(--tmt-ui-space-l);
+    border-radius: var(--tmt-ui-radius);
+    background: var(--tmt-ui-surface-code);
+    font: var(--tmt-ui-type-code-size) / var(--tmt-ui-type-code-line-height) var(--tmt-ui-font-mono);
+    white-space: pre-wrap;
+  }
+  & pre code {
+    padding: 0;
+    background: none;
+    font-size: inherit;
+  }
+}
+/* A tag names an audience or kind: a square mono outline, never a control; a tag link underlines on hover. */
+.tmt-ui-tag {
+  display: inline-block;
+  padding: 0 var(--tmt-ui-space-xs);
+  border: var(--tmt-ui-rule-width) solid var(--tmt-ui-color-edge);
+  color: var(--tmt-ui-color-secondary);
+  font: var(--tmt-ui-type-label-size) / var(--tmt-ui-type-label-line-height) var(--tmt-ui-font-mono);
+  text-decoration: none;
+}
+a.tmt-ui-tag:hover {
+  color: var(--tmt-ui-color-text);
+  text-decoration: underline;
+}

@@ -1,4 +1,5 @@
 import { TokensSection } from './tokens.js';
+import { EditorialSection } from './editorial.js';
 import {
   ActionsSection,
   BrandSection,
@@ -57,6 +58,7 @@ export function GallerySections() {
       <ListSection />
       <PageSectionsSection />
       <TablesSection />
+      <EditorialSection />
       <VisuallyHiddenSection />
       <CommandSection />
       <NoticeSection />

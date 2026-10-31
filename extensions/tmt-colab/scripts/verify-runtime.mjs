@@ -8,7 +8,6 @@ import { join } from 'node:path';
 
 const MAX_BYTES = 1.5 * 1024 * 1024;
 const MAX_THEME_BYTES = 16 * 1024;
-const MAX_PAGE_UI_BYTES = 120_000;
 const app = new URL('../typescript/app/', import.meta.url).pathname;
 const [directory, flag] = process.argv.slice(2);
 if (!directory) throw new Error('usage: verify-runtime.mjs <dist directory> [--update]');
@@ -69,12 +68,13 @@ expect(!theme.toLowerCase().includes('</style'), 'theme contains a style end tag
 expect(!theme.includes('<' + '!--'), 'theme contains an HTML comment opener');
 // The design system a standalone export carries (#5057) is first-party generated output, not a pinned
 // dependency: it must be exactly what the renderer inlines and fit the same cap.
-const { pageUiStyle, pageUiScript } = await (await import('./page-ui.mjs')).buildPageUi();
+const { buildPageUi, PAGE_UI_LIMIT } = await import('./page-ui.mjs');
+const { pageUiStyle, pageUiScript } = await buildPageUi();
 const pageUiCss = read(join(directory, 'assets/colab-page-ui.css'));
 const pageUiJs = read(join(directory, 'assets/colab-page-ui.js'));
 expect(pageUiCss === pageUiStyle, 'colab-page-ui.css differs from the renderer design system');
 expect(pageUiJs === pageUiScript, 'colab-page-ui.js differs from the renderer tmt-icon script');
-expect(Buffer.byteLength(pageUiCss) <= MAX_PAGE_UI_BYTES, 'colab-page-ui.css is over its cap');
+expect(Buffer.byteLength(pageUiCss) <= PAGE_UI_LIMIT, 'colab-page-ui.css is over its cap');
 for (const [name, text, end] of [
   ['colab-page-ui.css', pageUiCss, '</style'],
   ['colab-page-ui.js', pageUiJs, '</script'],

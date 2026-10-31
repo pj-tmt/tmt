@@ -11,7 +11,8 @@ release readiness are separate consumer work.
 ## Entries and generation
 
 There is no root entry. `@tmt/browser-ui/static.css` exports checked
-`generated/static.css`; `@tmt/browser-ui/static` exports the frozen
+`generated/static.css`; `@tmt/browser-ui/editorial.css` exports the [editorial layer](#editorial-layer)
+(`generated/editorial.css`), which needs `static.css` for its tokens; `@tmt/browser-ui/static` exports the frozen
 `browserUiClasses` and presentation types without React; `@tmt/browser-ui/shell` exports the
 [Shell](../gui-style.md#shell) model (`shellRail`, `describedMenu`, `shellCount`), its reader
 `loadShellAnswer` and the framework-free `mountShell` renderer, with Lucide icon data
@@ -47,9 +48,9 @@ its original declarations and spelling. Only that generated distribution
 is excluded from formatting; authored CSS remains formatted. Source-level policy tests inspect
 the assembled source, byte checks inspect the distribution, and browser comparisons verify
 that compilation preserves computed paint and layout. The check compares expected bytes without writing. `test/byte-budget.test.ts` holds the gzip
-size (level 9) of `generated/static.css` plus `generated/ui.css` to 22,267 bytes. The GUI
-lead approved 21,978 → 22,267 bytes for ListTable and PageSubheader (#5517), with no
-headroom or change to the UI foundation budget. The [Linux measurement](https://github.com/tmt-ninja/tmt/actions/runs/41143551311/job/124363432535) records the approved size.
+size (level 9) of `generated/static.css` plus `generated/ui.css` to the approved figure in that
+test, and `generated/editorial.css` to its own; the test's comment records each approval and its
+Linux CI measurement, with no headroom or change to the UI foundation budget.
 Class encapsulation is retained, and further increases return to the lead. Each pull request
 that changes these stylesheets reports their raw sizes. Consumers embed checked CSS;
 Cargo and installed products never run the generator. Select light/system-dark
@@ -172,6 +173,42 @@ The optional static `page` class (`tmt-ui-page`) applies shared content insets:
 33px/36px block/inline, 24px/18px through 760px. Hosts opt in on their content
 wrapper and retain width limits, layout and scrolling. Page titles are 37px/720
 (29px compact), and card titles are 19px/660; these come from browser metric tokens.
+
+## Editorial layer
+
+Long-form text (Colab author pages, the blog, documents) reads on one type ramp. The `browser.type`
+group of `tokens.json` defines the roles, and `static.css` projects them as
+`--tmt-ui-type-<role>-<part>`.
+
+- **Roles:** `display`, `h1` to `h4`, `body`, `small`, `caption`, `label` and `code`.
+- **Parts:** `size`, `line-height`, `weight` and `tracking`.
+- **Reuse:** a part that names a metric reuses it, so the ramp cannot drift from page titles and
+  card titles.
+- **Compact width:** through 760px, `display` and `body` take their `compact-` sizes.
+- **Caption and label:** `caption` (12px) captions a figure; `label` is the 11px caption metric that
+  components use.
+
+`editorial.css` sets plain HTML inside one `.tmt-ui-prose` container. Every rule nests under a
+single `:where(.tmt-ui-prose)`, so it weighs one element and any component class or author rule wins.
+The layer sets:
+
+- headings on the ramp;
+- block rhythm (`space-l` between blocks, `space-xs` between list items, no outer space);
+- underlined links in `color-link`;
+- quotes and `hr`;
+- figures and `figcaption`;
+- inline `code` and a wrapping `pre` on `surface-code`;
+- the `.tmt-ui-tag` label.
+
+A bare `table` takes the [`tmt-ui-table`](#shared-pieces) rules themselves: the generator copies
+the marked region of `table.css` with the class rewritten. A chart in a figure is the chart piece
+itself. Because the scope appears once, a host can rescope the whole layer.
+
+Colab's page frame does this as `:where([data-colab-design] body)` in the `tmt-starter` layer, so an
+author page's plain elements get the layer with no class. The page starter keeps only the page
+column, section spacing and its two classes. A consumer such as the blog imports `static.css` and
+`editorial.css` through these entries and puts `tmt-ui-prose` on its article. It owns its own layout
+and tone, for example a blog-only accent set on the shared tokens.
 
 ## Controlled input contracts
 

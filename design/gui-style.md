@@ -441,7 +441,9 @@ The [leaf contract](browser-ui/README.md#chips) owns the API, focus and static e
 ### Tag
 
 A square outline label in mono type for audience and kind (`Private`,
-`Archived · writes frozen`). Not interactive. Basis: own.
+`Archived · writes frozen`). Not interactive; as a link (a blog topic) it underlines on hover.
+Basis: own; shipped as `.tmt-ui-tag` in the [editorial layer](browser-ui/README.md#editorial-layer),
+which also owns the type ramp for long-form text.
 
 ### Listbox
 
