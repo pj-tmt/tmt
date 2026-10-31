@@ -95,6 +95,12 @@ fn help_chrome_is_opaque_and_end_keeps_its_footer_at_every_capture_width() {
             assert!(line.starts_with("│ ") && line.ends_with('│'), "{line}");
         }
         assert!(top[last - 1].contains(super::super::super::help::READING_FOOTER));
+        // The reading keeps its position line: "N more ↓" is the sign the settings follow.
+        assert!(
+            top[last - 2].contains("more ↓"),
+            "{width}: {:?}",
+            top[last - 2]
+        );
         key(&mut app, KeyCode::End);
         let end = draw(&app, width, 30);
         assert_ne!(end, top);

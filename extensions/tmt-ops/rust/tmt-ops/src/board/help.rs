@@ -217,6 +217,18 @@ impl Help {
         {
             self.ui.render(FILE, template(), value, frame, look, body);
         }
+        // While the keys are read the rows hold no selection, so the list prints no position;
+        // the reading's own "N more ↓" is the sign that the settings follow below the fold.
+        if !focus
+            && let Some(area) = self.ui.frame.as_ref().map(|frame| frame.areas.position)
+            && let Some(position) = self.ui.picker.list.scroll.overflow_position()
+        {
+            tmt_tui::components::strip::paint_left(
+                frame.buffer_mut(),
+                area,
+                ratatui::text::Line::styled(position, look.role(tmt_cli_style::Role::Muted)),
+            );
+        }
         self.ui.outer()
     }
 }
