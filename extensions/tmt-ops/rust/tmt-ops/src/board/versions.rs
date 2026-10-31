@@ -118,18 +118,22 @@ pub(in crate::board) mod tests {
         );
         let help = crate::board::help::model(&app).value();
         let sections = help["sections"].as_array().unwrap();
+        let ids: Vec<_> = sections
+            .iter()
+            .map(|section| section["id"].clone())
+            .collect();
         assert_eq!(
-            sections.last().unwrap()["id"],
-            "versions",
-            "the key list stays first"
+            ids[ids.len() - 2..],
+            ["versions", "settings"],
+            "the key list stays first and the settings rows close the panel"
         );
         assert_eq!(
-            sections.last().unwrap()["entries"],
+            sections[sections.len() - 2]["entries"],
             serde_json::json!([
                 {"id": "row-0", "keys": "tmt", "description": "5.0.0-alpha.378"},
                 {"id": "row-1", "keys": "ops", "description": "0.1.0-alpha.4"},
             ]),
-            "Help closes with both versions in full"
+            "the keys close with both versions in full"
         );
     }
 

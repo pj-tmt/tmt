@@ -32,6 +32,46 @@ fn workspace_settings_down_saturation_selects_its_final_actions_entry() {
 }
 
 #[test]
+fn the_actions_menu_over_the_panel_takes_the_keys_and_esc_returns_to_its_row() {
+    let mut app = board();
+    app.workspace.selected = Some(OpsTarget::Pool);
+    assert_eq!(app.workspace_settings(), Effect::None);
+    let entries = app.workspace_setting_entries().unwrap();
+    let actions = entries
+        .iter()
+        .position(|entry| entry.label == "Actions")
+        .unwrap();
+    paint(&app, 160, 36);
+    for _ in 0..40 {
+        key(&mut app, KeyCode::Down);
+    }
+    while app.help_state.borrow().selected_setting() != Some(actions) {
+        key(&mut app, KeyCode::Up);
+    }
+    assert_eq!(key(&mut app, KeyCode::Enter), Effect::None);
+    assert!(
+        app.menu.is_some() && app.help,
+        "Actions opens as a layer over the ? panel"
+    );
+    paint(&app, 160, 36);
+    let before = app.menu.as_ref().unwrap().selected;
+    key(&mut app, KeyCode::Down);
+    assert_ne!(
+        app.menu.as_ref().unwrap().selected,
+        before,
+        "the menu takes the arrow"
+    );
+    assert_eq!(
+        app.help_state.borrow().selected_setting(),
+        Some(actions),
+        "the panel beneath stays on its row"
+    );
+    key(&mut app, KeyCode::Esc);
+    assert!(app.menu.is_none() && app.help);
+    assert_eq!(app.help_state.borrow().selected_setting(), Some(actions));
+}
+
+#[test]
 fn custom_host_binding_wins_in_overview_agents_and_conversation_from_one_table() {
     let tab = OpsTab::Agents;
     let mut app = configured_member(
