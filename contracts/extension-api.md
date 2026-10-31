@@ -498,7 +498,10 @@ has stopped. `tmt stop --close` reports the same case as its `PANE_NOT_CLOSED` e
 
 **Every `identity.stop` fault means the agent may still be running.** It uses the
 ordinary fault envelope plus `signalled` (bool): whether a TERM was, or may have
-been, sent. A stop fault never proves the agent ended, so a caller does not treat it as permission to delete; it may still call `identity.remove`, whose own check refuses `AGENT_RUNNING` while a recorded agent is alive or unproven (a hand-bound pane with no recorded agent removes).
+been, sent. A stop fault never proves the agent ended, so a caller does not treat
+it as permission to delete; it may still call `identity.remove`, whose own check
+refuses `AGENT_RUNNING` while a recorded agent is alive or unproven (a hand-bound
+pane with no recorded agent removes).
 
 **Remove.** `identity.remove` deletes the identity exactly as `tmt rm` does (its
 role and preamble go; exchanges are retained) and needs no Saved-identity force: the caller's own
