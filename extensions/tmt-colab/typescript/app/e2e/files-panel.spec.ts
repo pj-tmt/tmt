@@ -43,7 +43,7 @@ test('Files is a peer panel: empty for a writer, then rows with a count after Ad
 }) => {
   await mount(page);
   const toggle = await pageAction(page.locator('#ask-page-fixture'), 'Files');
-  await expect(toggle).toHaveAccessibleName('Files (0)');
+  await expect(toggle).toHaveAccessibleName('Files 0');
   const panel = await openFiles(page);
   await expect(panel.getByText(text.filesEmpty)).toBeVisible();
   await attach(panel, page, [
@@ -86,7 +86,7 @@ test('Files is a peer panel: empty for a writer, then rows with a count after Ad
   expect(await actions(page)).toContain('attach:open:notes.txt:document');
   // The Files entry is in More (#4116); opening it closes the panel.
   await expect(await pageAction(page.locator('#ask-page-fixture'), 'Files')).toHaveAccessibleName(
-    'Files (2)',
+    'Files 2',
   );
 });
 
@@ -336,10 +336,12 @@ test('a reader link lists files read-only and only when the page has files', asy
   ).toBeVisible();
   await page.getByRole('button', { name: 'More', exact: true }).click();
   await expect(page.getByRole('menuitem', { name: /^Files(?: \d+)?$/ })).toHaveCount(0);
+  await expect(page.getByRole('group', { name: 'Content', exact: true })).toHaveCount(0);
+  await expect(page.getByRole('group', { name: 'Page', exact: true })).toBeVisible();
   await page.keyboard.press('Escape');
   await mountReader(page, true);
   const toggle = await pageAction(page, 'Files');
-  await expect(toggle).toHaveText(`${text.files} 3`);
+  await expect(toggle).toHaveAccessibleName(`${text.files} 3`);
   await toggle.click();
   const rows = page.getByTestId('file-row');
   await expect(rows).toHaveCount(3);
@@ -506,3 +508,22 @@ test('the Export panel lists every attachment with its outcome and saves an incl
   }
   await expect(panel.getByRole('status')).toContainText(text.exportRequested);
 });
+
+for (const width of [390, 1440])
+  for (const theme of ['light', 'dark'] as const)
+    test(`reader More groups only admitted actions ${width} ${theme}`, async ({ page }, info) => {
+      await page.setViewportSize({ width, height: 900 });
+      await page.emulateMedia({ colorScheme: theme, reducedMotion: 'reduce' });
+      await page.addInitScript((value) => {
+        document.documentElement.dataset.theme = value;
+      }, theme);
+      await mountReader(page, true);
+      await page.getByRole('button', { name: 'More', exact: true }).click();
+      const menu = page.getByRole('menu', { name: 'More', exact: true });
+      await expect(menu.getByRole('group', { name: 'Content', exact: true })).toBeVisible();
+      await expect(menu.getByRole('group', { name: 'Page', exact: true })).toBeVisible();
+      await expect(menu.getByRole('group', { name: 'Share', exact: true })).toHaveCount(0);
+      await expect(menu.getByRole('group', { name: 'Organize', exact: true })).toHaveCount(0);
+      await expect(menu.getByRole('menuitem', { name: 'Files 3', exact: true })).toBeVisible();
+      await page.screenshot({ path: info.outputPath('reader-more.png') });
+    });

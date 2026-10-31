@@ -533,18 +533,16 @@ test('one-row fitting retains full labels, stable content and compact action aut
     await expect(actions.getByRole('menuitem', { name: /^Files/ })).toHaveCount(0);
     await expect(actions.getByRole('menuitem', { name: 'Questions…', exact: true })).toBeFocused();
     await page.keyboard.press('ArrowDown');
-    await expect(
-      actions.getByRole('menuitem', { name: 'Set creator…', exact: true }),
-    ).toBeFocused();
-    await page.keyboard.press('ArrowDown');
-    await expect(
-      actions.getByRole('menuitem', { name: 'Agent status', exact: true }),
-    ).toBeFocused();
+    await expect(actions.getByRole('menuitem', { name: 'Creator', exact: true })).toBeFocused();
     await page.keyboard.press('ArrowDown');
     await expect(actions.getByRole('menuitem', { name: 'Source', exact: true })).toBeFocused();
     await expect(actions.getByRole('menuitem', { name: 'Export page', exact: true })).toBeEnabled();
     await page.keyboard.press('ArrowDown');
     await expect(actions.getByRole('menuitem', { name: 'Export page', exact: true })).toBeFocused();
+    await page.keyboard.press('ArrowDown');
+    await expect(
+      actions.getByRole('menuitem', { name: 'Agent status', exact: true }),
+    ).toBeFocused();
     await page.keyboard.press('Escape');
     await expect(more).toBeFocused();
   }

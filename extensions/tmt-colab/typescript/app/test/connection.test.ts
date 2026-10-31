@@ -828,3 +828,32 @@ it('a title read joins the socket close handshake and reports an unconfirmed cle
   await vi.advanceTimersByTimeAsync(2000);
   await deadline;
 });
+
+it('serializes a held local decoder command ahead of an arriving broadcast', async () => {
+  const { connection, socket, publish, failed } = await open();
+  let finish!: (value: Awaited<ReturnType<typeof connection.fold.run>>) => void;
+  const decode = vi
+    .spyOn(connection.fold, 'run')
+    .mockImplementationOnce(() => new Promise((resolve) => (finish = resolve)));
+  const local = connection.run(() => connection.fold.run({ type: 'apply', updates: [] }));
+  try {
+    await vi.waitFor(() => expect(decode).toHaveBeenCalledTimes(1));
+    socket.receive(broadcast(false));
+    await Promise.resolve();
+    expect(decode).toHaveBeenCalledTimes(1);
+    finish({ source: 'initial', title: 'Title', own: {}, update: new Uint8Array() });
+    await local;
+    await connection.run(async () => {});
+    expect(decode).toHaveBeenCalledTimes(2);
+    expect(publish).toHaveBeenLastCalledWith({
+      source: 'updated',
+      title: 'Title',
+      state: 'todo',
+      ownData: false,
+      archived: undefined,
+    });
+    expect(failed).not.toHaveBeenCalled();
+  } finally {
+    connection.close();
+  }
+});
