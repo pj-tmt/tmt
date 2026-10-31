@@ -7,6 +7,16 @@ import type { SelectionRect } from './renderer.js';
 import type { DiscussionRef, QuoteSelector } from './thread-records.js';
 import type { PageBinding, PageSnapshot, PageTransport } from './transport.js';
 
+/** One annotation window: a new one on a selection, or one on a thread. */
+export interface Annotation {
+  key: string;
+  selector: QuoteSelector | null;
+  rectangle: SelectionRect;
+  thread?: DiscussionRef;
+  /** Text kept from an earlier close of this selection or thread. */
+  restored?: ComposerEdit;
+}
+
 /** What the annotation window needs from the page's panels: it closes and selects threads. */
 interface AnnotationPanels {
   clear(): void;
@@ -18,6 +28,13 @@ interface AnnotationPanels {
  * annotation window (a new one on a selection, or one on a thread), the unsent drafts kept per
  * quote or thread and their device-local session, and the actions that open, continue and close
  * them. Everything here clears when the page changes.
+ *
+ * Each annotation keeps its own composer, and so its own send, for as long as that send runs
+ * (#5816): closing a window whose send is in flight only hides it, another annotation opens beside
+ * it, and nothing waits for another annotation's send. A hidden annotation goes when its send
+ * settles with a record (its thread carries the status and recovery from then on); one whose send
+ * failed before a record stays hidden with its failed row, draft and files, is listed in
+ * `unsentAnnotations` so the page says so, and opens again from there or on the same quote.
  */
 export function useAnnotations({
   snapshot,
@@ -46,14 +63,17 @@ export function useAnnotations({
   const currentSelector = useRef<QuoteSelector | null>(null);
   const [rectangle, setRectangle] = useState<SelectionRect | null>(null);
   const currentRectangle = useRef<SelectionRect | null>(null);
-  const [annotation, setAnnotation] = useState<{
-    key: string;
-    selector: QuoteSelector | null;
-    rectangle: SelectionRect;
-    thread?: DiscussionRef;
-    /** Text kept from an earlier close of this selection or thread. */
-    restored?: ComposerEdit;
-  }>();
+  const [annotations, setAnnotations] = useState<Annotation[]>([]);
+  // The one window shown; every other annotation is hidden while its send runs or holds a failure.
+  const [visibleKey, setVisibleKey] = useState<string>();
+  const annotation = annotations.find((value) => value.key === visibleKey);
+  // The annotations whose send is in flight; each one reports its own.
+  const sending = useRef(new Set<string>());
+  // The annotations whose send failed before a record: their composer holds the failed row.
+  const unsent = useRef(new Set<string>());
+  const [, setUnsentVersion] = useState(0);
+  // The annotations whose last send recorded its message; recovery is on its thread from then on.
+  const recorded = useRef(new Set<string>());
   const annotationRef = useRef(annotation);
   annotationRef.current = annotation;
   const popover = useRef<HTMLElement>(null);
@@ -72,14 +92,17 @@ export function useAnnotations({
     if (had !== !!edit) setDraftKeys((n) => n + 1);
   }
   const annotationDraft = useRef<ComposerEdit>({ value: '' });
-  const annotationBusy = useRef(false);
   const statusBusy = useRef(false);
   const [changingStatus, setChangingStatus] = useState(false);
   useEffect(() => {
-    setAnnotation(undefined);
+    setAnnotations([]);
+    setVisibleKey(undefined);
+    sending.current.clear();
+    unsent.current.clear();
+    recorded.current.clear();
     drafts.current.clear();
     annotationDraft.current = { value: '' };
-    annotationBusy.current = statusBusy.current = false;
+    statusBusy.current = false;
     setChangingStatus(false);
     setSelectionMode(false);
     setSelector(null);
@@ -121,22 +144,36 @@ export function useAnnotations({
       void current.close();
     };
   }, [snapshot.id, transport.drafts]);
+  const annotationsRef = useRef(annotations);
+  annotationsRef.current = annotations;
   const annotate = useCallback(() => {
-    if (
-      annotationBusy.current ||
-      statusBusy.current ||
-      !currentSelector.current ||
-      !currentRectangle.current
-    )
-      return;
+    if (statusBusy.current || !currentSelector.current || !currentRectangle.current) return;
+    const quote = JSON.stringify(currentSelector.current);
     closeRef.current(false);
     setSelectionMode(false);
-    setAnnotation({
-      key: crypto.randomUUID(),
-      selector: structuredClone(currentSelector.current),
-      rectangle: { ...currentRectangle.current },
-      restored: drafts.current.get(JSON.stringify(currentSelector.current)),
-    });
+    // The same quote again shows the hidden annotation whose send failed before it was recorded.
+    const held = annotationsRef.current.find(
+      (value) => !value.thread && JSON.stringify(value.selector) === quote,
+    );
+    const rectangle = { ...currentRectangle.current };
+    if (held) {
+      setAnnotations((all) =>
+        all.map((value) => (value.key === held.key ? { ...value, rectangle } : value)),
+      );
+      setVisibleKey(held.key);
+    } else {
+      const key = crypto.randomUUID();
+      setAnnotations((all) => [
+        ...all,
+        {
+          key,
+          selector: structuredClone(currentSelector.current),
+          rectangle,
+          restored: drafts.current.get(quote),
+        },
+      ]);
+      setVisibleKey(key);
+    }
     setRectangle(null);
     panelsRef.current.clear();
   }, []);
@@ -145,16 +182,69 @@ export function useAnnotations({
   /** Every nonblank message is a draft; recipient selection never replaces its bytes. */
   const typed = () =>
     annotationDraft.current.edited !== false && annotationDraft.current.value.trim() !== '';
-  /** Closes without losing typed text: it comes back when the same selection is annotated again. */
+  /** Closes without losing typed text: it comes back when the same selection is annotated again.
+   * A window whose send is in flight (or whose send failed before a record) is hidden instead, so
+   * its composer keeps the send, the failed row and the files. */
   function closeAnnotation(focusPage: boolean) {
-    // A send in flight is not interrupted by the ×, Escape, an outside press or a cleared selection.
-    if (!annotation || annotationBusy.current || statusBusy.current) return;
-    const key = annotationKey(annotation);
-    keepDraft(key, typed() || annotationDraft.current.edited ? annotationDraft.current : null);
+    if (!annotation || statusBusy.current) return;
+    if (!retained(annotation.key)) {
+      const key = annotationKey(annotation);
+      keepDraft(key, typed() || annotationDraft.current.edited ? annotationDraft.current : null);
+      setAnnotations((all) => all.filter((value) => value.key !== annotation.key));
+    }
     annotationDraft.current = { value: '' };
-    setAnnotation(undefined);
+    setVisibleKey(undefined);
     setRectangle(currentRectangle.current);
     if (focusPage) queueMicrotask(() => host.current?.querySelector('iframe')?.focus());
+  }
+  const retained = (key: string) => sending.current.has(key) || unsent.current.has(key);
+  /** An annotation's composer reports its own send; a hidden one goes once nothing needs it. */
+  function annotationSending(key: string, busy: boolean) {
+    if (busy) {
+      sending.current.add(key);
+      if (unsent.current.delete(key)) setUnsentVersion((n) => n + 1);
+      recorded.current.delete(key);
+      return;
+    }
+    if (!sending.current.delete(key)) return;
+    // A new annotation whose send failed before a record keeps its failed row here; a reply's
+    // draft goes back to its thread's composer as before.
+    const value = annotationsRef.current.find((item) => item.key === key);
+    if (!recorded.current.has(key) && value && !value.thread) {
+      unsent.current.add(key);
+      setUnsentVersion((n) => n + 1);
+    }
+    if (key !== annotationRef.current?.key && !unsent.current.has(key))
+      setAnnotations((all) => all.filter((item) => item.key !== key));
+  }
+  /** Discarding a kept draft also releases the hidden window of that quote whose first comment
+   * was not sent: its failed row, alert row and draft go together. A send still running stays. */
+  function discardDraft(key: string) {
+    keepDraft(key, null);
+    const held = annotationsRef.current.find(
+      (value) =>
+        !value.thread &&
+        value.key !== annotationRef.current?.key &&
+        unsent.current.has(value.key) &&
+        annotationKey(value) === key,
+    );
+    if (!held) return;
+    unsent.current.delete(held.key);
+    setUnsentVersion((n) => n + 1);
+    setAnnotations((all) => all.filter((value) => value.key !== held.key));
+  }
+  /** Shows a hidden annotation whose send failed before a record: its failed row, draft and Retry. */
+  function openUnsent(key: string) {
+    if (statusBusy.current || !unsent.current.has(key)) return;
+    if (annotationRef.current) closeRef.current(false);
+    setSelectionMode(false);
+    setVisibleKey(key);
+    setRectangle(null);
+    panelsRef.current.clear();
+  }
+  /** An annotation's send recorded its message; its delivery may still be running. */
+  function annotationRecorded(key: string) {
+    recorded.current.add(key);
   }
   const closeRef = useRef(closeAnnotation);
   closeRef.current = closeAnnotation;
@@ -179,19 +269,23 @@ export function useAnnotations({
     return () => document.removeEventListener('pointerdown', outside, true);
   }, [annotation, environment]);
   function openThread(ref: DiscussionRef, { revealInPage = true } = {}) {
-    if (annotationBusy.current || statusBusy.current) return;
+    if (statusBusy.current) return;
     const id = `${ref.writer}:${ref.id}`;
     if (annotationRef.current) closeRef.current(false);
-    setAnnotation(undefined);
+    setVisibleKey(undefined);
     binding.current?.markThreadStatusSeen?.(ref);
     panelsRef.current.showThread(id);
     environmentRef.current.threadFragment()?.write(ref.id);
     if (revealInPage) renderer.current?.scrollAnchor(id);
   }
-  function continueAnnotation(ref: DiscussionRef) {
-    keepDraft(JSON.stringify(annotationRef.current?.selector), null);
-    setAnnotation((previous) =>
-      previous ? { ...previous, thread: ref, restored: undefined } : previous,
+  /** An annotation's send recorded its thread: that window now shows the thread, shown or not. */
+  function continueAnnotation(key: string, ref: DiscussionRef) {
+    const value = annotationsRef.current.find((item) => item.key === key);
+    if (!value) return;
+    if (unsent.current.delete(key)) setUnsentVersion((n) => n + 1);
+    keepDraft(JSON.stringify(value.selector), null);
+    setAnnotations((all) =>
+      all.map((item) => (item.key === key ? { ...item, thread: ref, restored: undefined } : item)),
     );
   }
   /** The renderer reports the selection (or that it cleared). */
@@ -214,6 +308,13 @@ export function useAnnotations({
     rectangle,
     currentRectangle,
     annotation,
+    annotations,
+    // The closed windows whose first comment was not sent; the page names each with an Open action.
+    unsentAnnotations: annotations.filter(
+      (value) => value.key !== visibleKey && unsent.current.has(value.key),
+    ),
+    openUnsent,
+    discardDraft,
     annotationRef,
     popover,
     drafts,
@@ -221,7 +322,8 @@ export function useAnnotations({
     draftsUnsaved,
     keepDraft,
     annotationDraft,
-    annotationBusy,
+    annotationSending,
+    annotationRecorded,
     statusBusy,
     changingStatus,
     setChangingStatus,

@@ -499,9 +499,7 @@ for (const width of [390, 1440])
       const before = (await dialog.getByTestId('comment-echo').boundingBox())!;
       const composer = (await dialog.locator('.annotation-compose').boundingBox())!;
       await page.screenshot({ path: capturePath(`send-annotation-pending-${width}-${theme}.png`) });
-      // Pending close retains main's send fence; #5816 is a separate owner-lifecycle PR.
-      await page.keyboard.press('Escape');
-      await expect(dialog).toBeVisible();
+      // Closing while pending is covered by the annotation lifecycle cases (#5816).
       await run(page, 'releaseReply');
       await expect(dialog.getByTestId('comment-entry')).toBeVisible();
       await expect(dialog.getByTestId('comment-echo')).toHaveCount(0);

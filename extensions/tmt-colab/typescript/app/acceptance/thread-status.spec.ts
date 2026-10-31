@@ -250,3 +250,85 @@ test('Resolve all commits two native statuses and notifies each agent once in th
     );
   });
 });
+
+test('a held annotation closes; a second one opens, keeps its text and sends, and Resolve all works meanwhile (#5816)', async () => {
+  await withWorld(async (world) => {
+    const door = await startDoor(world, await freePort());
+    const alpha = await world.startAgent('held-alpha');
+    const beta = await world.startAgent('held-beta');
+    const author = await pairBrowser(world, 'held-author', { talk: true });
+    const created = createPage(
+      world,
+      'Held annotation acceptance',
+      '<p id="quote">First held passage.</p><p id="quote2">Second held passage.</p>',
+    );
+    const page = await openPage(door, author, created);
+    const compose = page.getByRole('dialog', { name: 'Annotate selection' });
+    const input = compose.getByRole('combobox', { name: 'Message', exact: true });
+    const write = async (selector: string, body: string) => {
+      await selectInRenderer(page, selector);
+      await page.getByTestId('selection-ask').click();
+      await expect(input).toBeEnabled();
+      await input.fill(body);
+      if (await page.getByRole('listbox').isVisible()) await input.press('Escape');
+      await expect(input).toHaveText(body);
+    };
+    const send = () =>
+      compose.getByRole('button', { name: /^Send(?: · to .+)?$/, exact: true }).click();
+    // Annotation 1: its first dispatch is created and then held, so its send stays pending.
+    world.armNextBarrier('after');
+    await write('#quote', '@held-alpha @held-beta First held comment.');
+    await send();
+    const parked = await world.barrierEntered();
+    expect(typeof parked.operationId).toBe('string');
+    world.armBarrier(parked.operationId as string, 'after');
+    // The message is recorded and its dispatch is held: closing never waits for the send.
+    await page.keyboard.press('Escape');
+    await expect(compose).toHaveCount(0);
+    // Annotation 2 opens, keeps exactly what was typed, and sends while annotation 1 is held. The
+    // held dispatch keeps the core busy, so the agent directory cannot be read: it is a comment.
+    await write('#quote2', 'Second comment, typed while the first is held.');
+    await send();
+    await expect(compose.getByTestId('comment-thread')).toBeVisible();
+    await expect.poll(() => alpha.received().length).toBe(1);
+    expect(beta.received()).toHaveLength(0);
+    await page.keyboard.press('Escape');
+    await expect(compose).toHaveCount(0);
+    // Resolve all is not fenced by the held send.
+    await comments(page);
+    const panel = commentsRegion(page);
+    const action = panel.getByRole('button', { name: 'Resolve all open (2)', exact: true });
+    await expect(action).toBeEnabled();
+    await action.click();
+    await page
+      .getByRole('dialog', { name: 'Resolve 2 open comments?' })
+      .getByRole('button', { name: 'Resolve all', exact: true })
+      .click();
+    // The confirmation is accepted at once; the statuses commit through the core, which the held
+    // dispatch keeps busy until it is released.
+    await expect(page.getByRole('dialog', { name: 'Resolve 2 open comments?' })).toHaveCount(0);
+    // Releasing annotation 1 finishes its delivery exactly once per recipient.
+    world.releaseBarrier();
+    const listing = () =>
+      JSON.parse(run(world, world.binaries.colab, ['threads', created.pageId, '--json'])) as {
+        threads: { resolved: boolean }[];
+      };
+    await expect.poll(() => listing().threads.every((thread) => thread.resolved)).toBe(true);
+    expect(listing().threads).toHaveLength(2);
+    const ordinary = (agent: typeof alpha) =>
+      agent.received().filter((value) => !String(value.message).includes('Thread resolved by'));
+    await expect.poll(() => ordinary(beta).length).toBe(1);
+    expect(ordinary(alpha)).toHaveLength(1);
+    // Two ordinary Asks and one resolve notice per agent, each operation created once.
+    const notices = (agent: typeof alpha) =>
+      agent.received().filter((value) => String(value.message).includes('Thread resolved by'));
+    await expect.poll(() => notices(alpha).length).toBe(1);
+    await expect.poll(() => notices(beta).length).toBe(1);
+    const dispatched = world
+      .coreCalls()
+      .filter((call) => call.operation === 'dispatch.create')
+      .map((call) => call.operationId);
+    expect(dispatched).toHaveLength(4);
+    expect(new Set(dispatched).size).toBe(4);
+  });
+});
