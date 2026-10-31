@@ -1,0 +1,51 @@
+name: Download artifacts with one retry
+description: >-
+  Downloads workflow artifacts and, after a failed attempt, waits 45 seconds and
+  tries once more; a second failure fails the step. Hosted blob storage has failed
+  every internal retry of one download while other jobs downloaded the same
+  artifact minutes later (#5743). A failed attempt has taken almost four minutes
+  before the action exits, so callers bound the whole step with timeout-minutes.
+inputs:
+  name:
+    description: Artifact name; empty selects by artifact-ids or pattern.
+    default: ''
+  artifact-ids:
+    description: Comma-separated artifact IDs.
+    default: ''
+  pattern:
+    description: Glob over artifact names.
+    default: ''
+  path:
+    description: Destination directory.
+    required: true
+  merge-multiple:
+    description: Extract every matched artifact into path itself.
+    default: 'false'
+runs:
+  using: composite
+  steps:
+    - name: Download artifacts
+      id: first
+      continue-on-error: true
+      uses: actions/download-artifact@v8
+      with:
+        name: ${{ inputs.name }}
+        artifact-ids: ${{ inputs.artifact-ids }}
+        pattern: ${{ inputs.pattern }}
+        path: ${{ inputs.path }}
+        merge-multiple: ${{ inputs.merge-multiple }}
+        digest-mismatch: error
+    - name: Wait before retrying the artifact download
+      if: steps.first.outcome == 'failure'
+      shell: sh
+      run: sleep 45
+    - name: Retry the artifact download once
+      if: steps.first.outcome == 'failure'
+      uses: actions/download-artifact@v8
+      with:
+        name: ${{ inputs.name }}
+        artifact-ids: ${{ inputs.artifact-ids }}
+        pattern: ${{ inputs.pattern }}
+        path: ${{ inputs.path }}
+        merge-multiple: ${{ inputs.merge-multiple }}
+        digest-mismatch: error

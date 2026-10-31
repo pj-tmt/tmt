@@ -159,19 +159,19 @@ jobs:
         run: sh scripts/install-ci-rust.sh 1.97.0 --profile minimal --component rustfmt,clippy
       - uses: ./.github/actions/setup-nextest
       - name: Download producer inventory
-        uses: actions/download-artifact@v8
+        uses: ./.github/actions/download-artifact-retry
+        timeout-minutes: 10
         with:
           artifact-ids: ${{ fromJSON(needs.producer.outputs.receipt).inventory.id }}
           path: ${{ runner.temp }}/workspace-proof
           merge-multiple: true
-          digest-mismatch: error
       - name: Download compiled closure
-        uses: actions/download-artifact@v8
+        uses: ./.github/actions/download-artifact-retry
+        timeout-minutes: 10
         with:
           artifact-ids: ${{ fromJSON(needs.producer.outputs.receipt).closure.id }}
           path: ${{ runner.temp }}/workspace-proof
           merge-multiple: true
-          digest-mismatch: error
       - name: Admit extract and execute only this slice
         working-directory: rust
         env:
@@ -232,22 +232,22 @@ jobs:
           fi
       - name: Download producer inventory
         if: inputs.scope == 'full'
-        uses: actions/download-artifact@v8
+        uses: ./.github/actions/download-artifact-retry
+        timeout-minutes: 10
         with:
           artifact-ids: ${{ fromJSON(needs.producer.outputs.receipt).inventory.id }}
           path: ${{ runner.temp }}/workspace-proof
           merge-multiple: true
-          digest-mismatch: error
       - name: Download exact partition results
         # download-artifact@v8.0.2 selects non-empty IDs before consulting pattern.
         # Single-attempt IDs are empty; pattern selects that attempt's results.
         # Recovery IDs can include retained results from earlier execution attempts.
         if: inputs.scope == 'full'
-        uses: actions/download-artifact@v8
+        uses: ./.github/actions/download-artifact-retry
+        timeout-minutes: 10
         with:
           artifact-ids: ${{ steps.selection.outputs.artifact-ids }}
           pattern: workspace-result-*-${{ github.run_id }}-${{ fromJSON(needs.producer.outputs.receipt).proof.producerIdentity.attempt }}-${{ github.run_attempt }}
-          digest-mismatch: error
           path: ${{ runner.temp }}/workspace-proof
           merge-multiple: false
       - name: Prove the independent inventory ran exactly once

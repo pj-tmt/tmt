@@ -169,12 +169,14 @@
           "id:tools-retry",
           "name:Require an exact packaging tools cache hit",
           "name:Install verification dependencies",
-          "uses:actions/download-artifact@v4",
+          "id:archives-download",
+          "name:Wait before retrying the target archive download",
+          "name:Retry the target archive download once",
           "name:Merge with cargo-dist and verify bootstrap inputs",
           "name:Recheck version-only source after this stage",
           "uses:actions/upload-artifact@v4"
         ],
-        "sha256": "70a7b981c022da1b058fbffbed2ef8151f8ce99546697da2bb039f4db30b600a",
+        "sha256": "280bbaa59e5c802e940b17279b1b5ff9b0fbf3cb89880ff6f1dad0e47492559c",
         "preMerge": [
           {
             "workflow": "ci.yml",

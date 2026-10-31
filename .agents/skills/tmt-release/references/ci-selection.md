@@ -49,6 +49,14 @@ owns Java/Node/firebase-tools pins. Remote uses hosted Temurin; Colab's digest-p
 image uses the same pins, `--rm --init --network none`, a read-only extension mount
 and no credentials. Both fail closed within step bounds, without retries or cache.
 
+[Remote squads emulator qualifier](../../../../.github/workflows/remote-squads-emulator.yml)
+is advisory and outside required aggregates: PRs and main pushes touching Remote Rust,
+the workflow, its script, `rust/Cargo.toml` or `rust/Cargo.lock` run
+[the qualifier script](../../../../typescript/scripts/remote-squads-qualifier.mjs). It reads
+the Remote squads README command at run time, because Remote's emulator guard keeps the
+default-off feature out of `.github/`. It runs against loopback Auth and Firestore emulators
+with the same pins and compiles first, so the qualifier step stays bounded at 10 minutes.
+
 ## Worker gates
 
 `Native Rust contracts` aggregates fmt/Clippy, workspace test/build, native process
@@ -71,6 +79,9 @@ Native-process contracts retain a 20-minute job limit and unchanged test deadlin
 adapter environment slice), component scope requires shard 1 when its `scopedChecks.e2eFiles`
 names files and neither for an explicit empty list (the job skips on an empty file list, which
 the harness would read as every file), and no native selection requires neither.
+A component scope applies only when every native path it changes matches a map rule; an
+unmapped path keeps full scope. Its required `scopedChecks.unitTests` keeps the Linux
+runtime builds and Unit tests when true; a missing or non-boolean value rejects the map.
 Vitest and the splitter discover identical retained files; the guard rejects zero
 or double membership. Pinned Node runs the built-in-only wrapper on the host;
 pnpm activation/frozen install belong to the image. Only the hosted `ubuntu-latest`
@@ -142,6 +153,8 @@ other workers restore only. The process cache is cold until its first main save.
 `ci.yml` sets `SEGMENT_DOWNLOAD_TIMEOUT_MINS: '2'`, so a throttled or stalled restore
 (Actions cache egress limit) becomes a miss within two minutes, and every
 `setup-buildx-action` sets `cache-binary: false` to download its pinned binary (#5708).
+Artifact downloads in CI jobs and the release manifest step retry once after 45
+seconds within a bounded step; a second failure fails the job (#5743).
 CI disables dev debug info/incremental compilation; release profiles follow manifests.
 [Native release verification](native-release.md#cli-upgrade-proof) owns release/adapter caches.
 
@@ -252,7 +265,8 @@ different producer refuses. Recovery reads GET only, <=20 requests/90 seconds;
 single attempts make no recovery calls or added job/step. Only the collector has
 `actions: read`, with the reusable caller's matching ceiling.
 
-Downloads use `actions/download-artifact@v8`, `digest-mismatch: error`; uploads use
+Downloads use `actions/download-artifact@v8`, `digest-mismatch: error`, through the
+[retry action](../../../../.github/actions/download-artifact-retry/action.yml); uploads use
 v4. Original artifact IDs and `selection.json` retain job/artifact identities/result
 hashes with unchanged aggregate counts and exact-once proof. Failed-jobs recovery
 is [qualified for unchanged-source K=2](https://github.com/pj-tmt/tmt/issues/3571#issuecomment-6250385665)
