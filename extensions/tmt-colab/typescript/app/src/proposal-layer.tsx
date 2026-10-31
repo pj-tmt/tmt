@@ -305,14 +305,17 @@ export function useProposalLayer({
   }
   const proposals = (view.threads ?? []).filter((thread) => thread.proposal && !thread.deleted);
   proposalContext.current = { discussionBlocked, snapshot, view, binding };
-  const navigation: NeedsYouCandidate[] = proposals.map((thread) => ({
-    kind: 'proposal',
-    state:
-      !thread.resolved && (!thread.decision || thread.decision.deleted) ? 'waiting' : 'settled',
-    id: thread.proposal!.proposalId,
-    title: thread.proposal!.title,
-    agents: [thread.proposal!.proposer.label],
-  }));
+  const navigation: NeedsYouCandidate[] = proposals
+    .filter((thread) => slotPositions.some((slot) => slot.id === thread.threadId && !slot.hidden))
+    .map((thread) => ({
+      version: JSON.stringify([thread.proposal, thread.revision, thread.status?.ref]),
+      kind: 'proposal',
+      state:
+        !thread.resolved && (!thread.decision || thread.decision.deleted) ? 'waiting' : 'settled',
+      id: thread.proposal!.proposalId,
+      title: thread.proposal!.title,
+      agents: [thread.proposal!.proposer.label],
+    }));
   return {
     navigation,
     jump: (id: string) => {

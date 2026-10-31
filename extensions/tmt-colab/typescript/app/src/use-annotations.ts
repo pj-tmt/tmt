@@ -48,6 +48,8 @@ export function useAnnotations({
   const currentRectangle = useRef<SelectionRect | null>(null);
   const [annotation, setAnnotation] = useState<{
     key: string;
+    /** Dismissal hides a pending send's window without ending its composer lifetime. */
+    hidden?: boolean;
     selector: QuoteSelector | null;
     rectangle: SelectionRect;
     thread?: DiscussionRef;
@@ -122,6 +124,18 @@ export function useAnnotations({
     };
   }, [snapshot.id, transport.drafts]);
   const annotate = useCallback(() => {
+    const retained = annotationRef.current;
+    if (
+      retained?.hidden &&
+      JSON.stringify(retained.selector) === JSON.stringify(currentSelector.current)
+    ) {
+      setAnnotation({
+        ...retained,
+        hidden: false,
+        rectangle: currentRectangle.current ?? retained.rectangle,
+      });
+      return;
+    }
     if (
       annotationBusy.current ||
       statusBusy.current ||
@@ -147,8 +161,13 @@ export function useAnnotations({
     annotationDraft.current.edited !== false && annotationDraft.current.value.trim() !== '';
   /** Closes without losing typed text: it comes back when the same selection is annotated again. */
   function closeAnnotation(focusPage: boolean) {
-    // A send in flight is not interrupted by the ×, Escape, an outside press or a cleared selection.
-    if (!annotation || annotationBusy.current || statusBusy.current) return;
+    if (!annotation || annotation.hidden || statusBusy.current) return;
+    if (annotationBusy.current) {
+      setAnnotation({ ...annotation, hidden: true });
+      setRectangle(currentRectangle.current);
+      if (focusPage) queueMicrotask(() => host.current?.querySelector('iframe')?.focus());
+      return;
+    }
     const key = annotationKey(annotation);
     keepDraft(key, typed() || annotationDraft.current.edited ? annotationDraft.current : null);
     annotationDraft.current = { value: '' };
@@ -164,7 +183,7 @@ export function useAnnotations({
     if (annotation && (annotation.thread || !typed())) closeAnnotation(false);
   };
   useEffect(() => {
-    if (!annotation) return;
+    if (!annotation || annotation.hidden) return;
     const outside = (event: PointerEvent) => {
       if (environment.modalOpen()) return;
       const target = event.target;
@@ -179,6 +198,16 @@ export function useAnnotations({
     return () => document.removeEventListener('pointerdown', outside, true);
   }, [annotation, environment]);
   function openThread(ref: DiscussionRef, { revealInPage = true } = {}) {
+    const retained = annotationRef.current;
+    if (
+      retained?.hidden &&
+      retained.thread?.writer === ref.writer &&
+      retained.thread.id === ref.id
+    ) {
+      setAnnotation({ ...retained, hidden: false });
+      if (revealInPage) renderer.current?.scrollAnchor(`${ref.writer}:${ref.id}`);
+      return;
+    }
     if (annotationBusy.current || statusBusy.current) return;
     const id = `${ref.writer}:${ref.id}`;
     if (annotationRef.current) closeRef.current(false);

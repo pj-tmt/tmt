@@ -19,7 +19,7 @@ import type { DocumentFiles } from '../src/document-files.js';
 import { AttachmentReadError } from '../src/attachments.js';
 import { ExportBundle } from '../src/export.js';
 import type { QuoteSelector, ThreadView } from '../src/thread-records.js';
-import type { Projection } from '../src/fold-protocol.js';
+import type { JsonValue, Projection } from '../src/fold-protocol.js';
 import type { PageView, PageBinding, PageTransport } from '../src/transport.js';
 import { createAppRouter } from '../src/router.js';
 import { rememberPages } from '../src/quick-switcher-source.js';
@@ -67,6 +67,10 @@ const SUBPAGE_WORK: NonNullable<PageView['work']> = {
     'T-1': { title: 'Sub-page', state: 'todo', child: '20000000-0000-4000-8000-000000000002' },
   },
 };
+let attentionFailure = false;
+export function failAttentionOnce() {
+  attentionFailure = true;
+}
 let registryAgents: readonly AgentDestination[] = [];
 let admitFixtureQuestions = true;
 let seen: ThreadStatusSeen | undefined;
@@ -248,6 +252,10 @@ function sessionDrafts(mode: 'session' | 'failing' | 'split', wait?: Promise<voi
 export async function mount(
   options: {
     creator?: boolean;
+    /** Expose each real Ask own-publication for pending-send lifecycle scenarios. */
+    observeSend?: boolean;
+    /** Viewer-owned records survive this private fixture's reload. */
+    persistAttention?: boolean;
     /** Comment-capable binding without the independent Ask facade. */
     commentOnly?: boolean;
     /** A bounded preparation fault before any intent exists. */
@@ -354,10 +362,13 @@ export async function mount(
       ]
     : [];
   admitFixtureQuestions = true;
+  attentionFailure = false;
   current = {
     source: '<p id="selected">Exact selected text</p>',
     title: 'Live shared page',
-    own: {},
+    own: options.persistAttention
+      ? JSON.parse(sessionStorage.getItem('test:attention-own') ?? '{}')
+      : {},
     ...(options.discussionPending ? { discussionPending: true } : { asks: records, threads: [] }),
     publisherAgent: 'Agent 1',
     ...(options.layout ? { layout: options.layout } : {}),
@@ -440,6 +451,30 @@ export async function mount(
       const fixture = fixtureAttempt(captured, input.destination, {
         retryOf: input.retryOf,
         mode: askRefusals-- > 0 ? 'refused' : 'accepted',
+        ...(options.observeSend
+          ? {
+              published: async (
+                views: readonly import('../src/ask-records.js').AskLedgerView[],
+              ) => {
+                records = views.map((view) => ({
+                  thread: view.intent.thread,
+                  messageIds: view.intent.messageIds,
+                  operationId: view.intent.operationId,
+                  writer: view.writer,
+                  message: view.intent.message,
+                  agent: view.intent.agent,
+                  agentName: view.agentName,
+                  deviceName: view.deviceName,
+                  issuedAt: view.intent.issuedAt,
+                  machine: view.intent.machine,
+                  state: view.state,
+                  canTrack: true,
+                }));
+                current = { ...current, asks: records };
+                emit();
+              },
+            }
+          : {}),
       });
       if (preparing) await preparing;
       const result = await fixture;
@@ -757,6 +792,32 @@ export async function mount(
       throw new Error('Not used');
     },
     deviceId: id(4),
+    scope: { spaceId: selection().space, pageId: id(1), epoch: '1' },
+    async acknowledgeNeedsYou(items) {
+      if (!items.length) return;
+      if (attentionFailure) {
+        attentionFailure = false;
+        throw new Error('Acknowledgement refused');
+      }
+      const actionId = crypto.randomUUID();
+      const own = structuredClone(current.own ?? {});
+      const writer = (own[id(4)] ??= { threads: {}, messages: {}, intents: {}, replies: {} });
+      writer.messages[`${actionId}:needs-you-handled`] = {
+        version: 1,
+        kind: 'needs-you-handled',
+        spaceId: selection().space,
+        pageId: id(1),
+        epoch: '1',
+        senderDevice: id(4),
+        actionId,
+        at: String(Date.now()),
+        items: structuredClone(items) as unknown as JsonValue,
+      };
+      current = { ...current, own };
+      if (options.persistAttention)
+        sessionStorage.setItem('test:attention-own', JSON.stringify(own));
+      emit();
+    },
     async createChat(body, attach) {
       await replyGate.held;
       if (replyGate.fail) {

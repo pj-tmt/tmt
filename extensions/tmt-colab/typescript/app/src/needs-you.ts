@@ -1,7 +1,14 @@
+import { needsYouKey } from './needs-you-acknowledgement.js';
 import { canonicalQuestionThread, currentAnswer, type Question } from './questions.js';
 import type { ThreadView } from './thread-records.js';
 
-type Target = { id: string; title: string; agents: readonly string[]; targetId?: string };
+type Target = {
+  id: string;
+  title: string;
+  agents: readonly string[];
+  targetId?: string;
+  version?: string;
+};
 export type NeedsYouCandidate = Target &
   (
     | { kind: 'proposal'; state: 'waiting' | 'settled' }
@@ -18,6 +25,7 @@ export type NeedsYouCandidate = Target &
 export function pendingNeedsYou(
   candidates: readonly NeedsYouCandidate[],
   registeredQuestions = false,
+  handled: ReadonlySet<string> = new Set(),
 ): NeedsYouCandidate[] {
   const seen = new Set<string>();
   const pending = {
@@ -31,7 +39,13 @@ export function pendingNeedsYou(
       // Registered questions retain their own target even when legacy markup reused an ID for
       // a reading/review/proposal. Other passage kinds keep their existing cross-kind dedup.
       const key = JSON.stringify([registeredQuestions && kind === 'answer', item.id]);
-      if (item.kind !== kind || item.state !== pending[kind] || seen.has(key)) return false;
+      if (
+        item.kind !== kind ||
+        item.state !== pending[kind] ||
+        seen.has(key) ||
+        handled.has(needsYouKey(item))
+      )
+        return false;
       seen.add(key);
       return true;
     }),

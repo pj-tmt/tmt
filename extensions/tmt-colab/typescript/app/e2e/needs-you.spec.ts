@@ -270,7 +270,8 @@ for (const width of [1440, 390])
         'Please answer · 1',
         'Please confirm · 1',
       ]);
-      await expect(menu.getByRole('menuitem')).toHaveCount(3);
+      await expect(menu.locator('[data-needs-you-kind]')).toHaveCount(3);
+      await expect(menu.getByRole('menuitem', { name: 'Clear all', exact: true })).toBeVisible();
       // Each row: the agent's round initials mark (decorative, the name is in the row), the title and
       // the agent under it (#4503).
       const avatars = menu.locator('.needs-you-header-row .tmt-ui-avatar');
@@ -592,4 +593,121 @@ test('separate placements count each registered question and name the remaining 
     page.locator('.question-card:visible').getByLabel('Your answer', { exact: true }),
   ).toBeFocused();
   expect(await run(page, 'discussionProof')).toEqual(records);
+});
+
+test('removed question targets leave Needs you while their registered records remain', async ({
+  page,
+}) => {
+  await page.goto('/');
+  await run(page, 'mount');
+  await run(page, 'chipPage', { count: 1 });
+  await expect(page.getByRole('button', { name: 'Needs you: 1', exact: true })).toBeVisible();
+  await run(page, 'change', '<p>The question passage was removed.</p>');
+  await expect(page.getByRole('button', { name: /^Needs you:/ })).toHaveCount(0);
+  await expect(
+    page.locator('#ask-page-fixture').getByLabel('✓ Nothing waits', { exact: true }),
+  ).toHaveCount(1);
+});
+
+test('confirmed Clear all survives reload for this viewer and a changed question returns', async ({
+  page,
+}) => {
+  const mountAttention = async () => {
+    await run(page, 'mount', { persistAttention: true });
+    await run(page, 'chipPage', { count: 1 });
+  };
+  await page.goto('/');
+  await mountAttention();
+  const trigger = page.getByRole('button', { name: 'Needs you: 1', exact: true });
+  await trigger.click();
+  await page.getByRole('menuitem', { name: 'Clear all', exact: true }).click();
+  const confirm = page.getByRole('dialog', { name: 'Clear all waiting items?', exact: true });
+  await expect(confirm).toBeVisible();
+  await confirm.getByRole('button', { name: 'Cancel', exact: true }).click();
+  await expect(trigger).toBeVisible();
+  await trigger.click();
+  await page.getByRole('menuitem', { name: 'Clear all', exact: true }).click();
+  await confirm.getByRole('button', { name: 'Clear all', exact: true }).click();
+  await expect(confirm).toBeHidden();
+  await expect(trigger).toHaveCount(0);
+  expect(await run(page, 'discussionProof')).toEqual([]);
+  expect((await run(page, 'proof')).sends).toEqual([]);
+  await page.reload();
+  await mountAttention();
+  await expect(page.locator('[data-inline-chip]')).not.toHaveAttribute('data-detached');
+  await expect(trigger).toHaveCount(0);
+  const source = await run(page, 'currentSource');
+  await run(page, 'change', source.replace('Which list version?', 'A changed question?'));
+  await expect(trigger).toBeVisible();
+});
+
+test('Clear all versions belong to the authored target, not neighboring anchor context', async ({
+  page,
+}) => {
+  await page.goto('/');
+  await run(page, 'mount', { persistAttention: true });
+  const source =
+    '<p>Neighbor text.</p><tmt-review data-id="10000000-0000-4000-8000-000000000601" data-agent="Agent 1"><h2 data-title>Review section</h2><p>Original section body.</p></tmt-review>';
+  await run(page, 'change', source);
+  const trigger = page
+    .locator('#ask-page-fixture')
+    .getByRole('button', { name: 'Needs you: 1', exact: true });
+  await trigger.click();
+  await page.getByRole('menuitem', { name: 'Clear all', exact: true }).click();
+  await page
+    .getByRole('dialog', { name: 'Clear all waiting items?', exact: true })
+    .getByRole('button', { name: 'Clear all', exact: true })
+    .click();
+  await expect(trigger).toHaveCount(0);
+  const neighbor = source.replace('Neighbor text.', 'Different neighboring text.');
+  await run(page, 'change', neighbor);
+  await expect(page.locator('[data-inline-review]')).not.toHaveAttribute('data-detached');
+  await expect(trigger).toHaveCount(0);
+  await run(page, 'change', neighbor.replace('Original section body.', 'Changed section body.'));
+  await expect(trigger).toBeVisible();
+});
+
+test('Clear all confirmation keeps its captured list while the page refreshes', async ({
+  page,
+}) => {
+  await page.goto('/');
+  await run(page, 'mount', { persistAttention: true });
+  await run(page, 'chipPage', { count: 1 });
+  const trigger = page.getByRole('button', { name: 'Needs you: 1', exact: true });
+  await trigger.click();
+  await page.getByRole('menuitem', { name: 'Clear all', exact: true }).click();
+  const confirm = page.getByRole('dialog', { name: 'Clear all waiting items?', exact: true });
+  await expect(confirm).toBeVisible();
+  const source = await run(page, 'currentSource');
+  await run(page, 'change', `<p>An unrelated update.</p>${source}`);
+  await expect(confirm).toBeVisible();
+  await confirm.getByRole('button', { name: 'Clear all', exact: true }).click();
+  await expect(confirm).toBeHidden();
+  await expect(trigger).toHaveCount(0);
+});
+
+test('Clear all retains partial completion and retries the remaining acknowledgement', async ({
+  page,
+}) => {
+  await page.goto('/');
+  await run(page, 'mount');
+  await run(page, 'reading', { count: 1 });
+  const source = await run(page, 'currentSource');
+  await run(
+    page,
+    'change',
+    `${source}<tmt-review data-id="10000000-0000-4000-8000-000000000602" data-agent="Agent 1"><h2 data-title>Separate review</h2><p>Review this content.</p></tmt-review>`,
+  );
+  await page.getByRole('button', { name: 'Needs you: 2', exact: true }).click();
+  await page.getByRole('menuitem', { name: 'Clear all', exact: true }).click();
+  const confirm = page.getByRole('dialog', { name: 'Clear all waiting items?', exact: true });
+  await run(page, 'failAttentionOnce');
+  await confirm.getByRole('button', { name: 'Clear all', exact: true }).click();
+  await expect(confirm.getByRole('alert')).toContainText('try again.');
+  const completed = await run(page, 'discussionProof');
+  expect(completed).toHaveLength(1);
+  await confirm.getByRole('button', { name: 'Clear all', exact: true }).click();
+  await expect(confirm).toBeHidden();
+  await expect(page.getByRole('button', { name: /^Needs you:/ })).toHaveCount(0);
+  expect(await run(page, 'discussionProof')).toEqual(completed);
 });

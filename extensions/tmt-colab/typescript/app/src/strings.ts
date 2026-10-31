@@ -210,6 +210,12 @@ export const text = {
   needsYouWord: 'Needs you',
   needsYouLabel: (count: number) => `Needs you: ${count}`,
   needsYouNothing: '✓ Nothing waits',
+  needsYouUnavailable: 'Waiting items unavailable',
+  needsYouClear: 'Clear all',
+  needsYouClearTitle: 'Clear all waiting items?',
+  needsYouClearBody: (count: number) => `Mark these ${count} items as handled for you.`,
+  needsYouClearFailed:
+    'Could not clear every item. Your remaining items are still listed; try again.',
   needsYouGroup: (kind: 'proposal' | 'reading' | 'answer' | 'review', count: number) =>
     `${kind === 'proposal' ? 'Please decide' : kind === 'reading' ? 'Please read' : kind === 'answer' ? 'Please answer' : 'Please confirm'} · ${count}`,
 
@@ -847,6 +853,7 @@ export const text = {
   archived: 'Archived',
   shortcuts: {
     manage: 'Manage shortcuts',
+    manageAction: 'Manage',
     /** The side menu's group and its trailing add row. */
     group: 'Shortcuts',
     addRow: 'New shortcut',
@@ -855,7 +862,7 @@ export const text = {
     deleteRow: (name: string) => `Delete ${name}`,
     saveAs: 'Save as shortcut',
     shortcut: 'Shortcut',
-    saveNote: 'It appears under Shortcuts in the sidebar. Change it later with the gear.',
+    saveNote: 'It appears under Shortcuts in the sidebar. Change it later with Manage.',
     pageCount: (count: number) => `${count} ${count === 1 ? 'page' : 'pages'}`,
     savedList: 'Saved shortcuts',
     empty: 'No shortcuts yet.',

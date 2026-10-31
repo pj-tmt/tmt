@@ -1,5 +1,6 @@
 import type { AskAgainInput } from './ask-again.js';
 import type { AskBinding } from './ask-panel.js';
+import type { PreviewAttempt } from './ask-preview.js';
 import type { AgentDestination } from './live-ask.js';
 import type { AnswerBatchContext, CommentContext } from './thread-store.js';
 
@@ -22,6 +23,7 @@ export async function sendCommentAsks(
     conversation?: CommentContext['conversation'];
   },
   batch?: AnswerBatchContext,
+  settled?: (operationId: string, outcome: Awaited<ReturnType<PreviewAttempt['send']>>) => void,
 ): Promise<MessageSendFailure[]> {
   const failures: MessageSendFailure[] = [];
   for (const destination of destinations) {
@@ -47,6 +49,7 @@ export async function sendCommentAsks(
     }
     try {
       const result = await attempt.send();
+      settled?.(attempt.preview.view.operationId, result);
       if (
         result.adopted === false ||
         (result.adopted === undefined && result.state === 'uncertain')

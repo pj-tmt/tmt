@@ -1972,56 +1972,32 @@ button.discussion-quote:focus-visible {
   align-items: flex-end;
   gap: 8px;
 }
-.selection-mode .tmt-ui-icon-action-control {
-  width: 44px;
-  height: 44px;
-  min-height: 44px;
-}
-/* One capsule holds both actions (#4919): one border, radius and shadow around the group, the actions
-   borderless and divided by a hairline. The shadow is the design system's one overlay shadow. The group
-   does not clip: an action's tooltip stands above it, so each end action carries its own rounded end. */
+/* One capsule owns the dock surface; every action keeps the same token-sized hit target. */
 .page-floating-actions {
+  --tmt-ui-host-icon-action-size: var(--tmt-ui-floating-action-size);
   display: flex;
   align-items: stretch;
-  background: var(--c-sheet);
-  border: 1px solid var(--c-rule);
-  border-radius: 22px;
+  gap: var(--tmt-ui-space-xs);
+  padding: var(--tmt-ui-space-xs);
+  background: var(--tmt-ui-surface-sheet);
+  border: var(--tmt-ui-rule-width) solid var(--tmt-ui-surface-rule);
+  border-radius: var(--tmt-ui-radius-pill);
   box-shadow: var(--tmt-ui-shadow-overlay);
 }
-.page-floating-actions > * + * {
-  border-left: 1px solid var(--c-rule);
-}
 .page-floating-actions .tmt-ui-icon-action-control {
-  height: 44px;
-  min-height: 44px;
+  width: var(--tmt-ui-floating-action-size);
+  height: var(--tmt-ui-floating-action-size);
+  min-height: var(--tmt-ui-floating-action-size);
+  padding: 0;
   border: 0;
-  border-radius: 0;
+  border-radius: var(--tmt-ui-radius-pill);
   background: transparent;
-}
-.page-floating-actions > :first-child .tmt-ui-icon-action-control {
-  border-start-start-radius: 21px;
-  border-end-start-radius: 21px;
-}
-.page-floating-actions > :last-child .tmt-ui-icon-action-control {
-  border-start-end-radius: 21px;
-  border-end-end-radius: 21px;
-}
-.page-floating-actions .tmt-ui-icon-action-control[aria-haspopup='dialog'] {
-  width: auto;
-  min-width: 44px;
-  padding: 0 12px;
-}
-/* The dock holds a plain open-thread count; its slot stays put while threads are verified. */
-.page-floating-actions .tmt-ui-icon-action-control:has(.dock-count) {
-  width: auto;
-  min-width: 44px;
-  padding: 0 12px;
 }
 .dock-count {
   display: inline-flex;
   align-items: center;
-  gap: 2px;
-  font: 12px var(--f-mono);
+  gap: var(--tmt-ui-space-xs);
+  font: var(--tmt-ui-type-caption-size) var(--tmt-ui-font-mono);
 }
 .dock-count[data-pending] {
   min-width: 1ch;
@@ -2030,10 +2006,7 @@ button.discussion-quote:focus-visible {
 .tmt-ui-panel[data-floating-discussion] {
   transition: display var(--tmt-ui-motion-base) allow-discrete;
 }
-.chat-unread {
-  color: var(--c-waiting);
-  font-size: 12px;
-}
+
 .selection-mode .tmt-ui-icon-action-control[aria-pressed='true'] {
   width: auto;
   padding: 0 14px;
@@ -2043,12 +2016,12 @@ button.discussion-quote:focus-visible {
 .selection-mode .tmt-ui-icon-action-icon {
   width: auto;
   height: auto;
-  gap: 8px;
+  gap: var(--tmt-ui-space-xs);
 }
 .selection-mode .tmt-ui-icon-action-icon > svg {
-  width: 16px;
-  height: 16px;
-  stroke-width: 1.75;
+  width: var(--tmt-ui-header-icon-size);
+  height: var(--tmt-ui-header-icon-size);
+  stroke-width: var(--tmt-ui-header-icon-stroke);
   stroke-linecap: round;
   stroke-linejoin: round;
 }

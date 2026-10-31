@@ -3560,6 +3560,8 @@ function createMenuController(options) {
 * of Remote's describe contract; an unknown name falls back to `box`.
 */
 var shellIconNodes = {
+	list: [["path", { d: "M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01" }]],
+	bookmark: [["path", { d: "m19 21-7-4-7 4V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z" }]],
 	plus: [["path", { d: "M12 5v14M5 12h14" }]],
 	"grip-vertical": [
 		["circle", {
@@ -5646,12 +5648,12 @@ function createShellTopBar(root, bar, navigation, railSearch) {
 }
 //#endregion
 //#region ../../../../design/browser-ui/src/shell.ts
-/** The counts a menu entry draws, in order: a plain total only above zero (a page list of none has
-* nothing to count), then the needs-you count, which exists only above zero. */
+/** Bounded count values, omitting zero and unknown. The renderer draws attention as a dot
+* before the plain total and retains its count in the accessible description. */
 function entryCounts(item) {
 	return [...item.total && item.total > 0 ? [shellCount(item.total, "plain")] : [], ...item.count && item.count.text !== "0" ? [item.count] : []];
 }
-/** Counts above 99 read `99+`; needs-you counts carry the ◆ mark and colour. */
+/** Count text is bounded at `99+`; the renderer uses attention as a dot and spoken count. */
 function shellCount(value, kind = "needs-you") {
 	return {
 		text: countText(value),
@@ -5835,13 +5837,18 @@ function icon(document, name) {
 	}
 	return svg;
 }
-function count(document, value) {
+function count(document, text) {
 	const badge = document.createElement("span");
 	badge.className = "tmt-ui-shell-count";
-	if (value.needsYou) badge.dataset.kind = "needs-you";
-	badge.textContent = value.text;
+	badge.textContent = text;
 	badge.setAttribute("aria-hidden", "true");
 	return badge;
+}
+function attention(document) {
+	const dot = document.createElement("span");
+	dot.className = "tmt-ui-attention-dot";
+	dot.setAttribute("aria-hidden", "true");
+	return dot;
 }
 /**
 * The one selected row a menu shows: the first current entry, where a current child selects
@@ -5996,6 +6003,7 @@ function mountShell(root, view, select) {
 		label.className = "tmt-ui-module-menu-label";
 		label.textContent = item.label;
 		if (!item.note) label.title = item.label;
+		if (item.icon) anchor.append(icon(document, item.icon));
 		anchor.append(label);
 		if (item.emphasis === "unread") {
 			anchor.dataset.emphasis = "unread";
@@ -6005,11 +6013,20 @@ function mountShell(root, view, select) {
 			anchor.append(spoken);
 		}
 		const shown = entryCounts(item);
+		const total = shown.find((value) => !value.needsYou);
+		const waiting = shown.find((value) => value.needsYou);
 		if (shown.length || item.actions?.length) {
 			const counts = document.createElement("span");
 			counts.className = "tmt-ui-shell-counts";
-			for (const value of shown) counts.append(count(document, value));
+			if (waiting) counts.append(attention(document));
+			if (total) counts.append(count(document, total.text));
 			anchor.append(counts);
+		}
+		if (shown.length) {
+			const summary = [total && `${item.total ?? total.text} total`, waiting && `${waiting.text} need you`].filter(Boolean).join(", ");
+			anchor.setAttribute("aria-label", `${item.label}${item.emphasis === "unread" ? " unread" : ""} · ${summary}`);
+			anchor.title = item.note ? `${summary} · ${item.note}` : summary;
+			tipFor(anchor, `${item.label} · ${anchor.title}`);
 		}
 		return anchor;
 	};
@@ -6123,7 +6140,7 @@ function mountShell(root, view, select) {
 				label.textContent = group.label ?? "";
 				label.title = group.label ?? "";
 				heading.append(label);
-				if (group.action) heading.append(command("tmt-ui-rail-group-action", group.action, () => latest.menu?.groups[index]?.action?.onActivate(), group.action.icon));
+				if (group.action) heading.append(command(`tmt-ui-rail-group-action${group.action.icon ? "" : " tmt-ui-rail-group-text-action"}`, group.action, () => latest.menu?.groups[index]?.action?.onActivate(), group.action.icon));
 				entries = document.createElement("ul");
 				entries.className = "tmt-ui-rail-sub-items";
 				if (group.label) entries.setAttribute("aria-label", group.label);
@@ -6167,12 +6184,15 @@ function mountShell(root, view, select) {
 			const badge = item.count?.needsYou && item.count.text !== "0" ? item.count : void 0;
 			if (badge) anchor.setAttribute("aria-label", `${item.label}, ${badge.text}${badge.text === "1" ? " needs you" : " need you"}`);
 			anchor.title = item.note ?? item.label;
-			if (item.note) tipFor(anchor, `${item.label}: ${item.note}`);
+			if (item.note && !badge) tipFor(anchor, `${item.label}: ${item.note}`);
 			const label = document.createElement("span");
 			label.className = "tmt-ui-rail-label";
 			label.textContent = item.label;
 			anchor.append(icon(document, item.icon), label);
-			if (badge) anchor.append(count(document, badge));
+			if (badge) {
+				anchor.append(attention(document));
+				tipFor(anchor, `${item.label}, ${badge.text} need you${item.note ? `: ${item.note}` : ""}`);
+			}
 			const row = document.createElement("li");
 			row.append(anchor);
 			if (item === current && pages) row.append(nested(pages, selected));

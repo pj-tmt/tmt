@@ -508,7 +508,7 @@ test.describe('the door serving the TMT app', () => {
         true,
       );
       expect(await moduleLinks.allTextContents()).toEqual(items);
-      await expect(rail.getByRole('link', { name: 'All pages', exact: true })).toBeVisible();
+      await expect(rail.getByRole('link', { name: /^All pages(?: · .+)?$/ })).toBeVisible();
     });
 
     test('moving between routes never runs out of this device’s sessions', async ({ page }) => {

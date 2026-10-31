@@ -313,6 +313,7 @@
 }
 /* The current module's pages, nested under it. */
 .tmt-ui-rail-sub {
+  --tmt-ui-rail-sub-icon-size: var(--tmt-ui-space-l);
   display: grid;
   /* Keep long names inside the rail instead of giving the nested grid a content-sized track. */
   grid-template-columns: minmax(0, 1fr);
@@ -334,13 +335,12 @@
   align-items: center;
   justify-content: space-between;
   gap: var(--tmt-ui-space-xs);
-  min-height: var(--tmt-ui-control-size);
-  padding: var(--tmt-ui-space-xs) var(--tmt-ui-rail-sub-padding-inline);
-  color: var(--tmt-ui-color-disabled-text);
-  font: var(--tmt-ui-eyebrow-weight) var(--tmt-ui-eyebrow-size) / var(--tmt-ui-caption-line-height)
-    var(--tmt-ui-font-body);
-  letter-spacing: var(--tmt-ui-eyebrow-tracking);
-  text-transform: uppercase;
+  box-sizing: border-box;
+  min-height: var(--tmt-ui-rail-group-height);
+  height: var(--tmt-ui-rail-group-height);
+  padding: 0 var(--tmt-ui-rail-sub-padding-inline);
+  color: var(--tmt-ui-color-secondary);
+  font: var(--tmt-ui-type-label-size) / var(--tmt-ui-type-label-line-height) var(--tmt-ui-font-body);
 }
 .tmt-ui-rail-sub-item {
   gap: var(--tmt-ui-space-s);
@@ -353,27 +353,40 @@
   line-height: 1.25;
 }
 /* The same indent applies to every child and its heading, including named groups. */
-.tmt-ui-rail-sub .tmt-ui-rail-sub-item,
-.tmt-ui-rail-sub-group {
+.tmt-ui-rail-sub .tmt-ui-rail-sub-item {
   padding-inline-start: var(--tmt-ui-rail-sub-label-start);
+}
+.tmt-ui-rail-sub a.tmt-ui-rail-sub-item:has(> .tmt-ui-shell-icon),
+.tmt-ui-rail-sub-group {
+  padding-inline-start: var(--tmt-ui-rail-sub-padding-inline);
 }
 .tmt-ui-rail-sub-group > span {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+a.tmt-ui-rail-sub-item > .tmt-ui-shell-icon {
+  width: var(--tmt-ui-rail-sub-icon-size);
+  height: var(--tmt-ui-rail-sub-icon-size);
+}
 .tmt-ui-rail-group-action {
   display: grid;
   place-items: center;
   flex-shrink: 0;
-  width: var(--tmt-ui-control-size);
-  height: var(--tmt-ui-control-size);
+  width: var(--tmt-ui-rail-group-height);
+  height: var(--tmt-ui-rail-group-height);
   padding: 0;
   border: 0;
   border-radius: var(--tmt-ui-radius);
   background: transparent;
   color: var(--tmt-ui-color-secondary);
   cursor: pointer;
+}
+.tmt-ui-rail-group-text-action {
+  width: auto;
+  color: var(--tmt-ui-color-accent);
+  font: inherit;
+  font-weight: var(--tmt-ui-type-h3-weight);
 }
 .tmt-ui-rail-group-action:hover {
   background: var(--tmt-ui-surface-hover);
@@ -507,17 +520,17 @@
 }
 .tmt-ui-shell-count {
   box-sizing: border-box;
-  min-width: 20px;
+  min-width: 0;
   margin-left: auto;
-  padding: var(--tmt-ui-rail-count-padding-block) var(--tmt-ui-space-s);
-  border-radius: var(--tmt-ui-radius-pill);
-  background: color-mix(in srgb, var(--tmt-ui-color-secondary) 35%, var(--tmt-ui-surface-sheet));
-  color: var(--tmt-ui-color-text);
-  font: var(--tmt-ui-rail-count-size)/1 var(--tmt-ui-font-body);
-  text-align: center;
+  padding: 0;
+  color: var(--tmt-ui-color-secondary);
+  font: var(--tmt-ui-type-caption-size)/1 var(--tmt-ui-font-body);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
 }
 .tmt-ui-shell-counts {
   display: flex;
+  align-items: center;
   gap: var(--tmt-ui-space-xs);
   flex-shrink: 0;
   margin-left: auto;
@@ -525,10 +538,22 @@
 .tmt-ui-shell-counts > .tmt-ui-shell-count {
   margin-left: 0;
 }
-/* A needs-you count is a small amber pill; with nothing waiting there is no count to draw. */
-.tmt-ui-shell-count[data-kind='needs-you'] {
-  background: var(--tmt-ui-surface-waiting-soft);
-  color: var(--tmt-ui-color-waiting);
+.tmt-ui-attention-dot {
+  display: inline-block;
+  flex: none;
+  width: var(--tmt-ui-attention-dot-size);
+  height: var(--tmt-ui-attention-dot-size);
+  border-radius: var(--tmt-ui-radius-pill);
+  background: var(--tmt-ui-color-waiting);
+}
+.tmt-ui-attention-dot[data-placement='overlay'] {
+  position: absolute;
+  top: var(--tmt-ui-space-s);
+  right: var(--tmt-ui-space-s);
+  outline: var(--tmt-ui-attention-dot-ring-width) solid var(--tmt-ui-surface-sheet);
+}
+.tmt-ui-rail-item > .tmt-ui-attention-dot {
+  margin-left: auto;
 }
 .tmt-ui-rail-item[aria-disabled='true'],
 .tmt-ui-module-menu-item[aria-disabled='true'],

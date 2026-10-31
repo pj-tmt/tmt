@@ -94,6 +94,18 @@ let echoHost = false;
 export function setEchoHost(value: boolean) {
   echoHost = value;
 }
+let publicationGate: Promise<void> | undefined;
+let releasePublication: (() => void) | undefined;
+export function holdAskPublication() {
+  publicationGate = new Promise<void>((resolve) => {
+    releasePublication = resolve;
+  });
+}
+export function releaseAskPublication() {
+  releasePublication?.();
+  publicationGate = undefined;
+  releasePublication = undefined;
+}
 let publishVerified: (() => void) | undefined;
 /** The verified view republishes with the last recorded message, as the live projection would. */
 export function publishRecorded() {
@@ -206,10 +218,10 @@ export function mount(
       };
     },
     async createChat(body) {
-      return this.create(body, null);
+      return { ...(await this.create(body, null)), thread: chatRef };
     },
-    async reply(_ref, body) {
-      return this.create(body, null);
+    async reply(thread, body) {
+      return { ...(await this.create(body, null)), thread };
     },
     async edit() {
       throw new Error('Not used');
@@ -313,19 +325,47 @@ export function mount(
         captured.push(input);
         const refused = ['partial-refusal', 'core-refusal'].includes(mode) && preparations === 1;
         const refusal = mode === 'core-refusal' ? 'REMOTE_CORE_UNAVAILABLE' : 'REMOTE_RATE_LIMITED';
-        const result = await fixtureAttempt({ ...selection(), ...input }, input.destination, {
-          mode:
-            mode === 'partial-preparation' ||
-            mode === 'partial-refusal' ||
-            mode === 'core-refusal' ||
-            mode === 'no-adoption' ||
-            mode === 'unknown-adoption'
-              ? 'accepted'
-              : mode === 'multi' || mode === 'discovery-failure' || mode === 'write-failure'
-                ? 'held'
-                : mode,
-          operationId: crypto.randomUUID(),
-        });
+        const result = await fixtureAttempt(
+          {
+            ...selection(),
+            ...input,
+            thread: input.context?.thread.id ?? selection().thread,
+            messageIds: input.context ? [input.context.message.id] : [],
+          },
+          input.destination,
+          {
+            mode:
+              mode === 'partial-preparation' ||
+              mode === 'partial-refusal' ||
+              mode === 'core-refusal' ||
+              mode === 'no-adoption' ||
+              mode === 'unknown-adoption'
+                ? 'accepted'
+                : mode === 'multi' || mode === 'discovery-failure' || mode === 'write-failure'
+                  ? 'held'
+                  : mode,
+            operationId: crypto.randomUUID(),
+            async published(views) {
+              setRecords(
+                views.map((view) => ({
+                  thread: view.intent.thread,
+                  messageIds: view.intent.messageIds,
+                  operationId: view.intent.operationId,
+                  writer: view.writer,
+                  message: view.intent.message,
+                  agent: view.intent.agent,
+                  agentName: view.agentName,
+                  deviceName: view.deviceName,
+                  issuedAt: view.intent.issuedAt,
+                  machine: view.intent.machine,
+                  state: view.state,
+                  canTrack: true,
+                })),
+              );
+              await publicationGate;
+            },
+          },
+        );
         if (refused)
           result.remote.send = async (input) => {
             result.remote.sends.push(input);
@@ -343,7 +383,7 @@ export function mount(
             const state = await result.attempt.send();
             allSends.push(...result.remote.sends);
             const record: PageAsk = {
-              thread: ref.id,
+              thread: input.context?.thread.id ?? ref.id,
               messageIds: [id(3)],
               operationId: result.attempt.preview.view.operationId,
               writer: id(4),
@@ -358,7 +398,10 @@ export function mount(
               canTrack: true,
               ...(refused ? { reason: refusal } : {}),
             };
-            setRecords((previous) => [...previous, record]);
+            setRecords((previous) => [
+              ...previous.filter((row) => row.operationId !== record.operationId),
+              record,
+            ]);
             return state;
           },
         };
@@ -389,7 +432,13 @@ export function mount(
               messageId: id(3),
               ref: { writer: id(4), id: id(3) },
               thread: previous.ref,
-              body: (captured.at(-1) as { body: string }).body,
+              body: (
+                [...captured]
+                  .reverse()
+                  .find((value) => !!value && typeof value === 'object' && 'body' in value) as {
+                  body: string;
+                }
+              ).body,
               at: String(Date.now()),
               sequence: String(previous.comments.length + 1),
             },

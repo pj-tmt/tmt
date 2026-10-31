@@ -816,14 +816,24 @@ export function Home() {
           />
         </span>
         <span className="page-list-compact-create" inert={!compact}>
-          <BrowserAction
-            type="button"
-            variant="primary"
-            presentation="compact"
-            label={t.newPage}
-            leadingIcon={<Plus size={14} />}
-            onActivate={() => setNewPage(true)}
-          />
+          {phone ? (
+            <BrowserIconAction
+              type="button"
+              variant="primary"
+              label={t.newPage}
+              icon={<Plus />}
+              onActivate={() => setNewPage(true)}
+            />
+          ) : (
+            <BrowserAction
+              type="button"
+              variant="primary"
+              presentation="compact"
+              label={t.newPage}
+              leadingIcon={<Plus />}
+              onActivate={() => setNewPage(true)}
+            />
+          )}
         </span>
       </div>
     </>

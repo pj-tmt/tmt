@@ -8,15 +8,19 @@
 /* The Discussion window floats above its measured dock without reflow. */
 .tmt-ui-panel[data-panel][data-floating-discussion] {
   inset: auto var(--discussion-right) var(--discussion-bottom) auto;
-  width: 360px;
-  height: 470px;
-  max-height: calc(100dvh - var(--discussion-bottom) - var(--tmt-ui-header-height) - 12px);
+  width: var(--tmt-ui-dock-width);
+  height: calc(
+    100dvh - var(--discussion-bottom) - var(--colab-header-height) - var(--tmt-ui-space-m)
+  );
+  max-height: calc(
+    100dvh - var(--discussion-bottom) - var(--colab-header-height) - var(--tmt-ui-space-m)
+  );
 }
 
 @media (max-width: 760px) {
   .tmt-ui-panel[data-panel][data-floating-discussion] {
-    left: 12px;
-    right: 12px;
+    left: var(--tmt-ui-space-m);
+    right: var(--tmt-ui-space-m);
     width: auto;
     border-radius: var(--tmt-ui-radius-l);
   }

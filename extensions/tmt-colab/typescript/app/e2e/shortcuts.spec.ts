@@ -25,7 +25,7 @@ const record = (page: Page) =>
 /** The sidebar group owns the Manage entry point. */
 const rail = (page: Page) => page.locator('#list-fixture .tmt-ui-rail-sub');
 const manageShortcuts = (page: Page) =>
-  rail(page).getByRole('button', { name: 'Manage shortcuts', exact: true });
+  rail(page).getByRole('button', { name: 'Manage', exact: true });
 const railShortcuts = (page: Page) => rail(page).locator('a[data-id^="shortcut:"]');
 const selected = (page: Page) => rail(page).locator('[aria-current="page"]');
 test('Save current filters, edit the shortcut, retain drafts on failed storage and keep owner writes untouched', async ({
@@ -410,8 +410,11 @@ test('the side menu lists the shortcuts, selects exactly one row and opens the l
   await mount(page);
   await expect(railShortcuts(page)).toHaveCount(0);
   await expect(selected(page)).toHaveAttribute('data-id', 'all');
-  // + New shortcut opens the list's Save dialog.
-  await rail(page).getByRole('button', { name: 'New shortcut', exact: true }).click();
+  // Saving starts from the list bookmark; the rail has no add row.
+  await expect(rail(page).getByRole('button', { name: 'New shortcut', exact: true })).toHaveCount(
+    0,
+  );
+  await page.getByRole('button', { name: 'Save as shortcut', exact: true }).click();
   const save = page.getByRole('dialog', { name: 'Save as shortcut', exact: true });
   await save.getByRole('textbox', { name: 'Name', exact: true }).fill('Mine');
   await save.getByRole('button', { name: 'Save', exact: true }).click();
@@ -439,7 +442,7 @@ test('the side menu lists the shortcuts, selects exactly one row and opens the l
   await rail(page).locator('a[data-id="colab-settings"]').click();
   await expect(selected(page)).toHaveAttribute('data-id', 'colab-settings');
   await expect(selected(page)).toHaveCount(1);
-  await rail(page).getByRole('button', { name: 'Manage shortcuts', exact: true }).click();
+  await rail(page).getByRole('button', { name: 'Manage', exact: true }).click();
   await expect(page.getByRole('dialog', { name: 'Manage shortcuts', exact: true })).toBeVisible();
   await expect(selected(page)).toHaveAttribute('data-id', 'all');
 });
@@ -458,12 +461,10 @@ test('sidebar shortcut exposes honest counts and row controls without navigation
     new ShortcutStore(pageListSpace).save({ name: 'All work', search: {} });
   });
   const row = rail(page).locator('li[data-menu-item^="shortcut:"]');
-  const link = row.getByRole('link', { name: 'All work' });
-  await expect(link.locator('.tmt-ui-shell-count')).toHaveText(['75', '1']);
-  await expect(link.locator('.tmt-ui-shell-count').last()).toHaveAttribute(
-    'data-kind',
-    'needs-you',
-  );
+  const link = row.getByRole('link', { name: /^All work/ });
+  await expect(link.locator('.tmt-ui-shell-count')).toHaveText(['75']);
+  await expect(link).toHaveAccessibleName('All work · 75 total, 1 need you');
+  await expect(link.locator('.tmt-ui-shell-attention')).toHaveAttribute('aria-hidden', 'true');
   await row.hover();
   await expect(row.getByRole('button', { name: 'Edit All work' })).toBeVisible();
   await expect(row.getByRole('button', { name: 'Delete All work' })).toBeVisible();
@@ -490,7 +491,7 @@ test('sidebar edit, delete and keyboard reorder keep shortcut identity and focus
   const row = (name: string) =>
     rail(page)
       .locator('li[data-menu-item^="shortcut:"]')
-      .filter({ has: page.getByRole('link', { name, exact: true }) });
+      .filter({ has: page.getByText(name, { exact: true }) });
   await expect(railShortcuts(page)).toHaveCount(3);
   await railShortcuts(page).filter({ hasText: 'First' }).click();
   await page.locator('#list-fixture .pages [data-page-id] .tmt-ui-list-title > a').first().click();
@@ -527,7 +528,7 @@ test('sidebar edit, delete and keyboard reorder keep shortcut identity and focus
   await expect(row('Third').getByRole('link', { name: 'Third' })).toBeFocused();
   await row('Third').hover();
   await row('Third').getByRole('button', { name: 'Delete Third' }).click();
-  await expect(rail(page).getByRole('button', { name: 'New shortcut' })).toBeFocused();
+  await expect(rail(page).getByRole('button', { name: 'Manage' })).toBeFocused();
 });
 
 test('a failed sidebar delete keeps the shortcut and reports the failure', async ({ page }) => {
@@ -589,7 +590,7 @@ test('sidebar handle drag persists a move to the target index', async ({ page })
   const row = (name: string) =>
     rail(page)
       .locator('li[data-menu-item^="shortcut:"]')
-      .filter({ has: page.getByRole('link', { name, exact: true }) });
+      .filter({ has: page.getByText(name, { exact: true }) });
   await row('First').hover();
   await row('First').getByRole('button', { name: 'Reorder First' }).dragTo(row('Third'));
   await expect(railShortcuts(page).locator('.tmt-ui-module-menu-label')).toHaveText([
@@ -625,29 +626,30 @@ for (const width of [390, 1440])
       if (width === 390) await page.getByRole('button', { name: 'Open navigation' }).click();
       const row = rail(page)
         .locator('li[data-menu-item^="shortcut:"]')
-        .filter({ has: page.getByRole('link', { name: 'All work', exact: true }) });
+        .filter({ has: page.getByText('All work', { exact: true }) });
       await expect(row).toBeVisible();
       await page.screenshot({ path: info.outputPath('idle.png') });
       await row.hover();
       await page.screenshot({ path: info.outputPath('hover.png') });
       await page.mouse.move(width - 1, 899);
-      await row.getByRole('link', { name: 'All work', exact: true }).focus();
+      await row.getByRole('link').focus();
       await expect(row.getByRole('button', { name: 'Edit All work' })).toBeVisible();
       await page.screenshot({ path: info.outputPath('focus.png') });
-      await row.getByRole('link', { name: 'All work', exact: true }).press('Alt+ArrowDown');
+      await row.getByRole('link').press('Alt+ArrowDown');
       await expect(railShortcuts(page).locator('.tmt-ui-module-menu-label')).toHaveText([
         'Spec',
         'All work',
       ]);
       await page.screenshot({ path: info.outputPath('reordered.png') });
-      await rail(page).getByRole('link', { name: 'Spec', exact: true }).click();
+      await railShortcuts(page)
+        .filter({ has: page.getByText('Spec', { exact: true }) })
+        .click();
       if (width === 390) await page.getByRole('button', { name: 'Open navigation' }).click();
-      await expect(rail(page).getByRole('link', { name: 'Spec', exact: true })).toHaveAttribute(
-        'aria-current',
-        'page',
-      );
+      await expect(
+        railShortcuts(page).filter({ has: page.getByText('Spec', { exact: true }) }),
+      ).toHaveAttribute('aria-current', 'page');
       await page.screenshot({ path: info.outputPath('selected.png') });
-      await row.getByRole('link', { name: 'All work', exact: true }).focus();
+      await row.getByRole('link').focus();
       await row.getByRole('button', { name: 'Edit All work' }).click();
       await expect(page.getByRole('dialog', { name: 'Edit shortcut' })).toBeVisible();
     });
@@ -659,16 +661,14 @@ test('shortcut save action and preview follow the page-list mock', async ({ page
   await expect(hero.getByRole('heading')).toHaveCount(0);
   await expect(save.locator('svg.lucide-bookmark')).toBeVisible();
   await expect(hero.getByRole('button', { name: 'Manage shortcuts', exact: true })).toHaveCount(0);
-  await expect(
-    rail(page).getByRole('button', { name: 'Manage shortcuts', exact: true }),
-  ).toBeVisible();
+  await expect(rail(page).getByRole('button', { name: 'Manage', exact: true })).toBeVisible();
   await save.click();
   const dialog = page.getByRole('dialog', { name: 'Save as shortcut', exact: true });
   await expect(dialog).toHaveCSS('width', '400px');
   await expect(dialog.getByRole('textbox', { name: 'Name', exact: true })).toBeVisible();
   await expect(dialog.locator('.shortcut-summary svg.lucide-funnel')).toBeVisible();
   await expect(
-    dialog.getByText('It appears under Shortcuts in the sidebar. Change it later with the gear.'),
+    dialog.getByText('It appears under Shortcuts in the sidebar. Change it later with Manage.'),
   ).toBeVisible();
   await expect(dialog.getByRole('button', { name: 'Cancel', exact: true })).toBeVisible();
   await expect(dialog.getByRole('button', { name: 'Save', exact: true })).toBeVisible();

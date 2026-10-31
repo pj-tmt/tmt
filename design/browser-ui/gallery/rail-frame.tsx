@@ -57,6 +57,7 @@ function NativeRail({
 export function RailFrame({ params }: { params: URLSearchParams }) {
   const interactive = params.get('interactive') === 'true';
   const tree = params.get('tree') === 'true';
+  const icons = params.get('icons') === 'true';
   const [selected, setSelected] = useState(interactive ? 'project' : tree ? 'night-1' : 'all');
   const [open, setOpen] = useState(['tmt-gui']);
   const [order, setOrder] = useState(['project', 'empty', 'notes']);
@@ -116,6 +117,7 @@ export function RailFrame({ params }: { params: URLSearchParams }) {
               {
                 id: 'all',
                 label: 'All pages',
+                ...(icons ? { icon: 'list' as const } : {}),
                 href: '/colab/',
                 current: selected === 'all',
                 total: 42,
@@ -126,14 +128,15 @@ export function RailFrame({ params }: { params: URLSearchParams }) {
           {
             label: 'Projects',
             action: {
-              label: 'Manage projects',
-              icon: 'settings',
+              label: icons ? 'Manage' : 'Manage projects',
+              ...(icons ? {} : { icon: 'settings' as const }),
               onActivate: () => setStatus(`Manage ${revision}`),
             },
             items: [
               {
                 id: 'project',
                 label: 'Release planning and coordination',
+                ...(icons ? { icon: 'bookmark' as const } : {}),
                 href: '/colab/project',
                 current: selected === 'project',
                 total: 6,
@@ -266,7 +269,7 @@ export function RailFrame({ params }: { params: URLSearchParams }) {
         : undefined;
     }
     return result;
-  }, [selected, revision, interactive, tree, open, order, holdMoves, reorderEnabled]);
+  }, [selected, revision, interactive, tree, icons, open, order, holdMoves, reorderEnabled]);
   const select = (id: string) => {
     setSelected(id);
     return true;

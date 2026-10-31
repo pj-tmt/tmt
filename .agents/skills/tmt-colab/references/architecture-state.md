@@ -194,9 +194,16 @@ canonical admitted URL. A `task=T-n` hint picks which task of the page's own wor
 opens (`WorkBand` `focusTask`, once, and nothing for a task the page lacks); the child page's crumb
 links to its parent page with it. Reader capabilities are unchanged.
 
-`needs-you.ts` combines the admitted layers' pending navigation without a stored count;
-`needs-you-header.tsx` owns only its header menu. Layer-owned jumps scroll/focus existing
-targets and open question disclosures; they never publish an action or create a thread.
+`needs-you.ts` combines the admitted layers' pending navigation without a stored count.
+Only current attached targets enter the header, including registered questions; an unanchored
+item keeps its records. `needs-you-header.tsx` owns the menu and one confirmed Clear all.
+Readings use `ReadingActions.mark` without advancing navigation. Questions, reviews and
+proposals use `needs-you-acknowledgement.ts`: exact item/version acknowledgements published
+by `ThreadStore` in the admitted viewer's own messages. They never answer, decide or close
+a domain item. `use-needs-you-versions.ts` binds each version to the inert authored target HTML
+and admitted owner state with SHA-256, excluding neighboring anchor context; changed items return.
+The captured Clear all confirmation outlives projection refresh. Layer-owned jumps only scroll/focus existing targets
+and open question disclosures.
 
 The main app uses one Colab-local `components/rich-input.tsx` editor lifetime and
 editable surface. `components/message-composer.tsx` configures its mention nodes,
@@ -229,7 +236,11 @@ opens completion at `@` or full-width `＠` after non-address-like text, includi
 `email@host` never routes. No Lexical document is persisted or sent as authority.
 
 `AnnotationInput` owns the draft, trusted action, current content/Ask admission and
-immutable one-comment send capture. `message-send-refusal.ts` shares its button and
+immutable one-comment send capture. An annotation dismissed during Send retains that composer
+hidden until it is reopened or safely replaced; record identity becomes available before delivery
+settles. Echo turns reserve their recipients' status footprint and remain until the original send
+settles and its admitted outcomes replace them, so an intent awaiting its first state cannot flash
+recovery uncertainty. `message-send-refusal.ts` shares its button and
 explicit-submit presentation gates and classifies closed failure references. The
 composer keeps a visible, announced refusal below the field until a deliberate
 text edit, retry or successful Send; saved S2/S13 states stay neutral, without an
@@ -849,6 +860,11 @@ Cancel and its lifecycle action through the shared footer. It only confirms the 
 names the first five titles for bulk actions; Home retains statement submission, busy dismissal
 and verified, awaiting or refused outcomes. The shared dialog owns the divider and action layout.
 
+The list controls retain one flexible search with its chips, Filter and Sort in normal and sticky
+states, separated from tabs and table by `space-l`. All controls use `control-size-l`; the sticky
+bar adds New page, `space-s` vertical padding, paper surface and bottom rule. Phone actions
+are square icon controls. Only the background/rule fade; the editor and commands stay mounted.
+
 The views are the tabs All, Needs you, Discussion, In progress, Done and Archived, in that order
 (`BrowserTabs variant="flat"` with wrapping); `list-stage.ts` owns the stage vocabulary (`HOME_STAGES`,
 `DEFAULT_VIEW`, `HomeView`, `pageStage`, `stageCounts`, `takeStage`). `stage` in the route search selects a stage or `all`, `archived`
@@ -901,6 +917,9 @@ The TMT web shell's module menu (`colab-shell.tsx`, rendered by the leaf's `Brow
 shows All pages, device-local Shortcuts, Dashboards and Colab settings. Shortcuts open their
 saved list filters; the rail uses already remembered page rows and `shortcutCounts` for known
 matching totals and attention counts, omitting values whose required data is unavailable.
+All pages has a list icon; shortcuts have bookmarks, a muted plain total and an attention dot
+whose count remains in the tooltip and accessible name. The sentence-case Shortcuts heading
+has the text Manage command; saving starts from the list bookmark, without a rail add row.
 Shared rail actions open the selected shortcut's editor or delete it; its drag and Alt+Arrow
 requests persist an atomic target-index move through `ShortcutStore`. A failed write is reported.
 The list's `scope` route field remains a base filter: `inScope` (`project-scope.ts`) determines

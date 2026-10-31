@@ -1,6 +1,7 @@
 import { expect, test } from '@playwright/test';
 import { pairBrowser, startDoor } from './harness/browser.js';
-import { createPage, freePort, openPage, run } from './harness/ask.js';
+import { createPage, freePort, openPage, run, patchArgs } from './harness/ask.js';
+import { captureResponsive } from './harness/captures.js';
 import { disposeActiveWorlds, withWorld } from './harness/with-world.js';
 
 test.afterEach(disposeActiveWorlds);
@@ -218,5 +219,115 @@ test('recommended reading records one person read and notification, survives rel
     await expect.poll(() => highlighted(second)).toBe(1);
     expect(listing().filter((thread) => thread.anchor?.exact === 'Next decision')).toHaveLength(0);
     expect(agent.received()).toHaveLength(1);
+  });
+});
+
+test('Clear all persists exact viewer acknowledgements without answering or deciding domain items', async () => {
+  await withWorld(async (world) => {
+    const door = await startDoor(world, await freePort());
+    const agent = await world.startAgent('attention-agent');
+    const author = await pairBrowser(world, 'attention-author', { talk: true });
+    const peer = await pairBrowser(world, 'attention-peer', { talk: true });
+    const source = `<h1>Attention</h1><tmt-read data-id="10000000-0000-4000-8000-000000000501" data-agent="${agent.name}" data-why="Read first"><h2 data-title>Read this section</h2><p>Reading content.</p></tmt-read><p>${'Stable reading context. '.repeat(30)}</p><tmt-question data-id="10000000-0000-4000-8000-000000000502" data-kind="short" data-agent="${agent.name}"><p data-question>Question one?</p></tmt-question><tmt-review data-id="10000000-0000-4000-8000-000000000503" data-agent="${agent.name}"><h2 data-title>Review this section</h2><p>Review content.</p></tmt-review>`;
+    const created = createPage(world, 'Viewer acknowledgements', '<h1>Attention</h1>', agent.pane);
+    run(
+      world,
+      world.binaries.colab,
+      [
+        'question',
+        'add',
+        created.pageId,
+        '--id',
+        '10000000-0000-4000-8000-000000000502',
+        '--agent',
+        agent.name,
+        '--title',
+        'Question one?',
+        '--json',
+      ],
+      undefined,
+      agent.pane,
+    );
+    const proposal = JSON.parse(
+      run(
+        world,
+        world.binaries.colab,
+        [
+          'proposal',
+          'add',
+          created.pageId,
+          '--title',
+          'A proposed change',
+          '--body',
+          'Keep this pending.',
+          '--json',
+        ],
+        undefined,
+        agent.pane,
+      ),
+    );
+    const withProposal = source + `<tmt-proposal data-id="${proposal.proposalId}"></tmt-proposal>`;
+    run(
+      world,
+      world.binaries.colab,
+      patchArgs(world, created.pageId, ['--file', '-', '--json']),
+      withProposal,
+      agent.pane,
+    );
+    const proposals = () =>
+      JSON.parse(run(world, world.binaries.colab, ['proposal', 'ls', created.pageId, '--json']))
+        .proposals;
+    const before = proposals();
+    const page = await openPage(door, author, created);
+    const other = await openPage(door, peer, created);
+    await expect(pending(page, 4)).toBeVisible();
+    await expect(pending(other, 4)).toBeVisible();
+    await pending(page, 4).click();
+    const openMenu = async () => {
+      if (
+        (await page.locator('.needs-you-header-trigger').getAttribute('aria-expanded')) !== 'true'
+      )
+        await pending(page, 4).click();
+      await expect(page.getByRole('menu')).toBeVisible();
+    };
+    await captureResponsive(page, 'needs-you-current-menu', openMenu);
+    await openMenu();
+    await page.getByRole('menuitem', { name: 'Clear all', exact: true }).click();
+    const confirm = page.getByRole('dialog', { name: 'Clear all waiting items?', exact: true });
+    await captureResponsive(page, 'needs-you-clear-confirm');
+    await confirm.getByRole('button', { name: 'Clear all', exact: true }).click();
+    await expect(confirm).toBeHidden();
+    await expect(page.getByRole('button', { name: /^Needs you:/ })).toHaveCount(0);
+    await expect(pending(other, 3)).toBeVisible();
+    expect(proposals()).toEqual(before);
+    const threads = JSON.parse(
+      run(world, world.binaries.colab, ['threads', created.pageId, '--json']),
+    ).threads;
+    const ordinary = threads.filter((thread: { proposal?: unknown }) => !thread.proposal);
+    expect(ordinary).toHaveLength(1);
+    expect(ordinary[0].resolved).toBe(true);
+    expect(ordinary[0].comments.map((comment: { body: string }) => comment.body)).toHaveLength(1);
+    expect(ordinary[0].comments[0].body).toContain('Reading: 10000000-0000-4000-8000-000000000501');
+    await page.reload();
+    await expect(page.getByLabel('✓ Nothing waits', { exact: true })).toHaveCount(1);
+    const changed = withProposal.replace('Question one?', 'Changed question?');
+    run(
+      world,
+      world.binaries.colab,
+      patchArgs(world, created.pageId, ['--file', '-', '--json']),
+      changed,
+      agent.pane,
+    );
+    await expect(pending(page, 1)).toBeVisible();
+    run(
+      world,
+      world.binaries.colab,
+      patchArgs(world, created.pageId, ['--file', '-', '--json']),
+      '<p>All passages removed.</p>',
+      agent.pane,
+    );
+    await expect(page.getByRole('button', { name: /^Needs you:/ })).toHaveCount(0);
+    expect(proposals()).toEqual(before);
+    await captureResponsive(page, 'needs-you-unanchored-empty');
   });
 });

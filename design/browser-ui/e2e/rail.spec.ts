@@ -34,64 +34,34 @@ for (const renderer of ['native', 'react'])
             }),
           );
         const original = await paints();
-        expect(original[0]![1]).not.toBe(original[1]![1]);
-        const pillLook = await counts.evaluate((node) => {
-          const total = node.children[0] as HTMLElement;
-          const attention = node.children[1] as HTMLElement;
-          const rail = node.closest('.tmt-ui-rail')!;
-          const row = node.closest('a')!;
-          const canvas = document.createElement('canvas');
-          canvas.width = canvas.height = 1;
-          const context = canvas.getContext('2d')!;
-          const rgb = (color: string) => {
-            context.fillStyle = color;
-            context.fillRect(0, 0, 1, 1);
-            return [...context.getImageData(0, 0, 1, 1).data].slice(0, 3);
-          };
-          const light = (channels: number[]) =>
-            channels
-              .map((n) => n / 255)
-              .map((n) => (n <= 0.04045 ? n / 12.92 : ((n + 0.055) / 1.055) ** 2.4))
-              .reduce((sum, n, i) => sum + n * [0.2126, 0.7152, 0.0722][i]!, 0);
-          const contrast = (a: number[], b: number[]) =>
-            (Math.max(light(a), light(b)) + 0.05) / (Math.min(light(a), light(b)) + 0.05);
-          const css = getComputedStyle(total);
-          const fill = rgb(css.backgroundColor);
-          const metrics = (element: HTMLElement) => {
-            const style = getComputedStyle(element);
-            return {
-              height: element.getBoundingClientRect().height,
-              padding: style.padding,
-              font: style.fontFamily,
-              size: style.fontSize,
-              minimum: style.minWidth,
-            };
-          };
-          return {
-            total: metrics(total),
-            attention: metrics(attention),
-            body: getComputedStyle(rail).fontFamily,
-            railContrast: contrast(fill, rgb(getComputedStyle(rail).backgroundColor)),
-            selectionContrast: contrast(fill, rgb(getComputedStyle(row).backgroundColor)),
-            textContrast: contrast(fill, rgb(css.color)),
-            neutralSpread: Math.max(...fill) - Math.min(...fill),
-          };
-        });
-        expect(pillLook.total).toEqual(pillLook.attention);
-        expect(pillLook.total.font).toBe(pillLook.body);
-        expect(pillLook.railContrast).toBeGreaterThanOrEqual(1.2);
-        expect(pillLook.selectionContrast).toBeGreaterThanOrEqual(1.2);
-        expect(pillLook.textContrast).toBeGreaterThanOrEqual(4.5);
-        expect(pillLook.neutralSpread).toBeLessThanOrEqual(32);
-
-        await expect(counts.locator('[data-kind="needs-you"]')).toHaveText('3');
+        await expect(counts.locator('.tmt-ui-attention-dot')).toHaveCSS('outline-style', 'none');
+        await expect(counts.locator('.tmt-ui-shell-count')).toHaveCount(1);
+        await expect(counts.locator('.tmt-ui-shell-count')).toHaveText('42');
+        await expect(counts.locator('.tmt-ui-shell-count')).toHaveCSS(
+          'background-color',
+          'rgba(0, 0, 0, 0)',
+        );
+        await expect(counts.locator('.tmt-ui-shell-count')).toHaveCSS('padding', '0px');
+        await expect(counts.locator('.tmt-ui-shell-count')).toHaveCSS(
+          'font-variant-numeric',
+          'tabular-nums',
+        );
+        await expect(counts.locator('.tmt-ui-attention-dot')).toHaveAttribute(
+          'aria-hidden',
+          'true',
+        );
+        await expect(rail.locator('[data-id="all"]')).toHaveAccessibleName(
+          'All pages · 42 total, 3 need you',
+        );
+        await expect(rail.locator('.tmt-ui-rail-sub-group')).toHaveCSS('text-transform', 'none');
+        await expect(rail.locator('.tmt-ui-rail-sub-group')).toHaveCSS('height', '28px');
         const allLabel = rail.locator('[data-id="all"] .tmt-ui-module-menu-label');
         const projectLabel = rail.locator('[data-id="project"] .tmt-ui-module-menu-label');
         const heading = rail.locator('.tmt-ui-rail-sub-group > span');
         const x = (node: typeof allLabel) =>
           node.evaluate((element) => element.getBoundingClientRect().x);
         expect(await x(projectLabel)).toBe(await x(allLabel));
-        expect(await x(heading)).toBe(await x(allLabel));
+        expect((await x(heading)) - (await selected.boundingBox())!.x).toBe(13);
         expect((await x(allLabel)) - (await selected.boundingBox())!.x).toBe(36);
         await expect(projectLabel).toHaveAttribute('title', 'Release planning and coordination');
         await expect(projectLabel).toHaveCSS('text-overflow', 'ellipsis');
@@ -148,3 +118,18 @@ for (const renderer of ['native', 'react'])
         await expect(rail).toHaveCount(0);
         await expect(page.getByRole('tooltip')).toHaveCount(0);
       });
+
+for (const renderer of ['native', 'react'])
+  test(`optional row icons and text group action use the shared renderer in ${renderer}`, async ({
+    page,
+  }) => {
+    await page.goto(`/?frame=rail&icons=true&renderer=${renderer}`);
+    const menu = page.locator('nav.tmt-ui-rail .tmt-ui-rail-sub');
+    await expect(menu.locator('a[data-id="all"] > svg')).toHaveAttribute('aria-hidden', 'true');
+    await expect(menu.locator('a[data-id="project"] > svg')).toHaveAttribute('aria-hidden', 'true');
+    const manage = menu.getByRole('button', { name: 'Manage', exact: true });
+    await expect(manage).toHaveText('Manage');
+    await expect(manage.locator('svg')).toHaveCount(0);
+    await manage.click();
+    await expect(page.getByRole('status')).toHaveText('Manage 0');
+  });

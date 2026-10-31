@@ -138,12 +138,19 @@ export function useReviewLayer({
   }, [snapshot.id]);
 
   const writable = !view.archived && !!snapshot.binding?.discussion;
-  const navigation: NeedsYouCandidate[] = rows.flatMap(({ review, anchor, state }) =>
+  const navigation: NeedsYouCandidate[] = rows.flatMap(({ review, anchor, state, thread }) =>
     !anchor || !slotPositions.some((slot) => slot.id === review.id && !slot.hidden)
       ? []
       : [
           {
             kind: 'review',
+            version: JSON.stringify([
+              review,
+              questions.filter((question) => review.questions.includes(question.id)),
+              thread?.ref,
+              thread?.status?.ref,
+              thread?.comments.map((comment) => [comment.ref, comment.revision, comment.deleted]),
+            ]),
             state: state.kind,
             id: review.id,
             title: review.title,

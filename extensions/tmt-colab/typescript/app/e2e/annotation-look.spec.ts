@@ -1,6 +1,6 @@
 import { mkdirSync } from 'node:fs';
 import { expect, test, type Locator, type Page } from '@playwright/test';
-import { captureDirectory } from './captures.js';
+import { captureDirectory, capturePath } from './captures.js';
 import { readFrameStyle } from './frame-style.js';
 import { destination } from '../test/ask-fixtures.js';
 import { commentsClose, commentsRegion } from '../test/comments-region.js';
@@ -467,3 +467,136 @@ for (const width of [1440, 1024, 390])
       expect(await run(page, 'proof')).toMatchObject({ sends: [], actions: [] });
     });
   }
+
+for (const dismissal of ['close', 'escape', 'outside'] as const)
+  test(`a pending annotation can ${dismissal} and reopen without interrupting its send`, async ({
+    page,
+  }) => {
+    await page.goto('/');
+    await run(page, 'mount', {
+      agents: [{ ...destination(), agentName: 'alpha' }],
+      observeSend: true,
+    });
+    const frame = page.frameLocator('#ask-page-fixture iframe');
+    const passage = frame.locator('#selected');
+    await passage.evaluate((node) => {
+      const range = node.ownerDocument.createRange();
+      range.selectNodeContents(node);
+      const selection = node.ownerDocument.getSelection()!;
+      selection.removeAllRanges();
+      selection.addRange(range);
+      node.ownerDocument.dispatchEvent(new Event('selectionchange'));
+    });
+    await page.getByRole('button', { name: 'Annotate', exact: true }).click();
+    const dialog = page.getByRole('dialog', { name: 'Annotate selection', exact: true });
+    const input = dialog.getByRole('combobox', { name: 'Message', exact: true });
+    await input.pressSequentially('@alpha A pending annotation survives closing.');
+    await run(page, 'holdReply');
+    await dialog.getByRole('button', { name: /^Send(?: · to .+)?$/ }).click();
+    await expect(dialog.getByTestId('comment-echo')).toBeVisible();
+    if (dismissal === 'close')
+      await dialog.getByRole('button', { name: 'Collapse thread', exact: true }).click();
+    else if (dismissal === 'escape') await page.keyboard.press('Escape');
+    else
+      await page.locator('#ask-page-fixture .tmt-ui-topbar').click({ position: { x: 20, y: 20 } });
+    await expect(dialog).toBeHidden();
+    await page.getByRole('button', { name: 'Annotate', exact: true }).click();
+    await expect(dialog).toBeVisible();
+    await expect(dialog.getByTestId('comment-echo')).toBeVisible();
+    await run(page, 'releaseReply');
+    await expect(dialog.getByTestId('comment-entry')).toContainText(
+      'A pending annotation survives closing.',
+    );
+    await expect.poll(async () => (await run(page, 'proof')).sends.length).toBe(1);
+    await expect(dialog.getByTestId('comment-echo')).toHaveCount(0);
+  });
+
+test('an annotation write failing after dismissal keeps its exact retry draft', async ({
+  page,
+}) => {
+  await page.goto('/');
+  await run(page, 'mount', {
+    agents: [{ ...destination(), agentName: 'alpha' }],
+    observeSend: true,
+  });
+  const passage = page.frameLocator('#ask-page-fixture iframe').locator('#selected');
+  await passage.evaluate((node) => {
+    const range = node.ownerDocument.createRange();
+    range.selectNodeContents(node);
+    const selection = node.ownerDocument.getSelection()!;
+    selection.removeAllRanges();
+    selection.addRange(range);
+    node.ownerDocument.dispatchEvent(new Event('selectionchange'));
+  });
+  await page.getByRole('button', { name: 'Annotate', exact: true }).click();
+  const dialog = page.getByRole('dialog', { name: 'Annotate selection', exact: true });
+  await dialog
+    .getByRole('combobox', { name: 'Message', exact: true })
+    .pressSequentially('@alpha Recover this exact annotation.');
+  await run(page, 'holdReply');
+  await dialog.getByRole('button', { name: /^Send(?: · to .+)?$/ }).click();
+  await expect(dialog.getByTestId('comment-echo')).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(dialog).toBeHidden();
+  await run(page, 'failNextReply');
+  await run(page, 'releaseReply');
+  await expect(page.getByTestId('comment-echo')).toHaveAttribute('data-echo', 'failed');
+  await page.getByRole('button', { name: 'Annotate', exact: true }).click();
+  await expect(dialog.getByRole('alert')).toContainText('Not sent.');
+  await dialog.getByRole('button', { name: 'Retry', exact: true }).click();
+  await expect(dialog.getByTestId('comment-entry')).toContainText('Recover this exact annotation.');
+  await expect.poll(async () => (await run(page, 'proof')).sends.length).toBe(1);
+});
+
+for (const width of [390, 1440])
+  for (const theme of ['light', 'dark'] as const)
+    test(`a new annotation retains its send geometry at ${width} ${theme}`, async ({ page }) => {
+      await page.setViewportSize({ width, height: 900 });
+      await page.emulateMedia({ colorScheme: theme });
+      await page.goto('/');
+      await run(page, 'mount', {
+        agents: [{ ...destination(), agentName: 'alpha' }],
+        observeSend: true,
+      });
+      await page
+        .frameLocator('#ask-page-fixture iframe')
+        .locator('#selected')
+        .evaluate((node) => {
+          const range = node.ownerDocument.createRange();
+          range.selectNodeContents(node);
+          const selection = node.ownerDocument.getSelection()!;
+          selection.removeAllRanges();
+          selection.addRange(range);
+          node.ownerDocument.dispatchEvent(new Event('selectionchange'));
+        });
+      await page.getByRole('button', { name: 'Annotate', exact: true }).click();
+      const dialog = page.getByRole('dialog', { name: 'Annotate selection', exact: true });
+      const input = dialog.getByRole('combobox', { name: 'Message', exact: true });
+      await input.pressSequentially('@alpha Keep this turn in place.');
+      await run(page, 'holdReply');
+      await dialog.getByRole('button', { name: /^Send(?: · to .+)?$/ }).click();
+      await expect(dialog.getByTestId('comment-echo')).toBeVisible();
+      const before = (await dialog.getByTestId('comment-echo').boundingBox())!;
+      const composer = (await dialog.locator('.annotation-compose').boundingBox())!;
+      await page.screenshot({ path: capturePath(`send-annotation-pending-${width}-${theme}.png`) });
+      await page.keyboard.press('Escape');
+      await expect(dialog).toBeHidden();
+      await expect(page.locator('#ask-page-fixture .page-floating-actions')).toBeVisible();
+      await page.screenshot({ path: capturePath(`send-annotation-closed-${width}-${theme}.png`) });
+      await page.getByRole('button', { name: 'Annotate', exact: true }).click();
+      await expect(dialog.getByTestId('comment-echo')).toBeVisible();
+      await page.screenshot({
+        path: capturePath(`send-annotation-reopened-${width}-${theme}.png`),
+      });
+      await run(page, 'releaseReply');
+      await expect(dialog.getByTestId('comment-entry')).toBeVisible();
+      await expect(dialog.getByTestId('comment-echo')).toHaveCount(0);
+      await page.screenshot({ path: capturePath(`send-annotation-settled-${width}-${theme}.png`) });
+      const after = (await dialog.getByTestId('comment-entry').boundingBox())!;
+      expect(after.y).toBeCloseTo(before.y, 0);
+      expect(after.height).toBeCloseTo(before.height, 0);
+      expect((await dialog.locator('.annotation-compose').boundingBox())!.y).toBeCloseTo(
+        composer.y,
+        0,
+      );
+    });

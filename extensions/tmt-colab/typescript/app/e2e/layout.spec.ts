@@ -1,3 +1,4 @@
+import { expectAvailableDockWindow } from '../test/floating-panel.js';
 import { commentsClose, commentsRegion } from '../test/comments-region.js';
 import { chatAction, commentsAction, pageAction } from '../test/page-actions.js';
 import { expect, test } from '@playwright/test';
@@ -157,7 +158,7 @@ for (const width of [1440, 390])
         const card = (await comments.boundingBox())!;
         const dock = (await page.locator('.page-floating-actions:visible').boundingBox())!;
         expect(card.width).toBe(360);
-        expect(card.height).toBe(470);
+        await expectAvailableDockWindow(page, comments);
         expect(Math.abs(dock.y - card.y - card.height - 16)).toBeLessThanOrEqual(1);
       } else {
         // The phone card floats above the dock with 12px side gutters; the page does not reflow.
@@ -168,7 +169,7 @@ for (const width of [1440, 390])
         const dock = (await page.locator('.page-floating-actions:visible').boundingBox())!;
         expect(box.x).toBe(12);
         expect(box.width).toBe(width - 24);
-        expect(box.height).toBeLessThanOrEqual(470);
+        await expectAvailableDockWindow(page, comments);
         expect(Math.abs(dock.y - box.y - box.height - 16)).toBeLessThanOrEqual(1);
       }
       await page.screenshot({
@@ -348,7 +349,7 @@ for (const width of [1440, 390])
           .locator('#ask-page-fixture .page-floating-actions')
           .boundingBox())!;
         expect(edge.width).toBe(360);
-        expect(edge.height).toBe(470);
+        await expectAvailableDockWindow(page, panel);
         expect(Math.abs(dock.y - edge.y - edge.height - 16)).toBeLessThanOrEqual(1);
         await expect(panel).toHaveCSS('border-left-width', '1px');
         await expect(panel).toHaveCSS('border-right-width', '1px');
@@ -361,7 +362,7 @@ for (const width of [1440, 390])
           .boundingBox())!;
         expect(edge.x).toBe(12);
         expect(edge.x + edge.width).toBe(width - 12);
-        expect(edge.height).toBeLessThanOrEqual(470);
+        await expectAvailableDockWindow(page, panel);
         expect(Math.abs(dock.y - edge.y - edge.height - 16)).toBeLessThanOrEqual(1);
         await expect(panel).toHaveCSS('border-right-width', '1px');
         expect((await frame.boundingBox())?.width).toBe(before?.width);

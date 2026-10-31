@@ -904,10 +904,10 @@ test('the module menu is the fixed list: All pages, Shortcuts with its commands,
   await mount(page);
   const menu = moduleMenu(page);
   // Active pages shown: 4, two of which wait on the viewer.
-  await expect(menu.locator('a[data-id="all"]')).toHaveText(/All pages\s*4\s*1/);
-  await expect(menu.locator('.tmt-ui-rail-sub-group')).toHaveText(['Shortcuts']);
-  await expect(menu.getByRole('button', { name: 'Manage shortcuts' })).toBeVisible();
-  await expect(menu.getByRole('button', { name: 'New shortcut' })).toBeVisible();
+  await expect(menu.locator('a[data-id="all"]')).toHaveText(/All pages\s*4/);
+  await expect(menu.locator('.tmt-ui-rail-sub-group')).toHaveText(['ShortcutsManage']);
+  await expect(menu.getByRole('button', { name: 'Manage', exact: true })).toBeVisible();
+  await expect(menu.getByRole('button', { name: 'New shortcut' })).toHaveCount(0);
   expect(
     await menu
       .locator('a[data-id]')
@@ -929,7 +929,10 @@ test('the module menu is the fixed list: All pages, Shortcuts with its commands,
   await expect(app(page).getByRole('dialog', { name: 'Manage projects' })).toBeVisible();
   // With a dashboard: the same list, Dashboards after Shortcuts, and the dashboard selects its row.
   await mount(page, 'shells');
-  await expect(menu.locator('.tmt-ui-rail-sub-group')).toHaveText(['Shortcuts', 'Dashboards']);
+  await expect(menu.locator('.tmt-ui-rail-sub-group')).toHaveText([
+    'ShortcutsManage',
+    'Dashboards',
+  ]);
   expect(
     await menu
       .locator('a[data-id]')
@@ -973,7 +976,7 @@ test('the module menu opens Colab settings read-only and selects only its row', 
 });
 
 for (const theme of ['light', 'dark'] as const) {
-  test(`the scope menu keeps total and attention pills readable through selection in ${theme}`, async ({
+  test(`the scope menu keeps a muted total and attention dot readable through selection in ${theme}`, async ({
     page,
   }) => {
     await page.emulateMedia({ colorScheme: theme });
@@ -982,7 +985,7 @@ for (const theme of ['light', 'dark'] as const) {
       document.documentElement.dataset.theme = theme;
     }, theme);
     const row = moduleMenu(page).locator('a[data-id="all"]');
-    await expect(row).toHaveText(/All pages\s*4\s*1/);
+    await expect(row).toHaveText(/All pages\s*4/);
     // At rest: open settings so All pages is not the selected row.
     await moduleMenu(page).locator('a[data-id="colab-settings"]').click();
     await expect(row).not.toHaveAttribute('aria-current', 'page');
@@ -998,16 +1001,18 @@ for (const theme of ['light', 'dark'] as const) {
       };
       return {
         total: color(element.querySelector('.tmt-ui-shell-count:not([data-kind])')!),
-        attention: color(element.querySelector('.tmt-ui-shell-count[data-kind="needs-you"]')!),
+        attention: getComputedStyle(element.querySelector('.tmt-ui-shell-attention')!)
+          .backgroundColor,
         name: color(element.querySelector('.tmt-ui-module-menu-label')!),
         primary: role('text'),
         secondary: role('secondary'),
         waiting: role('waiting'),
       };
     });
-    expect(colors.total).toBe(colors.primary);
+    await expect(row).toHaveAccessibleName('All pages · 4 total, 1 need you');
+    expect(colors.total).toBe(colors.secondary);
     expect(colors.name).toBe(colors.secondary);
-    expect(colors.total).not.toBe(colors.name);
+    expect(colors.total).toBe(colors.name);
     expect(colors.attention).toBe(colors.waiting);
     expect(colors.attention).not.toBe(colors.total);
     const paint = () =>
@@ -1023,8 +1028,8 @@ for (const theme of ['light', 'dark'] as const) {
         }),
       );
     const before = await paint();
-    expect(before[0]!.fill).not.toBe(before[1]!.fill);
-    for (const pill of before) expect(pill.fill).not.toBe('rgba(0, 0, 0, 0)');
+    expect(before).toHaveLength(1);
+    expect(before[0]!.fill).toBe('rgba(0, 0, 0, 0)');
     await row.click();
     await expect(row).toHaveAttribute('aria-current', 'page');
     expect(await paint()).toEqual(before);

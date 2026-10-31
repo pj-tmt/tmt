@@ -50,6 +50,7 @@ export function shortcutRows(
     const counts = shortcutCounts(pages, item.search);
     return {
       id: `shortcut:${item.id}`,
+      icon: 'bookmark',
       label: item.name,
       href: link(item),
       current: item.id === current,
@@ -126,7 +127,9 @@ export function ColabShell({
     const frame = requestAnimationFrame(() => {
       const controls = target
         ? document.querySelectorAll<HTMLElement>('.tmt-ui-rail-sub a[data-id]')
-        : document.querySelectorAll<HTMLElement>('.tmt-ui-rail-sub-items .tmt-ui-rail-add');
+        : document.querySelectorAll<HTMLElement>(
+            '.tmt-ui-rail-sub-group .tmt-ui-rail-group-action',
+          );
       const next = [...controls].find(
         (node) =>
           node.getClientRects().length > 0 &&
@@ -196,6 +199,7 @@ export function ColabShell({
           items: [
             {
               id: 'all',
+              icon: 'list',
               label: text.pageList.allPages,
               href: href('/'),
               total: all!.count,
@@ -209,11 +213,9 @@ export function ColabShell({
           ...(manageable
             ? {
                 action: {
-                  label: text.shortcuts.manage,
-                  icon: 'settings' as const,
+                  label: text.shortcuts.manageAction,
                   onActivate: () => openShortcuts('manage'),
                 },
-                add: { label: text.shortcuts.addRow, onActivate: () => openShortcuts('save') },
               }
             : {}),
           items: rows,

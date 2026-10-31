@@ -444,7 +444,7 @@ test('sidebar shortcuts reorder and delete survive a real served-page reload', a
       await save.getByRole('textbox', { name: 'Name', exact: true }).fill(name);
       await save.getByRole('button', { name: 'Save', exact: true }).click();
       await expect(save).not.toBeVisible();
-      await rail.getByRole('link', { name: 'All pages', exact: true }).click();
+      await rail.getByRole('link', { name: /^All pages(?: · .+)?$/ }).click();
     }
     const labels = rail.locator('a[data-id^="shortcut:"] .tmt-ui-module-menu-label');
     await expect(labels).toHaveText(['First shortcut', 'Second shortcut']);
