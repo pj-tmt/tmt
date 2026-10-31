@@ -196,6 +196,27 @@ or `◌`; `◆` leads a decision row when the reader must act:
 | `~`        | approximate observed token total from incomplete coverage (board only)                    |
 | `▁▂▃▄▅▆▇█` | completed-request trend: ▁ measured zero, ▂–█ relative totals, blank no data (board only) |
 
+The board also uses the glyphs below outside the shared `Mark` set. They label
+controls and measurements or give contextual indications. In particular, `◷`
+labels Cron counts and marks an exceeded idle threshold beside a time or
+`idle`, in the attention colour. These glyphs are not listed in
+`design/tokens/tokens.json`. The board's test-only glyph guard
+(`extensions/tmt-ops/rust/tmt-ops/src/board/glyph_guard.rs`) accepts registered
+marks and the explicit structural exceptions in `STRUCTURAL_GLYPHS`, each with
+a reason; other ambiguous-width or emoji glyphs in checked labels fail.
+
+| Glyph        | Use                                                                               |
+| ------------ | --------------------------------------------------------------------------------- |
+| `▪`          | saved agent or squad pin in the name-cell slot                                    |
+| `↩`          | reply direction in Recent exchanges                                               |
+| `↔` `↕`      | pane divider resize axes                                                          |
+| `▒` `░` `■`  | usage provider segments and legend keys                                           |
+| `›`          | the cursor row, or the Enter default in a menu                                    |
+| `▏`          | the text cursor in an input                                                       |
+| `⏎`          | the Enter key in key hints                                                        |
+| `◷`          | Cron counts (ASCII `CRON`); exceeded idle threshold (ASCII `!`, attention colour) |
+| `⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏` | spinner frames                                                                    |
+
 ## Lists
 
 This is the list model that `tmt ls` (#434) follows first; other lists use the
@@ -396,17 +417,20 @@ The same key means the same thing in every view and overlay.
 | PgUp/PgDn      | page                                 | page                            |
 | Home/End, g/G  | first or last item                   | first or last line              |
 | Enter          | the row's main action (jump)         | confirm or save                 |
-| Esc            | clear search or selection, else quit | close without changing anything |
+| Esc            | clear search or selection, else quit | close; a dialog keeps its draft |
 | `?`            | open help                            | close help, or text in a field  |
 | `q`            | quit                                 | close, or text in a field       |
 | ←→             | previous or next tab                 | not used (edit cursor in input) |
 | `/`            | search                               | not used                        |
-| Tab, Shift-Tab | next or previous pane                | next or previous field          |
+| Tab, Shift-Tab | next or previous pane                | not used                        |
 | Ctrl-C         | quit                                 | quit                            |
 
 A view may add its own keys, but never reuses one of these for something else.
-An overlay built on the shared dialog keys its ↑↓, ←→ and Tab differently; see
-[Dialogs](#dialogs).
+An overlay built on the shared dialog keys its ↑↓ and ←→ differently; see
+[Dialogs](#dialogs). One overlay still takes Tab: a mention list in a prompt
+inserts the chosen mention, as Enter does. Esc has two exceptions too: in a
+Settings text edit it closes the edit and keeps the changed text for that key, and
+Settings stays open; in a mention list it dismisses the list.
 User bindings can change a key; help and footers always show the effective key.
 
 ### Footer and key help
@@ -464,7 +488,8 @@ overlays above keep their own keys until they move onto it.
   press outside the dialog closes it. A read-only view's outside press also
   lands on the board underneath.
 - Closing loses no work: the editor keeps its draft and shows it on reopen;
-  only Enter or an explicit clear discards it. While an operation runs, closing
+  only Enter or an explicit clear discards it. A form reopened on a kept draft
+  adds a Discard button. While an operation runs, closing
   hides the dialog and the operation continues; reopening shows its result, and
   the status line names it.
 
