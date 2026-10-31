@@ -1486,16 +1486,18 @@ fn oracle_format_b_matches_approved_expanded_oracle() {
 }
 
 #[test]
-fn home_oracle_keeps_every_cell_style_and_hit() {
+fn home_oracle_keeps_every_cell_style_and_hit_without_stacked_rules() {
+    // Nextest runs each test in its own process, so both checks must share this
+    // local capture rather than a lazy value shared between separate tests.
+    let captured = captures();
     assert_eq!(
-        captures(),
+        captured,
         decode_oracle(serde_json::from_str::<Value>(include_str!("oracle.json")).unwrap())
     );
+    assert_no_home_frame_stacks_two_rules(&captured);
 }
 
-#[test]
-fn no_home_frame_stacks_two_rules() {
-    let captured = captures();
+fn assert_no_home_frame_stacks_two_rules(captured: &Value) {
     for frame in captured["frames"].as_array().unwrap() {
         let lines = frame["lines"]
             .as_array()
