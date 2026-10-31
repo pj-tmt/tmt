@@ -16,7 +16,7 @@ use tmt_core::{
     identity::{Lifetime, create_or_resolve},
 };
 
-fn wait_file(path: &std::path::Path) -> String {
+pub(super) fn wait_file(path: &std::path::Path) -> String {
     let deadline = Instant::now() + Duration::from_secs(5);
     loop {
         if let Ok(value) = fs::read_to_string(path)

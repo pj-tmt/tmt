@@ -1165,6 +1165,9 @@ mod e2e;
 #[path = "pty_host/terminal_stream.rs"]
 mod terminal_stream;
 
+#[path = "pty_host/codex_launcher.rs"]
+mod codex_launcher;
+
 #[path = "pty_host/startup.rs"]
 mod startup;
 

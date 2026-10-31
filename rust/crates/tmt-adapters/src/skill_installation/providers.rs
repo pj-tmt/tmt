@@ -145,6 +145,23 @@ impl ProviderEnvironment {
         self.find_command(command).is_some()
     }
 
+    /// Resolve the executable selected by a foreground command, using this captured PATH.
+    pub(crate) fn find_executable(&self, command: &std::ffi::OsStr) -> Option<PathBuf> {
+        use std::os::unix::fs::PermissionsExt;
+        let executable = |path: &PathBuf| {
+            fs::metadata(path).is_ok_and(|m| m.is_file() && m.permissions().mode() & 0o111 != 0)
+        };
+        let path = Path::new(command);
+        if path.components().count() > 1 || path.is_absolute() {
+            let selected = self.resolve(path);
+            return executable(&selected).then_some(selected);
+        }
+        self.path
+            .iter()
+            .map(|directory| self.resolve(&directory.join(path)))
+            .find(executable)
+    }
+
     /// The first regular file with this name on `PATH`, executable or not.
     pub fn find_command(&self, command: &str) -> Option<PathBuf> {
         self.path

@@ -807,9 +807,29 @@ pub(super) fn run_bound(
     } else {
         true
     };
-    let child_evidence = child
-        .observe_runtime(Instant::now() + Duration::from_secs(3))
+    let observation_deadline = Instant::now() + Duration::from_secs(3);
+    let owned_evidence = child
+        .observe_runtime(observation_deadline)
         .unwrap_or(ProcessObservation::Unknown);
+    // The driver may prove a native foreground behind this exact owned launcher.
+    // Both observations share one deadline; process control stays with `child`.
+    let child_evidence = owner.as_ref().map_or_else(
+        || owned_evidence.clone(),
+        |owner| {
+            lifecycle.observe_foreground(
+                &UnixCommandRunner,
+                tmt_adapters::runtime::lifecycle::ForegroundLaunch {
+                    command: lease.command(launch_command),
+                    owner,
+                    pane_pid: binding.pane_pid,
+                },
+                &owned_evidence,
+                observation_deadline,
+            )
+        },
+    );
+    let foreground_is_owned =
+        !matches!(owned_evidence, ProcessObservation::Unknown) && child_evidence == owned_evidence;
     let child_incarnation = match &child_evidence {
         ProcessObservation::Live(value)
         | ProcessObservation::Stopped(value)
@@ -969,7 +989,24 @@ pub(super) fn run_bound(
     }
     // The enrollment ends with the foreground, and only when its end is confirmed:
     // a wait that failed proves nothing, so that path leaves the enrollment as it is.
-    let status = lease.settle_wait(waited).map_err(|error| {
+    let foreground_ended = waited.is_ok()
+        && (foreground_is_owned
+            || child_incarnation.as_ref().is_some_and(|runtime| {
+                // A reaped launcher is not proof about its native child. Observe the
+                // exact native incarnation outside every storage transaction.
+                observe_runtime_process(
+                    &UnixCommandRunner,
+                    runtime.pid(),
+                    Instant::now() + Duration::from_secs(1),
+                )
+                .is_ok_and(|observed| observed.matches(runtime) == RuntimeLiveness::Gone)
+            }));
+    let waited = if foreground_ended {
+        lease.settle_wait(waited)
+    } else {
+        waited
+    };
+    let status = waited.map_err(|error| {
         Failure::new(
             "PROCESS_ERROR",
             "Could not finish observing the requested command.",
@@ -1000,7 +1037,7 @@ pub(super) fn run_bound(
             )),
         }
     }
-    if let Some(session) = &launch.resumed {
+    if foreground_ended && let Some(session) = &launch.resumed {
         settle_resume(
             paths,
             name,
@@ -1014,7 +1051,8 @@ pub(super) fn run_bound(
             hooks_installed,
         );
     }
-    if admitted.is_some()
+    if foreground_ended
+        && admitted.is_some()
         && !already_exited
         && let (Some(owner), Some(child)) = (&owner, &child_incarnation)
     {
