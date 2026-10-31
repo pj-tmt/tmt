@@ -94,6 +94,27 @@ export default defineConfig(({ mode }) => ({
         if (!policy) throw new Error('Missing native renderer policy');
         server.middlewares.use((request, response, next) => {
           const path = request.url?.split('?')[0] ?? '';
+          const runtimeAsset =
+            /^(?:\/colab|\/r\/[a-z0-9]+\/x\/colab)?\/assets\/(colab-runtime\.(?:js|css)|colab-page-ui\.(?:js|css))$/.exec(
+              path,
+            )?.[1];
+          if (runtimeAsset) {
+            // Dev previews use the same frozen build-owned bytes as served/hosted pages.
+            try {
+              const bytes = readFileSync(new URL(`./dist/assets/${runtimeAsset}`, import.meta.url));
+              response.setHeader(
+                'Content-Type',
+                runtimeAsset.endsWith('.js')
+                  ? 'text/javascript; charset=utf-8'
+                  : 'text/css; charset=utf-8',
+              );
+              response.end(bytes);
+            } catch {
+              response.statusCode = 503;
+              response.end('Build the page runtime before opening its preview.');
+            }
+            return;
+          }
           if (
             path === '/assets/recovery.js' ||
             /^\/r\/[a-z0-9]+\/x\/colab\/assets\/recovery\.js$/.test(path)
@@ -102,6 +123,7 @@ export default defineConfig(({ mode }) => ({
           }
           if (
             path === '/renderer.html' ||
+            path === '/colab/renderer.html' ||
             /^\/r\/[a-z0-9]+\/x\/colab\/renderer\.html$/.test(path)
           ) {
             // Mirror the native exact renderer route for mounted protocol fixtures.

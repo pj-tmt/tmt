@@ -13,6 +13,7 @@ export function AppHeader({
   linked = true,
   title = text.pages,
   titleVisible = true,
+  crumb,
   remote,
   headerRef,
   headingSuffix,
@@ -21,6 +22,8 @@ export function AppHeader({
   linked?: boolean;
   title?: string;
   titleVisible?: boolean;
+  /** Route-owned ancestry before the current title in the shared bar. */
+  crumb?: ReactNode;
   remote?: { deviceName?: string };
   headerRef?: Ref<HTMLElement>;
   headingSuffix?: ReactNode;
@@ -32,6 +35,7 @@ export function AppHeader({
     <ColabHeader
       title={title}
       titleVisible={titleVisible}
+      crumb={crumb}
       page={page}
       headerRef={headerRef}
       remote={remote}

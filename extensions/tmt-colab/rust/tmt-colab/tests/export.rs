@@ -443,6 +443,38 @@ fn a_page_that_uses_the_design_system_exports_a_derived_standalone_copy() {
     );
     assert!(!without.directory.join("page.standalone.html").exists());
 
+    // A registered author element needs both assets without a meta marker or author script.
+    let source = "<tmt-ui-toggle label=\"Follow updates\"></tmt-ui-toggle>";
+    let mut widget = Fixture::new();
+    widget.append(source, "Author widget");
+    let published = capture(&widget, &offered).publish(&widget.root).unwrap();
+    let copy = fs::read(published.directory.join("page.standalone.html")).unwrap();
+    assert_eq!(copy, standalone::document(source, &offered).unwrap());
+    let text = String::from_utf8(copy).unwrap();
+    assert!(text.contains("window.tmt"));
+    assert!(text.contains("window.ui"));
+    assert_eq!(
+        fs::read(published.directory.join("page.html")).unwrap(),
+        source.as_bytes()
+    );
+    let unavailable = capture(
+        &widget,
+        &Assets {
+            runtime: None,
+            design: Some(design),
+        },
+    )
+    .publish(&widget.root)
+    .unwrap();
+    assert_eq!(
+        unavailable.standalone,
+        Some(standalone::Outcome {
+            included: false,
+            reason: Some("runtime-unavailable"),
+        })
+    );
+    assert!(!unavailable.directory.join("page.standalone.html").exists());
+
     // A page that asks only for the runtime is not given the design system, whatever is on offer.
     let mut react = Fixture::new();
     react.append(

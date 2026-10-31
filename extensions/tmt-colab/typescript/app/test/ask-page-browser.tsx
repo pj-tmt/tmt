@@ -1219,8 +1219,8 @@ export function setLayout(next: { layout?: Projection['layout']; layoutReason?: 
 export function currentSource() {
   return current.source;
 }
-export function change(source: string) {
-  current = { ...current, source, title: 'Changed live title' };
+export function change(source: string, title = 'Changed live title') {
+  current = { ...current, source, title };
   emit();
 }
 /** The same page reopens with a binding whose files have a replacement owner. */

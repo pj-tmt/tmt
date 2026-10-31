@@ -1,3 +1,5 @@
+import { DesignPage } from './design-page.js';
+import { designRouteHeader, isDesignRoute } from './design-systems.js';
 import { PageMenu as BrowserMenu } from './page-menu.js';
 import { useEditLockLayer } from './edit-lock-layer.js';
 import { ShellPage } from './shell-page.js';
@@ -1079,6 +1081,17 @@ const colabSettings = createRoute({
   path: '/settings',
   component: () => <ColabSettings />,
 });
+const design = createRoute({ getParentRoute: () => root, path: '/design', component: DesignPage });
+const designSystem = createRoute({
+  getParentRoute: () => root,
+  path: '/design/$system',
+  component: DesignPage,
+});
+const designComponent = createRoute({
+  getParentRoute: () => root,
+  path: '/design/$system/$component',
+  component: DesignPage,
+});
 const blocked = createRoute({
   getParentRoute: () => root,
   path: '/blocked',
@@ -1093,6 +1106,10 @@ function Shell() {
   const pathname = useRouterState({ select: (state) => state.location.pathname });
   const isPage = pathname.startsWith('/pages/');
   const isHome = pathname === '/';
+  const designHeader =
+    pathname === '/design' || pathname.startsWith('/design/')
+      ? designRouteHeader(pathname)
+      : undefined;
   // Colab's own shell has the shared bar's Search on every route, and the bar owns the one shortcut.
   const hostSlot = useContext(ShellHostSlot);
   const ownShell = hostSlot === null;
@@ -1118,12 +1135,14 @@ function Shell() {
           {!isPage && !isHome && (
             <AppHeader
               title={
-                pathname.startsWith('/short/')
+                designHeader?.title ??
+                (pathname.startsWith('/short/')
                   ? text.openAPage
                   : pathname === '/settings'
                     ? text.colabSettings.section
-                    : text.error
+                    : text.error)
               }
+              crumb={designHeader?.crumb}
             />
           )}
           <main className={isPage ? 'page-main' : undefined}>
@@ -2721,7 +2740,10 @@ export function shellLocation() {
   for (const key of ['read', 'anchor', 'task', 'open'])
     if (fragment.has(key)) keys.set(key, fragment.get(key)!);
   const search = keys.size ? `?${keys}` : '';
-  if (/^\/(?:all|settings|pages\/[0-9a-f-]+|short\/[A-Za-z0-9_-]{4,64})?$/.test(path))
+  if (
+    isDesignRoute(path) ||
+    /^\/(?:all|settings|pages\/[0-9a-f-]+|short\/[A-Za-z0-9_-]{4,64})?$/.test(path)
+  )
     history.replaceState(history.state, '', `/colab${path}${search}${keep}`);
 }
 export function createAppRouter(
@@ -2762,7 +2784,10 @@ export function createAppRouter(
               path = fragment.get('space') === space ? (fragment.get('path') ?? '/') : '/blocked';
               hint = ownerPageHint(new URL(location.href), space);
             }
-            if (!/^\/(?:all|pages\/[0-9a-f-]+|short\/[0-9a-f-]{8,36})?$/.test(path))
+            if (
+              !isDesignRoute(path) &&
+              !/^\/(?:all|pages\/[0-9a-f-]+|short\/[0-9a-f-]{8,36})?$/.test(path)
+            )
               path = '/blocked';
             const search = hint
               ? hintSearch(hint)
@@ -2808,7 +2833,17 @@ export function createAppRouter(
       : createHashHistory();
   if (space) keepListSearch(history);
   const router = createRouter({
-    routeTree: root.addChildren([home, allPages, page, shortPage, colabSettings, blocked]),
+    routeTree: root.addChildren([
+      home,
+      allPages,
+      page,
+      shortPage,
+      colabSettings,
+      design,
+      designSystem,
+      designComponent,
+      blocked,
+    ]),
     history,
     ...(inShell() ? { basepath: '/colab' } : {}),
     context: { transport, space, rememberPages: (pages) => (knownPages = pages) },

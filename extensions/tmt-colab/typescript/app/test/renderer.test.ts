@@ -268,3 +268,12 @@ test('closed details hide body targets through every ancestor but preserve the f
   inner.children = [{ localName: 'summary', contains: () => false }, summary];
   expect(hidden(target)).toBe(true);
 });
+
+test('widget source changes remount React-owned page content while ordinary design text morphs', () => {
+  const first = '<tmt-ui-button variant="primary">Save</tmt-ui-button>';
+  expect(sourceFrameKey(first)).not.toBe(sourceFrameKey(first.replace('Save', 'Apply')));
+  expect(sourceFrameKey(first)).toBe(sourceFrameKey(first));
+  expect(sourceFrameKey('<p class="tmt-ui-card">A</p>')).toBe(
+    sourceFrameKey('<p class="tmt-ui-card">B</p>'),
+  );
+});

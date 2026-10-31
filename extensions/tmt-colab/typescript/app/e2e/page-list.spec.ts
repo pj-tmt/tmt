@@ -36,7 +36,7 @@ const rows = (page: Page) => app(page).locator('.pages [data-page-id]');
 const titles = (page: Page) => rows(page).locator('.tmt-ui-list-title > a');
 const search = (page: Page) => app(page).getByRole('combobox', { name: 'Search pages' });
 const requests = (page: Page) => page.evaluate(() => window.__projectRequests);
-/** The shell's module menu: All pages, Shortcuts, then Colab settings, nested under Colab in the
+/** The shell's module menu: All pages, Shortcuts, Design system, then settings under Colab in the
  * rail (and in the phone drawer). */
 const moduleMenu = (page: Page) => app(page).locator('.tmt-ui-rail-sub:visible');
 /** Project scope is a condition in Filter; its chip clears the remembered scope. */
@@ -898,21 +898,21 @@ test('a reader gets search, filters and the scope, but no project writes or arch
   await expect(app(page).getByRole('button', { name: 'Project actions' })).toHaveCount(0);
 });
 
-test('the module menu is the fixed list: All pages, Shortcuts with its commands, then settings', async ({
+test('the module menu keeps All pages and Shortcuts, then Design before settings', async ({
   page,
 }) => {
   await mount(page);
   const menu = moduleMenu(page);
   // Active pages shown: 4, two of which wait on the viewer.
   await expect(menu.locator('a[data-id="all"]')).toHaveText(/All pages\s*4\s*1/);
-  await expect(menu.locator('.tmt-ui-rail-sub-group')).toHaveText(['Shortcuts']);
+  await expect(menu.locator('.tmt-ui-rail-sub-group')).toHaveText(['Shortcuts', 'Design system']);
   await expect(menu.getByRole('button', { name: 'Manage shortcuts' })).toBeVisible();
   await expect(menu.getByRole('button', { name: 'New shortcut' })).toBeVisible();
   expect(
     await menu
       .locator('a[data-id]')
       .evaluateAll((nodes) => nodes.map((node) => (node as HTMLElement).dataset.id)),
-  ).toEqual(['all', 'colab-settings']);
+  ).toEqual(['all', 'design', 'colab-settings']);
   // No project rows or project commands: projects live in the list's filter. With no dashboard,
   // no Dashboards group.
   await expect(menu).not.toContainText('Dashboards');
@@ -920,6 +920,12 @@ test('the module menu is the fixed list: All pages, Shortcuts with its commands,
   await expect(menu).not.toContainText('New project');
   await expect(menu.locator('[aria-current="page"]')).toHaveCount(1);
   await expect(menu.locator('a[data-id="all"]')).toHaveAttribute('aria-current', 'page');
+  await menu.locator('a[data-id="design"]').click();
+  await expect(app(page).locator('.design-page')).toBeVisible();
+  await expect(menu.locator('[aria-current="page"]')).toHaveCount(1);
+  await expect(menu.locator('a[data-id="design"]')).toHaveAttribute('aria-current', 'page');
+  await expect(menu.locator('a[data-id="all"]')).not.toHaveAttribute('aria-current', 'page');
+  await menu.locator('a[data-id="all"]').click();
   // A project scope is a filter of All pages, which stays the one selected row.
   await scopeTo(page, 'design');
   await expect(menu.locator('[aria-current="page"]')).toHaveCount(1);
@@ -929,12 +935,16 @@ test('the module menu is the fixed list: All pages, Shortcuts with its commands,
   await expect(app(page).getByRole('dialog', { name: 'Manage projects' })).toBeVisible();
   // With a dashboard: the same list, Dashboards after Shortcuts, and the dashboard selects its row.
   await mount(page, 'shells');
-  await expect(menu.locator('.tmt-ui-rail-sub-group')).toHaveText(['Shortcuts', 'Dashboards']);
+  await expect(menu.locator('.tmt-ui-rail-sub-group')).toHaveText([
+    'Shortcuts',
+    'Dashboards',
+    'Design system',
+  ]);
   expect(
     await menu
       .locator('a[data-id]')
       .evaluateAll((nodes) => nodes.map((node) => (node as HTMLElement).dataset.id!.split(':')[0])),
-  ).toEqual(['all', 'shell', 'colab-settings']);
+  ).toEqual(['all', 'shell', 'design', 'colab-settings']);
   const shell = menu.locator('a[data-id^="shell:"]');
   await expect(shell).toHaveText('Reading shell');
   await expect(shell).toHaveAttribute('href', /#\/pages\/[0-9a-f-]+$/);

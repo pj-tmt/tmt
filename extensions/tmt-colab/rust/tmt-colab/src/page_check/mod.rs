@@ -281,14 +281,18 @@ pub fn check(source: &str) -> Result<Report, SourceTooLarge> {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct TooDeep;
 
-/// The `content` of the first `<meta name="tmt-colab-runtime">` in document order: the marker a
-/// page uses to ask for the bundled runtime (#1693), found the way the browser's `querySelector`
-/// finds it, not by text search (a copy in a comment, a `textarea` or a script string is no
-/// element). `Ok(None)` when there is no such element, `Ok(Some(""))` when it has no `content`,
-/// and `Err` when the source nests past [`crate::limits::PAGE_DEPTH`], where no verdict matches a
-/// browser's.
-pub(crate) fn runtime_marker(source: &str) -> Result<Option<String>, TooDeep> {
+/// An HTML widget requests the bundled runtime without a script or marker. Otherwise this is
+/// the first runtime meta's content, parsed the way a browser finds it; comments, escaped text
+/// and foreign-namespace elements do not request registration. A depth refusal remains closed.
+pub(crate) fn runtime_requirement(source: &str) -> Result<Option<String>, TooDeep> {
     let tree = tree::Tree::parse(source).map_err(|_| TooDeep)?;
+    if tree
+        .elements()
+        .iter()
+        .any(|&id| tree.html_element(id) && ui::element_name(tree.name(id)))
+    {
+        return Ok(Some("react".to_owned()));
+    }
     Ok(tree
         .elements()
         .into_iter()
@@ -375,6 +379,10 @@ pub fn codes() -> Vec<&'static str> {
         "attachment-ref-ambiguous",
         "unknown-ui-class",
         "unknown-icon",
+        "unknown-ui-element",
+        "unknown-ui-attribute",
+        "invalid-ui-attribute",
+        "invalid-ui-structure",
     ]);
     codes
 }

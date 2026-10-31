@@ -9954,6 +9954,212 @@
           "code": "unknown-icon"
         }
       ]
+    },
+    {
+      "name": "widget-unknown",
+      "scope": "checker",
+      "why": "The shared element manifest admits a closed attribute and slot contract.",
+      "source": [
+        "<tmt-ui-unknown></tmt-ui-unknown>"
+      ],
+      "admitted": {
+        "questions": [],
+        "groups": []
+      },
+      "findings": [
+        {
+          "element": "tmt-ui-unknown",
+          "ordinal": 1,
+          "id": null,
+          "line": 1,
+          "severity": "warning",
+          "code": "unknown-ui-element"
+        }
+      ]
+    },
+    {
+      "name": "widget-unknown-attribute",
+      "scope": "checker",
+      "why": "The shared element manifest admits a closed attribute and slot contract.",
+      "source": [
+        "<tmt-ui-button surprise=\"x\">Save</tmt-ui-button>"
+      ],
+      "admitted": {
+        "questions": [],
+        "groups": []
+      },
+      "findings": [
+        {
+          "element": "tmt-ui-button",
+          "ordinal": 1,
+          "id": null,
+          "line": 1,
+          "severity": "warning",
+          "code": "unknown-ui-attribute"
+        }
+      ]
+    },
+    {
+      "name": "widget-invalid-variant",
+      "scope": "checker",
+      "why": "The shared element manifest admits a closed attribute and slot contract.",
+      "source": [
+        "<tmt-ui-button variant=\"loud\">Save</tmt-ui-button>"
+      ],
+      "admitted": {
+        "questions": [],
+        "groups": []
+      },
+      "findings": [
+        {
+          "element": "tmt-ui-button",
+          "ordinal": 1,
+          "id": null,
+          "line": 1,
+          "severity": "warning",
+          "code": "invalid-ui-attribute"
+        }
+      ]
+    },
+    {
+      "name": "widget-missing-label",
+      "scope": "checker",
+      "why": "The shared element manifest admits a closed attribute and slot contract.",
+      "source": [
+        "<tmt-ui-icon-button></tmt-ui-icon-button>"
+      ],
+      "admitted": {
+        "questions": [],
+        "groups": []
+      },
+      "findings": [
+        {
+          "element": "tmt-ui-icon-button",
+          "ordinal": 1,
+          "id": null,
+          "line": 1,
+          "severity": "warning",
+          "code": "invalid-ui-attribute"
+        }
+      ]
+    },
+    {
+      "name": "widget-invalid-structure",
+      "scope": "checker",
+      "why": "The shared element manifest admits a closed attribute and slot contract.",
+      "source": [
+        "<tmt-ui-tabs label=\"Tasks\"></tmt-ui-tabs>"
+      ],
+      "admitted": {
+        "questions": [],
+        "groups": []
+      },
+      "findings": [
+        {
+          "element": "tmt-ui-tabs",
+          "ordinal": 1,
+          "id": null,
+          "line": 1,
+          "severity": "warning",
+          "code": "invalid-ui-structure"
+        }
+      ]
+    },
+    {
+      "name": "widget-in-foreign-namespace",
+      "scope": "checker",
+      "why": "SVG does not instantiate an HTML custom element; a registered name there is not a working widget.",
+      "source": [
+        "<svg><tmt-ui-button>Save</tmt-ui-button></svg>"
+      ],
+      "admitted": {
+        "questions": [],
+        "groups": []
+      },
+      "findings": [
+        {
+          "element": "tmt-ui-button",
+          "ordinal": 1,
+          "id": null,
+          "line": 1,
+          "severity": "warning",
+          "code": "invalid-ui-structure"
+        }
+      ]
+    },
+    {
+      "name": "list-table-mismatched-cells",
+      "scope": "checker",
+      "why": "The text-data adapter must meet the real list-table column and row contract.",
+      "source": [
+        "<tmt-ui-list-table label=\"Pages\" columns='[\"Page\",\"State\"]' rows='[[\"One\"]]'></tmt-ui-list-table>"
+      ],
+      "admitted": {
+        "questions": [],
+        "groups": []
+      },
+      "findings": [
+        {
+          "element": "tmt-ui-list-table",
+          "ordinal": 1,
+          "id": null,
+          "line": 1,
+          "severity": "warning",
+          "code": "invalid-ui-structure"
+        }
+      ]
+    },
+    {
+      "name": "list-table-nontext-cell",
+      "scope": "checker",
+      "why": "The text-data adapter must meet the real list-table column and row contract.",
+      "source": [
+        "<tmt-ui-list-table label=\"Pages\" columns='[\"Page\"]' rows='[[1]]'></tmt-ui-list-table>"
+      ],
+      "admitted": {
+        "questions": [],
+        "groups": []
+      },
+      "findings": [
+        {
+          "element": "tmt-ui-list-table",
+          "ordinal": 1,
+          "id": null,
+          "line": 1,
+          "severity": "warning",
+          "code": "invalid-ui-structure"
+        }
+      ]
+    },
+    {
+      "name": "list-table-invalid-json",
+      "scope": "checker",
+      "why": "The text-data adapter must meet the real list-table column and row contract.",
+      "source": [
+        "<tmt-ui-list-table label=\"Pages\" columns='[\"Page\"]' rows='broken'></tmt-ui-list-table>"
+      ],
+      "admitted": {
+        "questions": [],
+        "groups": []
+      },
+      "findings": [
+        {
+          "element": "tmt-ui-list-table",
+          "ordinal": 1,
+          "id": null,
+          "line": 1,
+          "severity": "warning",
+          "code": "invalid-ui-attribute"
+        },
+        {
+          "element": "tmt-ui-list-table",
+          "ordinal": 1,
+          "id": null,
+          "line": 1,
+          "severity": "warning",
+          "code": "invalid-ui-structure"
+        }
+      ]
     }
   ]
 }

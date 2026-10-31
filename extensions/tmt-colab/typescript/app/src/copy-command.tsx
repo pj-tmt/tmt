@@ -6,7 +6,19 @@ import { text } from './strings.js';
 import './copy-command.css';
 
 /** Clipboard feedback says only what copying did, never that a machine step ran. */
-export function CopyCommand({ command, enabled }: { command: string; enabled: boolean }) {
+export function CopyCommand({
+  command,
+  enabled,
+  copyLabel = 'Copy',
+  copiedText = text.shellCommandCopied,
+  failedText = text.shellCommandCopyFailed,
+}: {
+  command: string;
+  enabled: boolean;
+  copyLabel?: string;
+  copiedText?: string;
+  failedText?: string;
+}) {
   const [feedback, setFeedback] = useState('');
   return (
     <BrowserCommand
@@ -20,15 +32,15 @@ export function CopyCommand({ command, enabled }: { command: string; enabled: bo
             if (!event.isTrusted) return;
             try {
               await navigator.clipboard.writeText(command);
-              setFeedback(text.shellCommandCopied);
+              setFeedback(copiedText);
             } catch {
-              setFeedback(text.shellCommandCopyFailed);
+              setFeedback(failedText);
             }
           }}
         >
           <span className="copy-command-label">
             <Copy size={14} aria-hidden="true" />
-            Copy
+            {copyLabel}
           </span>
         </button>
       }

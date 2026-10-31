@@ -633,8 +633,16 @@ test('every frame carries the design system in its own layer, below the starter 
       };
     });
   const light = await read();
-  // One order: the frame, then the starter, then the classes; an author's unlayered rule beats a class.
-  expect(light.order).toEqual(['colab-frame', 'tmt-starter', 'tmt-ui']);
+  // Tailwind's reset stays below the shared frame/starter/classes; author utilities and unlayered rules win.
+  expect(light.order).toEqual([
+    'theme',
+    'base',
+    'colab-frame',
+    'tmt-starter',
+    'tmt-ui',
+    'components',
+    'utilities',
+  ]);
   expect(light.card).toMatchObject({ padding: '24px', radius: '8px', border: '1px' });
   expect(light.mine).toBe('3px');
   expect(light.action).toBe('7px');
@@ -2660,6 +2668,79 @@ test('focus restoration admits only a current rendered thread marker', async ({ 
   });
   await requestHighlight(page, id, renderId, '00000000-0000-4000-8000-0000000000a3', anchors);
   await expect(page.locator('body')).toBeFocused();
+});
+
+test('only a completed synchronous highlight cancels a queued marker repaint', async ({ page }) => {
+  await page.clock.install();
+  await page.goto('/');
+  await page.clock.pauseAt(await page.evaluate(() => new Date(Date.now() + 100)));
+  const id = 'queued-focus';
+  const renderId = await bindPort(page, id, '<p>A focus passage.</p><p>Another passage.</p>');
+  const anchors = [
+    { id: 'first', ordinal: 1, selector: { exact: 'A focus passage', prefix: '', suffix: '' } },
+    { id: 'second', ordinal: 2, selector: { exact: 'Another passage', prefix: '', suffix: '' } },
+  ];
+  await requestHighlight(page, id, renderId, '00000000-0000-4000-8000-0000000000b1', anchors);
+  // Drain initial frame sizing before controlling the next queued resize explicitly.
+  await page.clock.runFor(500);
+  const frame = page.frameLocator(`#${id}`);
+  await frame.locator('[data-colab-thread="first"]').focus();
+  await frame.locator('html').evaluate(() => {
+    Reflect.set(window, '__focusedMarker', document.activeElement);
+    window.dispatchEvent(new Event('resize'));
+  });
+  await requestHighlight(page, id, renderId, '00000000-0000-4000-8000-0000000000b2', anchors);
+  expect(
+    await frame.locator('html').evaluate(() => {
+      const previous = Reflect.get(window, '__focusedMarker') as Element;
+      const current = document.activeElement;
+      Reflect.set(window, '__focusedMarker', current);
+      return !previous.isConnected && current?.getAttribute('data-colab-thread') === 'first';
+    }),
+  ).toBe(true);
+  await page.clock.runFor(100);
+  // The already completed synchronous rebuild must not be replaced by its obsolete timer.
+  expect(
+    await frame
+      .locator('html')
+      .evaluate(() => document.activeElement === Reflect.get(window, '__focusedMarker')),
+  ).toBe(true);
+  await expect(frame.locator('[data-colab-thread="first"]')).toBeFocused();
+  await frame.locator('html').evaluate(() => window.dispatchEvent(new Event('resize')));
+  await page.clock.runFor(100);
+  // A later resize still rebuilds and restores the focused marker normally.
+  expect(
+    await frame.locator('html').evaluate(() => {
+      const previous = Reflect.get(window, '__focusedMarker') as Element;
+      return (
+        !previous.isConnected &&
+        document.activeElement?.getAttribute('data-colab-thread') === 'first'
+      );
+    }),
+  ).toBe(true);
+  await expect(frame.locator('[data-colab-thread="first"]')).toBeFocused();
+  await frame.locator('html').evaluate(() => {
+    window.dispatchEvent(new Event('resize'));
+    const now = performance.now.bind(performance);
+    let layoutCost = 0;
+    Object.defineProperty(performance, 'now', {
+      configurable: true,
+      value: () => now() + layoutCost,
+    });
+    const measure = Range.prototype.getBoundingClientRect;
+    Range.prototype.getBoundingClientRect = function () {
+      const box = measure.call(this);
+      // A single expensive layout exhausts this pass's match deadline, not the queued pass's.
+      layoutCost = 100;
+      Range.prototype.getBoundingClientRect = measure;
+      return box;
+    };
+  });
+  await requestHighlight(page, id, renderId, '00000000-0000-4000-8000-0000000000b3', anchors);
+  await expect(frame.locator('[data-colab-thread]')).toHaveCount(0);
+  await page.clock.runFor(100);
+  // A partial synchronous pass leaves the existing queued resize responsible for completion.
+  await expect(frame.locator('[data-colab-thread]')).toHaveCount(2);
 });
 
 test('a selection paints one passage in the selected look, and anything that is not a selection of the current request is refused', async ({

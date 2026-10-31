@@ -142,6 +142,7 @@ export function ColabShell({
   const view = useMemo(() => {
     const shown = (listed ?? NO_PAGES).filter((page) => !page.archived);
     const settings = location.pathname === '/settings';
+    const design = location.pathname === '/design' || location.pathname.startsWith('/design/');
     // A dashboard selects its own row, ahead of the shortcut its list showed.
     const shells = shown
       .filter((page) => page.pageType === 'shell')
@@ -200,7 +201,7 @@ export function ColabShell({
               href: href('/'),
               total: all!.count,
               count: all!.waiting ? shellCount(all!.waiting) : undefined,
-              current: !settings && !dashboard && !rows.some((row) => row.current),
+              current: !settings && !design && !dashboard && !rows.some((row) => row.current),
             },
           ],
         },
@@ -233,6 +234,10 @@ export function ColabShell({
             : {}),
         },
         ...(shells.length ? [{ label: text.colabSettings.shells, items: shells }] : []),
+        {
+          label: 'Design system',
+          items: [{ id: 'design', label: 'Design', href: href('/design'), current: design }],
+        },
       ],
       settings: {
         id: 'colab-settings',
@@ -257,6 +262,7 @@ export function ColabShell({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [answer, listed, shortcuts.items, shortcuts.store, manageable, location.pathname, shortcutId]);
   const select = (id: string) => {
+    if (id === 'design') return (void router.navigate({ to: '/design' }), true);
     if (id === 'colab-settings') return (void router.navigate({ to: '/settings' }), true);
     if (id.startsWith('shell:')) {
       const pageId = id.slice('shell:'.length);

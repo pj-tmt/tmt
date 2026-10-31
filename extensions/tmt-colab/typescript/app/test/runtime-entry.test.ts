@@ -3,8 +3,16 @@ import { expect, it, vi } from 'vite-plus/test';
 
 it('exposes the curated icons on window.tmt so a page can write them as htm templates', async () => {
   vi.stubGlobal('window', globalThis);
+  vi.stubGlobal('HTMLElement', class {});
+  const registered = new Map<string, CustomElementConstructor>();
+  vi.stubGlobal('customElements', {
+    get: (name: string) => registered.get(name),
+    define: (name: string, value: CustomElementConstructor) => registered.set(name, value),
+  });
   await import('../src/runtime/entry.js');
   const { icons } = await import('../src/runtime/icons.js');
+  const { browserElements } = await import('@tmt/browser-ui/elements-manifest');
+  expect([...registered.keys()]).toEqual(browserElements.map((entry) => entry.tag));
   const tmt = (
     globalThis as unknown as {
       tmt: { html: (...args: unknown[]) => unknown; icons: typeof icons };

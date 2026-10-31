@@ -8,6 +8,67 @@ unproved macro scope, forwarding, aliases or expressions fail closed. The packag
 checks and static COPY integration are in place. Product adoption and product
 release readiness are separate consumer work.
 
+## Colab author elements
+
+`@tmt/browser-ui/elements` exports `registerBrowserElements()`. Call it once in the
+owning document before admitting author markup; repeated calls are idempotent. It
+registers thin adapters over the same public React controls and requires the shared
+`static.css`, the documented host metric profile, React and ReactDOM. Colab includes them in its pinned page runtime,
+not in an author-supplied script. Static class-only pages and `tmt-icon` remain
+available without the React bundle.
+
+`@tmt/browser-ui/elements-manifest` is the admission and example source for the
+12 v1 tags: `tmt-ui-button`, `tmt-ui-icon-button`, `tmt-ui-field`, `tmt-ui-toggle`,
+`tmt-ui-checkbox`, `tmt-ui-menu`, `tmt-ui-tabs`, `tmt-ui-dialog`, `tmt-ui-chips`,
+`tmt-ui-chip`, `tmt-ui-list-table` and `tmt-ui-notice`. Attributes have closed boolean/enum rules;
+labels, named slots, unique item values and selected-value membership are checked.
+Malformed controls render a local alert rather than an actionable fallback. These
+are frame-local presentation controls, with no network, session, store, save or
+parent-command capability. Host applications continue using the controlled React
+APIs for domain operations.
+
+Authored slot nodes move into the control once, without cloning IDs. Local state
+and drafts survive control rerenders and dialog dismissal. Removing a host unmounts
+its React root and releases overlay/listener ownership; moving a connected host does
+not reset it. Replacing widget-bearing source remounts the Colab frame. Attribute
+updates do not rescan authored children; replace the host to change its item/slot
+structure. Dialog and notice slots can compose other author elements.
+
+`tmt-ui-list-table` accepts a required `label`, a JSON array of nonempty column labels
+in `columns`, and a JSON array of text-only rows in `rows`. Each row has exactly one
+string per column; an empty row array is valid. Cells are text, never HTML or row
+commands. The author supplies `--tmt-ui-list-tracks` and optional compact tracks on
+the host, using the same [list-table contract](#list-table-and-page-subheader).
+
+```html
+<tmt-ui-list-table
+  label="Pages"
+  columns='["Page","State"]'
+  rows='[["Project notes","Draft"],["Review","Ready"]]'
+  style="--tmt-ui-list-tracks:repeat(2,minmax(0,1fr));--tmt-ui-list-tracks-compact:minmax(0,1fr)"
+>
+</tmt-ui-list-table>
+```
+
+`@tmt/browser-ui/catalog` exports build-generated documentation, gallery and test
+inventory joined to this manifest. A Test chip means matching tests were collected,
+not that they passed; CI supplies the result. The generator reads gallery/test files
+only at build time. Product code never imports the gallery or test fixtures.
+Colab owns `/design/gui`, `/design/gui/<tag>` and `/design/tui`; its module menu
+links to Design before Settings. These routes do not depend on a global menu entry.
+GUI cards are live renderer frames. TUI entries describe actual painter sources;
+real terminal previews depend on the painter catalog and terminal-frame element.
+
+Example (no script or runtime meta marker needed in Colab):
+
+```html
+<tmt-ui-toggle label="Follow updates"></tmt-ui-toggle>
+<tmt-ui-dialog title="Manage shortcuts" trigger="Manage shortcuts">
+  <div slot="body"><tmt-ui-field label="Name" value="Design"></tmt-ui-field></div>
+  <p slot="actions">Press Escape to close and keep the draft.</p>
+</tmt-ui-dialog>
+```
+
 ## Entries and generation
 
 There is no root entry. `@tmt/browser-ui/static.css` exports checked

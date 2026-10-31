@@ -347,6 +347,11 @@ corepack pnpm@10.33.0 --dir typescript --filter @tmt/colab-app exec playwright i
 corepack pnpm@10.33.0 --dir typescript --filter @tmt/colab-app --fail-if-no-match test:browser
 ```
 
+`test:browser` reuses existing frozen runtime/design assets after checking their pin,
+style bytes and notices. It runs the normal app build only when a required fixture
+file is missing; present invalid bytes fail the check instead of being silently
+replaced. Direct Playwright invocations require those assets to be prepared first.
+
 `TMT_COLAB_APP_DIR` must be absolute; an invalid build fails compilation, and
 `serve --app-dir <absolute dist>` overrides embedded assets (invalid input fails
 `COLAB_APP_UNAVAILABLE` before creating state). Rebuild the binary to adopt new
