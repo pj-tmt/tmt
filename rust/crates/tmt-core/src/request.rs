@@ -297,6 +297,8 @@ pub struct PreparedRequest {
     pub inject_preamble: bool,
     pub previous_request_id: Option<String>,
     pub digest_until_ms: Option<u64>,
+    /// Held at its pair's talk limit until a person resumes it: no wake, no Digest item.
+    pub held_for_person: bool,
 }
 
 pub struct SubmitResponse {
@@ -626,6 +628,22 @@ pub trait RequestRecords {
     fn identity_is_active(&self, identity_id: &str) -> Result<bool, Self::Error>;
     /// An active identity marked as a person by the reserved `user` metadata entry.
     fn identity_is_user(&self, identity_id: &str) -> Result<bool, Self::Error>;
+    /// Sending rules and talk limits for one agent-to-agent request, decided at the
+    /// preparation transaction's captured instant (#4892).
+    fn talk_admission(
+        &self,
+        from: &str,
+        to: &str,
+        now_ms: u64,
+    ) -> Result<crate::orchestration::sending::OrchTalkAdmission, Self::Error>;
+    /// Keep a prepared request waiting for a person: no wake and no Digest item.
+    fn hold_for_person(
+        &mut self,
+        request_id: &str,
+        from: &str,
+        to: &str,
+        now_ms: u64,
+    ) -> Result<(), Self::Error>;
     fn find_recipient_attention(
         &self,
         identity_id: &str,
@@ -816,6 +834,8 @@ pub enum RequestError<E> {
     ResultSelection(ResultSelectionRejection),
     Digest(digest::DigestRejection),
     SendNow(delivery::SendNowRejection),
+    /// The sender's sending rule refuses this recipient; nothing was stored.
+    RouteRestricted(Box<crate::orchestration::sending::OrchRouteRefusal>),
     Repository(E),
 }
 
@@ -864,6 +884,7 @@ impl<E> fmt::Display for RequestError<E> {
             }
             Self::Digest(reason) => f.write_str(reason.code()),
             Self::SendNow(reason) => f.write_str(reason.code()),
+            Self::RouteRestricted(_) => f.write_str("ORCH_ROUTE_RESTRICTED"),
             Self::Repository(_) => f.write_str("Could not access request state."),
         }
     }

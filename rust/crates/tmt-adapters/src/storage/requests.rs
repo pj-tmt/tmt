@@ -839,6 +839,27 @@ impl RequestRecords for RequestRows<'_> {
             .map_err(|error| classify(error, "Check active request recipient"))
     }
 
+    fn talk_admission(
+        &self,
+        from: &str,
+        to: &str,
+        now_ms: u64,
+    ) -> Result<tmt_core::orchestration::sending::OrchTalkAdmission, Self::Error> {
+        self.1
+            .ok_or_else(admitted_calendar_missing)?
+            .talk_admission(self.0, from, to, now_ms)
+    }
+    fn hold_for_person(
+        &mut self,
+        request_id: &str,
+        from: &str,
+        to: &str,
+        now_ms: u64,
+    ) -> Result<(), Self::Error> {
+        self.1
+            .ok_or_else(admitted_calendar_missing)?
+            .hold_for_person(self.0, request_id, from, to, now_ms)
+    }
     fn identity_is_user(&self, identity_id: &str) -> Result<bool, Self::Error> {
         self.0
             .query_row(
@@ -1625,4 +1646,11 @@ pub(super) fn receiving_window(
     id: &str,
 ) -> Result<Option<tmt_core::request::digest::DigestPolicy>, StorageError> {
     digest::policy(db, id)
+}
+
+fn admitted_calendar_missing() -> StorageError {
+    StorageError::new(
+        StorageErrorCode::Unknown,
+        "Orchestration calendar was not admitted before the request transaction",
+    )
 }

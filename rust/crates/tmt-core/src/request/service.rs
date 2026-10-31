@@ -113,7 +113,7 @@ impl<'a, R: RequestRepository, C: Fn() -> u64> RequestService<'a, R, C> {
                 &delivery,
                 None,
             )?;
-            let queued = if prepared.digest_until_ms.is_some() {
+            let queued = if prepared.digest_until_ms.is_some() || prepared.held_for_person {
                 true
             } else {
                 lifecycle::queue_records(records, &prepared.attempt_id, now)?
@@ -263,6 +263,29 @@ fn prepare_records<E>(
         input.wait = false;
         input.preamble = None;
     }
+    // Sending rules and talk limits apply only between two agents: never to a person's own
+    // message or an anonymous one (#4892). Finals, notices and checklists are not prepared here.
+    let mut held_for_person = None;
+    if delivery.mode != super::digest::DeliveryMode::Passthrough
+        && input.kind == RequestKind::Request
+        && let (Some(from), Some(to)) = (
+            input.originator.identity_id(),
+            input.recipient_identity_id.as_deref(),
+        )
+        && !records.identity_is_user(from)?
+        && !records.identity_is_user(to)?
+    {
+        use crate::orchestration::sending::OrchTalkAdmission;
+        match records.talk_admission(from, to, now)? {
+            OrchTalkAdmission::Allowed => {}
+            OrchTalkAdmission::Restricted(refusal) => {
+                return Err(RequestError::RouteRestricted(refusal));
+            }
+            OrchTalkAdmission::NeedsPerson { .. } => {
+                held_for_person = Some((from.to_owned(), to.to_owned()));
+            }
+        }
+    }
     let expires = input
         .expires_at_ms
         .max(deadline(now, REQUEST_MIN_EXPIRY_MS)?);
@@ -279,7 +302,9 @@ fn prepare_records<E>(
         Some(id) => reserve_revision(records, id)?,
         None => 0,
     };
-    let digest_until_ms = if delivery.automatic && matches!(input.route, RequestRoute::Inbox { .. })
+    let digest_until_ms = if held_for_person.is_none()
+        && delivery.automatic
+        && matches!(input.route, RequestRoute::Inbox { .. })
     {
         digest::held_until(
             records,
@@ -291,7 +316,7 @@ fn prepare_records<E>(
     } else {
         None
     };
-    if digest_until_ms.is_some() {
+    if digest_until_ms.is_some() || held_for_person.is_some() {
         input.wait = false;
         input.preamble = None;
     }
@@ -361,12 +386,16 @@ fn prepare_records<E>(
         digest::hold_incoming(records, &attempt, now)?;
         lifecycle::queue_records(records, &attempt.attempt_id, now)?;
     }
+    if let Some((from, to)) = &held_for_person {
+        records.hold_for_person(&attempt.request_id, from, to, now)?;
+    }
     Ok(PreparedRequest {
         attempt_id,
         request_id: input.request_id,
         inject_preamble: inject,
         previous_request_id,
         digest_until_ms,
+        held_for_person: held_for_person.is_some(),
     })
 }
 

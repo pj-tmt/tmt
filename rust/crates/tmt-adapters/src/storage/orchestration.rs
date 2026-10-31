@@ -1,5 +1,6 @@
 //! Configuration snapshots/publication and the transaction-local decision journal.
 mod receiving;
+mod sending;
 mod write;
 use super::{Storage, StorageError, StorageErrorCode, errors::classify};
 use crate::orchestration::wire::{self, OrchPlanDocument, OrchSubjectDocument};
@@ -23,13 +24,8 @@ pub(super) struct ReceivingCalendar {
     zone: Option<crate::orchestration::OrchZone>,
 }
 impl ReceivingCalendar {
+    /// Sending rules (#4892) need the zone even before Digest publishes receiving.
     pub(super) fn load(db: &Connection) -> Result<Self, StorageError> {
-        if receiving::read(db)?.is_none() {
-            return Ok(Self {
-                configured_zone: None,
-                zone: None,
-            });
-        }
         let configured_zone: Option<String> = db
             .query_row(
                 "SELECT time_zone FROM orchestration_settings WHERE id=1",

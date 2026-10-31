@@ -23,6 +23,31 @@ pub enum OrchRoute {
     },
 }
 
+/// A refused route, with what the caller needs to explain it and to journal it after the
+/// preparation transaction rolled back.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct OrchRouteRefusal {
+    pub sender_id: String,
+    pub recipient_id: String,
+    pub sending: OrchSending,
+    pub source: OrchSource,
+    pub configuration_revision: u64,
+    pub time_zone: String,
+}
+
+/// The preparation transaction's decision for one agent-to-agent request.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum OrchTalkAdmission {
+    Allowed,
+    /// Refused before anything is stored.
+    Restricted(Box<OrchRouteRefusal>),
+    /// Stored and held until a person resumes the pair.
+    NeedsPerson {
+        counted: u64,
+        limit: u32,
+    },
+}
+
 /// `grant_until_ms` is the end of the grant stored for this exact ordered pair, if any.
 pub fn route(
     sending: &OrchValue<OrchSending>,
