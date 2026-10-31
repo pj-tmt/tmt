@@ -82,6 +82,9 @@ impl Help {
     /// The index of the selected settings row.
     #[cfg(test)]
     pub fn selected_setting(&self) -> Option<usize> {
+        self.selected_setting_index()
+    }
+    fn selected_setting_index(&self) -> Option<usize> {
         self.ui
             .picker
             .list
@@ -203,10 +206,14 @@ impl Help {
         });
         self.ui
             .render(FILE, template(), value.clone(), frame, look, body);
-        // Settings focus keeps the chosen row in view, e.g. when `,` opens the panel.
+        // Settings focus keeps the chosen row and the rows after it in view, e.g. when `,`
+        // opens the panel, as far as they fit.
+        let after = self
+            .selected_setting_index()
+            .map_or(0, |index| settings.len().saturating_sub(index + 1));
         if focus
             && let Some(id) = selected
-            && self.ui.reveal_group(&id, &id, 0) == Some(true)
+            && self.ui.reveal_group(&id, &id, after) == Some(true)
         {
             self.ui.render(FILE, template(), value, frame, look, body);
         }
