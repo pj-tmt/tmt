@@ -61,7 +61,6 @@ export function AnnotationInput({
   onDraft,
   onBusy,
   onFailure,
-  onRecorded,
   blocked,
   recoveryRequired = false,
   connectionPresentation,
@@ -84,12 +83,10 @@ export function AnnotationInput({
   activation?: ComposerActivation;
   /** Reports every value, so the owner can keep an unsent draft. */
   onDraft?(value: string, edit: ComposerEdit): void;
-  /** Reports the send lifetime independently of whether its retained window is visible. */
+  /** Reports a send in flight, which nothing outside may interrupt. */
   onBusy?(busy: boolean): void;
   /** A closing owner retains delivery recovery outside the composer. */
   onFailure?(failure: MessageSendFailure): void;
-  /** Record identity is available before agent delivery settles; it does not imply delivery. */
-  onRecorded?(ref: DiscussionRef): void;
   blocked: boolean;
   /** Recovery keeps local editing available; blocked still fences every publish. */
   recoveryRequired?: boolean;
@@ -382,7 +379,6 @@ export function AnnotationInput({
         : chat
           ? await discussion!.createChat(captured.value, attach)
           : await discussion!.create(captured.value, captured.anchor, attach);
-      onRecorded?.(origin.thread);
       stage = 'dispatch';
       if (echoed) echoHost?.show((echoed = { ...echoed, message: origin.message }));
       files.committed();

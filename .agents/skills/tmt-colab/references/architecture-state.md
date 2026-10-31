@@ -236,11 +236,9 @@ opens completion at `@` or full-width `＠` after non-address-like text, includi
 `email@host` never routes. No Lexical document is persisted or sent as authority.
 
 `AnnotationInput` owns the draft, trusted action, current content/Ask admission and
-immutable one-comment send capture. An annotation dismissed during Send retains that composer
-hidden until it is reopened or safely replaced; record identity becomes available before delivery
-settles. Echo turns reserve their recipients' status footprint and remain until the original send
-settles and its admitted outcomes replace them, so an intent awaiting its first state cannot flash
-recovery uncertainty. `message-send-refusal.ts` shares its button and
+immutable one-comment send capture. Echo turns reserve their recipients' status footprint and
+remain until the original send settles and its admitted outcomes replace them, so an intent
+awaiting its first state cannot flash recovery uncertainty. `message-send-refusal.ts` shares its button and
 explicit-submit presentation gates and classifies closed failure references. The
 composer keeps a visible, announced refusal below the field until a deliberate
 text edit, retry or successful Send; saved S2/S13 states stay neutral, without an

@@ -398,7 +398,6 @@ function SelectionAnnotation({
   open,
   thread,
   arrivals,
-  collapsed = false,
   children,
 }: {
   host: HTMLDivElement | null;
@@ -411,10 +410,9 @@ function SelectionAnnotation({
   thread?: string;
   /** The records in the window's thread; an arrival after the first grows it upward, not downward. */
   arrivals: number;
-  collapsed?: boolean;
   children?: React.ReactNode;
 }) {
-  const expanded = children !== undefined && !collapsed;
+  const expanded = children !== undefined;
   const element = useRef<HTMLDivElement>(null);
   // The lower edge a thread window keeps once a record arrives in it, relative to its anchor, and
   // the height and arrivals seen by the last placement.
@@ -619,8 +617,7 @@ function SelectionAnnotation({
         } as React.CSSProperties
       }
     >
-      {children}
-      {(!children || collapsed) && (
+      {children ?? (
         <BrowserIconAction
           type="button"
           variant="primary"
@@ -1549,7 +1546,6 @@ function OpenPage({
     setSelectionMode(false);
     closeIf('agents', 'export');
   }, [archived, closeIf, setSelectionMode]);
-  const annotationOpen = !!annotation && !annotation.hidden;
   const annotationThread = annotation?.thread
     ? view.threads?.find(
         (thread) =>
@@ -1673,7 +1669,7 @@ function OpenPage({
       if (!chatBusy.current) closeChat();
     } else if (panel === 'comments') {
       if (!annotationBusy.current && !statusBusy.current) closeComments();
-    } else if (annotationRef.current && !annotationRef.current.hidden) closeRef.current(true);
+    } else if (annotationRef.current) closeRef.current(true);
     else if (canSelect) setSelectionMode(false);
   };
   toggleSelectionMode.current = () => {
@@ -1711,7 +1707,7 @@ function OpenPage({
       if (
         event.key === 'Escape' &&
         !panelsRef.current.panel &&
-        (!annotationRef.current || annotationRef.current.hidden) &&
+        !annotationRef.current &&
         !selectionMode
       )
         return;
@@ -1861,7 +1857,7 @@ function OpenPage({
     if (state !== 'ready') return;
     renderer.current?.highlight(
       anchoredThreads as { id: string; selector: QuoteSelector; ordinal: number }[],
-      annotation?.hidden ? undefined : (annotation?.selector ?? undefined),
+      annotation?.selector ?? undefined,
       threadTotal,
       quietThread,
     );
@@ -1869,12 +1865,11 @@ function OpenPage({
   // The passage of the thread whose window or Discussion view is open takes the page's selected look; a window for a new
   // quote or none leaves every passage at rest. The anchors are a dependency so that a thread opened
   // as it is created is selected once the frame holds its passage.
-  const openThreadId =
-    !annotation?.hidden && annotation?.thread
-      ? `${annotation.thread.writer}:${annotation.thread.id}`
-      : discussedThread
-        ? activeThread
-        : null;
+  const openThreadId = annotation?.thread
+    ? `${annotation.thread.writer}:${annotation.thread.id}`
+    : discussedThread
+      ? activeThread
+      : null;
   useEffect(() => {
     if (state !== 'ready') return;
     renderer.current?.select(openThreadId);
@@ -1917,8 +1912,8 @@ function OpenPage({
     activate: (event) => {
       if (
         panel ||
-        (!annotationRef.current?.hidden && annotationRef.current?.thread) ||
-        (!annotationRef.current?.hidden && annotationBusy.current) ||
+        annotationRef.current?.thread ||
+        annotationBusy.current ||
         statusBusy.current ||
         chatBusy.current
       )
@@ -2009,7 +2004,7 @@ function OpenPage({
         suspended={
           notifications.activating ||
           panel !== null ||
-          (annotationOpen && !!annotation?.thread) ||
+          !!annotation?.thread ||
           notifications.modalCount > 0 ||
           recoveryRequired ||
           quickSwitcher?.open === true
@@ -2406,7 +2401,7 @@ function OpenPage({
           host={host.current}
           slots={inlineSlots.positions}
           enabled={selectionMode}
-          discussionOpen={annotationOpen}
+          discussionOpen={!!annotation}
           panel={panel}
           toggle={() => toggleSelectionMode.current()}
           chatUnread={notifications.chatUnread}
@@ -2439,8 +2434,7 @@ function OpenPage({
         (annotation || (!liveError && state === 'ready')) && (
           <SelectionAnnotation
             host={host.current}
-            rectangle={annotation?.hidden ? rectangle : (annotation?.rectangle ?? rectangle)}
-            collapsed={annotation?.hidden}
+            rectangle={annotation?.rectangle ?? rectangle}
             inset={toolbar.current?.offsetHeight ?? 0}
             noticeVisible={state === 'navigation' || state === 'failed'}
             toggleVisible={canSelect}
@@ -2459,8 +2453,6 @@ function OpenPage({
               <section
                 key={annotation.key}
                 className="annotation-new"
-                hidden={annotation.hidden}
-                style={annotation.hidden ? { display: 'none' } : undefined}
                 role="dialog"
                 aria-label="Annotate selection"
                 ref={popover}
@@ -2556,11 +2548,10 @@ function OpenPage({
                           annotationBusy.current = busy;
                         }}
                         cancel={() => closeAnnotation(true)}
-                        onRecorded={(ref) => {
+                        committed={(ref) => {
                           if (annotationRef.current?.key === annotation.key)
                             continueAnnotation(ref);
                         }}
-                        committed={() => {}}
                       />
                     </>
                   }
@@ -2692,7 +2683,7 @@ function OpenPage({
           headerBottom: () => toolbar.current?.getBoundingClientRect().bottom ?? 0,
           blockSurface:
             notifications.modalCount ||
-            (annotationOpen && annotation?.thread) ||
+            annotation?.thread ||
             recoveryRequired ||
             quickSwitcher?.open
               ? 'covered'

@@ -478,9 +478,14 @@ test.describe('Ask agent real-binary acceptance (#1110)', () => {
       const s = await scenario(world);
       const draft = await composeChat(s.askerPage, s.recipient, 'Survive a restart');
       world.armNextBarrier('after');
-      const ask = await sendChat(s.askerPage, draft);
+      // #5815 keeps the pending echo until the held send settles; it is not an admitted row.
+      const panel = s.askerPage.getByTestId('chat-panel');
+      await panel.getByRole('combobox', { name: 'Message' }).press('Enter');
       const parked = await world.barrierEntered();
-      expect(parked.operationId).toBe(ask.operationId);
+      expect(typeof parked.operationId).toBe('string');
+      const ask = { ...draft, operationId: parked.operationId as string };
+      await expect(panel.getByTestId('comment-echo')).toHaveCount(1);
+      await expect(askEntry(s.askerPage, ask.operationId)).toHaveCount(0);
       // The real core has accepted; Remote dies before it can answer the browser.
       const recover = restartRecovery(s.askerPage);
       await s.door.remote.kill();
@@ -505,9 +510,14 @@ test.describe('Ask agent real-binary acceptance (#1110)', () => {
       const s = await scenario(world);
       const draft = await composeChat(s.askerPage, s.recipient, 'Never reaches the core');
       world.armNextBarrier('before');
-      const ask = await sendChat(s.askerPage, draft);
+      // #5815 keeps the pending echo until the held send settles; it is not an admitted row.
+      const panel = s.askerPage.getByTestId('chat-panel');
+      await panel.getByRole('combobox', { name: 'Message' }).press('Enter');
       const parked = await world.barrierEntered();
-      expect(parked.operationId).toBe(ask.operationId);
+      expect(typeof parked.operationId).toBe('string');
+      const ask = { ...draft, operationId: parked.operationId as string };
+      await expect(panel.getByTestId('comment-echo')).toHaveCount(1);
+      await expect(askEntry(s.askerPage, ask.operationId)).toHaveCount(0);
       // Remote dies and its parked core launch is killed before the core acts, so
       // nothing is dispatched (releasing it would let the dispatch run).
       const recover = restartRecovery(s.askerPage);

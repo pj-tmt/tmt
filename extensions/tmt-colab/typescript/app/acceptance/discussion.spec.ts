@@ -305,19 +305,18 @@ test('paired writers retain anchored annotation conversations, direct exact send
     const replaceSource = async (source: string) => {
       const read = JSON.parse(
         run(world, world.binaries.colab, ['page', 'read', created.pageId, '--json']),
-      ) as { revision: string };
+      ) as { revision: string; source: string };
       // The shown source's digest changes whether the frame is replaced or updated in place (#5022).
       const digest = await first.locator('iframe').getAttribute('data-source-digest');
       run(
         world,
         world.binaries.colab,
-        patchArgs(world, created.pageId, [
-          '--file',
-          '-',
-          '--expected-revision',
-          read.revision,
-          '--json',
-        ]),
+        patchArgs(
+          world,
+          created.pageId,
+          ['--file', '-', '--expected-revision', read.revision, '--json'],
+          read.source,
+        ),
         source,
         agent.pane,
       );
@@ -348,6 +347,8 @@ test('paired writers retain anchored annotation conversations, direct exact send
     ).toBe(true);
     await expect(t1).toHaveAttribute('data-anchor', 'detached');
     await expect(t1.getByText(text.commentQuoteChanged)).toBeVisible();
+    // The agent reply is a concurrent page write; observe its admitted publication before patching.
+    await expect(t1.getByTestId('ask-reply')).toHaveCount(1);
     await replaceSource(html);
     await expect(t1).toHaveAttribute('data-anchor', 'attached');
     await expect(t1.getByText(text.commentQuoteChanged)).toHaveCount(0);
@@ -734,10 +735,12 @@ test('composer records plain annotations and replies without a recipient, then s
     world.armNextBarrier('after');
     await thread.getByRole('button', { name: /^Send(?: · to .+)?$/, exact: true }).click();
     const parked = await world.barrierEntered();
+    // #5815 reserves the pending echo until this explicit send returns from the held core call.
     const entry = thread.getByTestId('ask-entry');
-    await expect(entry).toHaveCount(1);
-    const operationId = (await entry.getAttribute('data-operation-id'))!;
-    expect(parked.operationId).toBe(operationId);
+    await expect(entry).toHaveCount(0);
+    await expect(thread.getByTestId('comment-echo')).toContainText('Explain this exact quote.');
+    expect(typeof parked.operationId).toBe('string');
+    const operationId = parked.operationId as string;
     await until(() => agent.received().length === 1, 'one explicitly selected annotation Ask');
     const received = agent.received()[0];
     const requestId = received.requestId as string;
@@ -746,11 +749,6 @@ test('composer records plain annotations and replies without a recipient, then s
     expect(typeof received.message).toBe('string');
     const delivered = received.message as string;
     expect(delivered.slice(-question.length)).toBe(question);
-    const askComment = thread
-      .getByTestId('comment-entry')
-      .filter({ hasText: 'Explain this exact quote.' });
-    const askMessageId = (await askComment.getAttribute('data-message-id'))!;
-    await expect.poll(() => askComment.locator('.comment-body').textContent()).toBe(shown);
     expect(agent.received()[0].message).toContain('Frozen original quote.');
     expect(agent.received()[0].message).toContain(`@${agent.name}`);
     expect(world.coreCalls().filter((call) => call.operation === 'dispatch.create')).toHaveLength(
@@ -764,7 +762,13 @@ test('composer records plain annotations and replies without a recipient, then s
     ).toEqual([operationId]);
     expect(agent.received(requestId)).toHaveLength(1);
     world.releaseBarrier();
+    await expect(entry).toHaveAttribute('data-operation-id', operationId);
     await expect(entry).toHaveAttribute('data-ledger-state', 'accepted');
+    const askComment = thread
+      .getByTestId('comment-entry')
+      .filter({ hasText: 'Explain this exact quote.' });
+    const askMessageId = (await askComment.getAttribute('data-message-id'))!;
+    await expect.poll(() => askComment.locator('.comment-body').textContent()).toBe(shown);
     writeFileSync(path.join(agent.gate, `${requestId}.release`), '');
     const expectedReply = `ask-reply:${createHash('sha256').update(delivered).digest('hex').slice(0, 16)}`;
     await expect.poll(() => entry.getByTestId('ask-reply').textContent()).toBe(expectedReply);
