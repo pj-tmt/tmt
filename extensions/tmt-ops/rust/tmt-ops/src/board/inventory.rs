@@ -36,6 +36,13 @@ impl Agent {
             &self.canonical
         }
     }
+    /// The plain program this identity runs instead of an agent (Core's `plainProgram`, a
+    /// bounded program name, never its arguments), shown where a model would be (#5769).
+    pub(super) fn plain_program(&self) -> Option<&str> {
+        self.parameters["plainProgram"]
+            .as_str()
+            .filter(|program| !program.is_empty())
+    }
 }
 
 /// A public, worker-acquired usage observation; no model-window inference.
@@ -90,6 +97,7 @@ impl Inventory {
                                 "resume",
                                 "location",
                                 "session",
+                                "plainProgram",
                             ]
                             .into_iter()
                             .filter_map(|key| {
@@ -150,6 +158,20 @@ mod tests {
         assert_eq!(model("c"), None);
         assert_eq!(model("d"), None);
         assert_eq!(inventory.agents["a"].runtime.as_deref(), Some("claude"));
+    }
+
+    #[test]
+    fn only_a_listed_plain_program_marks_a_plain_shell() {
+        let listed = Ok(json!({"identities": [
+            {"id": "a", "name": "sh-1", "plainProgram": "zsh"},
+            {"id": "b", "name": "agent", "runningDriver": "codex"},
+            {"id": "c", "name": "odd", "plainProgram": 1},
+            {"id": "d", "name": "blank", "plainProgram": ""},
+        ]}));
+        let inventory = Inventory::from_listed(&listed);
+        let plain = |id: &str| inventory.agents[id].plain_program();
+        assert_eq!(plain("a"), Some("zsh"));
+        assert_eq!((plain("b"), plain("c"), plain("d")), (None, None, None));
     }
 
     #[test]

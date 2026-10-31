@@ -53,6 +53,9 @@ pub enum Delivery {
     /// The recipient's agent waits on its user (an approval or a question):
     /// nothing was sent, the request is kept, and nothing types around it.
     AwaitingApproval,
+    /// The binding runs a plain program (named), not an agent: a paste would run as a
+    /// command, so nothing is sent and the item stays held until an agent binds.
+    NotAgent(String),
     Transport(crate::host::DeliveryError),
 }
 
@@ -84,13 +87,15 @@ impl Delivery {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Availability {
     Ready,
     /// An active identity with no recorded host endpoint receives by inbox pull.
     Unbound,
     Offline,
     Unavailable,
+    /// The live binding runs the named plain program, not an agent (`RECIPIENT_NOT_AGENT`).
+    NotAgent(String),
 }
 
 /// An advisory consumer wake: it never satisfies the recipient's attention.
@@ -305,7 +310,14 @@ pub fn status(storage: &mut Storage, identity: &str) -> Result<Availability, Sto
                 ActionResult::Completed(InterfaceStatus {
                     presence: InterfacePresence::Present,
                     ..
-                }) => Availability::Ready,
+                }) => match entry
+                    .binding
+                    .as_ref()
+                    .and_then(|binding| binding.session.plain_program.clone())
+                {
+                    Some(program) => Availability::NotAgent(program),
+                    None => Availability::Ready,
+                },
                 _ => Availability::Unavailable,
             })
         }
@@ -346,6 +358,7 @@ fn send_messages(
         Availability::Ready => {}
         Availability::Unbound | Availability::Offline => return Ok(Delivery::Offline.into()),
         Availability::Unavailable => return Ok(Delivery::Unavailable.into()),
+        Availability::NotAgent(program) => return Ok(Delivery::NotAgent(program).into()),
     }
     let Some(entry) = current(storage, identity)? else {
         return Ok(Delivery::Offline.into());

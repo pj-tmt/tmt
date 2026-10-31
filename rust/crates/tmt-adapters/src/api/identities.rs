@@ -28,7 +28,7 @@ pub(super) fn decode(input: &[u8]) -> Result<Request, Fault> {
     })
 }
 
-pub(super) fn status(storage: &Storage, identities: Vec<String>) -> Result<Vec<u8>, Fault> {
+pub(super) fn status(storage: &mut Storage, identities: Vec<String>) -> Result<Vec<u8>, Fault> {
     // One directory read; expiry (`stale`) is applied here, by core.
     let statuses = storage
         .list_active_identity_statuses()
@@ -42,17 +42,34 @@ pub(super) fn status(storage: &Storage, identities: Vec<String>) -> Result<Vec<u
                 .map_err(|_| Fault::unavailable())?
             {
                 None => json!({"id": id, "found": false}),
-                Some(_) => json!({"id": id, "found": true,
+                Some(_) => {
+                    let mut value = json!({"id": id, "found": true,
                     "status": crate::identity_status::status_value(statuses.get(id), now),
                     "canPassthrough": crate::passthrough::can_identity(storage, id)
                         .map_err(|_| Fault::unavailable())?
                         // A retired identity has no pane to type into.
                         .unwrap_or(crate::passthrough::Can::no(crate::passthrough::Reason::NoPane))
-                        .to_json()}),
+                        .to_json()});
+                    // The binding runs a plain program, not an agent: it receives nothing.
+                    if let Some(program) = plain_program(storage, id)? {
+                        value["plainProgram"] = program.into();
+                    }
+                    value
+                }
             },
         );
     }
     Ok(serde_json::to_vec(&json!({"identities": entries})).expect("identity statuses"))
+}
+
+fn plain_program(storage: &mut Storage, id: &str) -> Result<Option<String>, Fault> {
+    use tmt_core::binding::BindingRepository;
+    storage
+        .with_binding_transaction::<_, crate::storage::StorageError>(|records| {
+            records.entry_by_id(id)
+        })
+        .map(|entry| entry.and_then(|entry| entry.binding?.session.plain_program))
+        .map_err(|_| Fault::unavailable())
 }
 
 #[derive(Deserialize)]

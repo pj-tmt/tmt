@@ -65,6 +65,7 @@ pub(super) fn decode_state(row: &Row<'_>, offset: usize) -> rusqlite::Result<Bin
     };
     Ok(BindingSessionState {
         start_refusal: decode_refusal(row.get(offset + 9)?)?,
+        plain_program: row.get(offset + 10)?,
         launch_owner,
         last_transition,
         state,
@@ -397,8 +398,8 @@ pub(super) fn set_state(
         })
     };
     let changed = connection.execute(
-        "UPDATE bindings SET runtime_state = ?, last_transition = ?, runtime_pid = ?, runtime_start_identity = ?, observed_provider_session_id = ?, launch_owner_pid = ?, launch_owner_start_identity = ?, runtime_start_refusal = ?
-         WHERE id = ? AND runtime_state = ? AND last_transition IS ? AND runtime_pid IS ? AND runtime_start_identity IS ? AND observed_provider_session_id IS ? AND launch_owner_pid IS ? AND launch_owner_start_identity IS ? AND runtime_start_refusal IS ?
+        "UPDATE bindings SET runtime_state = ?, last_transition = ?, runtime_pid = ?, runtime_start_identity = ?, observed_provider_session_id = ?, launch_owner_pid = ?, launch_owner_start_identity = ?, runtime_start_refusal = ?, plain_program = ?
+         WHERE id = ? AND runtime_state = ? AND last_transition IS ? AND runtime_pid IS ? AND runtime_start_identity IS ? AND observed_provider_session_id IS ? AND launch_owner_pid IS ? AND launch_owner_start_identity IS ? AND runtime_start_refusal IS ? AND plain_program IS ?
          AND EXISTS (SELECT 1 FROM identities i WHERE i.id = bindings.identity_id AND i.retired_at_ms IS NULL)",
         params![state(value.state), transition(value.last_transition),
             next_pid,
@@ -407,13 +408,15 @@ pub(super) fn set_state(
             next_owner_pid,
             value.launch_owner.as_ref().map(ProcessIncarnation::start_identity),
             encode_refusal(value.start_refusal.as_ref()),
+            value.plain_program,
             binding_id, state(expected.state), transition(expected.last_transition),
             expected_pid,
             expected.key.as_ref().map(|key| key.incarnation.start_identity()),
             expected.key.as_ref().and_then(|key| key.provider_session.as_ref()).map(ProviderSessionId::as_str),
             expected_owner_pid,
             expected.launch_owner.as_ref().map(ProcessIncarnation::start_identity),
-            encode_refusal(expected.start_refusal.as_ref())],
+            encode_refusal(expected.start_refusal.as_ref()),
+            expected.plain_program],
     ).map_err(|error| classify(error, "Write binding session state"))? == 1;
     // A Stop continuation belongs to the provider process and session that was running. Once
     // either ends or is replaced (SessionEnd, a crash seen as a process fact, a clear or a new
@@ -1078,6 +1081,7 @@ mod tests {
                     &binding.id,
                     &BindingSessionState::default(),
                     &BindingSessionState {
+                        plain_program: None,
                         start_refusal: None,
                         launch_owner: None,
                         state: RuntimeState::Running,
@@ -1307,6 +1311,7 @@ mod tests {
                 &binding.id,
                 &BindingSessionState::default(),
                 &BindingSessionState {
+                    plain_program: None,
                     start_refusal: None,
                     launch_owner: None,
                     state: RuntimeState::Ended,

@@ -92,6 +92,7 @@ fn binding(state: RuntimeState, session: Option<&str>) -> Binding {
         pane_pid: 10,
         pane_incarnation: None,
         session: BindingSessionState {
+            plain_program: None,
             start_refusal: None,
             last_transition: None,
             state,
@@ -140,6 +141,7 @@ fn row(
         remembered,
         resume: None,
         running_driver: None,
+        plain_program: None,
         driver_support: None,
     }
 }
@@ -453,6 +455,7 @@ fn running_document(mut row: ListedRow, runtime: RuntimeState) -> Value {
             resume: row.resume.clone(),
             activity: row.activity.clone(),
             running_driver: None,
+            plain_program: None,
             driver_support: None,
         }],
         scope: ListScope::default(),
@@ -883,6 +886,7 @@ fn support_document(mut row: ListedRow, support: Option<Support>) -> Value {
             resume: row.resume.clone(),
             activity: row.activity.clone(),
             running_driver: row.running_driver.clone(),
+            plain_program: None,
             driver_support: None,
         }],
         scope: ListScope::default(),

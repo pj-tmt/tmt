@@ -84,8 +84,17 @@ with (r/'launches').open('a') as f:f.write(json.dumps(sys.argv[1:])+'\n')
             _ => panic!(),
         };
         let mut draft = model::Draft::from_app(&board());
-        draft.fields =
-            ["new-worker", "codex", "a'b $c; d", "", host, "a space", ""].map(Editor::from);
+        draft.fields = [
+            "new-worker",
+            "codex",
+            "a'b $c; d",
+            "",
+            host,
+            "a space",
+            "",
+            "",
+        ]
+        .map(Editor::from);
         draft.saved = saved;
         draft.review(&loaded).unwrap()
     }

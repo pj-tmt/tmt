@@ -991,3 +991,105 @@ fn edit_resize_invalidates_mouse_admission_without_dropping_the_draft() {
         "stale geometry cannot admit an outside press"
     );
 }
+
+/// The form switched to the plain-shell tool from its list's first row (#5769).
+fn plain_form(shell: &str) -> App {
+    let mut app = form();
+    let c = app.new_member.as_mut().unwrap();
+    c.draft.shell = shell.into();
+    c.open_list(model::Slot::Tool);
+    assert_eq!(
+        c.rows()[0].label,
+        model::PLAIN_TOOL,
+        "the first tool choice"
+    );
+    c.list.as_mut().unwrap().row = 0;
+    key(&mut app, KeyCode::Enter);
+    assert!(app.new_member.as_ref().unwrap().draft.plain());
+    app
+}
+#[test]
+fn the_plain_shell_choice_hides_model_and_effort_and_shows_command() {
+    let _ui = crate::runner::forbid_commands();
+    let app = form();
+    let c = app.new_member.as_ref().unwrap();
+    let agent = c.draft.visible(c.loaded.as_ref());
+    assert!(agent.contains(&model::Slot::Model) && agent.contains(&model::Slot::Effort));
+    assert!(!agent.contains(&model::Slot::Command));
+
+    let app = plain_form("/bin/zsh");
+    let c = app.new_member.as_ref().unwrap();
+    let plain = c.draft.visible(c.loaded.as_ref());
+    assert_eq!(
+        plain[..3],
+        [model::Slot::Name, model::Slot::Tool, model::Slot::Command]
+    );
+    assert!(!plain.contains(&model::Slot::Model) && !plain.contains(&model::Slot::Effort));
+    assert!(!c.stops().contains(&Focus::Slot(model::Slot::Model)));
+    assert!(c.stops().contains(&Focus::Slot(model::Slot::Command)));
+    for width in [80, 150] {
+        let screen = paint(&app, width, 43);
+        assert!(screen.contains("Command"), "{width}");
+        assert!(screen.contains("None · plain shell (no AI)"), "{width}");
+        assert!(screen.contains("/bin/zsh (your shell)"), "{width}");
+        assert!(screen.contains("tmt run new-worker /bin/zsh"), "{width}");
+    }
+}
+#[test]
+fn a_plain_shell_review_runs_the_literal_argv_without_model_or_effort() {
+    let _ui = crate::runner::forbid_commands();
+    let mut app = plain_form("/bin/zsh");
+    let c = app.new_member.as_mut().unwrap();
+    // Text left in the hidden fields is never sent.
+    c.draft.fields[model::Slot::Model.index()] = Editor::from("gpt-6.1-sol");
+    c.draft.fields[model::Slot::Effort.index()] = Editor::from("high");
+    let review = |c: &Controller| c.draft.review(c.loaded.as_ref().unwrap());
+    let blank = review(c).unwrap();
+    assert_eq!(
+        blank.command,
+        ["/tool/tmt", "run", "new-worker", "/bin/zsh"]
+    );
+    assert!(
+        !blank
+            .command
+            .iter()
+            .any(|w| w == "--model" || w == "--effort")
+    );
+    assert_eq!(
+        blank.outer.as_deref().unwrap().last().unwrap(),
+        "/tool/tmt run new-worker /bin/zsh"
+    );
+
+    c.draft.fields[model::Slot::Command.index()] =
+        Editor::from(r#"python3 -c 'print("hi there")'"#);
+    let quoted = review(c).unwrap();
+    assert_eq!(
+        quoted.command[2..],
+        ["new-worker", "python3", "-c", r#"print("hi there")"#]
+    );
+    // Never wrapped in a shell: the words are the program's own argv.
+    assert!(!quoted.command.iter().any(|w| w == "sh" || w == "-lc"));
+
+    for (typed, error) in [("echo 'oops", "unclosed quote"), ("-x", "not '-'")] {
+        c.draft.fields[model::Slot::Command.index()] = Editor::from(typed);
+        assert!(review(c).unwrap_err().contains(error), "{typed}");
+    }
+
+    // The built-in host still names itself; no model or effort there either.
+    c.draft.fields[model::Slot::Command.index()] = Editor::from("htop");
+    c.draft.fields[model::Slot::Host.index()] = Editor::from("pty");
+    assert_eq!(
+        review(c).unwrap().command,
+        ["/tool/tmt", "run", "--host", "pty", "new-worker", "htop"]
+    );
+}
+#[test]
+fn a_blank_command_runs_the_boards_shell_else_bin_sh() {
+    use std::ffi::OsString;
+    assert_eq!(
+        model::login_shell(Some(OsString::from("/bin/zsh"))),
+        "/bin/zsh"
+    );
+    assert_eq!(model::login_shell(Some(OsString::new())), "/bin/sh");
+    assert_eq!(model::login_shell(None), "/bin/sh");
+}

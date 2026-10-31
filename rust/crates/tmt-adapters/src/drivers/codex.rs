@@ -1415,6 +1415,7 @@ mod tests {
         assert_eq!(
             named,
             BindingSessionState {
+                plain_program: None,
                 start_refusal: None,
                 last_transition: Some(SessionTransition::Compacted),
                 state: RuntimeState::Running,
@@ -1755,6 +1756,7 @@ mod tests {
         assert_eq!(
             forked,
             BindingSessionState {
+                plain_program: None,
                 start_refusal: None,
                 last_transition: Some(SessionTransition::Forked),
                 state: RuntimeState::Running,

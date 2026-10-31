@@ -331,6 +331,7 @@ fn early_start(host: HostKind, provider: &str, ended: bool, preference_edit: boo
             lease_session: None,
             channel: Some(false),
             can_admit: true,
+            plain: None,
         },
     )
     .unwrap();

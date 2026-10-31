@@ -109,6 +109,20 @@ and storage-only `identity ls` do not gain `driverSupport`. Human `ls` shows a
 dimmed `basic` note after the row of a running agent whose identified driver is
 `basic`, where no action (`stale`, `shell`, a resume hint) takes the slot.
 
+## Plain program
+
+A `tmt run <name> <program>` whose program no built-in driver claims (a shell, a
+build, any plain command) binds a member that runs no agent. While that binding is
+active, its `tmt ls --json` row and its `identities.status` entry include
+`plainProgram`: the basename of the program's first argument, at most 64
+characters with control characters removed, never its arguments. The key is absent
+otherwise. Such a member receives nothing: a message pasted there would run as a
+command, so `tmt talk` refuses with `RECIPIENT_NOT_AGENT` and Digest checklists and
+notices stay held ([request/response](request-response-v1.md)). The first AI agent
+that starts in the same pane and binds through its driver hook replaces it; its
+admission clears `plainProgram` in the same transaction, and the member then
+receives as any other. The key is a stored launch fact, not a fresh probe.
+
 ## List pane location
 
 Collection `tmt ls --json` identity rows with a live pane optionally include

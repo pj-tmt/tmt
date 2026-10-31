@@ -9,6 +9,8 @@ pub enum Phase {
     Working,
     Idle,
     Ended,
+    /// A plain program (Core's `plainProgram`), not an agent: it has no activity (#5769).
+    Shell,
     #[default]
     Unknown,
 }
@@ -27,14 +29,16 @@ const MAX_SAFE_MS: u64 = (1 << 53) - 1;
 
 impl ObservedActivity {
     /// Fails closed per row: a missing or malformed document is unknown, and a
-    /// timestamp that is not a safe integer is absent.
+    /// timestamp that is not a safe integer is absent. A row running a plain program is
+    /// `Shell` until it ends.
     pub fn of(row: &Value) -> Self {
         let document = &row["session"]["activity"];
         let ms = |key: &str| document[key].as_u64().filter(|ms| *ms <= MAX_SAFE_MS);
         let phase = match document["state"].as_str() {
+            Some("ended") => Phase::Ended,
+            _ if row["plainProgram"].is_string() => Phase::Shell,
             Some("working") => Phase::Working,
             Some("idle") => Phase::Idle,
-            Some("ended") => Phase::Ended,
             _ => Phase::Unknown,
         };
         Self {
@@ -85,6 +89,8 @@ impl Member {
                 Phase::Working => ("working", activity.since_ms),
                 Phase::Idle => ("idle", activity.since_ms),
                 Phase::Ended => ("ended", activity.last_ms),
+                // A plain program has no phase to time: the word alone.
+                Phase::Shell => ("shell", None),
                 // Unknown shows no age: its cell is the muted `?` alone.
                 Phase::Unknown => ("unknown", None),
             }
@@ -162,7 +168,8 @@ pub fn stale_after(refresh: Option<std::time::Duration>) -> std::time::Duration 
 }
 
 /// Agent counts by phase over an identity set the caller has already
-/// deduplicated; the tally itself takes no ID. Ended is neither working nor idle.
+/// deduplicated; the tally itself takes no ID. Ended and a plain shell are neither
+/// working nor idle.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct Tally {
     pub working: usize,
@@ -181,7 +188,7 @@ impl Tally {
             Phase::Working => self.working += 1,
             Phase::Idle => self.idle += 1,
             Phase::Unknown => self.unknown += 1,
-            Phase::Ended => {}
+            Phase::Ended | Phase::Shell => {}
         }
     }
 }
@@ -218,6 +225,31 @@ mod tests {
                 }
             );
         }
+    }
+
+    #[test]
+    fn a_plain_program_row_is_a_shell_until_it_ends() {
+        let row = |state: &str| json!({"plainProgram": "zsh", "session": {"activity": {"state": state, "sinceMs": 10, "lastActivityMs": 12}}});
+        for state in ["working", "idle", "unknown"] {
+            let activity = ObservedActivity::of(&row(state));
+            assert_eq!(activity.phase, Phase::Shell, "{state}");
+            assert_eq!(activity.since_ms, None);
+            let label = member(Phase::Shell, None, Some(12), Some("testing")).label(false, NOW);
+            assert_eq!((label.state, label.age.clone()), ("shell", None));
+            assert_eq!(words(&label, 80), "shell · testing");
+        }
+        assert_eq!(ObservedActivity::of(&row("ended")).phase, Phase::Ended);
+        // Only a string marks a plain program; an agent row omits the field.
+        assert_eq!(
+            ObservedActivity::of(
+                &json!({"plainProgram": 1, "session": {"activity": {"state": "idle"}}})
+            )
+            .phase,
+            Phase::Idle
+        );
+        let mut tally = Tally::default();
+        tally.add(ObservedActivity::of(&row("idle")), false);
+        assert_eq!(tally, Tally::default());
     }
 
     #[test]

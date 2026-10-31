@@ -722,6 +722,8 @@ pub struct WorkspaceColumnValues {
     pub model: Option<String>,
     /// A basic driver observes no runtime: say `basic` where the runtime is blank.
     pub basic: bool,
+    /// The plain program the member runs instead of an agent; it is also `model` (#5769).
+    pub plain: Option<String>,
 }
 
 /// Dense model cells use the acquired model only while its driver is running.
@@ -734,6 +736,15 @@ pub(in crate::board) fn model_text(runtime: Option<&str>, model: Option<&str>) -
         .filter(|model| !model.is_empty())
         .map(super::render::safe)
         .unwrap_or_else(|| "—".into())
+}
+
+/// A dense Model cell: a plain program's name, else the running agent's model.
+pub(in crate::board) fn dense_model(
+    plain: Option<&str>,
+    runtime: Option<&str>,
+    model: Option<&str>,
+) -> String {
+    plain.map_or_else(|| model_text(runtime, model), super::render::safe)
 }
 
 impl WorkspaceColumnValues {
@@ -801,20 +812,32 @@ pub fn project(input: WorkspaceColumnInput<'_>) -> Option<WorkspaceColumnValues>
         .digest()
         .is_some_and(|(status, stale)| !stale && status.members.contains_key(identity_id));
     let digest_labels = member_digest_labels(input.labels, identity_id);
+    // A plain program is not an agent: no tokens and no Digest, its program as the model.
+    let plain = input
+        .agent
+        .and_then(|agent| agent.plain_program())
+        .map(str::to_owned);
     let digest = verified
         .then(|| digest_labels.first().map(|label| label.text.clone()))
-        .flatten();
+        .flatten()
+        .filter(|_| plain.is_none());
     // The cell's primary value is the supplier's mode label; secondary labels
     // remain available to the painter and Details without becoming a policy.
     Some(WorkspaceColumnValues {
         squad,
-        tokens: input.usage.map(|reading| reading.tokens as f64),
+        tokens: input
+            .usage
+            .filter(|_| plain.is_none())
+            .map(|reading| reading.tokens as f64),
         partial: input.usage.is_some_and(|reading| reading.partial),
         digest,
         cron: input.timers,
         runtime: input.agent.and_then(|agent| agent.runtime.clone()),
-        model: input.agent.and_then(|agent| agent.model.clone()),
+        model: plain
+            .clone()
+            .or_else(|| input.agent.and_then(|agent| agent.model.clone())),
         basic: input.agent.is_some_and(|agent| agent.basic),
+        plain,
     })
 }
 
@@ -946,6 +969,74 @@ mod tests {
     }
 
     #[test]
+    fn a_plain_program_row_shows_its_program_as_model_and_no_tokens_or_digest() {
+        let mut app = crate::board::app::workspace::tests::board();
+        let rows = app.workspace_rows();
+        let row = rows
+            .iter()
+            .find(|row| matches!(row.target, OpsTarget::Member { .. }))
+            .unwrap();
+        let OpsTarget::Member { identity_id, .. } = &row.target else {
+            unreachable!()
+        };
+        app.labels = Supplied::from_rows(vec![(
+            "digest".into(),
+            [(
+                identity_id.clone(),
+                vec![crate::labels::Label {
+                    text: "supplier mode".into(),
+                    role: Role::Muted,
+                    action: None,
+                }],
+            )]
+            .into(),
+        )]);
+        let usage = Reading {
+            tokens: 1200,
+            partial: false,
+            span: 0,
+        };
+        let cells = |listed: serde_json::Value| {
+            let agent = crate::board::inventory::Inventory::from_listed(&Ok(
+                serde_json::json!({"identities": [listed]}),
+            ))
+            .agents
+            .remove("a")
+            .unwrap();
+            let values = project(WorkspaceColumnInput {
+                row,
+                snapshot: app.workspace_snapshot().unwrap(),
+                labels: &app.labels,
+                usage: Some(usage),
+                agent: Some(&agent),
+                timers: None,
+            })
+            .unwrap();
+            let tree_model = dense_model(
+                agent.plain_program(),
+                agent.runtime.as_deref(),
+                agent.model.as_deref(),
+            );
+            (values, tree_model)
+        };
+        let (agent, tree_model) = cells(serde_json::json!({"id": "a", "name": "w",
+            "runningDriver": "codex", "resume": {"model": "gpt-6.1-sol"}}));
+        assert_eq!(agent.plain, None);
+        assert_eq!(agent.text(Column::Model, row), "gpt-6.1-sol");
+        assert_eq!(agent.text(Column::TokensPerHour, row), "1.2k");
+        assert_eq!(tree_model, "gpt-6.1-sol");
+        let (plain, tree_model) =
+            cells(serde_json::json!({"id": "a", "name": "w", "plainProgram": "zsh"}));
+        assert_eq!(plain.plain.as_deref(), Some("zsh"));
+        assert_eq!(plain.text(Column::Model, row), "zsh");
+        assert_eq!(plain.text(Column::TokensPerHour, row), "—");
+        assert_eq!(plain.text(Column::Digest, row), "—");
+        assert_eq!(tree_model, "zsh");
+        // A hostile program name is sanitized in the dense cell.
+        assert!(!dense_model(Some("a\u{1b}[31m"), None, None).contains('\u{1b}'));
+    }
+
+    #[test]
     fn supplier_choice_labels_survive_missing_typed_statistics() {
         let mut app = crate::board::app::workspace::tests::board();
         let rows = app.workspace_rows();
@@ -1020,6 +1111,7 @@ mod tests {
             runtime: runtime.map(str::to_owned),
             model: None,
             basic,
+            plain: None,
         };
         assert_eq!(values(None, true).text(Column::Runtime, &row), "basic");
         assert_eq!(values(None, false).text(Column::Runtime, &row), "—");

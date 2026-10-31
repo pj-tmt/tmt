@@ -320,7 +320,13 @@ impl Example {
 }
 
 fn split(command: &str) -> Result<Vec<String>, String> {
-    shlex::split(command).ok_or_else(|| format!("unbalanced quoting: {command}"))
+    shell_words(command).ok_or_else(|| format!("unbalanced quoting: {command}"))
+}
+
+/// The argv a POSIX shell would pass for `command`, without running one; `None` when its
+/// quoting is unbalanced. Shared so no other crate needs its own shell-word reader.
+pub fn shell_words(command: &str) -> Option<Vec<String>> {
+    shlex::split(command)
 }
 
 /// An example as a reader of the help sees it.

@@ -412,6 +412,16 @@ fn deliver(
                         "Check the session, then retry later; the request stays queued. {}",
                         correlation.inspection()
                     )));
+            } else if let crate::delivery::Delivery::NotAgent(program) = &outcome {
+                // The binding became a plain program after preparation; nothing was pasted.
+                let name = correlation
+                    .identity
+                    .as_ref()
+                    .map_or(correlation.target.as_str(), |identity| {
+                        identity.name.as_str()
+                    });
+                let refused = preparation::not_agent(name, program);
+                return Err(correlation.error("RECIPIENT_NOT_AGENT", refused.message, 1));
             } else if matches!(outcome, crate::delivery::Delivery::AwaitingApproval) {
                 // The agent refused the prompt while it waits on its user;
                 // nothing reached the pane and nothing types around it.

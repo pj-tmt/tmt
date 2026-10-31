@@ -353,7 +353,10 @@ fn agent_line(
     state.push(Span::raw(
         " ".repeat(usize::from(width).saturating_sub(used)),
     ));
-    let tokens = if app.tok_money() {
+    let tokens = if value.plain.is_some() {
+        // A plain program is not an agent: it has no tokens (#5769).
+        "—".into()
+    } else if app.tok_money() {
         let OpsTarget::Member { identity_id, .. } = &row.target else {
             unreachable!("monitor identity")
         };
@@ -367,7 +370,8 @@ fn agent_line(
     let pin = crate::board::workspace::render::pin_mark(&row.target, &snapshot.preferences, look);
     let name_width = 23usize.saturating_sub(pin.width() + usize::from(row.lead));
     let model = model_width(row_width, width).map(|width| {
-        let text = crate::board::workspace::columns::model_text(
+        let text = crate::board::workspace::columns::dense_model(
+            value.plain.as_deref(),
             value.runtime.as_deref(),
             value.model.as_deref(),
         );

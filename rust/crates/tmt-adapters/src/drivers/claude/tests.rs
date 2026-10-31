@@ -508,6 +508,7 @@ fn a_compact_start_names_a_running_launch_owned_unnamed_key() {
     assert_eq!(
         named,
         BindingSessionState {
+            plain_program: None,
             start_refusal: None,
             last_transition: Some(SessionTransition::Compacted),
             state: RuntimeState::Running,

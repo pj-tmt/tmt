@@ -460,7 +460,14 @@ Unavailable or uncertain delivery remains queued; uncertainty still returns
 `DELIVERY_UNCERTAIN`, not permission to resend. A recipient whose host reports
 its agent as waiting on its user (an approval or a question) refuses the
 prompt: `talk` returns `DELIVERY_AWAITING_APPROVAL` (exit 1), nothing reached
-the pane, the request stays queued, and nothing types around the agent. Offline recipients with a recorded endpoint produce an
+the pane, the request stays queued, and nothing types around the agent. A
+recipient whose active binding runs a plain program rather than an agent
+(`plainProgram`, [identity status](identity-status-v1.md#plain-program)) refuses
+before anything is stored: `talk` returns `RECIPIENT_NOT_AGENT` (exit 1), no
+request is created and nothing is pasted. A person's own passthrough text is not a
+request and is typed as written. Digest checklists, reply and result notices for
+that recipient are held, never pasted or dropped, until an agent binds there.
+Offline recipients with a recorded endpoint produce an
 immediate `queued` result with `offline:true`, without waiting or pasting into a
 shell. Rebinding or coming online never triggers automatic re-wake.
 
@@ -899,6 +906,7 @@ Each code has one sentence, owned by Core: the CLI, the API's fault `message` an
 | `DELIVERY_AWAITING_APPROVAL`   | Could not send now: the agent is waiting for approval on its machine       |
 | `DELIVERY_CHANNEL_UNAVAILABLE` | Could not send now: the agent's channel is not available                   |
 | `DELIVERY_UNCERTAIN`           | It may have been sent. Delivery is not confirmed, so do not send it again. |
+| `RECIPIENT_NOT_AGENT`          | Could not send now: the member runs a plain program, not an AI agent       |
 
 ## Verification ownership
 

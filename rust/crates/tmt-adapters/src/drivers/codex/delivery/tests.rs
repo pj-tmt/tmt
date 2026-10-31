@@ -12,6 +12,7 @@ fn fixture() -> (Record, BindingSessionState) {
         thread: thread.into(),
     });
     let session = BindingSessionState {
+        plain_program: None,
         state: RuntimeState::Running,
         launch_owner: Some(owner),
         key: Some(ObservedSessionKey {
@@ -241,6 +242,7 @@ fn real_socket_send(
     std::fs::set_permissions(&generation, std::fs::Permissions::from_mode(0o700)).unwrap();
     crate::private_file::replace(&generation.join("capability"), b"owned-token").unwrap();
     let current = BindingSessionState {
+        plain_program: None,
         state: RuntimeState::Running,
         key: Some(ObservedSessionKey {
             incarnation: foreground,

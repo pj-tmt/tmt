@@ -272,7 +272,6 @@ pub(crate) fn defaults(scope: OpsKeyScope) -> Bindings {
             ("D", "digest"),
             ("c", "timers"),
             ("C", "member-checklist"),
-            ("t", "terminal"),
             ("z", "terminal-zoom"),
             ("p", "pin"),
         ]
@@ -328,7 +327,6 @@ pub(crate) fn defaults(scope: OpsKeyScope) -> Bindings {
             ("o", "open"),
             ("x", "remove-membership"),
             ("C", "member-checklist"),
-            ("t", "terminal"),
             ("z", "terminal-zoom"),
             ("m", "move-membership"),
             ("D", "digest"),

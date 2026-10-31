@@ -855,6 +855,17 @@ pub(super) fn run_bound(
             lease_session: lease.provider_session(),
             channel: remember_channel.then(|| lease.enrolled()),
             can_admit,
+            // Plain only when no driver, full or basic, knows the program: a basic agent
+            // runs without a driver session but still reads its messages.
+            plain: claim
+                .is_none()
+                .then(|| {
+                    tmt_core::binding::session::plain_program_name(
+                        &launch.command.executable.to_string_lossy(),
+                    )
+                })
+                .flatten()
+                .filter(|name| tmt_core::driver::descriptor::for_executable(name).is_none()),
         },
     )
     .unwrap_or(None);

@@ -27,6 +27,8 @@ pub(crate) struct ForegroundAdmission<'a> {
     pub lease_session: Option<&'a tmt_core::binding::session::ProviderSessionId>,
     pub channel: Option<bool>,
     pub can_admit: bool,
+    /// The bounded basename of a program no driver claims; `None` for an agent.
+    pub plain: Option<String>,
 }
 
 /// The caller supplies the owned child's native evidence. No host/process probe
@@ -185,6 +187,9 @@ pub(crate) fn admit_foreground(
                 return Ok(None);
             };
             next = ended;
+        }
+        if claim.is_none() {
+            next.plain_program = input.plain.clone();
         }
         if !records.set_session_state(&binding.id, &current.session, &next)? {
             if pending.is_none() {
