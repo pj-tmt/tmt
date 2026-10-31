@@ -1167,6 +1167,9 @@
   .tmt\:data-\[disabled\]\:text-muted-foreground[data-disabled] {
     color: var(--tmt-foundation-muted-foreground);
   }
+  .tmt\:data-\[disabled\=true\]\:pointer-events-none[data-disabled='true'] {
+    pointer-events: none;
+  }
   .tmt\:data-\[disabled\=true\]\:text-muted-foreground[data-disabled='true'] {
     color: var(--tmt-foundation-muted-foreground);
   }

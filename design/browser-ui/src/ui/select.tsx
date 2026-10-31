@@ -2,7 +2,7 @@
 import type { ComponentProps } from 'react';
 import { Select as Primitive } from 'radix-ui';
 import { CheckIcon, ChevronDownIcon, ChevronUpIcon } from 'lucide-react';
-import { listItem } from './item.js';
+import { listItem, radixItemDisabled } from './item.js';
 import { cn, nativeFieldReset } from './utils.js';
 import { useUiPortalContainer } from './theme.js';
 import { popMotion } from './motion.js';
@@ -107,7 +107,7 @@ export function SelectItem({
   return (
     <Primitive.Item
       data-slot="select-item"
-      className={cn(listItem, 'tmt:w-full tmt:pr-8', className)}
+      className={cn(listItem, radixItemDisabled, 'tmt:w-full tmt:pr-8', className)}
       {...props}
     >
       <span className="tmt:absolute tmt:right-2 tmt:flex tmt:size-3.5 tmt:items-center tmt:justify-center">

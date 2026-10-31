@@ -2,7 +2,7 @@
 import type { ComponentProps } from 'react';
 import { DropdownMenu as Primitive } from 'radix-ui';
 import { CheckIcon, ChevronRightIcon, CircleIcon } from 'lucide-react';
-import { listItem } from './item.js';
+import { listItem, radixItemDisabled } from './item.js';
 import { cn } from './utils.js';
 import { useUiPortalContainer } from './theme.js';
 import {
@@ -108,7 +108,7 @@ export function DropdownMenuContent({
 export function DropdownMenuGroup(props: ComponentProps<typeof Primitive.Group>) {
   return <Primitive.Group data-slot="dropdown-menu-group" {...props} />;
 }
-const itemClasses = listItem;
+const itemClasses = `${listItem} ${radixItemDisabled}`;
 export function DropdownMenuItem({
   className,
   inset,

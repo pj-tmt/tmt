@@ -121,7 +121,7 @@ export function CommandItem({ className, ...props }: ComponentProps<typeof Primi
       className={cn(
         // cmdk marks its active row `data-selected` and a disabled one `data-disabled=true`.
         listItem,
-        'tmt:py-2 tmt:text-(length:--tmt-foundation-command-size) tmt:data-[disabled=true]:text-muted-foreground tmt:data-[selected=true]:bg-accent tmt:data-[selected=true]:text-accent-foreground',
+        'tmt:py-2 tmt:text-(length:--tmt-foundation-command-size) tmt:data-[disabled=true]:pointer-events-none tmt:data-[disabled=true]:text-muted-foreground tmt:data-[selected=true]:bg-accent tmt:data-[selected=true]:text-accent-foreground',
         className,
       )}
       {...props}

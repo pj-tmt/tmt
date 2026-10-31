@@ -6,6 +6,7 @@ import './gallery.css';
 import './gallery-page.css';
 import favicon from '../generated/favicon.svg?url';
 import { StrictMode } from 'react';
+import { flushSync } from 'react-dom';
 import { createRoot } from 'react-dom/client';
 import { sections } from './covered.js';
 import { refreshForcedStates } from './force-states.js';
@@ -87,12 +88,14 @@ function Gallery() {
 }
 
 if (frame) document.documentElement.dataset.frame = frame;
-createRoot(document.querySelector('#root')!).render(
-  <StrictMode>{frame ? frameFor(frame, params) : <Gallery />}</StrictMode>,
+// The first render is synchronous, so the jump to `#section` below runs at load, not on a later frame
+// (a frame callback would scroll mid-test under a fake clock).
+const root = createRoot(document.querySelector('#root')!);
+flushSync(() =>
+  root.render(<StrictMode>{frame ? frameFor(frame, params) : <Gallery />}</StrictMode>),
 );
 
 refreshForcedStates(document);
 // The sections render after load, so the browser's own jump to `#section` finds nothing; redo it.
-if (!frame && location.hash)
-  requestAnimationFrame(() => document.getElementById(location.hash.slice(1))?.scrollIntoView());
+if (!frame && location.hash) document.getElementById(location.hash.slice(1))?.scrollIntoView();
 if (import.meta.hot) import.meta.hot.on('vite:afterUpdate', () => refreshForcedStates(document));
