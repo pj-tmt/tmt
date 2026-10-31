@@ -453,6 +453,10 @@ budget refusal retains pending intent with a bounded hold, attempted IDs remain
 observation-only, and revoke/current membership fences precede effects.
 After atomic verified cache/watermark commit, existing driver cleanup promptly deletes
 only validated summary inbox carriers. Guard refusal preserves cleanup intent and cache.
+The shared native REST owner evaluates the same project cost policy on a read-only
+usage copy before asking Auth for a token, so an exhausted budget cannot refresh
+credentials over HTTP. Its authoritative charge still rechecks concurrent usage
+after token validation and before Firestore; a cancelled Auth wait consumes no cost.
 Source compaction retains active attempts and the latest completed summary; generic
 messages/finals keep their existing recovery horizon. Sequence watermarks survive
 compaction. The cache supplies the list after restart without provider reads; absent

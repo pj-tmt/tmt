@@ -537,6 +537,85 @@ fn budget_and_denial_are_typed_and_nothing_is_sent_on_local_refusal() {
     assert_eq!(script.requests.lock().unwrap().len(), 1);
 }
 #[test]
+fn budget_refusal_precedes_auth_even_for_the_first_token_request() {
+    // A permitted read proves that this same Auth/HTTP path is otherwise live.
+    let script = Arc::new(Script::new(vec![Ok(response(200, remote_document(1)))]));
+    let authority = auth();
+    let (client, budget) = native_client(script.clone(), authority.clone());
+    let cancel = AtomicBool::new(false);
+    let io = io(&cancel);
+    assert!(ready(client.read(&doc().target, &io)).is_ok());
+    assert_eq!(authority.calls.load(Ordering::SeqCst), 1);
+    assert_eq!(script.requests.lock().unwrap().len(), 1);
+    assert_eq!(budget.reads(), 3);
+
+    // A fresh Auth owner may refresh on its first token request. Budget refusal
+    // must prevent even asking for that token, not merely block Firestore HTTP.
+    for reads in [44_997, 50_000] {
+        let script = Arc::new(Script::new(vec![]));
+        let authority = auth();
+        let (client, budget) = native_client(script.clone(), authority.clone());
+        budget.set_reads(reads);
+        for _ in 0..2 {
+            assert!(matches!(
+                ready(client.read(&doc().target, &io)),
+                Err(SyncError::BudgetExhausted(_))
+            ));
+            assert_eq!(
+                authority.calls.load(Ordering::SeqCst),
+                0,
+                "refusal must precede a cold Auth refresh"
+            );
+            assert!(script.requests.lock().unwrap().is_empty());
+            assert_eq!(
+                budget.reads(),
+                reads,
+                "a refused preflight never reserves or refunds cost"
+            );
+        }
+    }
+}
+
+#[test]
+fn budget_is_rechecked_after_pending_auth_without_charging_the_wait() {
+    let script = Arc::new(Script::new(vec![]));
+    let authority = auth();
+    authority.blocked.store(true, Ordering::SeqCst);
+    let (client, budget) = native_client(script.clone(), authority.clone());
+    let cancel = AtomicBool::new(false);
+    let io = io(&cancel);
+    let target = doc().target;
+    let mut pending = Box::pin(client.read(&target, &io));
+    assert!(matches!(
+        pending
+            .as_mut()
+            .poll(&mut Context::from_waker(std::task::Waker::noop())),
+        Poll::Pending
+    ));
+    assert_eq!(
+        budget.reads(),
+        0,
+        "Auth wait alone does not consume Firestore cost"
+    );
+    // Another consumer used the shared budget while the permitted Auth waited.
+    budget.set_reads(44_997);
+    authority.blocked.store(false, Ordering::SeqCst);
+    assert!(matches!(ready(pending), Err(SyncError::BudgetExhausted(_))));
+    assert_eq!(authority.calls.load(Ordering::SeqCst), 1);
+    assert!(script.requests.lock().unwrap().is_empty());
+    assert_eq!(budget.reads(), 44_997);
+    assert!(matches!(
+        ready(client.read(&target, &io)),
+        Err(SyncError::BudgetExhausted(_))
+    ));
+    assert_eq!(
+        authority.calls.load(Ordering::SeqCst),
+        1,
+        "later refusal does not ask Auth again"
+    );
+}
+
+#[test]
 fn close_and_cancel_after_possible_write_preserve_unknown() {
     let cancel = Arc::new(AtomicBool::new(false));
     let mut script = Script::new(vec![Ok(response(
