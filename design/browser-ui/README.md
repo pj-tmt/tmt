@@ -558,7 +558,9 @@ retains its existing dismissal and focus ownership. The host selects
 Column mode leaves grid, reflow, dividers and sticky positioning to the host.
 The floating card is 330px wide, 12px from the right and bottom, and starts at the
 header token plus 13px. The sheet has 7px side/bottom insets and a 75dvh maximum
-height. Floating modes use the radius scale and single overlay shadow.
+height. Floating modes use the radius scale and single overlay shadow. An optional
+`overlay` slot lets the host render a full-surface presentation after the body;
+DOM drag and keyboard capture handlers remain host-owned.
 
 Opening focuses the heading. This region creates no scrim, focus trap, top-layer
 modal or page inertness; keyboard and pointer navigation outside remain available.

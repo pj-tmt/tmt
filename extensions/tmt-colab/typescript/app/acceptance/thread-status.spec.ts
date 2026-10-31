@@ -128,7 +128,7 @@ test('status states captured for the UX look', async () => {
     const created = createPage(
       world,
       'Status captures',
-      '<p id="quote">Quoted passage for status.</p>',
+      '<p id="quote">Quoted passage for status.</p><p id="quote2">Second status passage.</p>',
       agent.pane,
     );
     const colab = (args: string[]) => run(world, world.binaries.colab, args, undefined, agent.pane);
@@ -178,11 +178,8 @@ test('status states captured for the UX look', async () => {
     await shoot(first, 'person-resolved-not-notified');
     await shoot(second, 'person-resolved');
     await threadAction(first, text.threadReopen).click();
-    await first.getByRole('button', { name: '+ Comment on page', exact: true }).click();
-    await first
-      .getByRole('combobox', { name: 'Post comment', exact: true })
-      .fill('A second, open discussion.');
-    await first.getByRole('button', { name: 'Post comment', exact: true }).click();
+    await threadAction(first, 'Close (Esc)').click();
+    await annotate(first, 'A second, open discussion.', '#quote2');
     await expect(commentsAction(second)).toHaveAccessibleName('Comments (2)');
     JSON.parse(colab(['threads', 'resolve', created.pageId, threadId, '--json']));
     await expect(state(second)).toContainText(text.threadResolvedBy(agent.name));

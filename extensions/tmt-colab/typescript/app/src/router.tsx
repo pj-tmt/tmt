@@ -1314,6 +1314,10 @@ function OpenPage({
     setActiveThread,
   } = panels;
   const floatingChat = useRef<HTMLButtonElement>(null);
+  const chatOpener = useRef<HTMLElement | null>(null);
+  useEffect(() => {
+    if (panel !== 'chat') chatOpener.current = null;
+  }, [panel]);
   const floatingComments = useRef<HTMLButtonElement>(null);
   const discussionMarkerOpener = useRef<string | null>(null);
   useEffect(() => {
@@ -1333,7 +1337,9 @@ function OpenPage({
     [],
   );
   const closeChat = () => {
-    floatingChat.current?.focus({ preventScroll: true });
+    const opener = chatOpener.current;
+    (opener?.isConnected ? opener : floatingChat.current)?.focus({ preventScroll: true });
+    chatOpener.current = null;
     close();
   };
   const closeComments = () => {
@@ -1632,6 +1638,11 @@ function OpenPage({
     if (archived || (panel !== null && panel !== 'chat') || environment.overlayOpen('chat'))
       return false;
     const insertMention = panel !== 'chat';
+    if (insertMention)
+      chatOpener.current =
+        document.activeElement instanceof HTMLElement && document.activeElement !== document.body
+          ? document.activeElement
+          : null;
     openChat(
       !discussionBlocked && !recoveryRequired && !chatBusy.current
         ? { id: crypto.randomUUID(), insertMention }
@@ -2359,7 +2370,10 @@ function OpenPage({
           toggle={() => toggleSelectionMode.current()}
           chatUnread={notifications.chatUnread}
           chatButton={floatingChat}
-          toggleChat={() => toggle('chat')}
+          toggleChat={() => {
+            if (panel !== 'chat') chatOpener.current = floatingChat.current;
+            toggle('chat');
+          }}
           comments={openThreads}
           unseen={unseenThreads}
           commentsButton={floatingComments}

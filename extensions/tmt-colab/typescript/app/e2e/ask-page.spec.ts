@@ -1214,13 +1214,24 @@ for (const [width, theme] of [
     ]) {
       // Comments is a non-modal panel now: layout.spec.ts holds its geometry by mode.
       await (await pageAction(page, action!)).click();
-      const drawer = page.locator(`.tmt-ui-drawer[data-panel=${panel}][open]`);
+      const drawer = page.locator(
+        panel === 'chat'
+          ? '.tmt-ui-panel[data-panel=chat]:visible'
+          : `.tmt-ui-drawer[data-panel=${panel}][open]`,
+      );
       await expect(drawer).toBeVisible();
       const box = (await drawer.boundingBox())!;
-      const gap = width <= 480 ? 4 : 8;
-      expect(box.x + box.width).toBe(width - gap);
-      expect(box.y).toBe(headerHeight(width) + gap);
-      expect(box.y + box.height).toBe(900 - gap);
+      if (panel === 'chat') {
+        const dock = (await page.locator('.page-floating-actions:visible').boundingBox())!;
+        expect(box.width).toBe(width === 390 ? width - 24 : 360);
+        expect(box.height).toBeLessThanOrEqual(470);
+        expect(Math.abs(dock.y - box.y - box.height - 16)).toBeLessThanOrEqual(1);
+      } else {
+        const gap = width <= 480 ? 4 : 8;
+        expect(box.x + box.width).toBe(width - gap);
+        expect(box.y).toBe(headerHeight(width) + gap);
+        expect(box.y + box.height).toBe(900 - gap);
+      }
       await expect(drawer).toHaveCSS('border-right-width', '1px');
       expect((await frame.boundingBox())?.width).toBe(before?.width);
       await page.screenshot({ path: capturePath(`2722-gutter-${panel}-${width}-${theme}.png`) });

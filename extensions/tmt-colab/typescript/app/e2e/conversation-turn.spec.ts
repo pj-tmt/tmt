@@ -1461,7 +1461,7 @@ test('the ticking clocks of a state line are hidden from the live region', async
 
 // A batched message with Send now keeps a 44 px target at 390, and sits after the countdown.
 for (const surface of ['chat', 'thread'] as const)
-  for (const width of [1440, 390])
+  for (const width of [1440, 390, 320])
     test(`Send now is a 44 px target on the line, after the countdown: ${surface} ${width}`, async ({
       page,
     }) => {
@@ -1485,20 +1485,35 @@ for (const surface of ['chat', 'thread'] as const)
           window.getByRole('button', { name: text.askRecheck }),
         ].map((locator) => locator.boundingBox()),
       );
-      if (width === 390) expect(send!.height).toBeGreaterThanOrEqual(44);
+      if (width <= 390) {
+        expect(send!.height).toBeGreaterThanOrEqual(44);
+        expect(check!.width).toBeGreaterThanOrEqual(44);
+        expect(check!.height).toBeGreaterThanOrEqual(44);
+      }
       // Send now follows the countdown's last line; when that line has no room left (a wider system
       // font fills a 286px column sooner) it starts the next one, flush with the text.
       const after = send!.x >= clock.x + clock.width;
       const below = send!.y + send!.height / 2 > clock.y + clock.height;
-      expect(after || below).toBe(true);
-      // Check again follows on the same line, or wraps to a later line when this one has no room.
-      expect(check!.x >= send!.x + send!.width || check!.y >= send!.y + send!.height / 2).toBe(
+      expect(after || below, `clock ${JSON.stringify(clock)}, send ${JSON.stringify(send)}`).toBe(
         true,
       );
+      // Check again follows on the same line, or wraps to a later line when this one has no room.
+      expect(
+        check!.x >= send!.x + send!.width || check!.y >= send!.y + send!.height / 2,
+        `Send now ${JSON.stringify(send)}, Check again ${JSON.stringify(check)}`,
+      ).toBe(true);
+      // Wrapped controls may share vertical space, but their 44px hit boxes must not overlap.
+      expect(
+        check!.x >= send!.x + send!.width ||
+          check!.x + check!.width <= send!.x ||
+          check!.y >= send!.y + send!.height,
+      ).toBe(true);
       if (after)
         expect(Math.abs(send!.y + send!.height / 2 - (clock.y + clock.height / 2))).toBeLessThan(
           send!.height / 2,
         );
+      if (surface === 'chat' && width <= 390)
+        await page.screenshot({ path: test.info().outputPath('status-actions.png') });
     });
 
 // A batched line runs to several lines in a narrow Chat; the control follows its last word.

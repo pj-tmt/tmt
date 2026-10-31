@@ -27,6 +27,8 @@ export interface BrowserPanelProps extends Omit<
   /** The host chooses the layout; column geometry and reflow belong to its page grid. */
   mode: 'column' | 'card' | 'sheet';
   children: ReactNode;
+  /** Host presentation over the complete surface, including the header. */
+  overlay?: ReactNode;
   onDismiss(reason: BrowserPanelDismissReason, event: SyntheticEvent): void;
   focusFallback?(): HTMLElement | null;
 }
@@ -42,6 +44,7 @@ export function BrowserPanel({
   closeTooltipLabel,
   mode,
   children,
+  overlay,
   onDismiss,
   focusFallback,
   className = '',
@@ -101,6 +104,7 @@ export function BrowserPanel({
         onClose={(event) => onDismiss('close', event)}
       />
       <div className="tmt-ui-drawer-body">{children}</div>
+      {overlay}
     </aside>
   );
 }

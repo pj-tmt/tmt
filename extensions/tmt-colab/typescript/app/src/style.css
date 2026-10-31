@@ -1077,6 +1077,16 @@ body:has(.needs-you-header-menu):not(:has(.tmt-ui-shell)) {
     --tmt-ui-host-icon-action-size: 44px;
     --tmt-ui-host-action-min-height: 44px;
   }
+  .conversation-turn-status,
+  .conversation-status[data-message-state] {
+    line-height: 22px;
+  }
+  .conversation-status[data-message-state] .conversation-status-actions[data-paired] .tmt-ui-action,
+  .conversation-status[data-message-state]
+    .conversation-status-actions[data-paired]
+    .tmt-ui-icon-action {
+    margin-block: 0;
+  }
 }
 .conversation-status > [role='status'] {
   min-width: 0;
@@ -1094,16 +1104,25 @@ body:has(.needs-you-header-menu):not(:has(.tmt-ui-shell)) {
 .conversation-status[data-message-state] > [role='status'] {
   margin-right: 8px;
 }
-.conversation-status[data-message-state] > .tmt-ui-action,
+.conversation-status[data-message-state] .tmt-ui-action,
 .conversation-status[data-message-state] .tmt-ui-icon-action {
   /* Sideways gap only: the box is taller than a line and must not open up the lines of the text. */
   margin-right: 8px;
   vertical-align: middle;
 }
-.conversation-status[data-message-state] > .tmt-ui-action {
+.conversation-status[data-message-state] .tmt-ui-action {
   margin-block: calc((1lh - var(--tmt-ui-host-action-min-height)) / 2);
   /* The label itself starts where the status text starts when the action wraps. */
   padding-inline: 0;
+}
+.conversation-status-actions {
+  display: contents;
+}
+.conversation-status-actions[data-paired] {
+  display: inline-flex;
+  align-items: center;
+  vertical-align: middle;
+  white-space: nowrap;
 }
 .conversation-status[data-message-state] .tmt-ui-icon-action {
   margin-block: calc((1lh - var(--tmt-ui-host-icon-action-size)) / 2);

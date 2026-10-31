@@ -561,11 +561,16 @@ test('paired writers retain anchored annotation conversations, direct exact send
     await expect(t1.getByRole('button', { name: 'Delete thread', exact: true })).toHaveCount(0);
     await expect(t2.getByRole('button', { name: 'Delete thread', exact: true })).toHaveCount(0);
     await expect(t2.getByRole('combobox')).toBeVisible();
-    await first.getByRole('button', { name: '+ Comment on page', exact: true }).click();
-    await first
-      .getByRole('combobox', { name: 'Post comment', exact: true })
-      .fill('Page-wide discussion.');
-    await first.getByRole('button', { name: 'Post comment', exact: true }).click();
+    await commentsClose(first, 'discussion').click();
+    await selectInRenderer(first, '#quote');
+    await first.getByTestId('selection-ask').click();
+    const secondCompose = first.getByRole('dialog', { name: 'Annotate selection' });
+    const secondInput = await inputFor(secondCompose, agent.name);
+    await secondInput.fill('A second discussion.');
+    await secondCompose.getByRole('button', { name: /^Send(?: · to .+)?$/, exact: true }).click();
+    await expect(secondCompose.getByTestId('comment-thread')).toContainText('A second discussion.');
+    await secondCompose.getByRole('button', { name: 'Collapse thread', exact: true }).click();
+    await comments(first);
     await expect(commentsRegion(first).locator('.discussion-position')).toContainText('/ 2');
     await first.reload();
     await comments(first);

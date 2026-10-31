@@ -78,3 +78,14 @@ it('allows a host to supply Close text while preserving the existing defaults', 
   expect(custom).not.toContain('closeLabel=');
   expect(custom).not.toContain('closeTooltipLabel=');
 });
+
+it('renders a host overlay inside the panel after the body', () => {
+  const html = renderToStaticMarkup(
+    <BrowserPanel open title="Chat" mode="card" onDismiss={() => {}} overlay={<p>Drop here</p>}>
+      Draft
+    </BrowserPanel>,
+  );
+  expect(html.indexOf('Drop here')).toBeGreaterThan(html.indexOf('Draft'));
+  expect(html.indexOf('Drop here')).toBeLessThan(html.indexOf('</aside>'));
+  expect(html).not.toContain('overlay=');
+});

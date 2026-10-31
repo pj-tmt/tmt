@@ -160,16 +160,16 @@ for (const width of [1440, 390])
         expect(card.height).toBe(470);
         expect(Math.abs(dock.y - card.y - card.height - 16)).toBeLessThanOrEqual(1);
       } else {
-        // A sheet floats over the page: the frame does not move; the sheet has the leaf's 7px insets.
+        // The phone card floats above the dock with 12px side gutters; the page does not reflow.
         await expect(comments).toHaveAttribute('data-mode', 'sheet');
         expect((await frame.boundingBox())?.width).toBe(beforePanel?.width);
         expect((await frame.boundingBox())?.height).toBe(beforePanel?.height);
-        const gap = await comments.evaluate((node) =>
-          Number.parseFloat(getComputedStyle(node).getPropertyValue('--tmt-ui-panel-sheet-gap')),
-        );
         const box = (await comments.boundingBox())!;
-        expect(box.width).toBe(width - 2 * gap);
-        expect(box.y + box.height).toBe(900 - gap);
+        const dock = (await page.locator('.page-floating-actions:visible').boundingBox())!;
+        expect(box.x).toBe(12);
+        expect(box.width).toBe(width - 24);
+        expect(box.height).toBeLessThanOrEqual(470);
+        expect(Math.abs(dock.y - box.y - box.height - 16)).toBeLessThanOrEqual(1);
       }
       await page.screenshot({
         path: test.info().outputPath(`1586-${width}-${theme}-comments.png`),
@@ -330,11 +330,6 @@ for (const width of [1440, 390])
       const panel = commentsRegion(page);
       await expect(panel).toBeVisible();
       const edge = (await panel.boundingBox())!;
-      const length = (name: string) =>
-        panel.evaluate(
-          (node, name) => Number.parseFloat(getComputedStyle(node).getPropertyValue(name)),
-          name,
-        );
       // After close, the original page marker is reachable again.
       const frameAt = async () => {
         const box = await marker.boundingBox();
@@ -359,11 +354,15 @@ for (const width of [1440, 390])
         await expect(panel).toHaveCSS('border-right-width', '1px');
         expect((await frame.boundingBox())?.width).toBe(before!.width);
       } else {
-        // A sheet: the leaf's insets on three sides, edged all round, over the page.
+        // The phone card keeps its side gutters and floats above the dock, over the page.
         await expect(panel).toHaveAttribute('data-mode', 'sheet');
-        const gap = await length('--tmt-ui-panel-sheet-gap');
-        expect(edge.x + edge.width).toBe(width - gap);
-        expect(edge.y + edge.height).toBe(900 - gap);
+        const dock = (await page
+          .locator('#ask-page-fixture .page-floating-actions')
+          .boundingBox())!;
+        expect(edge.x).toBe(12);
+        expect(edge.x + edge.width).toBe(width - 12);
+        expect(edge.height).toBeLessThanOrEqual(470);
+        expect(Math.abs(dock.y - edge.y - edge.height - 16)).toBeLessThanOrEqual(1);
         await expect(panel).toHaveCSS('border-right-width', '1px');
         expect((await frame.boundingBox())?.width).toBe(before?.width);
         expect((await frame.boundingBox())?.height).toBe(before?.height);

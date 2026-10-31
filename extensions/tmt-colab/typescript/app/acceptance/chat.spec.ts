@@ -5,6 +5,7 @@ import path from 'node:path';
 import { expect, test } from '@playwright/test';
 import { pairBrowser, restartColab, startDoor } from './harness/browser.js';
 import {
+  annotationInput,
   composeChat,
   composerTrace,
   composerAssets,
@@ -269,21 +270,21 @@ test('page-visible device Chat threads send exact bytes once, preserve drafts, k
     await (await pageAction(first, 'Comments')).click();
     await expect(first.getByTestId('annotation-row')).toHaveCount(0);
     await expect(first.getByRole('button', { name: 'Delete thread', exact: true })).toHaveCount(0);
-    await first.getByRole('button', { name: '+ Comment on page', exact: true }).click();
-    await first
-      .getByRole('combobox', { name: 'Post comment', exact: true })
-      .fill('Ordinary page comment');
-    await first.getByRole('button', { name: 'Post comment', exact: true }).click();
-    await expect(first.getByTestId('comment-thread')).toContainText('Ordinary page comment');
-    await expect(first.locator('.discussion-position')).toHaveText('1 / 1');
+    await openChat(first);
+    const pageComment = await annotationInput(first.getByTestId('chat-panel'));
+    await pageComment.fill('Ordinary page comment');
+    await pageComment.press('Enter');
+    await expect(first.getByTestId('chat-panel')).toContainText('Ordinary page comment');
     await first.reload();
     await openChat(first);
     await expect(first.getByTestId('chat-thread')).toHaveCount(2);
+    await expect(first.getByTestId('chat-panel')).toContainText('Ordinary page comment');
     await expect(askEntry(first, sent.operationId).getByTestId('ask-reply')).toHaveText(reply);
     await restartColab(world, door);
     await first.reload();
     await openChat(first);
     await expect(first.getByTestId('chat-thread')).toHaveCount(2);
+    await expect(first.getByTestId('chat-panel')).toContainText('Ordinary page comment');
     await expect(askEntry(first, sent.operationId).getByTestId('ask-reply')).toHaveText(reply);
     expect(agent.received()).toHaveLength(3);
     expect(world.coreCalls().filter((call) => call.operation === 'dispatch.create')).toHaveLength(

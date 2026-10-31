@@ -278,42 +278,47 @@ export function AskPanel({
             retryOf={record.operationId}
           />
         )}
-        {!readOnly && canSendNow && (
-          <BrowserAction
-            type="button"
-            variant="text"
-            label={progress?.phase === 'outcome' ? text.sendNowTryAgain : text.sendNow}
-            disabled={disabled || progress?.phase === 'sending'}
-            onActivate={(event) => {
-              if (event.isTrusted && record.canTrack) void action(record, 'sendNow');
-            }}
-          />
-        )}
-        {!readOnly && canRecheck && (
-          <>
-            <BrowserIconAction
+        <span
+          className="conversation-status-actions"
+          data-paired={(canSendNow && canRecheck) || undefined}
+        >
+          {!readOnly && canSendNow && (
+            <BrowserAction
               type="button"
               variant="text"
-              label={text.askRecheck}
-              icon={<RotateCw />}
-              disabled={disabled}
+              label={progress?.phase === 'outcome' ? text.sendNowTryAgain : text.sendNow}
+              disabled={disabled || progress?.phase === 'sending'}
               onActivate={(event) => {
-                if (event.isTrusted && record.canTrack) void action(record, 'recheck');
+                if (event.isTrusted && record.canTrack) void action(record, 'sendNow');
               }}
             />
-            {record.state === 'uncertain' && (
-              <button
-                className="ask-status-action"
+          )}
+          {!readOnly && canRecheck && (
+            <>
+              <BrowserIconAction
+                type="button"
+                variant="text"
+                label={text.askRecheck}
+                icon={<RotateCw />}
                 disabled={disabled}
-                onClick={(event) => {
-                  if (event.isTrusted) void action(record, 'abandon');
+                onActivate={(event) => {
+                  if (event.isTrusted && record.canTrack) void action(record, 'recheck');
                 }}
-              >
-                {text.askAbandon}
-              </button>
-            )}
-          </>
-        )}
+              />
+              {record.state === 'uncertain' && (
+                <button
+                  className="ask-status-action"
+                  disabled={disabled}
+                  onClick={(event) => {
+                    if (event.isTrusted) void action(record, 'abandon');
+                  }}
+                >
+                  {text.askAbandon}
+                </button>
+              )}
+            </>
+          )}
+        </span>
       </span>
     );
     // Only the page-level ask list carries identities; no surface shows the delivered bytes on demand.
