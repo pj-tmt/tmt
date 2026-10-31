@@ -104,7 +104,9 @@ export function WorkBand({
         tabIndex={activate ? 0 : undefined}
         aria-expanded={empty ? undefined : open}
         aria-controls={empty ? undefined : listId}
-        aria-label={empty ? undefined : open ? t.collapsePanel : t.expandPanel}
+        aria-label={
+          empty ? (activate ? t.addSubpage : undefined) : open ? t.collapsePanel : t.expandPanel
+        }
         data-empty={empty}
         onClick={activate}
         onKeyDown={onKeyDown}

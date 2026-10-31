@@ -41,14 +41,21 @@ test('manual state persists, an empty band offers Add to the owner only, and sha
     // Plain tasks are not sub-pages: the band says so and offers Add.
     await expect(band.locator('.work-head')).toContainText('No sub-pages yet');
     await expect(band.getByRole('button', { name: 'Add', exact: true })).toBeVisible();
-    await band.getByRole('button', { name: /Page state/ }).click();
+    await band
+      .locator('.work-head-chip')
+      .getByRole('button', { name: /Page state/ })
+      .click();
     await page.getByRole('menuitemradio', { name: 'Done', exact: true }).click();
-    await expect(band.getByRole('button', { name: /Page state/ })).toContainText('Done');
+    await expect(
+      band.locator('.work-head-chip').getByRole('button', { name: /Page state/ }),
+    ).toContainText('Done');
     const after = colab(['show', created.pageId]);
     expect(after.page.state).toBe('done');
     expect(after.page.progress).toEqual(before.page.progress);
     await page.reload();
-    await expect(band.getByRole('button', { name: /Page state/ })).toContainText('Done');
+    await expect(
+      band.locator('.work-head-chip').getByRole('button', { name: /Page state/ }),
+    ).toContainText('Done');
     await expect(band.locator('.work-head')).toContainText('No sub-pages yet');
     const captures = process.env.COLAB_STATUS_CAPTURE_DIR;
     if (captures) {
@@ -56,7 +63,11 @@ test('manual state persists, an empty band offers Add to the owner only, and sha
       for (const width of [390, 1440])
         for (const theme of ['light', 'dark']) {
           await page.setViewportSize({ width, height: 900 });
-          await panelTheme(page, band.getByRole('button', { name: /Page state/ }), theme);
+          await panelTheme(
+            page,
+            band.locator('.work-head-chip').getByRole('button', { name: /Page state/ }),
+            theme,
+          );
           await page.screenshot({
             path: `${captures}/status-owner-empty-${width}-${theme}.png`,
           });
@@ -105,13 +116,13 @@ test('opening a page with sub-pages reads details once and never shows a wrong p
       const frames: string[] = [];
       Object.assign(window, { statusProgressFrames: frames });
       new MutationObserver(() => {
-        const value = document.querySelector('.work-band .work-progress')?.textContent;
+        const value = document.querySelector('.work-band .work-progress .work-wide')?.textContent;
         if (value) frames.push(value);
       }).observe(document, { childList: true, subtree: true, characterData: true });
     });
     const page = await openPage(door, browser, parent);
     const band = page.getByRole('region', { name: 'Work on this page' });
-    await expect(band.locator('.work-progress')).toHaveText('0 of 1 done');
+    await expect(band.locator('.work-progress .work-wide')).toHaveText('0 of 1 done');
     await band.getByRole('button', { name: 'Expand status panel', exact: true }).click();
     await expect(band.getByRole('link', { name: 'Status child', exact: true })).toBeVisible();
     expect(reads).toBe(1);
@@ -119,7 +130,7 @@ test('opening a page with sub-pages reads details once and never shows a wrong p
       () => (window as unknown as { statusProgressFrames: string[] }).statusProgressFrames,
     );
     expect(frames.length).toBeGreaterThan(0);
-    for (const frame of frames) expect(frame).toMatch(/^0 of 1 done/);
+    for (const frame of frames) expect(frame).toBe('0 of 1 done');
   });
 });
 

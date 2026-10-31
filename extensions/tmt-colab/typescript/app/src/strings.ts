@@ -689,6 +689,7 @@ export const text = {
     rowProgress: (done: number, total: number) => `${done} of ${total}`,
     noProgress: '—',
     noSubpages: 'No sub-pages yet',
+    addSubpage: 'Add a sub-page',
     add: 'Add',
     expandRow: (title: string) => `Expand ${title}`,
     collapseRow: (title: string) => `Collapse ${title}`,

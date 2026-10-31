@@ -96,6 +96,7 @@ test('Mock 2: with nothing attached there is no bar, a quiet line and Add; the r
   await expect(head(band)).toContainText('No sub-pages yet');
   await expect(band.locator('.work-segments')).toHaveCount(0);
   await expect(head(band)).not.toHaveAttribute('aria-expanded');
+  await expect(head(band)).toHaveAccessibleName('Add a sub-page');
   await head(band).click({ position: await blank(band) });
   const dialog = page.getByRole('dialog', { name: 'Add a sub-page to “Release plan”' });
   await expect(dialog).toBeVisible();
