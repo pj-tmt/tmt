@@ -210,18 +210,29 @@ for (const width of [1586, 390])
         });
         expect(indent).toBe(36);
         await expect(page.getByRole('button', { name: /sidebar/i })).toHaveCount(0);
-        const badgeInset = await page
-          .locator('.tmt-ui-rail-item .tmt-ui-shell-count')
-          .first()
-          .evaluate((badge) => {
-            const list = badge.closest('ul')!.getBoundingClientRect();
-            const range = document.createRange();
-            range.selectNodeContents(badge);
-            const glyph = range.getBoundingClientRect();
-            return { left: glyph.left - list.left, right: list.right - glyph.right };
-          });
-        expect(badgeInset.left).toBeGreaterThanOrEqual(3);
-        expect(badgeInset.right).toBeGreaterThanOrEqual(3);
+        // #5826: top-level attention is a dot; its count remains on the owning link.
+        await expect(page.locator('.tmt-ui-rail-item .tmt-ui-shell-count')).toHaveCount(0);
+        const dot = page.locator('.tmt-ui-rail-item[data-id=home] .tmt-ui-attention-dot');
+        await expect(dot).toHaveAttribute('aria-hidden', 'true');
+        await expect(dot.locator('..')).toHaveAccessibleName('Home, 4 need you');
+        const dotInset = await dot.evaluate((indicator) => {
+          const list = indicator.closest('ul')!.getBoundingClientRect();
+          const box = indicator.getBoundingClientRect();
+          const size = parseFloat(
+            getComputedStyle(indicator).getPropertyValue('--tmt-ui-attention-dot-size'),
+          );
+          return {
+            left: box.left - list.left,
+            right: list.right - box.right,
+            width: box.width,
+            height: box.height,
+            size,
+          };
+        });
+        expect(dotInset.width).toBe(dotInset.size);
+        expect(dotInset.height).toBe(dotInset.size);
+        expect(dotInset.left).toBeGreaterThanOrEqual(3);
+        expect(dotInset.right).toBeGreaterThanOrEqual(3);
       }
       expect(fontRequests).toEqual([]);
     });

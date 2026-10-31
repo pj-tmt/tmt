@@ -5402,7 +5402,9 @@ test('landing registry keeps two origins independent and confirms public-only ha
       await expect(page.getByRole('button', { name: 'Add', exact: true })).toBeDisabled();
       await expect(page.getByText('Nothing new to add.', { exact: true })).toBeVisible();
       await page.getByRole('button', { name: 'Cancel', exact: true }).click();
-      await modulePages(page).getByRole('link', { name: 'My Remotes', exact: true }).click();
+      await modulePages(page)
+        .getByRole('link', { name: 'My Remotes · 2 total', exact: true })
+        .click();
       await remoteAction(page, 'studio-2', 'Rename');
       await page.getByLabel('Remote name').fill('studio');
       await page.getByRole('button', { name: 'Save', exact: true }).click();
@@ -5571,7 +5573,7 @@ test('My Remotes is the one list and keeps settings drafts across origin switche
     });
     await expect(currentItem).toHaveAttribute('aria-current', 'page');
     await expect(menu.locator('a', { hasText: /^Open desk/ })).toHaveCount(0);
-    await menu.getByRole('link', { name: 'My Remotes', exact: true }).click();
+    await menu.getByRole('link', { name: 'My Remotes · 2 total', exact: true }).click();
     await expect(foreignItem).toBeVisible();
     await expect(page.locator('#refresh')).toHaveAttribute('aria-busy', 'false');
     await expect(page.locator('[data-remote="studio"] [data-role]')).toHaveText('Member');
@@ -5605,17 +5607,16 @@ test('My Remotes is the one list and keeps settings drafts across origin switche
     execFileSync(BINARY, ['devices', 'designate', currentClient, '--json'], { env });
     // Designation is an external owner action; observe its current permission before editing.
     await page.reload();
-    await menu.getByRole('link', { name: 'My Remotes', exact: true }).click();
+    await menu.getByRole('link', { name: 'My Remotes · 2 total', exact: true }).click();
     await expect(page.locator('#access')).toHaveText('Current browser access confirmed.');
     await expect(page.locator('#remotes')).toBeVisible();
     await expect(page.locator('#refresh')).toHaveAttribute('aria-busy', 'false');
     await expect(page.locator('[data-remote="studio"] [data-role]')).toHaveText('Admin');
     await expect(page.locator('[data-remote="desk"] [data-role]')).toHaveText('Role unknown');
     await expect(page.locator('[data-remote="studio"] .tmt-ui-list-state')).toHaveText('Connected');
-    await expect(menu.getByRole('link', { name: 'My Remotes', exact: true })).toHaveAttribute(
-      'aria-current',
-      'page',
-    );
+    await expect(
+      menu.getByRole('link', { name: 'My Remotes · 2 total', exact: true }),
+    ).toHaveAttribute('aria-current', 'page');
     await switchShot(
       'settings-remotes',
       'Same B1 registry controller reused in settings; no browser default or signed projection.',
@@ -5648,7 +5649,7 @@ test('My Remotes is the one list and keeps settings drafts across origin switche
     await page.mouse.move(1000, 600);
     await menu.hover();
     await expect(foreignItem).toHaveAttribute('aria-disabled', 'false');
-    await menu.getByRole('link', { name: 'My Remotes', exact: true }).click();
+    await menu.getByRole('link', { name: 'My Remotes · 2 total', exact: true }).click();
     await foreignItem.click();
     await expect(
       page.getByRole('heading', { name: 'Add these remotes to this browser?' }),
@@ -5662,7 +5663,7 @@ test('My Remotes is the one list and keeps settings drafts across origin switche
       'aria-current',
       'page',
     );
-    await menu.getByRole('link', { name: 'My Remotes', exact: true }).click();
+    await menu.getByRole('link', { name: 'My Remotes · 2 total', exact: true }).click();
     await page.getByRole('link', { name: 'Open studio', exact: true }).click();
     await expect(page.getByRole('button', { name: 'Add', exact: true })).toBeDisabled();
     await page.getByRole('button', { name: 'Cancel', exact: true }).click();
