@@ -158,7 +158,8 @@ export function layout({
 <title>${e(title)}</title><meta name="description" content="${e(description)}">
 ${demo ? '<meta name="robots" content="noindex,nofollow">' : `${fallback ? '<meta name="robots" content="noindex,follow">' : ""}${canonical}${alternateLinks}${defaultAlternate}`}
 <link vite-ignore rel="alternate" type="application/rss+xml" title="${e(site.title)}" href="${e(languageIndex)}feed.xml">
-<link vite-ignore rel="icon" href="${e(location.base)}mark.svg" type="image/svg+xml">
+<link vite-ignore rel="icon" href="${e(location.base)}favicon.png" type="image/png">
+<link vite-ignore rel="apple-touch-icon" href="${e(location.base)}favicon.png">
 <link rel="stylesheet" href="/src/blog/blog.css">
 </head><body>
 <a class="skip-link" lang="en" href="#main">Skip to content</a>

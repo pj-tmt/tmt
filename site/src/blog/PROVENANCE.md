@@ -21,6 +21,10 @@ Verified original Colab source commit: `2981a7ba178cc60c35a8c42445f11377e1e4b205
   mark based on the TMT GitHub organization avatar. It replaces the blog's former
   aurora mark; Home and Colab keep their own assets. The mark remains an external
   SVG file in development and production, never an inline data URL.
+- `site/src/blog/favicon.png` is the owner-supplied team icon (hooded ninja with
+  a terminal prompt and red mask), padded to square on black and resized to
+  192×192. It is the blog's tab and touch icon; the header keeps `mark.svg`.
+  SHA-256: `ee71f53e5e4c98fd4307a4224aaccdedeafc82bca83259799f78b3004ed5914c`.
 
 The landing loads canonical design tokens but uses its own layout CSS. The blog
 retains its editorial structure with an independent black-only treatment.
