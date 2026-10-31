@@ -13,7 +13,6 @@ import {
   Alert,
   AlertDescription,
   AlertTitle,
-  Badge,
   Button,
   Card,
   CardContent,
@@ -35,9 +34,9 @@ import {
   TabsContent,
   TabsList,
   TabsTrigger,
-  Textarea,
   UiTheme,
 } from '../src/ui/index.js';
+import { ReaderScreen } from './mock-reader.js';
 import { PageRow } from './patterns.js';
 import { radiusLabel, setRadius, setTheme, usePreview, type Radius } from './preview.js';
 import { follow, navigate } from './router.js';
@@ -199,9 +198,66 @@ function Bar({ trail, current, actions }: { trail: string; current: string; acti
   ) : null;
 }
 
+/** The mock's global switches: screen, theme and radius, and the way back to the docs. */
+export function GlobalSwitches({ screen }: { screen: Screen }) {
+  const { theme, radius } = usePreview();
+  return (
+    <>
+      <p className="mock-switch-label">Screen</p>
+      <div className="mock-switch-row">
+        {screens.map((entry) => (
+          <Button
+            key={entry.id}
+            type="button"
+            size="xs"
+            variant={entry.id === screen ? 'secondary' : 'ghost'}
+            aria-pressed={entry.id === screen}
+            onClick={() => navigate(entry.href)}
+          >
+            {entry.label}
+          </Button>
+        ))}
+      </div>
+      <p className="mock-switch-label">Theme</p>
+      <div className="mock-switch-row">
+        {(['dark', 'light'] as const).map((value) => (
+          <Button
+            key={value}
+            type="button"
+            size="xs"
+            variant={theme === value ? 'secondary' : 'ghost'}
+            aria-pressed={theme === value}
+            onClick={() => setTheme(value)}
+          >
+            {value === 'dark' ? 'Dark' : 'Light'}
+          </Button>
+        ))}
+      </div>
+      <p className="mock-switch-label">Radius</p>
+      <div className="mock-switch-row">
+        {(['2', '4', 'current'] as Radius[]).map((value) => (
+          <Button
+            key={value}
+            type="button"
+            size="xs"
+            variant={radius === value ? 'secondary' : 'ghost'}
+            aria-pressed={radius === value}
+            onClick={() => setRadius(value)}
+          >
+            {radiusLabel[value]}
+          </Button>
+        ))}
+      </div>
+      <Separator />
+      <a className="mock-switch-link" href="/docs" onClick={follow}>
+        ← Design system docs
+      </a>
+    </>
+  );
+}
+
 /** The mock's own switches, kept off the screens: a floating popover with screens, theme and radius. */
 function MockSwitch({ screen }: { screen: Screen }) {
-  const { theme, radius } = usePreview();
   return (
     <div className="mock-switch">
       <Popover>
@@ -211,55 +267,7 @@ function MockSwitch({ screen }: { screen: Screen }) {
           </Button>
         </PopoverTrigger>
         <PopoverContent align="end" className="mock-switch-panel">
-          <p className="mock-switch-label">Screen</p>
-          <div className="mock-switch-row">
-            {screens.map((entry) => (
-              <Button
-                key={entry.id}
-                type="button"
-                size="xs"
-                variant={entry.id === screen ? 'secondary' : 'ghost'}
-                aria-pressed={entry.id === screen}
-                onClick={() => navigate(entry.href)}
-              >
-                {entry.label}
-              </Button>
-            ))}
-          </div>
-          <p className="mock-switch-label">Theme</p>
-          <div className="mock-switch-row">
-            {(['dark', 'light'] as const).map((value) => (
-              <Button
-                key={value}
-                type="button"
-                size="xs"
-                variant={theme === value ? 'secondary' : 'ghost'}
-                aria-pressed={theme === value}
-                onClick={() => setTheme(value)}
-              >
-                {value === 'dark' ? 'Dark' : 'Light'}
-              </Button>
-            ))}
-          </div>
-          <p className="mock-switch-label">Radius</p>
-          <div className="mock-switch-row">
-            {(['2', '4', 'current'] as Radius[]).map((value) => (
-              <Button
-                key={value}
-                type="button"
-                size="xs"
-                variant={radius === value ? 'secondary' : 'ghost'}
-                aria-pressed={radius === value}
-                onClick={() => setRadius(value)}
-              >
-                {radiusLabel[value]}
-              </Button>
-            ))}
-          </div>
-          <Separator />
-          <a className="mock-switch-link" href="/docs" onClick={follow}>
-            ← Design system docs
-          </a>
+          <GlobalSwitches screen={screen} />
         </PopoverContent>
       </Popover>
     </div>
@@ -322,9 +330,15 @@ export function ColabMock({ path }: { path: string }) {
           return true;
         }}
       >
-        {screen === 'page' ? <PageDetail /> : screen === 'menu' ? <MenuScreen /> : <PageList />}
+        {screen === 'page' ? (
+          <ReaderScreen globals={<GlobalSwitches screen={screen} />} />
+        ) : screen === 'menu' ? (
+          <MenuScreen />
+        ) : (
+          <PageList />
+        )}
       </BrowserShell>
-      <MockSwitch screen={screen} />
+      {screen !== 'page' && <MockSwitch screen={screen} />}
     </UiTheme>
   );
 }
@@ -483,199 +497,6 @@ function PageList() {
             'Tab counts are plain text in the trigger; a count slot for Tabs does not exist yet.',
           ]}
         />
-      </div>
-    </>
-  );
-}
-
-const comments = [
-  {
-    quote: 'Corners are small: 2px on controls, 4px on surfaces.',
-    thread: [
-      ['sample-lead', 'Agree on 2/4. Counts keep the same radius, no pills.'],
-      ['sample-1', 'Yes. Try 4/6 once on the gallery before we lock it.'],
-    ],
-  },
-  {
-    quote: 'The selected tab is the only red line on the page.',
-    thread: [
-      ['sample-2', 'Line tabs only? Segmented tabs stay neutral?'],
-      ['sample-2', 'Yes, segmented stays neutral.'],
-    ],
-  },
-];
-const chat = [
-  ['sample-1', '10:12', 'Looks much calmer. What happens to the amber counts?'],
-  [
-    'sample-2',
-    '10:14',
-    'They stay amber: status is never the accent. Only “needs you” counts are amber.',
-  ],
-  ['sample-lead', '10:15', 'Ship B as the default once the Colab pages are swept.'],
-];
-
-function Initials({ name }: { name: string }) {
-  return (
-    <span className="mock-initials" aria-hidden="true">
-      {name
-        .split('-')
-        .map((part) => part[0])
-        .join('')
-        .toUpperCase()}
-    </span>
-  );
-}
-
-function PageDetail() {
-  const [choice, setChoice] = useState<string | null>(null);
-  return (
-    <>
-      <Bar
-        trail="Colab / Design system / "
-        current="Theme B review"
-        actions={
-          <>
-            <Button type="button" variant="ghost" size="sm">
-              Share
-            </Button>
-            <Button type="button" size="sm">
-              Answer
-            </Button>
-          </>
-        }
-      />
-      <div className="mock-detail">
-        <article className="mock-article">
-          <div className="mock-meta">
-            <Badge variant="outline">design</Badge>
-            <Badge variant="outline">spec</Badge>
-            <span className="mock-quiet">by sample-2 · updated 2 min ago</span>
-          </div>
-          <div className="tmt-ui-prose">
-            <h1>Theme B review</h1>
-            <p>
-              Palette B moves every surface to one warm neutral family and keeps red for four jobs:
-              the brand, focus, the selected tab and the primary action. This page asks for one
-              decision before B becomes the default.
-            </p>
-            <h2>What changes</h2>
-            <ul>
-              <li>Surfaces read the ref tier; a theme switch only remaps roles.</li>
-              <li>
-                Status keeps muted hues with a mark and a word: <code>◆ Waiting</code>,{' '}
-                <code>✕ Blocked</code>.
-              </li>
-              <li>Disabled is neutral grey on every variant, never a faded red.</li>
-            </ul>
-            <h2>Measured cost</h2>
-            <table>
-              <thead>
-                <tr>
-                  <th>Surface</th>
-                  <th>Before</th>
-                  <th>After</th>
-                  <th>Note</th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr>
-                  <td>static + ui (gzip)</td>
-                  <td>22,657</td>
-                  <td>24,715</td>
-                  <td>Until B is the default</td>
-                </tr>
-                <tr>
-                  <td>Colab page UI</td>
-                  <td>125,075</td>
-                  <td>137,542</td>
-                  <td>Both palettes ship</td>
-                </tr>
-              </tbody>
-            </table>
-            <blockquote>Corners are small: 2px on controls, 4px on surfaces.</blockquote>
-          </div>
-          <Card className="mock-question">
-            <CardHeader>
-              <CardTitle>Question for you</CardTitle>
-              <CardDescription>Which radius ships with B?</CardDescription>
-            </CardHeader>
-            <CardContent className="mock-question-body">
-              <div className="mock-choices" role="group" aria-label="Radius">
-                {['2 / 4 (recommended)', '4 / 6', 'Keep the current radius'].map((label) => (
-                  <Button
-                    key={label}
-                    type="button"
-                    variant={choice === label ? 'secondary' : 'outline'}
-                    aria-pressed={choice === label}
-                    onClick={() => setChoice(label)}
-                  >
-                    {label}
-                  </Button>
-                ))}
-              </div>
-              <Textarea placeholder="Anything else (optional)" aria-label="Note" />
-            </CardContent>
-            <CardFooter className="mock-question-foot">
-              <Button type="button" disabled={!choice}>
-                Send answer
-              </Button>
-              <span className="mock-quiet">{choice ? `Selected: ${choice}` : 'Pick one'}</span>
-            </CardFooter>
-          </Card>
-          <StandIns
-            items={[
-              'The page body is the editorial layer (.tmt-ui-prose); in Colab it is the page’s own document.',
-              'Question choices are outline Buttons with aria-pressed: a RadioGroup part does not exist yet.',
-              'Avatars are initials in a span: there is no Avatar part in the ui set yet.',
-            ]}
-          />
-        </article>
-        <aside className="mock-panel" aria-label="Discussion">
-          <Tabs defaultValue="comments">
-            <TabsList variant="line">
-              <TabsTrigger value="comments">Comments 2</TabsTrigger>
-              <TabsTrigger value="chat">Chat</TabsTrigger>
-            </TabsList>
-            <TabsContent value="comments" className="mock-panel-body">
-              {comments.map((comment) => (
-                <Card key={comment.quote} className="mock-thread">
-                  <CardContent className="mock-thread-body">
-                    <p className="mock-quote">{comment.quote}</p>
-                    {comment.thread.map(([who, text]) => (
-                      <div key={text} className="mock-message">
-                        <Initials name={who!} />
-                        <div>
-                          <p className="mock-who">{who}</p>
-                          <p>{text}</p>
-                        </div>
-                      </div>
-                    ))}
-                    <Input placeholder="Reply" aria-label="Reply" />
-                  </CardContent>
-                </Card>
-              ))}
-            </TabsContent>
-            <TabsContent value="chat" className="mock-panel-body">
-              {chat.map(([who, time, text]) => (
-                <div key={text} className="mock-message">
-                  <Initials name={who!} />
-                  <div>
-                    <p className="mock-who">
-                      {who} <span className="mock-quiet">{time}</span>
-                    </p>
-                    <p>{text}</p>
-                  </div>
-                </div>
-              ))}
-              <div className="mock-composer">
-                <Textarea placeholder="Message the page’s agents" aria-label="Message" />
-                <Button type="button" size="sm">
-                  Send
-                </Button>
-              </div>
-            </TabsContent>
-          </Tabs>
-        </aside>
       </div>
     </>
   );
