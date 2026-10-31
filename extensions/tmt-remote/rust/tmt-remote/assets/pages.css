@@ -695,6 +695,7 @@ body:not(:has(.tmt-ui-shell)) {
     width: min(100% - 32px, 87.5rem);
   }
 }
+.ops-channel,
 .ops-agents-page,
 .ops-squads-page,
 .ops-timers-page,
@@ -935,4 +936,26 @@ body:not(:has(.tmt-ui-shell)) {
   display: flex;
   justify-content: flex-end;
   margin-bottom: 0;
+}
+
+/* Local channel geometry; shared rail, tabs, lists and states retain their leaf owner. */
+.ops-channel-context > :not(summary) {
+  margin-top: var(--tmt-ui-space-m);
+}
+.ops-channel-history,
+.ops-channel-compose {
+  display: grid;
+  gap: var(--tmt-ui-space-m);
+}
+.ops-channel-history > h2,
+.ops-channel-history > p,
+.ops-channel-compose > p {
+  margin: 0;
+}
+.ops-channel .tmt-ui-facts {
+  margin: 0;
+}
+.ops-channel .tmt-ui-actions {
+  flex-wrap: wrap;
+  gap: var(--tmt-ui-space-s);
 }

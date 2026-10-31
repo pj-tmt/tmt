@@ -1055,7 +1055,15 @@ test.describe('the Ops route on the owner read', () => {
           expect(geometry.overflow).toBe(false);
         };
         try {
-          const opsLabels = ['Agents', 'Squads', 'Timers', 'Ops settings'];
+          const opsLabels = [
+            'Agents',
+            'Squads',
+            'Timers',
+            '#tmt-core',
+            'tmt-lead',
+            'core-3',
+            'Ops settings',
+          ];
           await inspect(opsLabels, 'squads');
           const agents = modulePages(page).locator('a[data-id="agents"]');
           await expect(agents.locator('.tmt-ui-shell-count')).toHaveText(['2', '1']);
@@ -1127,6 +1135,40 @@ test.describe('the Ops route on the owner read', () => {
           await page.close();
         }
       });
+
+  test('serves the local channel and UUID DM through the existing owner-read route', async () => {
+    const { page, requests } = await openApp('/ops#channel/tmt-core', async (page) => {
+      await stub(page, [board]);
+    });
+    try {
+      await expect(page.getByRole('heading', { level: 1 })).toHaveText('Ops / #tmt-core');
+      await expect(page.locator('.ops-channel-context .tmt-ui-list-state')).toHaveText([
+        'Working',
+        'Offline',
+      ]);
+      await modulePages(page).getByRole('link', { name: 'core-3', exact: true }).click();
+      await expect(page).toHaveURL(
+        `${origin}/ops#dm/00000000-0000-4000-8000-000000000002/tmt-core`,
+      );
+      await expect(page.getByRole('heading', { level: 1 })).toHaveText('Ops / core-3');
+      await expect(
+        page.getByRole('heading', {
+          name: "History isn't available in the browser yet",
+          exact: true,
+        }),
+      ).toBeVisible();
+      await page.getByRole('tab', { name: 'Squad timers', exact: true }).click();
+      await expect(page.getByRole('tabpanel', { name: 'Squad timers', exact: true })).toContainText(
+        'Hourly pass',
+      );
+      await expect(page.getByRole('button', { name: 'Send', exact: true })).toBeDisabled();
+      expect(
+        requests.some((request) => /requests\.list|dispatch\.create/.test(request.url())),
+      ).toBe(false);
+    } finally {
+      await page.close();
+    }
+  });
 
   test('shows the board, refreshes it while visible and stops on leaving the route', async () => {
     let reads: number[] = [];
@@ -1253,7 +1295,7 @@ test.describe('the Ops route on the owner read', () => {
   /** A board of two squads: core has an agent that needs the person, ux has an idle lead. */
   const squadBoard = () => {
     const agent = (name: string, squad: string, extra: Record<string, unknown> = {}) => ({
-      id: `id-${name}`,
+      id: `00000000-0000-4000-8000-${String(['tmt-lead', 'core-1', 'core-3', 'ux-lead', 'ux-1'].indexOf(name) + 1).padStart(12, '0')}`,
       name,
       squad,
       role: name.endsWith('lead') ? 'lead' : 'member',
@@ -1266,7 +1308,7 @@ test.describe('the Ops route on the owner read', () => {
       {
         name: 'tmt-core',
         layout: 'team',
-        lead: { id: 'id-tmt-lead', name: 'tmt-lead' },
+        lead: { id: '00000000-0000-4000-8000-000000000001', name: 'tmt-lead' },
         idleAlertMs: 1800000,
       },
       { name: 'tmt-ux', layout: 'team' },

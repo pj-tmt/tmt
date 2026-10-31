@@ -16,6 +16,9 @@ it('turns the contract board into rows: lead first, a mark for each state, the b
   expect(board.squads).toEqual([{ name: 'tmt-core', lead: 'tmt-lead', idleAlertMinutes: 30 }]);
   expect(board.agents).toEqual([
     {
+      id: '00000000-0000-4000-8000-000000000001',
+      presence: 'active',
+      activity: { state: 'working' },
       name: 'tmt-lead',
       squad: 'tmt-core',
       role: 'lead',
@@ -24,6 +27,8 @@ it('turns the contract board into rows: lead first, a mark for each state, the b
       waitingOnYou: 0,
     },
     {
+      id: '00000000-0000-4000-8000-000000000002',
+      presence: 'offline',
       name: 'core-3',
       squad: 'tmt-core',
       role: 'member',
@@ -91,4 +96,15 @@ it('says why there is no board, with what to do, for every reason and no answer 
   expect(answer({ version: 1, state: 'ok', squads: 'x', agents: [] }).unavailable).toMatch(
     /could not read/,
   );
+});
+
+it('keeps identity and plain-state evidence, and refuses missing or non-UUID member IDs', () => {
+  const payload = structuredClone(ops[0]!.expect);
+  const valid = answer(payload);
+  expect(valid.agents[0]!.id).toBe('00000000-0000-4000-8000-000000000001');
+  for (const id of [undefined, 'tmt-lead', 42]) {
+    const malformed = structuredClone(payload) as { agents: { id?: unknown }[] };
+    malformed.agents[0]!.id = id;
+    expect(answer(malformed).unavailable).toMatch(/could not read/);
+  }
 });

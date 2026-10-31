@@ -1,6 +1,7 @@
 /** The fixed Ops rail: observed counts only; the shared leaf owns row presentation. */
 import { shellCount, type ShellMenu } from '@tmt/browser-ui/shell';
 import type { OpsBoard } from './ops-source.js';
+import { bySquad } from './ops-parts.js';
 
 export const OPS_SECTIONS = [
   { id: 'agents', label: 'Agents' },
@@ -14,8 +15,34 @@ export function opsSection(hash: string): OpsSection {
   return OPS_SECTIONS.find((section) => `#${section.id}` === hash)?.id ?? 'agents';
 }
 
+export type OpsPlace = OpsSection | { squad: string; memberId?: string };
+
+export function opsPlace(hash: string): OpsPlace {
+  try {
+    if (hash.startsWith('#channel/')) {
+      const squad = decodeURIComponent(hash.slice(9));
+      if (squad) return { squad };
+    }
+    const dm = /^#dm\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\/(.+)$/.exec(
+      hash,
+    );
+    if (dm) return { memberId: dm[1]!, squad: decodeURIComponent(dm[2]!) };
+  } catch {
+    /* A malformed link never selects a member by name. */
+  }
+  return opsSection(hash);
+}
+
+export function opsHref(pathname: string, place: OpsPlace): string {
+  if (typeof place === 'string') return `${pathname}#${place}`;
+  const squad = encodeURIComponent(place.squad);
+  return place.memberId
+    ? `${pathname}#dm/${place.memberId}/${squad}`
+    : `${pathname}#channel/${squad}`;
+}
+
 export function opsMenu(
-  section: OpsSection,
+  section: OpsPlace,
   board: OpsBoard | undefined,
   pathname: string,
 ): ShellMenu {
@@ -44,6 +71,30 @@ export function opsMenu(
           count: entry.id === 'agents' && attention ? shellCount(attention) : undefined,
         })),
       },
+      // Shared flat groups until GUI's nested ShellMenu contract (#5800) lands.
+      ...(!board?.unavailable && board
+        ? bySquad(board, true).map((group) => ({
+            label: group.name,
+            items: [
+              {
+                id: `channel:${group.name}`,
+                label: `#${group.name}`,
+                href: opsHref(pathname, { squad: group.name }),
+                current:
+                  typeof section !== 'string' && section.squad === group.name && !section.memberId,
+              },
+              ...group.agents.map((agent) => ({
+                id: `dm:${group.name}:${agent.id}`,
+                label: agent.name,
+                href: opsHref(pathname, { squad: group.name, memberId: agent.id }),
+                current:
+                  typeof section !== 'string' &&
+                  section.squad === group.name &&
+                  section.memberId === agent.id,
+              })),
+            ],
+          }))
+        : []),
     ],
     settings: item('settings', 'Ops settings'),
   };
