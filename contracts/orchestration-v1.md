@@ -313,8 +313,14 @@ counted, and a lead's own requests are never held. At the limit the request is
 stored and held, never dropped: no wake and no Digest item. Talk returns
 `status:"held"`, `waitingFor:"person"`, and `x show` reports the same. The hold
 is journaled (action `delay`, outcome `held`, reason `talk_limit`).
-`talks.resume` or `tmt orch talks resume A B` releases every held request of
-the pair through normal delivery and restarts the pair's window at that instant.
+A held attempt's expiry becomes the earlier of the hold instant plus 7 days and
+its prompt-retention horizon; it is never extended past the retained text.
+`talks.resume` or `tmt orch talks resume A B` releases every live held request
+of the pair through normal delivery, gives each a fresh normal expiry from the
+release instant, and restarts the pair's window at that instant. A held request
+left unresumed past its expiry expires unsent (never sent, never retried) with
+one journal entry; `talks` and `x show` show it as expired-unsent and resume
+skips it.
 `--urgent` does not bypass the limit.
 
 `route.allow` and `talks.resume` use the same preview, consent and CAS as other
