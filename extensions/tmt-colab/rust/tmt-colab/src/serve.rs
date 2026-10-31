@@ -501,10 +501,13 @@ fn serve(
         fence(stop, detached)?;
         let keyring = Keyring::open(&layout)?;
         let store = Store::open(&layout)?;
-        // Task-era work values are rewritten once, before the serve reads any page (#5825). A
-        // space this cannot read is the store's own failure, which the serve reports below; a page
-        // that cannot be rewritten is named and tried at the next open.
-        let _ = crate::cli_work::migrate_space(root, &lock, &warn);
+        // Task-era work values are rewritten once, before the serve reads any page (#5825). Every
+        // failure is reported and tried again at the next open; the serve still starts.
+        if let Err(error) = crate::cli_work::migrate_space(root, &lock, &warn) {
+            warn(&format!(
+                "Task-era work was not migrated; it is tried again at the next serve: {error}"
+            ));
+        }
         let space_id = keyring.space_id.clone();
         let owner = keyring.owner_public();
         let (pages, all_pages) = open_pages(&store, &keyring);

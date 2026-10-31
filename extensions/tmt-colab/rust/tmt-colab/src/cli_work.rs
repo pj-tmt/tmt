@@ -344,10 +344,14 @@ struct Read {
 }
 /// The one-shot rewrite of task-era work values (#5825), run when the serve opens a space: every
 /// page still holding version 1 gets one `work.migrate` action, which keeps its linked pages in
-/// task order and its summary and drops its plain tasks. A page already at version 2 is left alone,
-/// so the run is idempotent; a page that cannot be rewritten now is `report`ed and tried at the
-/// next open (its first write migrates it too). The serve holds the write lock (`serve_lock`)
-/// and passes it, since its own socket is not up yet to take a write. Returns the pages rewritten.
+/// task order and its summary and drops its plain tasks. Nothing is dropped without a copy: the
+/// page's whole version 1 value is first written to an owner-only export
+/// (`migrations/5825/<pageId>.json` in the space's directory), and a page whose export cannot be
+/// written is not rewritten. A page already at version 2 is left alone, so the run is idempotent;
+/// a page that cannot be exported or rewritten now is `report`ed, keeps its value (`show` and `ls`
+/// warn `work-not-migrated`) and is tried at the next open. The serve holds the write lock
+/// (`serve_lock`) and passes it, since its own socket is not up yet to take a write. Returns the
+/// pages rewritten.
 pub(crate) fn migrate_space(
     root: &Path,
     lock: &nix::fcntl::Flock<std::fs::File>,
@@ -360,12 +364,15 @@ pub(crate) fn migrate_space(
     let store = Store::read(&layout)?;
     store.require_current_schema()?;
     let mut decoder = Decoder::new(std::env::current_exe()?)?;
-    let legacy: Result<Vec<String>> =
-        tmt_colab::inspection::all_page_ids(&store, &key).map(|pages| {
+    let legacy: Result<Vec<(String, Value)>> = tmt_colab::inspection::all_page_ids(&store, &key)
+        .map(|pages| {
             pages
                 .into_iter()
-                .filter(|page| {
-                    page::read_work(&store, &key, page, &mut decoder).is_ok_and(|read| read.legacy)
+                .filter_map(|page| {
+                    let value = page::read_work(&store, &key, &page, &mut decoder)
+                        .ok()?
+                        .legacy?;
+                    Some((page, value))
                 })
                 .collect()
         });
@@ -373,7 +380,16 @@ pub(crate) fn migrate_space(
     let legacy = legacy?;
     closed?;
     let mut rewritten = Vec::new();
-    for page in legacy {
+    for (page, value) in legacy {
+        let exported = match export_legacy(&layout.directory, &page, &value) {
+            Ok(path) => path,
+            Err(error) => {
+                report(&format!(
+                    "Page {page} keeps its task-era work until the next serve: its copy could not be written ({error})."
+                ));
+                continue;
+            }
+        };
         match write_work_owned(
             root,
             &layout,
@@ -383,13 +399,51 @@ pub(crate) fn migrate_space(
             None,
             Some(lock),
         ) {
-            Ok(_) => rewritten.push(page),
+            Ok(_) => {
+                report(&format!(
+                    "Page {page}: task-era work rewritten as sub-pages; its tasks are kept in {}.",
+                    exported.display()
+                ));
+                rewritten.push(page);
+            }
             Err(error) => report(&format!(
                 "Page {page} keeps its task-era work until the next serve: {error}"
             )),
         }
     }
     Ok(rewritten)
+}
+
+/// Write a page's whole task-era value to `<space>/migrations/5825/<pageId>.json`, owner-only
+/// (directories 0700, file 0600, never through a link), and return the path. A copy left by an
+/// earlier attempt is replaced: the value it holds is the same until the page is rewritten.
+fn export_legacy(space: &Path, page: &str, value: &Value) -> Result<std::path::PathBuf> {
+    use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt, PermissionsExt};
+    let mut directory = space.to_path_buf();
+    for part in ["migrations", "5825"] {
+        directory.push(part);
+        match std::fs::DirBuilder::new().mode(0o700).create(&directory) {
+            Ok(()) => {}
+            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {}
+            Err(error) => return Err(error.into()),
+        }
+        let found = std::fs::symlink_metadata(&directory)?;
+        if !found.is_dir() || found.permissions().mode() & 0o077 != 0 {
+            return Err(format!("{} is not a private directory", directory.display()).into());
+        }
+    }
+    let path = directory.join(format!("{page}.json"));
+    let mut file = std::fs::OpenOptions::new()
+        .write(true)
+        .create(true)
+        .truncate(true)
+        .mode(0o600)
+        .custom_flags(nix::libc::O_NOFOLLOW)
+        .open(&path)?;
+    file.set_permissions(std::fs::Permissions::from_mode(0o600))?;
+    file.write_all(&serde_json::to_vec_pretty(value)?)?;
+    file.sync_all()?;
+    Ok(path)
 }
 
 /// A page's work read without a write lock, with what the space says about its sub-pages.

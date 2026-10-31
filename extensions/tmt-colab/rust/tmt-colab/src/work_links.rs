@@ -44,6 +44,11 @@ impl Graph<'_> {
         }
     }
 
+    /// Whether the page still holds task-era work the serve has not migrated (`work-not-migrated`).
+    pub fn legacy(&self, page: &str) -> bool {
+        matches!(self.0.get(page), Some(Some(work)) if work.legacy)
+    }
+
     /// The explicit page state, only from current known entries.
     pub fn page_state(&self, page: &str) -> Option<&str> {
         self.0.get(page)?.as_ref().map(|work| work.state.as_str())
@@ -197,6 +202,7 @@ mod tests {
         Some(PageWork {
             state: state.into(),
             children: children.iter().map(|id| (*id).to_owned()).collect(),
+            legacy: false,
         })
     }
     fn found(pages: Vec<(&str, Option<PageWork>)>) -> Found {

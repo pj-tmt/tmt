@@ -158,7 +158,10 @@ Hosted owns the serialized own-record sender, never Firebase or content writes.
   decoder and the browser never see the rules; `subpage create` makes the page through
   `cli_management::commit_creation` (`subpage_create.rs` owns the title, the heading source and the
   derived page ID) and then attaches it; `migrate_space` is the serve's one-shot `work.migrate` of
-  version 1 values at open; and `ls` adds each page's derived work and its parent. Export
+  version 1 values at open, under the serve's lock, after an owner-only copy of each value
+  (`migrations/5825/`), reporting every failure; the work index marks a page not yet migrated
+  (`PageWork.legacy`, the `work-not-migrated` warning); and `ls` adds each page's derived work and
+  its parent. Export
   publishes `meta.work` as `work.json` beside the HTML. The browser fold validates the value and
   projects it through the Worker and the parent's prepared-content check. The
   [Work contract](../../../../extensions/tmt-colab/contracts/colab-v1.md#work-4050) owns the

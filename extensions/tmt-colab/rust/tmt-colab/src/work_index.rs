@@ -14,8 +14,9 @@ use crate::{
 use serde_json::{Value, json};
 use std::collections::BTreeMap;
 
-/// 4: the work of a page is its sub-pages (#5825); task-era entries are refolded.
-const VERSION: u64 = 4;
+/// 5: the work of a page is its sub-pages, and a task-era value not yet migrated is marked
+/// (#5825); older entries are refolded.
+const VERSION: u64 = 5;
 
 /// The work of the pages of the space: a page missing from it is unavailable (not asked, deleted,
 /// unreadable), and `None` is a verified shell.
@@ -28,6 +29,8 @@ pub struct PageWork {
     pub state: String,
     /// The direct sub-pages, in the page's order.
     pub children: Vec<String>,
+    /// The stored value is still the task-era version 1: the serve has not migrated it yet.
+    pub legacy: bool,
 }
 
 impl Kept for Option<PageWork> {
@@ -36,6 +39,9 @@ impl Kept for Option<PageWork> {
     const VERSION: u64 = VERSION;
     fn to_json(&self) -> Value {
         match self {
+            Some(work) if work.legacy => {
+                json!({"state":work.state,"children":work.children,"legacy":true})
+            }
             Some(work) => json!({"state":work.state,"children":work.children}),
             None => json!({}),
         }
@@ -52,6 +58,7 @@ impl Kept for Option<PageWork> {
         Some(Some(PageWork {
             state: state.as_str()?.to_owned(),
             children,
+            legacy: entry.get("legacy") == Some(&Value::Bool(true)),
         }))
     }
 }
@@ -95,6 +102,7 @@ fn fold(store: &Store, key: &Keyring, id: &str, decoder: &mut Decoder) -> Option
         Ok(Some(read)) => Some(Some(PageWork {
             state: read.state,
             children: read.children,
+            legacy: read.legacy.is_some(),
         })),
         Ok(None) => Some(None),
         Err(_) => None,
@@ -108,7 +116,8 @@ pub fn page_work(meta: &Value) -> Option<PageWork> {
         return None;
     }
     let empty = crate::work::empty();
-    let children = crate::work::children(meta.get("work").unwrap_or(&empty)).ok()?;
+    let work = meta.get("work").unwrap_or(&empty);
+    let children = crate::work::children(work).ok()?;
     let state = match meta.get("pageState") {
         None => "todo",
         Some(value) if crate::decoder::valid_page_state(value) => value.as_str()?,
@@ -117,6 +126,7 @@ pub fn page_work(meta: &Value) -> Option<PageWork> {
     Some(PageWork {
         state: state.to_owned(),
         children,
+        legacy: work["version"] == 1,
     })
 }
 
@@ -130,6 +140,7 @@ mod tests {
         Some(PageWork {
             state: "todo".into(),
             children: children.iter().map(|id| (*id).to_owned()).collect(),
+            legacy: false,
         })
     }
 
@@ -221,7 +232,18 @@ mod tests {
         let v1 = json!({"work":{"version":1,"next":3,"order":["T-1","T-2"],"tasks":{
             "T-1":{"title":"plain","state":"todo"},
             "T-2":{"title":"linked","state":"todo","child":CHILD}}}});
-        assert_eq!(page_work(&v1), work(&[CHILD]));
+        let read = page_work(&v1).unwrap();
+        assert_eq!(read.children, [CHILD]);
+        assert!(read.legacy);
+        assert!(!work(&[CHILD]).unwrap().legacy);
+        // The mark survives the derived file and an entry without it reads as migrated.
+        let entry = Some(read.clone()).to_json();
+        assert_eq!(entry["legacy"], true);
+        assert_eq!(<Option<PageWork>>::from_json("p", &entry), Some(Some(read)));
+        assert_eq!(
+            <Option<PageWork>>::from_json("p", &json!({"state":"todo","children":[CHILD]})),
+            Some(work(&[CHILD]))
+        );
         assert!(page_work(&json!({"pageType":"shell"})).is_none());
     }
 }

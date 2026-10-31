@@ -3154,8 +3154,14 @@ and that the summary is valid, and readers project it read only as the version 2
 to: the `child` of each task in task order, each page once, plain tasks dropped, and the summary
 kept. Every action applies to that projection, so any write stores version 2. When the owner's
 serve opens a space it runs `work.migrate` (body `{}`, which changes nothing else) once on every page
-still at version 1; a page it cannot rewrite then keeps its value until the next open or its next
-write. The browser never sends `work.migrate`.
+still at version 1, under the serve's own write lock. Plain tasks are never dropped without a copy:
+before rewriting a page the serve writes its whole version 1 value to
+`migrations/5825/<pageId>.json` in the space's directory (directories 0700, file 0600, never
+through a link) and logs that path; a page whose copy cannot be written is not rewritten. A page it
+cannot copy or rewrite keeps its value, the serve logs why, `tmt colab show` and `tmt colab ls` add
+the warning `work-not-migrated` to it, and the next open (or the page's next write) tries again; the
+serve still starts. Binaries from before #5825 cannot read a migrated value, so every device of a
+space upgrades together. The browser never sends `work.migrate`.
 
 Each action is trial-applied to a detached admitted document. Only a schema-valid whole result
 becomes an ordinary signed content publication. The closed bodies are:

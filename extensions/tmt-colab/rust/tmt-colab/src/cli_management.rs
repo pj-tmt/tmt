@@ -1013,6 +1013,17 @@ fn attach_hierarchy_warnings(graph: &tmt_colab::work_links::Graph<'_>, page: &mu
     if let Some(shown) = page["warnings"].as_array_mut() {
         shown.extend(warnings.into_iter().map(|warning| json!(warning)));
     }
+    attach_migration_warning(graph, page);
+}
+/// A page whose task-era work the serve has not migrated yet says so; the serve tries again at
+/// its next open and names why in its own log (#5825).
+fn attach_migration_warning(graph: &tmt_colab::work_links::Graph<'_>, page: &mut Value) {
+    let id = page["pageId"].as_str().unwrap_or_default();
+    if graph.legacy(id)
+        && let Some(shown) = page["warnings"].as_array_mut()
+    {
+        shown.push(json!("work-not-migrated"));
+    }
 }
 
 pub fn run(command: &str, args: &ArgMatches, root: &Path, json_output: bool) -> Result<()> {
@@ -1156,6 +1167,7 @@ pub fn run(command: &str, args: &ArgMatches, root: &Path, json_output: bool) -> 
                 if let Some((parent, index)) = parents.get(&id) {
                     page["parent"] = json!({"page":parent,"index":index});
                 }
+                attach_migration_warning(&graph, page);
             }
         }
         let state_found = state_index(&layout, &store, &key, &ids).unwrap_or_default();

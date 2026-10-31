@@ -283,11 +283,18 @@ exec {core} "$@"
         self.call(&borrowed(&self.patch_args(page, flags)))
     }
     fn start(&mut self) -> Value {
+        self.start_with_stderr(Stdio::null())
+    }
+    /// `start`, with the serve's warnings written to `log`.
+    fn start_logging(&mut self, log: &std::path::Path) -> Value {
+        self.start_with_stderr(fs::File::create(log).unwrap().into())
+    }
+    fn start_with_stderr(&mut self, stderr: Stdio) -> Value {
         self.child = Some(
             self.command()
                 .args(["serve", "--json"])
                 .stdout(Stdio::piped())
-                .stderr(Stdio::null())
+                .stderr(stderr)
                 .spawn_owned()
                 .unwrap(),
         );
@@ -782,6 +789,11 @@ fn wait_for_title_rows(database: &std::path::Path, count: i64) {
     }
 }
 fn seed_page_with_title(pilot: &Pilot, title: &str) {
+    seed_page_with(pilot, title, None);
+}
+/// A page written by an editor device, with `work` as its stored `meta.work` when given: how a
+/// test holds a value no current writer produces (a task-era version 1, #5825).
+fn seed_page_with(pilot: &Pilot, title: &str, work: Option<&Value>) {
     use ed25519_dalek::{Signer, SigningKey};
     use tmt_colab::{
         keyring::{Keyring, Layout},
@@ -821,6 +833,13 @@ fn seed_page_with_title(pilot: &Pilot, title: &str) {
         let mut tx = doc.transact_mut();
         html.insert(&mut tx, 0, "<h1>Encrypted source</h1>");
         meta.insert(&mut tx, "title", title);
+        if let Some(work) = work {
+            meta.insert(
+                &mut tx,
+                "work",
+                yrs::Any::from_json(&work.to_string()).unwrap(),
+            );
+        }
     }
     let update = doc
         .transact()
@@ -1507,6 +1526,112 @@ fn serve_migrates_an_older_store_and_preserves_the_page() {
     pilot.start();
     assert_eq!(pilot.call(&["page", "read", PAGE, "--json"]), page);
     pilot.stop();
+}
+
+#[test]
+fn serve_migrates_task_era_work_after_an_owner_only_copy_and_retries_a_page_it_could_not() {
+    use std::os::unix::fs::DirBuilderExt;
+    const CHILD: &str = "10000000-0000-4000-8000-0000000000c1";
+    let mut pilot = Pilot::new(None);
+    // Task-era work: a plain task (dropped from the list, kept in the copy) and two tasks that
+    // follow one page (one sub-page).
+    let legacy = json!({"version":1,"next":4,"order":["T-1","T-2","T-3"],"tasks":{
+        "T-1":{"title":"Plain task","state":"in-progress","detail":"Kept in the copy"},
+        "T-2":{"title":"Linked","state":"todo","child":CHILD},
+        "T-3":{"title":"Linked again","state":"done","child":CHILD}}});
+    seed_page_with(&pilot, "Task-era page", Some(&legacy));
+    let warnings =
+        |pilot: &Pilot| pilot.call(&["show", PAGE, "--json"])["page"]["warnings"].clone();
+    let listed = |pilot: &Pilot| pilot.call(&["subpage", "ls", PAGE, "--json"])["children"].clone();
+    let selected = pilot.root.join("selected");
+    let stored = || {
+        let layout = tmt_colab::keyring::Layout::open(&selected).unwrap();
+        let key = tmt_colab::keyring::Keyring::open(&layout).unwrap();
+        let store = tmt_colab::store::Store::read(&layout).unwrap();
+        let mut decoder = tmt_colab::decoder::Decoder::new(BINARY.into()).unwrap();
+        let read = tmt_colab::page::read_work(&store, &key, PAGE, &mut decoder).unwrap();
+        store.close().unwrap();
+        read.legacy
+    };
+    // Before a serve: read only, as its linked page, and flagged on show and ls.
+    assert_eq!(listed(&pilot), json!([CHILD]));
+    assert!(
+        warnings(&pilot)
+            .as_array()
+            .unwrap()
+            .contains(&json!("work-not-migrated"))
+    );
+    // `show` refreshed the derived index, so the cached list warns too.
+    let listing = pilot.call(&["ls", "--json"]);
+    assert!(
+        listing["pages"][0]["warnings"]
+            .as_array()
+            .unwrap()
+            .contains(&json!("work-not-migrated")),
+        "{listing}"
+    );
+    // A copy that cannot be written: the page is not rewritten, the serve says so and starts.
+    let space = pilot.root.join("selected/colab");
+    let copies = space.join("migrations/5825");
+    fs::DirBuilder::new()
+        .mode(0o700)
+        .recursive(true)
+        .create(copies.join(format!("{PAGE}.json")))
+        .unwrap();
+    let log = pilot.root.join("serve.log");
+    pilot.start_logging(&log);
+    pilot.stop();
+    let said = fs::read_to_string(&log).unwrap();
+    assert!(
+        said.contains(&format!(
+            "Page {PAGE} keeps its task-era work until the next serve"
+        )),
+        "{said}"
+    );
+    assert_eq!(stored(), Some(legacy.clone()));
+    assert!(
+        warnings(&pilot)
+            .as_array()
+            .unwrap()
+            .contains(&json!("work-not-migrated"))
+    );
+    // The next serve writes the copy, then rewrites the page, and names the copy.
+    fs::remove_dir(copies.join(format!("{PAGE}.json"))).unwrap();
+    pilot.start_logging(&log);
+    pilot.stop();
+    let said = fs::read_to_string(&log).unwrap();
+    let copy = copies.join(format!("{PAGE}.json"));
+    // The serve names the copy by its resolved path (macOS temp directories resolve via /private).
+    assert!(
+        said.contains("task-era work rewritten as sub-pages; its tasks are kept in /")
+            && said.contains(&format!("/selected/colab/migrations/5825/{PAGE}.json")),
+        "{said}"
+    );
+    let kept: Value = serde_json::from_slice(&fs::read(&copy).unwrap()).unwrap();
+    assert_eq!(kept, legacy);
+    assert_eq!(
+        fs::metadata(&copy).unwrap().permissions().mode() & 0o777,
+        0o600
+    );
+    for directory in [&copies, &space.join("migrations")] {
+        assert_eq!(
+            fs::metadata(directory).unwrap().permissions().mode() & 0o777,
+            0o700
+        );
+    }
+    assert_eq!(stored(), None);
+    assert_eq!(listed(&pilot), json!([CHILD]));
+    assert!(
+        !warnings(&pilot)
+            .as_array()
+            .unwrap()
+            .contains(&json!("work-not-migrated"))
+    );
+    // Idempotent: a later serve has nothing to rewrite and says nothing about it.
+    pilot.start_logging(&log);
+    pilot.stop();
+    let said = fs::read_to_string(&log).unwrap();
+    assert!(!said.contains("task-era"), "{said}");
 }
 
 #[test]

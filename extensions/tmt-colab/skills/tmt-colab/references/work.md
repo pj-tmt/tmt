@@ -37,6 +37,11 @@ of this space) or `invalid-hierarchy` (existing links already conflict). Two wri
 into a page with two parents or a loop; `tmt colab show PAGE --json` flags them in `page.warnings`.
 Repair them with `subpage detach`, which is always admitted.
 
+Pages from before sub-pages held tasks. The serve rewrites them once as sub-pages (the pages those
+tasks followed) and keeps each page's old tasks in `migrations/5825/<pageId>.json` in the space's
+directory; a page it could not rewrite yet shows `work-not-migrated` in `show` and `ls` and is
+tried again at the next serve. Do not recreate old tasks yourself: tell the person where the copy is.
+
 `subpage create` makes the page first, with the title as its heading, then attaches it. If the
 attach fails it prints the page it made and the `subpage attach` command that finishes; it never
 searches for a page to adopt, so running it again makes another page.

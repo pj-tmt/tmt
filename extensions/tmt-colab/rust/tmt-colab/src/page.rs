@@ -602,9 +602,9 @@ pub struct WorkPage {
     /// The page's two summary lines, when it has them.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub summary: Option<serde_json::Value>,
-    /// The stored value is the task-era version 1, not yet migrated (#5825).
+    /// The stored task-era version 1 value, whole, until it is migrated (#5825).
     #[serde(skip)]
-    pub legacy: bool,
+    pub legacy: Option<serde_json::Value>,
     pub epoch: String,
     pub membership_head: Head,
     pub revision: String,
@@ -634,7 +634,7 @@ pub(crate) fn read_work_or_shell(
     let work = view.meta.get("work").unwrap_or(&empty);
     let children = crate::work::children(work).map_err(|_| Fault::Invalid)?;
     let summary = work.get("summary").cloned();
-    let legacy = work["version"] == 1;
+    let legacy = (work["version"] == 1).then(|| work.clone());
     Ok(Some(WorkPage {
         state: view.meta["pageState"].as_str().unwrap_or("todo").to_owned(),
         space_id: key.space_id.clone(),
