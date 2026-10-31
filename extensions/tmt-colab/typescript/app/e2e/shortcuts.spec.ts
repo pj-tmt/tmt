@@ -768,7 +768,10 @@ for (const width of [390, 1440])
             return { left: box.left - boundary.left, right: boundary.right - box.right };
           });
         });
-      expect(chipBoxes.every((box) => box.left >= 0 && box.right >= 0)).toBe(true);
+      expect(
+        chipBoxes.every((box) => box.left >= 0 && box.right >= 0),
+        JSON.stringify(chipBoxes),
+      ).toBe(true);
       await expect(
         page
           .locator('#list-fixture .page-list-condition-chips .tmt-ui-icon-action-control')
@@ -825,6 +828,9 @@ for (const width of [390, 1440])
       await page.getByRole('button', { name: 'Filter', exact: true }).click();
       await expect(
         page.getByRole('menuitemcheckbox', { name: 'To do', exact: true }),
+      ).toBeVisible();
+      await expect(
+        page.getByRole('menuitem', { name: 'Manage projects…', exact: true }),
       ).toBeVisible();
       await page.screenshot({ path: info.outputPath('filter-open.png') });
       await page.keyboard.press('Escape');

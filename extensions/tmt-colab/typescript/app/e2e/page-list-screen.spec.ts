@@ -38,7 +38,7 @@ for (const width of [1440, 390])
         'true',
       );
       await expect(app(page).locator('.tmt-ui-tabs')).toHaveAttribute('data-variant', 'flat');
-      await expect(app(page).locator('.tmt-ui-tabs')).toHaveAttribute('data-wrap', '');
+      await expect(app(page).locator('.tmt-ui-tabs')).not.toHaveAttribute('data-wrap', '');
       await expect(app(page).getByRole('button', { name: 'New page' })).toBeVisible();
       await expect(rows(page)).toHaveCount(50);
       const count = app(page).locator('[data-page-list-count]');
@@ -63,11 +63,11 @@ for (const width of [1440, 390])
         const tops = await app(page)
           .getByRole('tab')
           .evaluateAll((tabs) => tabs.map((tab) => tab.getBoundingClientRect().top));
-        expect(Math.max(...tops)).toBeGreaterThan(Math.min(...tops));
+        expect(Math.max(...tops) - Math.min(...tops)).toBeLessThanOrEqual(1);
         expect(
           await app(page)
             .getByRole('tablist')
-            .evaluate((node) => node.scrollWidth <= node.clientWidth),
+            .evaluate((node) => node.scrollWidth > node.clientWidth),
         ).toBe(true);
       }
       await page.screenshot({ path: await capturePath(`4273-list-${width}-${theme}.png`) });
@@ -178,7 +178,7 @@ for (const width of [1440, 390])
         'Recently updated',
       );
       const search = app(page).getByRole('combobox', { name: 'Search pages' });
-      await expect(search).toHaveCSS('font-size', '11px');
+      await expect(search).toHaveCSS('font-size', '14px');
       expect((await search.boundingBox())!.height).toBe(34);
       const ordinary = rows(page)
         .filter({ has: page.locator('[data-page-stage="discussion"]') })
@@ -410,12 +410,15 @@ for (const width of [1440, 390])
         };
       });
       expect(Math.abs(geometry.top)).toBeLessThan(1);
-      expect(geometry.height).toBe(58);
-      expect(geometry.searchTop).toBeLessThan(geometry.actionBottom);
-      expect(geometry.actionTop).toBeLessThan(geometry.searchBottom);
+      if (width > 650) expect(geometry.height).toBe(58);
+      else expect(geometry.height).toBeGreaterThan(58);
+      if (width > 650) {
+        expect(geometry.searchTop).toBeLessThan(geometry.actionBottom);
+        expect(geometry.actionTop).toBeLessThan(geometry.searchBottom);
+      }
       expect(geometry.overflow).toBe(false);
-      await expect(controls.locator('.page-scope-filters')).toBeVisible({ visible: width > 650 });
-      await expect(controls.locator('.page-list-sort')).toBeHidden();
+      await expect(controls.locator('.page-scope-filters')).toHaveCount(0);
+      await expect(controls.locator('.page-list-sort')).toBeVisible({ visible: width <= 650 });
       await search.focus();
       await expect(search).toBeFocused();
       const create = home.getByRole('button', { name: 'New page', exact: true });
@@ -442,7 +445,7 @@ for (const width of [1440, 390])
       );
     });
 
-test('compact projects preserve the draft and scope, with no duplicate phone project row', async ({
+test('compact project condition preserves draft and focus across viewport changes', async ({
   page,
 }) => {
   await mount(page, 1440, 'light');
@@ -451,29 +454,25 @@ test('compact projects preserve the draft and scope, with no duplicate phone pro
   await search.fill('a long unfinished query that remains a draft');
   await home.evaluate((node) => (node.scrollTop = 520));
   await expect(home).toHaveAttribute('data-compact', '');
-  await home.getByRole('button', { name: 'Scope to blog', exact: true }).click();
+  await home.getByRole('button', { name: 'Filter', exact: true }).click();
+  await page.getByRole('menuitemcheckbox', { name: 'project: blog', exact: true }).click();
   await expect(home).not.toHaveAttribute('data-compact');
   await expect(app(page).locator('.tmt-ui-topbar-title-current')).toHaveText('blog');
-  await expect(home.getByRole('button', { name: 'Scope to blog', exact: true })).toBeFocused();
+  const chip = home.getByRole('button', { name: 'Remove project: blog', exact: true });
+  await expect(chip).toBeVisible();
   await expect(search).toHaveText('a long unfinished query that remains a draft');
   expect(new URL(page.url()).hash).toContain('scope=blog');
   await home.evaluate((node) => (node.scrollTop = 520));
   await expect(home).toHaveAttribute('data-compact', '');
-  await home.getByRole('button', { name: 'Scope to blog', exact: true }).focus();
+  await chip.focus();
   await page.setViewportSize({ width: 390, height: 844 });
-  await expect(search).toBeFocused();
-  await expect(home.locator('.page-scope-filters')).toBeHidden();
+  await expect(chip).toBeFocused();
+  await expect(home.locator('.page-scope-filters')).toHaveCount(0);
   await expect(home.locator('.page-list-controls')).toHaveCSS('animation-name', 'none');
   expect(await home.evaluate((node) => node.scrollWidth <= node.clientWidth)).toBe(true);
   await page.setViewportSize({ width: 1440, height: 900 });
-  await expect(home.locator('.page-scope-filters')).toBeVisible();
-  // A second resize retains the same handoff even when row reflow remeasures compact state.
-  await home.getByRole('button', { name: 'Scope to blog', exact: true }).focus();
-  await page.setViewportSize({ width: 390, height: 844 });
-  await expect(search).toBeFocused();
+  await expect(chip).toBeFocused();
   await expect(search).toHaveText('a long unfinished query that remains a draft');
-  await page.setViewportSize({ width: 1440, height: 900 });
-  await expect(home.locator('.page-scope-filters')).toBeVisible();
   await search.fill('');
   await search.press('Escape');
   await page.keyboard.press('/');
@@ -671,7 +670,7 @@ for (const width of [1440, 390])
     page,
   }) => {
     await mount(page, width, 'light');
-    await page.setViewportSize({ width, height: 280 });
+    await page.setViewportSize({ width, height: 180 });
     const home = app(page).locator('[data-page-list]');
     const outside = await home.evaluate(
       (node) =>
@@ -686,7 +685,8 @@ for (const width of [1440, 390])
     await home.evaluate((node) => (node.scrollTop = 520));
     await expect(home).toHaveAttribute('data-compact', '');
     if (width === 1440) {
-      await home.getByRole('button', { name: 'Scope to blog', exact: true }).click();
+      await home.getByRole('button', { name: 'Filter', exact: true }).click();
+      await page.getByRole('menuitemcheckbox', { name: 'project: blog' }).click();
       await expect(home).not.toHaveAttribute('data-compact');
       expect(await home.evaluate((node) => node.scrollTop)).toBe(0);
     }

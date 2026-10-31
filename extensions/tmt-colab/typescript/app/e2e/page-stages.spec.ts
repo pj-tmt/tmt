@@ -244,27 +244,35 @@ test('a cold start reads again and fills In progress as the pages report, with n
   await expect(app(page).locator('.page-list-empty')).toHaveCount(0);
 });
 
-// Wrapped tabs keep every stage visible without horizontal scrolling or hidden-edge cues.
+// Phone tabs scroll horizontally while every stage remains keyboard reachable.
 for (const width of [1440, 390, 320])
-  test(`every stage tab is visible and keyboard reachable without scrolling: ${width}px`, async ({
-    page,
-  }) => {
+  test(`every stage tab is keyboard reachable in the strip: ${width}px`, async ({ page }) => {
     await page.setViewportSize({ width, height: 900 });
     await mount(page);
     const strip = app(page).getByRole('tablist');
     const names = [/^All/, /^Needs you/, /^Discussion/, /^In progress/, /^Done/, /^Archived/];
-    expect(await strip.evaluate((node) => node.scrollWidth <= node.clientWidth + 1)).toBe(true);
+    if (width <= 390)
+      expect(await strip.evaluate((node) => node.scrollWidth > node.clientWidth)).toBe(true);
     expect(await strip.evaluate((node) => getComputedStyle(node).maskImage)).toBe('none');
     const tops = await app(page)
       .getByRole('tab')
       .evaluateAll((nodes) => nodes.map((node) => node.getBoundingClientRect().top));
-    if (width <= 390) expect(Math.max(...tops)).toBeGreaterThan(Math.min(...tops));
+    expect(Math.max(...tops) - Math.min(...tops)).toBeLessThanOrEqual(1);
     await tab(page, names[0]).focus();
     for (const [index, name] of names.entries()) {
       if (index > 0) await page.keyboard.press('ArrowRight');
       await expect(tab(page, name)).toHaveAttribute('aria-selected', 'true');
       await expect(tab(page, name)).toBeFocused();
       await expect(tab(page, name)).toBeInViewport();
+      await expect
+        .poll(() =>
+          tab(page, name).evaluate((node) => {
+            const bounds = node.closest('[role="tablist"]')!.getBoundingClientRect();
+            const box = node.getBoundingClientRect();
+            return box.left >= bounds.left - 1 && box.right <= bounds.right + 1;
+          }),
+        )
+        .toBe(true);
     }
     await page.keyboard.press('Home');
     await expect(tab(page, names[0])).toHaveAttribute('aria-selected', 'true');
@@ -272,7 +280,7 @@ for (const width of [1440, 390, 320])
     expect(await strip.evaluate((node) => node.scrollLeft)).toBe(0);
   });
 
-// A linked stage is visible in the wrapped strip on load, with no horizontal scroll.
+// A linked stage is brought into view in the horizontal strip on load.
 for (const width of [390, 320])
   for (const link of [
     '/?stage=discussion',
@@ -294,7 +302,6 @@ for (const width of [390, 320])
           }),
         )
         .toBe(true);
-      expect(await selected.evaluate((node) => node.parentElement!.scrollLeft)).toBe(0);
     });
 
 for (const width of [1440, 390])

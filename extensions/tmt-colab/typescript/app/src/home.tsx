@@ -348,15 +348,6 @@ export function Home() {
     const root = section.current;
     const boundary = controlsBoundary.current;
     if (!root || !boundary) return;
-    const phone = matchMedia('(max-width: 650px)');
-    const scopeControl = (target: EventTarget | null) =>
-      target instanceof HTMLElement &&
-      root.contains(target) &&
-      target.closest('.page-scope-filters')
-        ? target
-        : undefined;
-    // A scope change restarts this observer while its same button can retain focus.
-    let focusedScope = scopeControl(document.activeElement);
     // Observe normal flow, never the sticky row: its changing height must not move the trigger.
     const measure = () => {
       const next = boundary.getBoundingClientRect().bottom <= root.getBoundingClientRect().top;
@@ -366,11 +357,7 @@ export function Home() {
           compactFocus.current = '.page-list-compact-create button';
         else if (!next && active.closest('.page-list-compact-create'))
           compactFocus.current = '.page-list-hero-create button';
-        else if (
-          next &&
-          (active.closest('.page-list-sort') ||
-            (phone.matches && active.closest('.page-scope-filters')))
-        )
+        else if (next && active.closest('.page-list-sort'))
           compactFocus.current = '.page-list-search [contenteditable]';
       }
       setCompact(next);
@@ -384,40 +371,10 @@ export function Home() {
     for (const node of root.querySelectorAll('.page-list-hero, .page-pins, .tmt-ui-tabs-header'))
       resize.observe(node);
     observer.observe(boundary);
-    // Some browsers clear focus as the media rule hides a project button, before the
-    // change event. Keep that handoff through layout reflow; focus entering another control clears it.
-    const remember = (event: FocusEvent) => {
-      focusedScope = scopeControl(event.target);
-    };
-    const leave = (event: FocusEvent) => {
-      if (!phone.matches || event.relatedTarget !== null) focusedScope = undefined;
-    };
-    const fit = () => {
-      const active = document.activeElement;
-      const scope =
-        active instanceof HTMLElement && active.closest('.page-scope-filters')
-          ? active
-          : active === document.body
-            ? focusedScope
-            : undefined;
-      // CSS can hide the focused scope before the media-query change runs.
-      if (phone.matches && scope?.isConnected && !scope.getClientRects().length) {
-        root
-          .querySelector<HTMLElement>('.page-list-search [contenteditable]')
-          ?.focus({ preventScroll: true });
-        focusedScope = undefined;
-      } else if (!phone.matches) focusedScope = undefined;
-    };
-    root.addEventListener('focusin', remember);
-    root.addEventListener('focusout', leave);
-    phone.addEventListener('change', fit);
     return () => {
       observer.disconnect();
       resize.disconnect();
       root.removeEventListener('scroll', measure);
-      root.removeEventListener('focusin', remember);
-      root.removeEventListener('focusout', leave);
-      phone.removeEventListener('change', fit);
     };
   }, [view, scope, space.pages]);
   const drawn = useShownRows(
@@ -673,47 +630,19 @@ export function Home() {
     <>
       <div className="page-list-controls-boundary" ref={controlsBoundary} aria-hidden="true" />
       <div className="page-list-controls">
-        <div className="page-scope-filters" aria-label={t.projectScopes}>
-          {[undefined, ...projectNames].map((name) => (
-            <button
-              key={name === undefined ? 'all-projects' : `project:${name}`}
-              type="button"
-              className="project-filter-button"
-              aria-label={name === undefined ? t.allProjects : t.scopeTo(name)}
-              aria-pressed={scope === name}
-              onClick={(event) => {
-                if (!event.isTrusted) return;
-                writeScope(spaceId, name);
-                setSearch({ scope: name });
-              }}
-            >
-              <span className="page-scope-name">{name ?? t.allProjects}</span>
-              <span className="project-count">
-                {
-                  inScope(
-                    homePages.filter((page) => !page.archived),
-                    name,
-                  ).length
-                }
-              </span>
-            </button>
-          ))}
-          {port && (
-            <BrowserMenu
-              label={t.projectActions}
-              items={[
-                { key: 'manage', label: t.allProjectsItem },
-                { key: 'new', label: `${t.newProject}…` },
-              ]}
-              onSelect={(key) =>
-                setDialog(key === 'new' ? { kind: 'new', initial: [] } : { kind: 'manage' })
-              }
-            />
-          )}
-        </div>
         <div className="page-list-search">
           <div className="page-list-search-box">
             <div className="page-list-condition-chips">
+              {scope && (
+                <BrowserChip
+                  label={text.shortcuts.project(scope)}
+                  removeLabel={text.shortcuts.removeCondition(text.shortcuts.project(scope))}
+                  onRemove={() => {
+                    writeScope(spaceId, undefined);
+                    setSearch({ scope: undefined });
+                  }}
+                />
+              )}
               {(search.state
                 ? Array.isArray(search.state)
                   ? search.state
@@ -800,11 +729,22 @@ export function Home() {
                     state,
                   ),
                 })),
+                ...projectNames.map((project, index) => ({
+                  key: `project:${project}`,
+                  label: text.shortcuts.project(project),
+                  role: 'menuitemcheckbox' as const,
+                  checked: scope === project,
+                  separated: index === 0,
+                })),
+                ...(port
+                  ? [{ key: 'manage-projects', label: `${t.manageProjects}…`, separated: true }]
+                  : []),
                 {
                   key: 'needs',
                   label: text.shortcuts.needsMe,
                   role: 'menuitemcheckbox' as const,
                   checked: !!search.needs,
+                  separated: true,
                 },
                 {
                   key: 'archived',
@@ -812,20 +752,18 @@ export function Home() {
                   role: 'menuitemcheckbox' as const,
                   checked: !!search.includeArchived,
                 },
-                ...projectNames.map((project) => ({
-                  key: `project:${project}`,
-                  label: text.shortcuts.project(project),
-                  role: 'menuitemcheckbox' as const,
-                  checked: filter.projects.includes(project),
-                })),
               ]}
               onSelect={(key) => {
-                if (key === 'needs') setSearch({ needs: search.needs ? undefined : true });
+                if (key === 'manage-projects') setDialog({ kind: 'manage' });
+                else if (key === 'needs') setSearch({ needs: search.needs ? undefined : true });
                 else if (key === 'archived')
                   setSearch({ includeArchived: search.includeArchived ? undefined : true });
-                else if (key.startsWith('project:'))
-                  replaceDraft(toggleProject(edit, key.slice(8)));
-                else if (key.startsWith('state:')) {
+                else if (key.startsWith('project:')) {
+                  const project = key.slice(8);
+                  const next = scope === project ? undefined : project;
+                  writeScope(spaceId, next);
+                  setSearch({ scope: next });
+                } else if (key.startsWith('state:')) {
                   const value = key.slice(6) as 'todo' | 'in-progress' | 'done';
                   const states = search.state
                     ? Array.isArray(search.state)

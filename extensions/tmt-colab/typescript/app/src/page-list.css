@@ -1107,8 +1107,22 @@
     min-height: 34px;
     padding: 0;
   }
+  .page-list-controls .page-list-search {
+    flex: 1 1 100%;
+  }
   .page-list-sort {
-    display: none;
+    display: inline-flex;
+  }
+  .home[data-compact] .page-list-controls {
+    height: auto;
+    flex-wrap: wrap;
+    padding-block: 8px;
+  }
+  .home[data-compact] .page-list-search {
+    flex: 1 1 100%;
+  }
+  .home[data-compact] .page-list-sort {
+    display: inline-flex;
   }
   .page-stage-tabs .tmt-ui-tab-list {
     flex-wrap: nowrap;
@@ -1130,12 +1144,9 @@
   color: var(--tmt-ui-color-waiting);
 }
 /* Search uses the available row; condition remove icons sit inline with their labels. */
-.page-list-controls .page-scope-filters {
-  flex: 0 1 auto;
-}
 .page-list-condition-chips {
   flex: 0 1 auto;
-  max-width: calc(100% - 60px);
+  max-width: calc(100% - 8px);
 }
 .page-list-condition-chips .tmt-ui-chip {
   --tmt-ui-host-icon-action-size: 18px;
