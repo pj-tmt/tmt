@@ -98,14 +98,6 @@ pub fn link_refusal(
             short(page),
             short(page)
         ),
-        Refusal::ChildHasParent => format!(
-            "{} already has a parent. Sub-pages cannot have children; unlink it from its parent first.",
-            short(page)
-        ),
-        Refusal::ParentHasChildren => format!(
-            "{} already has children. A page with children cannot be attached as a sub-page; unlink its children first.",
-            short(child)
-        ),
         Refusal::InvalidHierarchy => format!(
             "{} belongs to a hierarchy with conflicting links. Inspect tmt colab show {} --json and repair it with task unlink before adding a link.",
             short(page),

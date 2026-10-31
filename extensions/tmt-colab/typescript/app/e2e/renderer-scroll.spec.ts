@@ -93,10 +93,8 @@ for (const reader of [false, true]) {
     const targetTop = await child
       .locator('#target')
       .evaluate((node) => node.getBoundingClientRect().top);
-    // The owner's status band stays pinned under the bar, so the anchor lands below both.
-    const pinned = reader
-      ? 0
-      : ((await page.locator('.page-main .work-band').boundingBox())?.height ?? 0);
+    // The status band stays pinned under the bar, so the anchor lands below both.
+    const pinned = (await page.locator('.work-band:visible').boundingBox())?.height ?? 0;
     expect(
       Math.abs((await frame.boundingBox())!.y + targetTop - headerHeight(1440) - pinned),
     ).toBeLessThan(2);
@@ -190,7 +188,7 @@ for (const reader of [false, true]) {
     const frame = page.locator('iframe');
     const before = (await frame.boundingBox())!.height;
     const panel = page.getByRole('region', { name: 'Work on this page' });
-    await panel.getByRole('button', { name: 'Expand status panel' }).click();
+    await panel.getByRole('button', { name: 'Expand work panel' }).click();
     await expect.poll(async () => (await frame.boundingBox())!.height).toBeLessThan(before);
     await expect
       .poll(() =>
@@ -199,7 +197,7 @@ for (const reader of [false, true]) {
         ),
       )
       .toBeLessThanOrEqual(0);
-    await panel.getByRole('button', { name: 'Collapse status panel' }).click();
+    await panel.getByRole('button', { name: 'Collapse work panel' }).click();
     await expect.poll(async () => (await frame.boundingBox())!.height).toBe(before);
   });
 }

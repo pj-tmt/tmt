@@ -1,79 +1,67 @@
-import { ChevronDown, ChevronUp } from 'lucide-react';
+import { ChevronDown, ChevronRight, FileText, Plus } from 'lucide-react';
 import { browserUiClasses as ui } from '@tmt/browser-ui/static';
 import {
-  useEffect,
   useLayoutEffect,
   useId,
-  useMemo,
   useRef,
   useState,
+  type CSSProperties,
   type ReactNode,
 } from 'react';
-import type { PageHint } from './reading-link.js';
 import { text } from './strings.js';
-import { derivedWork, type Work } from './work.js';
-import { TaskDetail, type TaskDetailSlots } from './work-detail.js';
-import type { PageProgress, PageState } from './bootstrap.js';
-import { WorkList } from './work-list.js';
+import type { PageState } from './bootstrap.js';
+import type { SubpageCounts, SubpageRow } from './work-tree.js';
 import './work-band.css';
 
-/** The task of another page that follows this page; drawn in the expanded panel as a way back. */
-export interface WorkParent {
-  pageId: string;
-  taskId: string;
-  /** The parent page's title. */
-  title: string;
-  /** The parent task's own title, clipped by the owner; absent from an older owner. */
-  taskTitle?: string;
-}
-export interface WorkBandProps extends TaskDetailSlots {
-  work: Work;
+type RowSlots = Pick<
+  WorkBandProps,
+  'childrenOf' | 'counts' | 'pageHref' | 'rowState' | 'rowActions'
+>;
+export interface WorkBandProps {
   onSize?(height: number): void;
   pageState?: PageState | null;
-  progress?: PageProgress | null;
+  /** This page's own state chip; the owner's is a menu of its own, which never toggles the band. */
   stateControl?: ReactNode;
-  attachAction?: ReactNode;
-  subpages?: readonly { id: string; title?: string; state?: PageState | null }[];
-  /** Below the list and the open task: where a new task is made and a refusal is told. */
-  listActions?: ReactNode;
-  /** Where this page's own work sits in a parent page's task list. */
-  parent?: WorkParent;
-  /** The address of a page, optionally at one cosmetic hint (a task). */
-  pageHref?(pageId: string, hint?: PageHint): string;
-  /** A task of this page to open with the list, from a link to it (`?task=`); one this page does
-   * not have opens nothing. Applied once per page, so a later close is never undone. */
-  focusTask?: string;
-  /** A linked page's stage, when known; a task that follows it shows that state. */
-  stageOf?(pageId: string): string | undefined;
+  /** Direct sub-pages, in order. */
+  subpages: readonly SubpageRow[];
+  /** The next level under a sub-page, from what the viewer already has; empty when unknown. */
+  childrenOf?(id: string): readonly SubpageRow[];
+  /** Direct sub-page progress; absent where states are unknown (a share reader). */
+  counts?(rows: readonly SubpageRow[]): SubpageCounts;
+  /** The address of a page. */
+  pageHref?(pageId: string): string;
+  /** A sub-page's state chip; the owner's changes that page's state. */
+  rowState?(row: SubpageRow): ReactNode;
+  /** The ⋯ menu of a row (Open, Detach); absent for a viewer that cannot change links. */
+  rowActions?(row: SubpageRow): ReactNode;
+  /** Opens the one Add window; absent where this viewer cannot add. */
+  onAdd?(): void;
+}
+
+function StateChip({ state }: { state?: PageState | null }) {
+  const t = text.workBand;
+  return (
+    <span className={`work-page-state ${ui.countChip}`} data-state={state ?? 'unknown'}>
+      {state ? t.taskState[state] : t.unknown}
+    </span>
+  );
 }
 
 /**
- * The manual page state and native progress, with direct items and task controls one step away.
- * It scrolls with the page, never sticks, and opening the list pushes the page down in place.
+ * The page's work panel: one head row, pinned under the nav, that opens one list of sub-pages.
+ * A sub-page with sub-pages of its own expands its next level in place. Progress counts only the
+ * direct sub-pages, each by its own state.
  */
 export function WorkBand({
-  work,
   onSize,
-  listActions,
-  attachAction,
-  parent,
-  pageHref,
-  focusTask,
-  stageOf,
   pageState,
-  progress,
   stateControl,
-  subpages = [
-    ...new Set(
-      work.order.map((id) => work.tasks[id]?.child).filter((id): id is string => id !== undefined),
-    ),
-  ].map((id) => ({ id, title: undefined, state: undefined })),
+  subpages,
+  onAdd,
   ...slots
 }: WorkBandProps): ReactNode {
-  const derived = useMemo(() => derivedWork(work, stageOf), [work, stageOf]);
+  const t = text.workBand;
   const [open, setOpen] = useState(false);
-  const [tasksOpen, setTasksOpen] = useState(false);
-  const [selected, setSelected] = useState<string>();
   const listId = useId();
   const section = useRef<HTMLElement>(null);
   useLayoutEffect(() => {
@@ -85,24 +73,10 @@ export function WorkBand({
     observer.observe(element);
     return () => observer.disconnect();
   }, [onSize]);
-  const focused = useRef<string | undefined>(undefined);
-  const detail = useRef<HTMLDivElement>(null);
-  // A link to one task opens the list with it selected, once the page has that task (its work
-  // can arrive after the page opens). A task it does not have changes nothing, and says nothing.
-  useEffect(() => {
-    if (focusTask === undefined || focused.current === focusTask || !work.tasks[focusTask]) return;
-    focused.current = focusTask;
-    setOpen(true);
-    setTasksOpen(true);
-    setSelected(focusTask);
-  }, [focusTask, work]);
-  useEffect(() => {
-    if (selected !== undefined && selected === focused.current)
-      detail.current?.scrollIntoView({ block: 'nearest' });
-  }, [selected, open]);
-  const task = selected === undefined ? undefined : work.tasks[selected];
-  const tasks = { ...work, order: work.order.filter((id) => work.tasks[id]?.child === undefined) };
-  const t = text.workBand;
+  const empty = subpages.length === 0;
+  // With nothing attached the head invites adding instead of toggling an empty list.
+  const activate = empty ? onAdd : () => setOpen((now) => !now);
+  const progress = slots.counts?.(subpages);
   const buckets = progress
     ? ([
         ['done', progress.done],
@@ -113,121 +87,152 @@ export function WorkBand({
     : [];
   return (
     <section ref={section} className="work-band" aria-label={t.label}>
-      <div className="work-head">
-        {stateControl ?? (
-          <span className={`work-page-state ${ui.countChip}`} data-state={pageState ?? 'unknown'}>
-            {pageState ? t.taskState[pageState] : t.stateUnavailable}
-          </span>
-        )}
-        {progress ? (
+      {/* The head is a plain row. Its toggle is one real button whose hit area stretches over the
+          free row (::after); the chip and Add sit above it and keep their own roles and names. */}
+      <div className="work-head" data-empty={empty}>
+        <span className="work-head-chip">{stateControl ?? <StateChip state={pageState} />}</span>
+        {empty ? (
           <>
-            <div
-              className="work-segments"
-              role="img"
-              aria-label={buckets
-                .map(
-                  ([state, count]) =>
-                    `${state === 'unknown' ? t.unknown : t.taskState[state]} ${count}`,
-                )
-                .join(', ')}
-            >
-              {buckets.map(
-                ([state, count]) =>
-                  count > 0 && <span key={state} data-state={state} style={{ flexGrow: count }} />,
-              )}
-            </div>
-            <span className="work-progress">{t.progress(progress.done, progress.total)}</span>
+            <span className="work-quiet">{t.noSubpages}</span>
+            {onAdd && (
+              <button type="button" className="work-add-text" onClick={onAdd}>
+                <Plus aria-hidden="true" />
+                {t.add}
+              </button>
+            )}
           </>
         ) : (
-          <span className="work-progress">{t.progressUnavailable}</span>
-        )}
-        <button
-          type="button"
-          className="work-toggle"
-          aria-label={open ? t.collapsePanel : t.expandPanel}
-          aria-expanded={open}
-          aria-controls={listId}
-          onClick={() => setOpen(!open)}
-        >
-          {open ? (
-            <ChevronUp size={16} aria-hidden="true" />
-          ) : (
-            <ChevronDown size={16} aria-hidden="true" />
-          )}
-        </button>
-      </div>
-      {open && (
-        <div className="work-body" id={listId} ref={detail}>
-          {parent && (
-            <p className="work-parent">
-              <a href={pageHref?.(parent.pageId, { task: parent.taskId })}>
-                {t.parentTask(parent.title, parent.taskId, parent.taskTitle)}
-              </a>
-            </p>
-          )}
-          {subpages.length > 0 && <h3 className="work-items-heading">{t.subpages}</h3>}
-          {subpages.length > 0 && (
-            <ul className="work-subpages" aria-label={t.subpages}>
-              {subpages.map((child) => (
-                <li key={child.id}>
-                  {pageHref ? (
-                    <a href={pageHref(child.id)}>{child.title ?? t.unknownPage}</a>
-                  ) : (
-                    <span>{child.title ?? t.unknownPage}</span>
+          <>
+            {progress && (
+              <>
+                <span
+                  className="work-segments"
+                  role="img"
+                  aria-label={buckets
+                    .map(
+                      ([state, count]) =>
+                        `${state === 'unknown' ? t.unknown : t.taskState[state]} ${count}`,
+                    )
+                    .join(', ')}
+                >
+                  {buckets.map(
+                    ([state, count]) =>
+                      count > 0 && (
+                        <span key={state} data-state={state} style={{ flexGrow: count }} />
+                      ),
                   )}
-                  <span>{child.state ? t.taskState[child.state] : t.unknown}</span>
-                </li>
-              ))}
-            </ul>
-          )}
-          {progress && (
-            <div className="work-legend">
-              {buckets
-                .filter(([state, count]) => state !== 'unknown' || count > 0)
-                .map(([state, count]) => (
-                  <span key={state} data-state={state}>
-                    {state === 'unknown' ? t.unknown : t.taskState[state]} {count}
+                </span>
+                <span className="work-progress">
+                  <span className="work-wide">{t.progress(progress.done, progress.total)}</span>
+                  <span className="work-narrow">
+                    {t.progressShort(progress.done, progress.total)}
                   </span>
-                ))}
-            </div>
-          )}
-          {attachAction}
-          {subpages.length > 0 && (
-            <button
-              type="button"
-              className="work-toggle"
-              aria-expanded={tasksOpen}
-              onClick={() => setTasksOpen(!tasksOpen)}
-            >
-              {t.tasks} {tasks.order.length}
-            </button>
-          )}
-          {(subpages.length === 0 || tasksOpen) && (
-            <div className="work-tasks">
-              <WorkList
-                work={tasks}
-                states={derived.states}
-                selected={selected}
-                onSelect={(id) => {
-                  setTasksOpen(true);
-                  setSelected(id === selected ? undefined : id);
-                }}
-              />
-              {selected !== undefined && task && (
-                <TaskDetail
-                  id={selected}
-                  task={task}
-                  state={derived.states?.[selected] ?? task.state}
-                  pageHref={pageHref}
-                  onClose={() => setSelected(undefined)}
-                  {...slots}
-                />
+                </span>
+              </>
+            )}
+          </>
+        )}
+        {activate && (
+          <button
+            type="button"
+            className="work-toggle"
+            aria-label={empty ? t.addSubpage : open ? t.collapsePanel : t.expandPanel}
+            aria-expanded={empty ? undefined : open}
+            aria-controls={empty ? undefined : listId}
+            onClick={activate}
+          >
+            {!empty && <ChevronDown className="work-chevron" data-open={open} aria-hidden="true" />}
+          </button>
+        )}
+      </div>
+      {!empty && (
+        <div className="work-body-transition" data-open={open} inert={!open}>
+          <div className="work-body" id={listId}>
+            <div className="work-body-content">
+              <ul className="work-tree" aria-label={t.subpages}>
+                <Rows rows={subpages} depth={0} trail={[]} {...slots} />
+              </ul>
+              {onAdd && (
+                <div className="work-add-row">
+                  <button type="button" className="work-add-text" onClick={onAdd}>
+                    <Plus aria-hidden="true" />
+                    {t.add}
+                  </button>
+                </div>
               )}
-              {listActions}
             </div>
-          )}
+          </div>
         </div>
       )}
     </section>
+  );
+}
+
+function Rows({
+  rows,
+  depth,
+  trail,
+  ...slots
+}: RowSlots & {
+  rows: readonly SubpageRow[];
+  depth: number;
+  /** Pages already drawn above this level: a legacy loop is never drawn twice. */
+  trail: readonly string[];
+}) {
+  return rows.map((row) => (
+    <Row key={`${row.parent}/${row.id}`} row={row} depth={depth} trail={trail} {...slots} />
+  ));
+}
+
+function Row({
+  row,
+  depth,
+  trail,
+  ...slots
+}: RowSlots & { row: SubpageRow; depth: number; trail: readonly string[] }) {
+  const t = text.workBand;
+  const { childrenOf, counts, pageHref, rowState, rowActions } = slots;
+  const [open, setOpen] = useState(false);
+  const below = trail.includes(row.id) ? [] : (childrenOf?.(row.id) ?? []);
+  const title = row.title ?? t.unknownPage;
+  const own = below.length > 0 ? counts?.(below) : undefined;
+  return (
+    <li className="work-row">
+      <div className="work-row-line">
+        <span className="work-row-name" style={{ '--work-depth': depth } as CSSProperties}>
+          {below.length > 0 ? (
+            <button
+              type="button"
+              className="work-twisty"
+              aria-expanded={open}
+              aria-label={open ? t.collapseRow(title) : t.expandRow(title)}
+              onClick={() => setOpen(!open)}
+            >
+              {open ? <ChevronDown aria-hidden="true" /> : <ChevronRight aria-hidden="true" />}
+            </button>
+          ) : (
+            <span className="work-twisty" />
+          )}
+          <FileText className="work-row-icon" aria-hidden="true" />
+          {pageHref ? (
+            <a className="work-row-title" href={pageHref(row.id)}>
+              {title}
+            </a>
+          ) : (
+            <span className="work-row-title">{title}</span>
+          )}
+        </span>
+        <span className="work-row-progress">
+          {own ? t.rowProgress(own.done, own.total) : t.noProgress}
+        </span>
+        <span className="work-row-state">{rowState?.(row) ?? <StateChip state={row.state} />}</span>
+        <span className="work-row-more">{rowActions?.(row)}</span>
+      </div>
+      {open && below.length > 0 && (
+        <ul className="work-tree">
+          <Rows rows={below} depth={depth + 1} trail={[...trail, row.id]} {...slots} />
+        </ul>
+      )}
+    </li>
   );
 }

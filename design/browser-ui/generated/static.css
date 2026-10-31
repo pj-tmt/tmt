@@ -53,6 +53,9 @@
   --tmt-ui-space-xl: 24px;
   --tmt-ui-space-2xl: 32px;
   --tmt-ui-control-size: 32px;
+  --tmt-ui-control-size-l: 36px;
+  --tmt-ui-row-height: 40px;
+  --tmt-ui-subheader-height: 44px;
   --tmt-ui-indicator-width: 3px;
   --tmt-ui-tab-indicator-width: 2px;
   --tmt-ui-rail-width: 232px;
@@ -109,6 +112,7 @@
   --tmt-ui-panel-sheet-max-height: 75dvh;
   --tmt-ui-panel-layer: 15;
   --tmt-ui-dialog-width: 590px;
+  --tmt-ui-dialog-narrow-width: 440px;
   --tmt-ui-dialog-wide-width: 800px;
   --tmt-ui-dialog-confirm-mark-size: 46px;
   --tmt-ui-overlay-blur: 3px;

@@ -1,311 +1,330 @@
-/* The page's second layer: pinned directly under the bar while the page scrolls. Expanded taller than
-   the room under the bar, it scrolls inside itself. On a phone the module tabs above it scroll away first.
-   The reader keeps it in the flow. */
+/* The page's work panel (#5820): a head row pinned under the nav and one list of sub-pages that
+   opens below it. Spacing and sizes are design-system roles; the Night page mock owns the layout. */
 .page-main .work-band {
   position: sticky;
   top: var(--page-bar-size);
   z-index: 2;
-  max-height: calc(100dvh - var(--page-bar-size));
-  overflow-y: auto;
 }
 .work-band {
+  --work-gutter: var(--tmt-ui-header-padding-inline);
   box-sizing: border-box;
-  padding: 16px max(16px, env(safe-area-inset-left));
-  border-bottom: 1px solid var(--tmt-ui-surface-rule);
-  background: var(--c-sheet);
-  color: var(--c-text);
-  font: 14px/1.5 var(--f-body);
-}
-.work-parent,
-.work-detail p,
-.work-detail h3 {
-  margin: 0;
-}
-.work-parent {
-  margin-bottom: 8px;
-  color: var(--c-muted);
-}
-.work-parent:last-child {
-  margin-bottom: 0;
-}
-.work-head {
-  display: flex;
-  flex-wrap: nowrap;
-  align-items: center;
-  gap: 8px;
-}
-.work-progress,
-.work-state {
-  color: var(--c-muted);
-}
-.work-who + .work-who {
-  margin-left: 8px;
-}
-.work-toggle,
-.work-close,
-.work-row button {
-  font: inherit;
-  color: inherit;
-  background: none;
-  border: 0;
-  cursor: pointer;
-}
-.work-toggle,
-.work-close {
-  padding: 4px 0;
-  color: var(--c-muted);
-  text-decoration: underline;
-}
-.work-body {
-  margin-top: 12px;
-  border-top: 1px solid var(--tmt-ui-surface-rule);
-}
-.work-list {
-  margin: 0;
-  padding: 0;
-  list-style: none;
-}
-.work-row + .work-row {
-  border-top: 1px solid var(--tmt-ui-surface-rule);
-}
-.work-row button {
-  display: grid;
-  grid-template-columns: 4em minmax(0, 1fr) 6.5em 11em;
-  gap: 4px 12px;
-  align-items: baseline;
-  width: 100%;
-  padding: 8px 0;
-  text-align: left;
-}
-.work-row-button:hover {
-  background: var(--tmt-ui-surface-selection);
-}
-.work-row[data-selected='true'] button {
-  background: var(--tmt-ui-surface-selection);
-  color: var(--c-text);
-  font-weight: 500;
-}
-.work-signoff-mark {
-  margin-left: 8px;
-  color: var(--c-waiting);
-  white-space: nowrap;
-}
-.work-row[data-state='blocked'] .work-state {
-  color: var(--c-blocked);
-}
-.work-row[data-state='in-progress'] .work-state {
-  color: var(--c-working);
-}
-.work-row[data-state='done'] .work-title {
-  color: var(--c-muted);
-}
-.work-id {
-  color: var(--c-muted);
-  font-family: var(--f-mono);
-}
-.work-title {
-  overflow-wrap: anywhere;
-}
-.work-detail {
-  display: grid;
-  gap: 8px;
-  padding: 12px 0 4px;
-  border-top: 1px solid var(--tmt-ui-surface-rule);
-}
-.work-detail header {
-  display: flex;
-  justify-content: space-between;
-  gap: 12px;
-}
-.work-detail h3 {
-  font-size: 14px;
-  overflow-wrap: anywhere;
-}
-.work-detail-text {
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
-}
-.work-acceptance {
-  margin: 0;
-  padding-left: 1.2em;
-}
-.work-detail-state[data-state='blocked'] {
-  color: var(--c-blocked);
-}
-.work-external {
-  color: var(--c-muted);
-}
-.work-controls {
-  display: grid;
-  gap: 16px;
-  padding-top: 16px;
-  border-top: 1px solid var(--tmt-ui-surface-rule);
-}
-.work-control-stack {
-  display: grid;
-  gap: 16px;
-}
-/* A field group: a choice and a field with its actions, the controls sharing one height. */
-.work-controls,
-.work-add {
-  --work-control-height: 2.5rem;
-}
-.work-control-group {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: flex-end;
-  gap: var(--tmt-ui-toggle-gap);
-  margin: 0;
-}
-.work-control-group .tmt-ui-field-control,
-.work-control-group .tmt-ui-menu-trigger,
-.work-control-group .tmt-ui-action,
-.work-add .tmt-ui-field-control,
-.work-add .tmt-ui-action {
-  min-height: var(--work-control-height);
-}
-.work-control-group .tmt-ui-field,
-.work-add .tmt-ui-field {
-  flex: 1 1 18em;
-  min-width: 0;
-  max-width: 36em;
-}
-.work-field-row {
-  display: flex;
-  align-items: stretch;
-  gap: var(--tmt-ui-toggle-gap);
-}
-.work-field-row > .tmt-ui-field-control {
-  flex: 1 1 auto;
-  min-width: 0;
-}
-.work-control-edit .tmt-ui-field-control,
-.work-control-stack .tmt-ui-field-control {
-  width: 100%;
-}
-.work-control-note {
-  color: var(--tmt-ui-color-secondary);
-}
-.work-add {
-  padding: 16px 0 4px;
-  border-top: 1px solid var(--tmt-ui-surface-rule);
-}
-@media (max-width: 640px) {
-  .work-row button {
-    grid-template-columns: 3.5em minmax(0, 1fr);
-  }
-  .work-row .work-state,
-  .work-row .work-assignee {
-    grid-column: 2;
-  }
-  .work-row .work-assignee:empty {
-    display: none;
-  }
-}
-.work-stranded {
-  align-items: center;
-}
-.work-stranded-error {
-  flex-basis: 100%;
+  border-bottom: var(--tmt-ui-rule-width) solid var(--tmt-ui-surface-rule);
+  background: var(--tmt-ui-surface-paper);
+  color: var(--tmt-ui-color-text);
+  font: var(--tmt-ui-command-size) / 1.5 var(--tmt-ui-font-body);
 }
 
+/* The head: the whole row toggles the list (or, with nothing attached, opens Add). */
+.work-head {
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  gap: var(--tmt-ui-space-m);
+  height: var(--tmt-ui-subheader-height);
+  padding-inline: var(--work-gutter);
+  transition: background-color var(--tmt-ui-motion-fast) var(--tmt-ui-motion-ease-out);
+}
+.work-head {
+  position: relative;
+}
+.work-head:has(> .work-toggle:hover) {
+  background: var(--tmt-ui-surface-hover);
+}
+/* The toggle sits at the row's end; its hit area covers the whole row under the chip and Add. */
+.work-toggle {
+  display: grid;
+  flex: none;
+  place-items: center;
+  margin-left: auto;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--tmt-ui-color-secondary);
+  cursor: pointer;
+}
+.work-toggle::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+}
+.work-toggle:focus-visible {
+  outline: none;
+}
+.work-toggle:focus-visible::after {
+  outline: var(--tmt-ui-focus-width) solid var(--tmt-ui-color-focus);
+  outline-offset: calc(var(--tmt-ui-focus-width) * -1);
+}
+.work-head-chip,
+.work-head .work-add-text {
+  position: relative;
+  z-index: 1;
+}
+.work-head-chip {
+  display: inline-flex;
+  flex: none;
+}
 .work-page-state {
   white-space: nowrap;
-  cursor: default;
+}
+.work-quiet {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--tmt-ui-color-secondary);
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .work-segments {
   display: flex;
-  flex: 1 1 120px;
-  min-width: 32px;
-  max-width: 320px;
-  height: 8px;
-  border: 1px solid var(--tmt-ui-surface-rule);
+  flex: 0 1 calc(10 * var(--tmt-ui-space-xl));
+  min-width: var(--tmt-ui-space-2xl);
+  height: var(--tmt-ui-space-xs);
+  overflow: hidden;
+  border-radius: var(--tmt-ui-radius-s);
+  background: var(--tmt-ui-surface-selection);
 }
 .work-segments span {
   min-width: 0;
   flex-basis: 0;
 }
 .work-segments [data-state='done'] {
-  background: var(--c-working);
+  background: var(--tmt-ui-color-working);
 }
 .work-segments [data-state='in-progress'] {
   background: var(--tmt-ui-color-review);
 }
 .work-segments [data-state='unknown'] {
-  background: var(--c-muted);
+  background: var(--tmt-ui-color-secondary);
 }
 .work-progress {
-  white-space: nowrap;
-  font-size: 12px;
-}
-.work-head > .work-toggle {
-  margin-left: auto;
-  text-decoration: none;
-  padding: 4px 8px;
-}
-.work-subpages {
-  list-style: none;
-  padding: 0;
-  margin: 8px 0;
-}
-.work-subpages li {
-  display: flex;
-  justify-content: space-between;
-  gap: 16px;
-  padding: 8px 0;
-}
-.work-subpages li > :first-child {
-  min-width: 0;
-  overflow-wrap: anywhere;
-}
-.work-subpages li > :last-child {
-  color: var(--c-muted);
+  color: var(--tmt-ui-color-secondary);
+  font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
-.work-legend {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 16px;
-  color: var(--c-muted);
-  padding: 8px 0;
+.work-narrow {
+  display: none;
+}
+.work-chevron {
+  flex: none;
+  width: var(--tmt-ui-space-l);
+  height: var(--tmt-ui-space-l);
+  transition: rotate var(--tmt-ui-motion-base) var(--tmt-ui-motion-ease-out);
+}
+.work-chevron[data-open='true'] {
+  rotate: 180deg;
+}
+.work-add-text {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--tmt-ui-space-xs);
+  height: var(--tmt-ui-control-size);
+  padding-inline: var(--tmt-ui-space-s);
+  border: 0;
+  border-radius: var(--tmt-ui-radius);
+  background: none;
+  color: var(--tmt-ui-color-text);
+  font: inherit;
+  cursor: pointer;
+}
+.work-add-text:hover {
+  background: var(--tmt-ui-surface-hover);
+}
+.work-add-text svg {
+  width: var(--tmt-ui-space-l);
+  height: var(--tmt-ui-space-l);
 }
 
-.work-items-heading {
-  margin: 12px 0 0;
-  font-size: 14px;
-  font-weight: 500;
+/* The list opens and closes with the motion tokens, which are 0ms under reduced motion. Taller than
+   the room under the nav and head, only the list scrolls; the head stays put. */
+.work-body-transition {
+  display: grid;
+  grid-template-rows: 0fr;
+  opacity: 0;
+  visibility: hidden;
+  transition:
+    grid-template-rows var(--tmt-ui-motion-base) var(--tmt-ui-motion-ease-out),
+    opacity var(--tmt-ui-motion-base) var(--tmt-ui-motion-ease-out),
+    visibility 0s linear var(--tmt-ui-motion-base);
+}
+.work-body-transition[data-open='true'] {
+  grid-template-rows: 1fr;
+  opacity: 1;
+  visibility: visible;
+  transition:
+    grid-template-rows var(--tmt-ui-motion-base) var(--tmt-ui-motion-ease-out),
+    opacity var(--tmt-ui-motion-base) var(--tmt-ui-motion-ease-out),
+    visibility 0s;
+}
+/* The padding sits inside the collapsing row, so a closed list takes no height at all. */
+.work-body {
+  min-height: 0;
+  max-height: calc(
+    100dvh - var(--work-band-top, var(--page-bar-size, 0px)) - var(--tmt-ui-subheader-height) -
+      var(--tmt-ui-rule-width)
+  );
+  overflow: hidden;
+}
+.work-body-content {
+  padding: var(--tmt-ui-space-xs) var(--work-gutter) var(--tmt-ui-space-l);
+}
+.work-body-transition[data-open='true'] .work-body {
+  overflow-y: auto;
+}
+/* One grid for the whole list: every row, at every level, is a subgrid of it, so the progress,
+   state and ⋯ columns align to the widest content. Nesting indents only the title cell. */
+.work-body-content > .work-tree {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto var(--tmt-ui-control-size);
+}
+.work-tree {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.work-tree .work-tree,
+.work-row {
+  display: contents;
+}
+.work-row-line {
+  box-sizing: border-box;
+  display: grid;
+  grid-column: 1 / -1;
+  grid-template-columns: subgrid;
+  align-items: center;
+  column-gap: var(--tmt-ui-space-s);
+  height: var(--tmt-ui-row-height);
+  padding-inline: var(--tmt-ui-space-s);
+  border-radius: var(--tmt-ui-radius);
+}
+.work-row-line:hover {
+  background: var(--tmt-ui-surface-hover);
+}
+.work-row-name {
+  display: flex;
+  align-items: center;
+  gap: var(--tmt-ui-space-s);
+  min-width: 0;
+  padding-left: calc(var(--work-depth, 0) * var(--tmt-ui-space-xl));
+}
+.work-twisty {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: var(--tmt-ui-space-l);
+  height: var(--tmt-ui-space-l);
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--tmt-ui-color-secondary);
+  cursor: pointer;
+}
+.work-twisty svg,
+.work-row-icon {
+  width: var(--tmt-ui-space-l);
+  height: var(--tmt-ui-space-l);
+}
+.work-row-icon {
+  flex: none;
+  color: var(--tmt-ui-color-secondary);
+}
+.work-row-title {
+  overflow: hidden;
+  color: var(--tmt-ui-color-text);
+  text-decoration: none;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+a.work-row-title:hover {
+  text-decoration: underline;
+}
+.work-row-progress {
+  color: var(--tmt-ui-color-secondary);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+  white-space: nowrap;
+}
+.work-row-state {
+  display: flex;
+  min-width: 0;
+}
+.work-row-more {
+  display: flex;
+  justify-content: center;
+  opacity: 0;
+}
+.work-row-line:hover .work-row-more,
+.work-row-line:focus-within .work-row-more,
+.work-row-more:has([aria-expanded='true']) {
+  opacity: 1;
 }
 .work-state-control > [role='status'],
-.work-state-control > [role='alert'] {
+.work-state-control > [role='alert'],
+.work-row-more > [role='alert'] {
   display: block;
   max-width: 20rem;
-  font-size: 12px;
+  font-size: var(--tmt-ui-caption-size);
   overflow-wrap: anywhere;
 }
-
-.work-legend span::before {
-  content: '';
-  display: inline-block;
-  width: 8px;
-  height: 8px;
-  margin-right: 6px;
-  border: 1px solid var(--tmt-ui-surface-rule);
-}
-.work-legend [data-state='done']::before {
-  background: var(--c-working);
-}
-.work-legend [data-state='in-progress']::before {
-  background: var(--tmt-ui-color-review);
-}
-.work-legend [data-state='unknown']::before {
-  background: var(--c-muted);
+.work-add-row {
+  margin-top: var(--tmt-ui-space-s);
+  padding-top: var(--tmt-ui-space-s);
+  border-top: var(--tmt-ui-rule-width) solid var(--tmt-ui-surface-rule);
 }
 
-.work-attach-fields {
-  display: grid;
-  gap: 12px;
+/* Mock 6: a phone keeps title, state and ⋯ (always shown: there is no hover), and a short count. */
+@media (max-width: 600px) {
+  .work-wide {
+    display: none;
+  }
+  .work-narrow {
+    display: inline;
+  }
+  .work-body-content > .work-tree {
+    grid-template-columns: minmax(0, 1fr) auto var(--tmt-ui-control-size);
+  }
+  .work-row-progress {
+    display: none;
+  }
+  .work-row-more {
+    opacity: 1;
+  }
 }
-.work-attach-fields select {
-  width: 100%;
-  font: inherit;
+
+/* The one Add window (Mock 5). */
+.work-add-dialog[data-slot='dialog-content'] {
+  max-width: min(var(--tmt-ui-dialog-narrow-width), calc(100vw - 2 * var(--tmt-ui-space-l)));
+  padding: var(--tmt-ui-space-l);
+}
+.work-add-dialog [data-slot='dialog-footer'] {
+  margin-top: var(--tmt-ui-space-m);
+}
+.work-add-command [cmdk-input] {
+  height: var(--tmt-ui-control-size-l);
+}
+.work-add-command [data-slot='command-item'] {
+  min-height: var(--tmt-ui-row-height);
+  border-radius: var(--tmt-ui-radius);
+}
+.work-add-command [data-slot='command-separator'] {
+  margin-block: var(--tmt-ui-space-xs);
+}
+.work-add-title {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.work-add-why {
+  margin-left: auto;
+  color: var(--tmt-ui-color-secondary);
+  font-size: var(--tmt-ui-caption-size);
+  white-space: nowrap;
+}
+.work-add-note,
+.work-add-error {
+  margin: 0;
+  padding: var(--tmt-ui-space-s);
+  color: var(--tmt-ui-color-secondary);
+}
+.work-add-error {
+  color: var(--tmt-ui-color-blocked);
 }

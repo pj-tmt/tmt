@@ -13383,23 +13383,11 @@ fn check_subpage_refusal(case: &str) {
                 vec!["task", "link", other, "T-1", child, "--json"],
                 "second-parent",
             ),
-            "grandchild" => (
-                vec!["task", "link", child, "T-1", other, "--json"],
-                "child-has-parent",
-            ),
-            "parent-as-child" => (
-                vec!["task", "link", other, "T-1", parent, "--json"],
-                "parent-has-children",
-            ),
             "cycle" => (
                 vec!["task", "link", child, "T-1", parent, "--json"],
                 "cycle",
             ),
             "self" => (vec!["task", "link", other, "T-1", other, "--json"], "cycle"),
-            "convert" => (
-                vec!["task", "convert", child, "T-1", "--json"],
-                "child-has-parent",
-            ),
             _ => unreachable!(),
         };
         let output = pilot
@@ -13428,14 +13416,6 @@ fn subpage_refuses_second_parent_without_writing() {
     check_subpage_refusal("second-parent");
 }
 #[test]
-fn subpage_refuses_grandchild_without_writing() {
-    check_subpage_refusal("grandchild");
-}
-#[test]
-fn subpage_refuses_attaching_a_parent_without_writing() {
-    check_subpage_refusal("parent-as-child");
-}
-#[test]
 fn subpage_refuses_cycle_without_writing() {
     check_subpage_refusal("cycle");
 }
@@ -13443,9 +13423,77 @@ fn subpage_refuses_cycle_without_writing() {
 fn subpage_refuses_self_without_writing() {
     check_subpage_refusal("self");
 }
+
+/// Sub-pages nest without a depth limit (#5820): a page with a parent takes children, a page with
+/// children takes a parent, and a sub-page converts a task into a page of its own, all with no
+/// hierarchy warning.
 #[test]
-fn subpage_refuses_convert_on_child_before_creating_a_page() {
-    check_subpage_refusal("convert");
+fn subpages_nest_at_any_depth_and_convert_below_a_child() {
+    for serving in [false, true] {
+        let mut pilot = Pilot::new(None);
+        if serving {
+            pilot.start();
+        }
+        let source = pilot.root.join("nesting.html");
+        fs::write(&source, "<p>Nesting source</p>").unwrap();
+        let pages: Vec<_> = ["Top", "Parent", "Child", "Grandchild"]
+            .into_iter()
+            .map(|title| {
+                let made = pilot.call(&[
+                    "page",
+                    "create",
+                    "--title",
+                    title,
+                    "--layout",
+                    "column",
+                    "--file",
+                    source.to_str().unwrap(),
+                    "--no-open",
+                    "--json",
+                ]);
+                let page = made["pageId"].as_str().unwrap().to_owned();
+                pilot.call(&["task", "add", &page, "--title", "A task", "--json"]);
+                page
+            })
+            .collect();
+        let (top, parent, child, grandchild) = (&pages[0], &pages[1], &pages[2], &pages[3]);
+        pilot.call(&["task", "link", parent, "T-1", child, "--json"]);
+        // A child takes a child of its own, and a page with children becomes a child.
+        pilot.call(&["task", "link", child, "T-1", grandchild, "--json"]);
+        pilot.call(&["task", "link", top, "T-1", parent, "--json"]);
+        // The fourth level makes its own sub-page.
+        let converted = pilot.call(&["task", "convert", grandchild, "T-1", "--json"]);
+        let made = converted["childPage"].as_str().unwrap().to_owned();
+        assert_eq!(
+            pilot.call(&["task", "ls", grandchild, "--json"])["work"]["tasks"]["T-1"]["child"],
+            made.as_str(),
+            "serving={serving}: {converted}"
+        );
+        for page in [top, parent, child, grandchild, &made] {
+            let shown = pilot.call(&["show", page, "--json"]);
+            assert!(
+                !shown["page"]["warnings"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .any(|flag| flag
+                        .as_str()
+                        .is_some_and(|flag| flag.starts_with("subpage-"))),
+                "serving={serving}: {shown}"
+            );
+        }
+        // A loop through every level is still refused.
+        pilot.call(&["task", "add", &made, "--title", "Loop", "--json"]);
+        let out = pilot
+            .command()
+            .args(["task", "link", made.as_str(), "T-1", top, "--json"])
+            .output()
+            .unwrap();
+        assert!(!out.status.success());
+        let refused: Value = serde_json::from_slice(&out.stdout).unwrap();
+        assert_eq!(refused["error"]["code"], "COLAB_LINK_REFUSED", "{refused}");
+        assert_eq!(refused["error"]["reason"], "cycle", "{refused}");
+    }
 }
 
 /// Publish an old/racing client's valid work value without today's cross-page admission.
@@ -13502,7 +13550,6 @@ fn legacy_subpage_action(pilot: &Pilot, page: &str, action: &str, body: Value) {
 #[test]
 fn subpage_legacy_hierarchies_read_with_warnings_and_can_be_repaired() {
     for (kind, warning) in [
-        ("depth", "subpage-depth-exceeded"),
         ("parents", "subpage-multiple-parents"),
         ("cycle", "subpage-cycle"),
     ] {
@@ -13532,7 +13579,6 @@ fn subpage_legacy_hierarchies_read_with_warnings_and_can_be_repaired() {
             .collect();
         let (a, b, c, d, e) = (&pages[0], &pages[1], &pages[2], &pages[3], &pages[4]);
         let edges = match kind {
-            "depth" => vec![(a, b), (b, c)],
             "parents" => vec![(a, c), (b, c)],
             "cycle" => vec![(a, b), (b, a)],
             _ => unreachable!(),
@@ -13611,7 +13657,7 @@ fn subpage_legacy_hierarchies_read_with_warnings_and_can_be_repaired() {
 }
 
 #[test]
-fn subpage_unlink_repairs_legacy_depth_even_when_it_restores_an_over_limit_task() {
+fn subpage_unlink_repairs_a_legacy_cycle_even_when_it_restores_an_over_limit_task() {
     let pilot = Pilot::new(None);
     let source = pilot.root.join("repair.html");
     fs::write(&source, "<p>Repair</p>").unwrap();
@@ -13641,7 +13687,7 @@ fn subpage_unlink_repairs_legacy_depth_even_when_it_restores_an_over_limit_task(
         &pilot,
         middle,
         "task.link",
-        json!({"taskId":"T-1","pageId":leaf}),
+        json!({"taskId":"T-1","pageId":top}),
     );
     pilot.call(&["task", "assign", middle, "T-1", "agent:Worker", "--json"]);
     pilot.call(&["task", "assign", leaf, "T-1", "agent:Worker", "--json"]);
@@ -13657,7 +13703,7 @@ fn subpage_unlink_repairs_legacy_depth_even_when_it_restores_an_over_limit_task(
         !shown["page"]["warnings"]
             .as_array()
             .unwrap()
-            .contains(&json!("subpage-depth-exceeded"))
+            .contains(&json!("subpage-cycle"))
     );
 }
 
@@ -13670,7 +13716,7 @@ fn subpage_show_refreshes_fingerprints_after_page_edits() {
         }
         let source = pilot.root.join("fingerprints.html");
         fs::write(&source, "<p>Before</p>").unwrap();
-        let pages: Vec<_> = ["Parent", "Middle", "Leaf"]
+        let pages: Vec<_> = ["Parent", "Middle"]
             .into_iter()
             .map(|title| {
                 let made = pilot.call(&[
@@ -13690,7 +13736,7 @@ fn subpage_show_refreshes_fingerprints_after_page_edits() {
                 id
             })
             .collect();
-        let (parent, middle, leaf) = (&pages[0], &pages[1], &pages[2]);
+        let (parent, middle) = (&pages[0], &pages[1]);
         pilot.call(&["task", "link", parent, "T-1", middle, "--json"]);
         // Warm a current graph, then simulate a publication from an older/racing writer.
         pilot.call(&["task", "ls", parent, "--json"]);
@@ -13703,7 +13749,7 @@ fn subpage_show_refreshes_fingerprints_after_page_edits() {
             &pilot,
             middle,
             "task.link",
-            json!({"taskId":"T-1","pageId":leaf}),
+            json!({"taskId":"T-1","pageId":parent}),
         );
         assert_eq!(
             fingerprints(),
@@ -13716,7 +13762,7 @@ fn subpage_show_refreshes_fingerprints_after_page_edits() {
                 shown["page"]["warnings"]
                     .as_array()
                     .unwrap()
-                    .contains(&json!("subpage-depth-exceeded")),
+                    .contains(&json!("subpage-cycle")),
                 "{shown}"
             );
         };
@@ -13756,7 +13802,7 @@ fn subpage_show_refreshes_fingerprints_after_page_edits() {
         assert_eq!(read["source"], "<p>After</p>");
         assert_eq!(
             pilot.call(&["task", "ls", middle, "--json"])["work"]["tasks"]["T-1"]["child"],
-            *leaf
+            *parent
         );
     }
 }

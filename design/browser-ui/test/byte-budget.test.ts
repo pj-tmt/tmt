@@ -7,8 +7,10 @@ import { gzipSync } from 'node:zlib';
  * #5800: GUI approved the one-level rail tree at 22,466 bytes (#5805).
  * #5794: the editorial type ramp's custom properties: 22,466 -> 22,657 bytes, pending GUI approval with
  * the Linux CI measurement on its PR.
+ * #5820: the work-panel tokens (row-height, subheader-height, control-size-l, dialog-narrow-width):
+ * 22,657 -> 22,685 bytes, approved by the GUI lead.
  * No headroom; later shared CSS changes require a new measurement and decision. */
-const approvedGzipBytes = 22_657;
+const approvedGzipBytes = 22_685;
 /** #5794: the editorial layer is its own entry, loaded only by prose surfaces, so it has its own cap.
  * Pending GUI approval with the Linux CI measurement on its PR; no headroom. */
 const approvedEditorialGzipBytes = 951;

@@ -23,7 +23,7 @@ async function panelTheme(page: Page, chip: Locator, theme: string) {
 
 test.afterEach(disposeActiveWorlds);
 
-test('manual state persists independently of native progress and share readers have no progress or owner controls', async () => {
+test('manual state persists, an empty band offers Add to the owner only, and share readers have no owner controls', async () => {
   await withWorld(async (world) => {
     const created = createPage(world, 'Status panel', '<h1>Status panel source</h1>');
     const colab = (args: string[]) =>
@@ -38,31 +38,39 @@ test('manual state persists independently of native progress and share readers h
     const browser = await pairBrowser(world, 'status-owner');
     const page = await openPage(door, browser, created);
     const band = page.getByRole('region', { name: 'Work on this page' });
-    await expect(band.locator('.work-progress')).toHaveText('1 of 2 done');
-    await band.getByRole('button', { name: /Page state/ }).click();
+    // Plain tasks are not sub-pages: the band says so and offers Add.
+    await expect(band.locator('.work-head')).toContainText('No sub-pages yet');
+    await expect(band.getByRole('button', { name: 'Add', exact: true })).toBeVisible();
+    await band
+      .locator('.work-head-chip')
+      .getByRole('button', { name: /Page state/ })
+      .click();
     await page.getByRole('menuitemradio', { name: 'Done', exact: true }).click();
-    await expect(band.getByRole('button', { name: /Page state/ })).toContainText('Done');
+    await expect(
+      band.locator('.work-head-chip').getByRole('button', { name: /Page state/ }),
+    ).toContainText('Done');
     const after = colab(['show', created.pageId]);
     expect(after.page.state).toBe('done');
     expect(after.page.progress).toEqual(before.page.progress);
     await page.reload();
-    await expect(band.getByRole('button', { name: /Page state/ })).toContainText('Done');
-    await expect(band.locator('.work-progress')).toHaveText('1 of 2 done');
+    await expect(
+      band.locator('.work-head-chip').getByRole('button', { name: /Page state/ }),
+    ).toContainText('Done');
+    await expect(band.locator('.work-head')).toContainText('No sub-pages yet');
     const captures = process.env.COLAB_STATUS_CAPTURE_DIR;
     if (captures) {
       mkdirSync(captures, { recursive: true });
       for (const width of [390, 1440])
         for (const theme of ['light', 'dark']) {
           await page.setViewportSize({ width, height: 900 });
-          await panelTheme(page, band.getByRole('button', { name: /Page state/ }), theme);
+          await panelTheme(
+            page,
+            band.locator('.work-head-chip').getByRole('button', { name: /Page state/ }),
+            theme,
+          );
           await page.screenshot({
-            path: `${captures}/status-owner-collapsed-${width}-${theme}.png`,
+            path: `${captures}/status-owner-empty-${width}-${theme}.png`,
           });
-          await band.getByRole('button', { name: 'Expand status panel' }).click();
-          await page.screenshot({
-            path: `${captures}/status-owner-expanded-${width}-${theme}.png`,
-          });
-          await band.getByRole('button', { name: 'Collapse status panel' }).click();
         }
     }
     colab(['share', 'mode', created.pageId, 'link', '--yes']);
@@ -70,11 +78,10 @@ test('manual state persists independently of native progress and share readers h
     const reader = await openReaderLink(world, door, link.readerPath, 'status-reader');
     const shared = reader.page.getByRole('region', { name: 'Work on this page' });
     await expect(shared.locator('.work-page-state')).toHaveText('Done');
-    await expect(shared.locator('.work-progress')).toHaveText('Progress unavailable');
+    await expect(shared.locator('.work-head')).toContainText('No sub-pages yet');
     await expect(shared.getByRole('button', { name: /Page state/ })).toHaveCount(0);
-    await shared.getByRole('button', { name: 'Expand status panel' }).click();
-    await expect(shared.getByText('Attach a sub-page')).toHaveCount(0);
-    await expect(shared.getByRole('button', { name: /Edit|Add task/ })).toHaveCount(0);
+    await expect(shared.getByRole('button', { name: 'Add', exact: true })).toHaveCount(0);
+    await expect(shared.locator('.work-toggle')).toHaveCount(0);
     expect(
       reader.requests.filter((request) => /summary-details|api\/space/.test(request.url)),
     ).toEqual([]);
@@ -90,7 +97,7 @@ test('manual state persists independently of native progress and share readers h
   });
 });
 
-test('opening a page with sub-pages reads details once without an unavailable progress frame', async () => {
+test('opening a page with sub-pages reads details once and never shows a wrong progress frame', async () => {
   await withWorld(async (world) => {
     const parent = createPage(world, 'Status parent', '<h1>Status parent source</h1>');
     const child = createPage(world, 'Status child', '<h1>Status child source</h1>');
@@ -109,55 +116,73 @@ test('opening a page with sub-pages reads details once without an unavailable pr
       const frames: string[] = [];
       Object.assign(window, { statusProgressFrames: frames });
       new MutationObserver(() => {
-        const value = document.querySelector('.work-band .work-progress')?.textContent;
+        const value = document.querySelector('.work-band .work-progress .work-wide')?.textContent;
         if (value) frames.push(value);
       }).observe(document, { childList: true, subtree: true, characterData: true });
     });
     const page = await openPage(door, browser, parent);
     const band = page.getByRole('region', { name: 'Work on this page' });
-    await expect(band.locator('.work-progress')).toHaveText('0 of 1 done');
-    await band.getByRole('button', { name: 'Expand status panel', exact: true }).click();
+    await expect(band.locator('.work-progress .work-wide')).toHaveText('0 of 1 done');
+    await band.getByRole('button', { name: 'Expand work panel', exact: true }).click();
     await expect(band.getByRole('link', { name: 'Status child', exact: true })).toBeVisible();
     expect(reads).toBe(1);
     const frames = await page.evaluate(
       () => (window as unknown as { statusProgressFrames: string[] }).statusProgressFrames,
     );
     expect(frames.length).toBeGreaterThan(0);
-    expect(frames).not.toContain('Progress unavailable');
+    for (const frame of frames) expect(frame).toBe('0 of 1 done');
   });
 });
 
-test('attach keeps a new task after owner refusal and links that same task on retry', async () => {
+test('sub-pages attach, get created and detach at any depth through the owner admission', async () => {
   await withWorld(async (world) => {
-    const parent = createPage(world, 'Attach target', '<h1>Parent</h1>');
-    const other = createPage(world, 'Other parent', '<h1>Other</h1>');
-    const child = createPage(world, 'Existing child', '<h1>Child</h1>');
+    const top = createPage(world, 'Attach top', '<h1>Top</h1>');
+    const middle = createPage(world, 'Attach middle', '<h1>Middle</h1>');
+    const grand = createPage(world, 'Grand page', '<h1>Grand</h1>');
     const colab = (args: string[]) =>
       JSON.parse(run(world, world.binaries.colab, [...args, '--json']));
-    colab(['task', 'add', other.pageId, '--title', 'Existing parent task']);
-    colab(['task', 'link', other.pageId, 'T-1', child.pageId]);
+    colab(['task', 'add', top.pageId, '--title', 'Middle link']);
+    colab(['task', 'link', top.pageId, 'T-1', middle.pageId]);
     const door = await startDoor(world);
     const browser = await pairBrowser(world, 'attach-owner');
-    const page = await openPage(door, browser, parent);
+    // The middle page already has a parent and still takes a child of its own (#5820).
+    const page = await openPage(door, browser, middle);
     const band = page.getByRole('region', { name: 'Work on this page' });
-    await band.getByRole('button', { name: 'Expand status panel' }).click();
-    await band.getByRole('button', { name: 'Attach a sub-page' }).click();
-    const dialog = page.locator('dialog.tmt-ui-dialog[data-state="open"]');
-    const choices = dialog.getByRole('combobox', { name: 'Page', exact: true });
-    await expect(choices.locator('option', { hasText: 'Existing child' })).toHaveCount(1);
-    await choices.selectOption({ label: 'Existing child' });
-    await dialog.getByLabel('Task title').fill('Follow existing child');
-    await dialog.getByRole('button', { name: 'Attach', exact: true }).click();
-    await expect(dialog.getByRole('alert')).toBeVisible();
-    await expect(dialog).toContainText('Task T-1 is kept');
-    let tasks = colab(['task', 'ls', parent.pageId]).work.tasks;
-    expect(tasks['T-1'].title).toBe('Follow existing child');
-    expect(tasks['T-1'].child).toBeUndefined();
-    colab(['task', 'unlink', other.pageId, 'T-1']);
-    await dialog.getByRole('button', { name: 'Retry link' }).click();
+    await band.getByRole('button', { name: 'Add', exact: true }).click();
+    const dialog = page.getByRole('dialog', { name: 'Add a sub-page to “Attach middle”' });
+    await dialog.getByRole('combobox').fill('Attach');
+    await expect(dialog.getByRole('option', { name: /Attach top/ })).toContainText(
+      'Would loop: it is above this page',
+    );
+    await dialog.getByRole('combobox').fill('Grand');
+    await dialog.getByRole('option', { name: /Grand page/ }).click();
     await expect(dialog).toHaveCount(0);
-    tasks = colab(['task', 'ls', parent.pageId]).work.tasks;
-    expect(Object.keys(tasks)).toEqual(['T-1']);
-    expect(tasks['T-1'].child).toBe(child.pageId);
+    let tasks = colab(['task', 'ls', middle.pageId]).work.tasks;
+    expect(Object.values(tasks)).toEqual([
+      expect.objectContaining({ title: 'Grand page', child: grand.pageId }),
+    ]);
+    await band.getByRole('button', { name: 'Expand work panel' }).click();
+    await expect(band.getByRole('link', { name: 'Grand page', exact: true })).toBeVisible();
+    // Create makes the page with the typed name and attaches it.
+    await band.locator('.work-add-row').getByRole('button', { name: 'Add', exact: true }).click();
+    await dialog.getByRole('combobox').fill('Made here');
+    await page.keyboard.press('Enter');
+    await expect(dialog).toHaveCount(0);
+    tasks = colab(['task', 'ls', middle.pageId]).work.tasks;
+    const made = Object.values(tasks as Record<string, { title: string; child?: string }>).find(
+      (task) => task.title === 'Made here',
+    );
+    expect(made?.child).toBeDefined();
+    expect(colab(['show', made!.child!]).page.title).toBe('Made here');
+    // Detach removes the link only: the page stays.
+    await band.getByRole('link', { name: 'Grand page', exact: true }).hover();
+    await band.getByRole('button', { name: 'More for Grand page' }).click();
+    await page.getByRole('menuitem', { name: 'Detach' }).click();
+    await expect(band.getByRole('link', { name: 'Grand page', exact: true })).toHaveCount(0);
+    tasks = colab(['task', 'ls', middle.pageId]).work.tasks;
+    expect(Object.values(tasks).map((task) => (task as { title: string }).title)).toEqual([
+      'Made here',
+    ]);
+    expect(colab(['show', grand.pageId]).page.title).toBe('Grand page');
   });
 });

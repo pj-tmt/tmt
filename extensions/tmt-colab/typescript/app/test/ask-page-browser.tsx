@@ -58,6 +58,15 @@ let publish: ((value: PageView) => void) | undefined;
 let fail: ((error: Error) => void) | undefined;
 let records: PageAsk[];
 let current: PageView;
+/** One linked sub-page: enough for the work band to have a list to open. */
+const SUBPAGE_WORK: NonNullable<PageView['work']> = {
+  version: 1,
+  next: 2,
+  order: ['T-1'],
+  tasks: {
+    'T-1': { title: 'Sub-page', state: 'todo', child: '20000000-0000-4000-8000-000000000002' },
+  },
+};
 let registryAgents: readonly AgentDestination[] = [];
 let admitFixtureQuestions = true;
 let seen: ThreadStatusSeen | undefined;
@@ -301,6 +310,8 @@ export async function mount(
     layoutReason?: string;
     /** The page opens with its document only; `verifyDiscussion` brings the threads and asks. */
     discussionPending?: boolean;
+    /** The page has one sub-page, so its work band opens a list. */
+    subpage?: boolean;
   } = {},
 ) {
   resumeAttachmentUploads();
@@ -351,6 +362,7 @@ export async function mount(
     publisherAgent: 'Agent 1',
     ...(options.layout ? { layout: options.layout } : {}),
     ...(options.layoutReason ? { layoutReason: options.layoutReason } : {}),
+    ...(options.subpage ? { work: SUBPAGE_WORK } : {}),
     ...(options.creator
       ? { creationRecipient: { machineId: destination().machine, agentId: destination().agent } }
       : {}),

@@ -1,9 +1,7 @@
-import { useEffect, useMemo, useState } from 'react';
-import { pageStage } from './list-stage.js';
+import { useEffect, useState } from 'react';
 import { rememberPages, rememberedPages, watchRememberedPages } from './quick-switcher-source.js';
 import type { PageSummary, PageTransport } from './transport.js';
 import type { Work } from './work.js';
-import type { WorkParent } from './work-band.js';
 
 /** The pages a work value's tasks follow, as one comparable key. */
 function followed(work: Work | undefined): string {
@@ -15,28 +13,19 @@ function followed(work: Work | undefined): string {
 }
 
 /**
- * What the band needs from the owner list the viewer already has: the stage each listed page's
- * summary says, for a task that follows a page, and the task of another page that follows this
- * one, named with that page's title as the list shows it. The list is the one the space home last
- * loaded, followed as other views refresh it (arriving from the list, or the read a link-opened
- * page already makes for its chips), so a page without work reads nothing extra. A page with a task
- * that follows a page also makes one fresh read. A page the list does not name, or whose summary
- * has not arrived, has no stage here, so its task keeps its own stored state, as the page list
- * shows it; a parent the list does not name is no breadcrumb, never a read of that page.
+ * The owner list the viewer already has, which names each sub-page's title, state and parent: the
+ * list the space home last loaded, followed as other views refresh it. A page without sub-pages
+ * reads nothing extra; a page with some makes one fresh read so their titles and states are known.
+ * Deeper levels come from the same list's parent links, never from a read of another page.
  */
 export function useLinkedPages(
   transport: PageTransport,
   space: string | undefined,
-  pageId: string,
   work: Work | undefined,
 ): {
-  stageOf?: (pageId: string) => string | undefined;
   /** Whether the existing owner list has been observed, including an empty list. */
   observed: boolean;
   pages?: readonly PageSummary[];
-  knownChild: boolean;
-  parent?: WorkParent;
-  subpages: readonly { id: string; title?: string; state?: PageSummary['state'] }[];
 } {
   const key = followed(work);
   const [pages, setPages] = useState<readonly PageSummary[] | undefined>(() =>
@@ -55,34 +44,10 @@ export function useLinkedPages(
         rememberPages(transport, space, home.pages);
       },
       () => {
-        // The list is unavailable: the tasks keep their own states.
+        // The list is unavailable: the sub-pages show without titles or states.
       },
     );
     return () => abort.abort();
   }, [transport, space, key]);
-  const stageOf = useMemo(() => {
-    if (key === '' || !pages) return undefined;
-    const byId = new Map(pages.map((page) => [page.id, page]));
-    return (id: string) => {
-      const page = byId.get(id);
-      return page ? pageStage(page) : undefined;
-    };
-  }, [key, pages]);
-  const parent = useMemo(() => {
-    const link = pages?.find((page) => page.id === pageId)?.summary?.parent;
-    const held = link && pages?.find((page) => page.id === link.page);
-    return link && held
-      ? { pageId: link.page, taskId: link.task, title: held.title, taskTitle: link.title }
-      : undefined;
-  }, [pages, pageId]);
-  const subpages = useMemo(
-    () =>
-      [...new Set(key.split(' ').filter(Boolean))].map((id) => {
-        const row = pages?.find((page) => page.id === id);
-        return { id, title: row?.title, state: row?.state };
-      }),
-    [key, pages],
-  );
-  const knownChild = pages?.find((page) => page.id === pageId)?.summary?.parent !== undefined;
-  return { stageOf, parent, subpages, pages, knownChild, observed: pages !== undefined };
+  return { pages, observed: pages !== undefined };
 }

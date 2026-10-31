@@ -17,8 +17,6 @@ export interface QuestionWriteFinding {
 /** Stable relationship-admission reasons; absent on replies from older owners. */
 const LINK_REFUSAL_REASONS = [
   'second-parent',
-  'child-has-parent',
-  'parent-has-children',
   'cycle',
   'invalid-hierarchy',
   'unavailable',

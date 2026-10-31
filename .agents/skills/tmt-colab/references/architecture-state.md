@@ -1140,7 +1140,7 @@ controls, and the shared and hosted readers keep `ShellNotice`.
 ## Sub-page relationship admission
 
 `work_links::Graph` owns cross-page relationship checks and diagnostics; the stored work value
-keeps accepting old links. Admission permits one parent/task and one level, with no cycles.
+keeps accepting old links. Admission permits one parent/task at any depth, with no cycles.
 `work_admission` maps refusals to `COLAB_LINK_REFUSED` and a stable reason shared by native JSON
 and browser `workresult`. CLI and `page/convert` run its conversion preflight before creation,
 then retain the existing post-create link admission and publication fences. Unlink bypasses WIP
@@ -1155,40 +1155,24 @@ new links; unrelated components remain usable. `page/save::SaveResult` and the s
 
 ## The work band
 
-Every ordinary page draws `WorkBand` (`work-band.tsx`) between the link bar and canvas, even
-without work. The share reader uses the same read-only presentation; dashboards do not draw it.
-The compact line shows verified manual `pageState`, native `PageProgress` buckets and an expand
-control. It scrolls with content; expansion pushes the canvas down. Its measured height participates
-in renderer viewport room and canvas minimum height; expanding/collapsing resizes the existing frame
-without remounting or introducing another scroll region. Progress never sets state.
-Missing progress is unavailable, zero is `0 of 0 done`, and unknown children stay unknown.
-`Live` retains optional owner details across subscription and coalesces invalidations through
-`ProgressReads` in `reading-details.ts`: one active read and a trailing read per burst, no polling.
-Snapshot joins the admitted read. The first owner-list observation establishes the child-state
-baseline; later changes refresh details without clearing the last verified bar.
-Only a matching published document/work projection receives those counts; close/recovery fences
-obsolete reads. Child titles/manual states come from existing owner-list rows in `useLinkedPages`
-(`work-stages.ts`), without wider rows or child subscriptions. Share readers make no owner reads.
+Every ordinary page draws `WorkBand` (`work-band.tsx`) between the link bar and canvas, pinned
+under the nav on the signed-in and reader routes; dashboards do not draw it. It lists sub-pages
+only (#5820). `subpageTree` (`work-tree.ts`) derives the rows: direct sub-pages from the page's own
+`work.order`, deeper levels and titles/states from owner-list parent links, counts from direct
+sub-page manual states, and Add refusals (self, ancestor, already attached). The owner list comes
+from `useLinkedPages` (`work-stages.ts`), without wider rows or child subscriptions; share readers
+make no owner reads and get no counts. The list is one CSS grid whose rows are subgrids, so the
+right-hand columns align at every depth. Its measured height participates in renderer viewport
+room; expanding/collapsing resizes the existing frame without remounting or another scroll region.
+`Live` still retains optional owner progress details through `ProgressReads` in
+`reading-details.ts` (one active and one trailing read per burst, no polling).
 
-Expanded content shows the native bucket legend and either direct sub-pages with `Tasks N` for
-unlinked tasks, or one directly selectable task list when there are no sub-pages. `work-list.tsx` and `work-detail.tsx` retain task detail/actions and one-shot task
-deep links, including a linked task's direct detail. A known parent remains a link to its task
-inside the expanded panel; unknown parents trigger no parent-page read. Owner pages with work
-capability offer Attach unless the observed list identifies the page as a child; unknown parentage
-is admitted or refused by the owner. The picker reuses the observed list, sends `task.add` followed
-by `task.link` for a new task (or links an existing unlinked task), and keeps the task and refusal
-for a same-task retry. An unsettled result is not resent automatically: the user checks the task
-list before reopening the control; an admitted matching link closes it as success.
-
-`PageWorkBand` (`work-band-live.tsx`) fills owner-only task action slots from `work-controls.tsx`
-and the manual state menu from `PageBinding.metadata('page.state', ...)`. State revision capture
-uses an explicit page-state scope; creator/question editors retain their existing comparison.
-The chip moves only on the admitted stream, with busy/refusal feedback at the control. Task
-controls retain state/reason, sign-off/send-back, assign, edit, convert, remove and add actions
-through `PageBinding.work`. A convert-made page whose link was refused remains named with Link
-and Open actions. A lost owner-write reply is settled through `savestatus`, never resent. Other
-viewers retain expansion and task details without owner controls. `work-people.tsx` remains the
-assignee presentation owner (`AgentChip` for agents).
+`PageWorkBand` (`work-band-live.tsx`) adds the owner controls: the manual state menu through
+`PageBinding.metadata('page.state', ...)` with an explicit page-state revision scope; a row's state
+chip and Detach (`task.remove` of the carrier task) on another page through that page's binding,
+opened for the one write and closed; and `AddSubpageDialog` (`work-add-dialog.tsx`), which attaches
+(`task.add` + `task.link`) or creates (`task.add` + `task.convert`) and removes the added task
+when the link is refused.
 
 ## Short owner-page links
 

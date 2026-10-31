@@ -144,9 +144,9 @@ for (const width of [1440, 390])
  * the Remote link. The page's title is in the bar's title slot; its status band is pinned under it.
  */
 test.describe('the shell bar', () => {
-  async function mountPage(page: Page) {
+  async function mountPage(page: Page, options: { subpage?: boolean } = {}) {
     await page.goto('/');
-    await run(page, 'mount');
+    await run(page, 'mount', options);
     await expect(page.locator('.tmt-ui-shell-bar:visible .tmt-ui-topbar')).toBeVisible();
   }
   async function mountHome(page: Page, count = 3) {
@@ -189,7 +189,7 @@ test.describe('the shell bar', () => {
       page,
     }) => {
       await look(page);
-      await mountPage(page);
+      await mountPage(page, { subpage: true });
       // The page's one heading is in the bar's left group; no title row or brand repeats it.
       const title = bar(page).locator('.tmt-ui-topbar-title');
       await expect(title.getByRole('heading', { level: 1 })).toHaveCount(1);
@@ -215,7 +215,7 @@ test.describe('the shell bar', () => {
       });
       await expect.poll(() => page.evaluate(() => window.scrollY)).toBe(400);
       await expect.poll(gap).toBeCloseTo(0, 0);
-      const toggle = band.locator('button[aria-expanded]').first();
+      const toggle = band.locator('.work-toggle');
       await toggle.click();
       await expect(toggle).toHaveAttribute('aria-expanded', 'true');
       await expect.poll(gap).toBeCloseTo(0, 0);

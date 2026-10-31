@@ -1,9 +1,8 @@
-import { openWorkTasks } from '../test/page-actions.js';
 import { expect, test, type Page } from '@playwright/test';
 
 /**
  * The floating page actions (Chat, selection mode) sit in a viewport corner. They never cover a
- * control of the page chrome: at a phone's width the expanded work band ends with the add-task row,
+ * control of the page chrome: at a phone's width the expanded work band ends with its Add row,
  * which the group used to sit over (#4588).
  */
 const views = [
@@ -11,18 +10,22 @@ const views = [
   { width: 1440, height: 900 },
 ] as const;
 
-async function openWorkBand(page: Page) {
+async function openWorkBand(page: Page, tall = false) {
   await page.goto('/');
-  await page.evaluate(async () => {
+  await page.evaluate(async (tall) => {
     const path = '/test/work-page-browser.tsx';
-    (await import(path)).mountWorkPage(true, true);
-  });
+    (await import(path)).mountWorkPage(true, 'tree', tall);
+  }, tall);
   const band = page.getByRole('region', { name: 'Work on this page' });
-  await openWorkTasks(band);
-  await band.locator('.work-row', { hasText: 'T-3' }).locator('button').click();
-  await expect(band.locator('.work-controls')).toBeVisible();
-  await expect(band.getByRole('textbox', { name: 'New task' })).toBeVisible();
-  await expect(page.locator('.page-floating-actions button:visible').first()).toBeVisible();
+  await band.getByRole('button', { name: 'Expand work panel' }).click();
+  await band.getByRole('button', { name: 'Expand Remote pages v2' }).click();
+  await expect(
+    band.locator('.work-add-row').getByRole('button', { name: 'Add', exact: true }),
+  ).toBeVisible();
+  // On a page taller than the viewport the open band can fill the room under the bar; the group
+  // then hides rather than covering anything.
+  if (!tall)
+    await expect(page.locator('.page-floating-actions button:visible').first()).toBeVisible();
 }
 
 /** The controls of the page chrome that the floating group covers right now. */
@@ -77,7 +80,8 @@ for (const { width, height } of views) {
     await page.addInitScript(() => {
       addEventListener('DOMContentLoaded', () => {
         const style = document.createElement('style');
-        style.textContent = '.work-band .tmt-ui-action { padding-inline: 14px; }';
+        style.textContent =
+          '.work-band :is(.tmt-ui-action, .tmt-ui-menu-trigger, .work-add-text) { padding-inline: 14px; }';
         document.head.append(style);
       });
     });
@@ -88,10 +92,9 @@ for (const { width, height } of views) {
   test(`the last control at the page end is clear of the floating actions at ${width}`, async ({
     page,
   }) => {
-    // The direct task list can fit a desktop's 900 px viewport. Keep this case about
-    // reaching the last controls by scrolling, independently of that compact layout.
+    // Keep this case about reaching the page end by scrolling a page taller than the viewport.
     await page.setViewportSize({ width, height: 480 });
-    await openWorkBand(page);
+    await openWorkBand(page, true);
     await page.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight));
     await expect.poll(() => page.evaluate(() => Math.round(scrollY))).toBeGreaterThan(0);
     await expect.poll(() => covered(page)).toEqual([]);
