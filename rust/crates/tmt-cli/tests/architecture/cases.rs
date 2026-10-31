@@ -1914,7 +1914,8 @@ fn extension_state_is_a_leaf_with_reviewed_consumers() {
 
 /// Every workspace package, so a consumer cannot be forgotten or misspelled: a
 /// misspelled name would be refused as an unreviewed package, not for the leaf.
-const WORKSPACE_PACKAGES: [&str; 19] = [
+const WORKSPACE_PACKAGES: [&str; 20] = [
+    "tmt-job-calendar",
     "tmt-core",
     "tmt-adapters",
     "tmt-cli",
@@ -2780,5 +2781,73 @@ fn core_browser_embedding_guard_proves_local_literal_wrapper_inputs() {
                 .unwrap_err()
                 .contains("must not embed browser-ui")
         );
+    }
+}
+
+#[test]
+fn job_calendar_is_stateless_and_has_only_two_reviewed_consumers() {
+    assert_exact(
+        &[syntax(
+            "tmt-ops",
+            "cron/schedule.rs",
+            "use tmt_job_calendar::Schedule;",
+        )],
+        &[],
+    );
+    for owner in ["tmt-remote", "tmt-colab"] {
+        assert!(
+            !policy::source_violations(&[syntax(
+                owner,
+                "calendar.rs",
+                "use tmt_job_calendar::Schedule;"
+            )])
+            .is_empty()
+        );
+    }
+    for dependency in ["jiff", "serde_json"] {
+        assert!(!refuses(
+            "tmt-job-calendar",
+            dependency,
+            "normal",
+            None,
+            None
+        ));
+        for kind in ["dev", "build"] {
+            assert!(refuses("tmt-job-calendar", dependency, kind, None, None));
+        }
+    }
+    for owner in WORKSPACE_PACKAGES.into_iter().chain([
+        "tmt-digest",
+        "tmt-extension-objects",
+        "tmt-extension-serve",
+    ]) {
+        assert_eq!(
+            refuses(owner, "tmt-job-calendar", "normal", None, None),
+            !["tmt-adapters", "tmt-ops"].contains(&owner),
+            "{owner}"
+        );
+        assert!(
+            refuses("tmt-job-calendar", owner, "normal", None, None),
+            "leaf -> {owner}"
+        );
+    }
+    for owner in ["tmt-adapters", "tmt-ops"] {
+        for kind in ["dev", "build"] {
+            assert!(refuses(owner, "tmt-job-calendar", kind, None, None));
+        }
+        assert!(refuses(
+            owner,
+            "tmt-job-calendar",
+            "normal",
+            Some("cfg(unix)"),
+            None
+        ));
+        assert!(refuses(
+            owner,
+            "tmt-job-calendar",
+            "normal",
+            None,
+            Some("calendar")
+        ));
     }
 }

@@ -42,6 +42,10 @@ use tmt_adapters::process::{CommandRequest, CommandRunner, UnixCommandRunner};
 // Reviewed package boundaries and manifest owners; implementation files are not fixed.
 const WORKSPACE_MANIFESTS: &[(&str, &str)] = &[
     (
+        "tmt-job-calendar",
+        "rust/crates/tmt-job-calendar/Cargo.toml",
+    ),
+    (
         "tmt-release-tool",
         "rust/crates/tmt-release-tool/Cargo.toml",
     ),

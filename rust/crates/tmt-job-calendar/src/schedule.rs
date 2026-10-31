@@ -40,7 +40,7 @@ pub struct Schedule {
 }
 
 fn invalid(message: impl Into<String>) -> Error {
-    Error::new("SQUAD_CRON_SCHEDULE_INVALID", message)
+    Error::new(message)
 }
 
 fn timestamp(ms: i64) -> Result<Timestamp, Error> {

@@ -3,8 +3,8 @@ mod run;
 pub use run::{JobRunInput, JobRunResult};
 
 use super::{Storage, StorageError, StorageErrorCode, classify, unsigned};
+use crate::orchestration::jobs::JobScheduleDocument as ScheduleDocument;
 use rusqlite::{Connection, OptionalExtension, Row, TransactionBehavior, params};
-use serde::{Deserialize, Serialize};
 use tmt_core::{dispatch::canonical_id, limits::MAX_JS_SAFE_INTEGER, orchestration::jobs::*};
 
 #[derive(Debug)]
@@ -47,73 +47,6 @@ impl std::error::Error for JobStoreError {
     }
 }
 
-// This persisted definition is independent of hook-queue payloads. Calendar
-// admission validates the rule before saving; decoding never chooses a new zone.
-#[derive(Deserialize, Serialize)]
-#[serde(tag = "kind", rename_all = "camelCase", deny_unknown_fields)]
-enum ScheduleDocument {
-    Every {
-        zone: String,
-        seconds: i64,
-        #[serde(rename = "anchorMs")]
-        anchor_ms: i64,
-        from: Option<String>,
-    },
-    At {
-        zone: String,
-        at: String,
-        on: Option<String>,
-    },
-    Cron {
-        zone: String,
-        expression: String,
-    },
-}
-impl From<&JobSchedule> for ScheduleDocument {
-    fn from(rule: &JobSchedule) -> Self {
-        match rule {
-            JobSchedule::Every {
-                zone,
-                seconds,
-                anchor_ms,
-                from,
-            } => Self::Every {
-                zone: zone.clone(),
-                seconds: *seconds,
-                anchor_ms: *anchor_ms,
-                from: from.clone(),
-            },
-            JobSchedule::At { zone, at, on } => Self::At {
-                zone: zone.clone(),
-                at: at.clone(),
-                on: on.clone(),
-            },
-            JobSchedule::Cron { zone, expression } => Self::Cron {
-                zone: zone.clone(),
-                expression: expression.clone(),
-            },
-        }
-    }
-}
-impl From<ScheduleDocument> for JobSchedule {
-    fn from(rule: ScheduleDocument) -> Self {
-        match rule {
-            ScheduleDocument::Every {
-                zone,
-                seconds,
-                anchor_ms,
-                from,
-            } => Self::Every {
-                zone,
-                seconds,
-                anchor_ms,
-                from,
-            },
-            ScheduleDocument::At { zone, at, on } => Self::At { zone, at, on },
-            ScheduleDocument::Cron { zone, expression } => Self::Cron { zone, expression },
-        }
-    }
-}
 fn corrupt() -> StorageError {
     StorageError::new(StorageErrorCode::Corrupt, "Invalid stored job definition")
 }
@@ -259,6 +192,7 @@ impl Storage {
     ) -> Result<OrchJob, JobStoreError> {
         let mut job = definition.with_identity(uuid::Uuid::new_v4().to_string(), 1);
         job.validate()?;
+        crate::orchestration::jobs::calendar(&job.schedule)?;
         let encoded = encode_schedule(&job.schedule)?;
         let tx = self
             .connection_mut()?

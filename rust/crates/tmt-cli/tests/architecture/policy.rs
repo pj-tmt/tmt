@@ -53,7 +53,8 @@ pub fn dependency_violations(package: &Value) -> Vec<String> {
         ],
         // Adapters run host drivers through the protocol crate (#570).
         "tmt-adapters" => &[
-            "jiff", // reviewed orchestration calendar/zone conversion; Core stays pure
+            "tmt-job-calendar", // shared stateless schedule math; no job state or effects
+            "jiff",             // reviewed orchestration calendar/zone conversion; Core stays pure
             // Plain reply-notice alignment, without a terminal/output dependency.
             "unicode-width",
             // Safe macOS process inspection and UTC formatting of legacy ps tokens.
@@ -132,6 +133,7 @@ pub fn dependency_violations(package: &Value) -> Vec<String> {
         // A host's pane-ID and target syntax, defined once for core and the
         // driver protocol; it depends on nothing.
         "tmt-host-grammar" => &[],
+        "tmt-job-calendar" => &["jiff", "serde_json"],
         // The frames a built-in-host supervisor and its terminals exchange: a
         // leaf with no effects, so the adapters and any terminal client share
         // one stream without depending on each other.
@@ -140,6 +142,7 @@ pub fn dependency_violations(package: &Value) -> Vec<String> {
         // Squad is a public-interface consumer: it reaches TMT only through
         // commands and `tmt api`. Reviewed neutral leaves carry no core behavior.
         "tmt-ops" => &[
+            "tmt-job-calendar", // local previews only; Core jobs read owns authoritative next run
             "tmt-cli-style",
             // Same neutral bounded process owner used by Remote and Colab.
             "tmt-invoke",
@@ -287,7 +290,7 @@ pub fn dependency_violations(package: &Value) -> Vec<String> {
                 return Some(format!("{name}: Core/CLI must neither depend on nor embed browser-ui"));
             }
             if dependency == "tmt-release-tool" {
-                return Some(format!("{name}: release tooling cannot be a product dependency"));
+                return Some(format!("{name}: release tooling ({dependency}) cannot be a product dependency"));
             }
             if d["kind"] == "dev"
                 && !["tmt-invoke", "tmt-tui", "tmt-extension-state", "tmt-extension-objects"]
@@ -323,8 +326,12 @@ pub fn dependency_violations(package: &Value) -> Vec<String> {
             let state_consumer_only = dependency == "tmt-extension-state"
                 && ["tmt-adapters", "tmt-digest"].contains(&name)
                 && !((d["kind"].is_null() || d["kind"] == "normal") && d["target"].is_null());
+            let calendar_edge = (dependency == "tmt-job-calendar" || name == "tmt-job-calendar")
+                && (!((d["kind"].is_null() || d["kind"] == "normal") && d["target"].is_null())
+                    || (dependency == "tmt-job-calendar" && !["tmt-adapters", "tmt-ops"].contains(&name)));
             let unreviewed = !allowed.contains(&dependency)
                 || state_consumer_only
+                || calendar_edge
                 || carrier_only
                 || leaf_consumer_only
                 || !d["rename"].is_null()
@@ -785,6 +792,7 @@ pub fn source_violations(sources: &[Source]) -> Vec<String> {
                     && ["tmt-remote", "tmt-colab"].contains(&source.package.as_str()))
                 && !(source.package == "tmt-ops" && root == "tmt_tui")
                 && !(source.package == "tmt-ops" && root == "tmt_pty_protocol")
+                && !(source.package == "tmt-ops" && root == "tmt_job_calendar")
                 && !(root == "tmt_colab_model" && colab_model_consumer)
                 && root != source.package.replace('-', "_")
             {

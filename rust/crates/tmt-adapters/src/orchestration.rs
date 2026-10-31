@@ -1,5 +1,6 @@
 //! Shared read/wire boundary. No admission, delivery, timer or job effects.
 mod calendar;
+pub(crate) mod jobs;
 mod read;
 mod receiving;
 pub(crate) mod wire;

@@ -127,7 +127,7 @@ grammar or key tables into the references below.
   terminal and stops workers before execing public `tmt resume` in this pane. No TMT crate depends on Squad; the
   architecture guard enforces both directions for Cargo dependencies and source
   references. Runtime TMT dependencies are the neutral leaves `tmt-cli-style`,
-  `tmt-extension-state`, `tmt-invoke` and `tmt-tui`.
+  `tmt-extension-state`, `tmt-invoke`, `tmt-job-calendar` and `tmt-tui`.
 - A squad is the core room `squad-<name>`. Member fields are identity metadata
   `squad.<name>.<field>`; Squad has no membership store of its own.
 - Squad-owned data lives under `<dataRoot>/ops` (`storage.root` from `tmt api`),

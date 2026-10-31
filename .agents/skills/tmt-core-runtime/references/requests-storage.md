@@ -17,7 +17,9 @@ configuration publication append nothing. Actual restricted Incoming holds creat
 only admission spacing/pass progress. Claims freeze eligible membership and counts
 in the existing summary-tagged checklist; settlement is terminal without captured
 input, prompt confirmation or reoffer. No range history or member copy exists. [Orchestration v1](../../../../contracts/orchestration-v1.md)
-owns shapes, recurrence rules, state defaults and slice boundaries.
+owns shapes, recurrence rules, state defaults and slice boundaries. Stateless job calendars live in
+`tmt-job-calendar`, shared only by adapters and Ops; the Core domain does not import it.
+The leaf owns no store, identity, policy, dispatch or clock lifecycle.
 
 - Raw connections stay private; core sees narrow ports. Frozen fixtures keep their provenance in
   `typescript/test/fixtures/storage-history`.
