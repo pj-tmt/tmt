@@ -89,6 +89,7 @@ export function githubApi(options: {
   appToken?: string;
   readToken?: string;
   repository: string;
+  sleep?: (milliseconds: number) => void;
   spawn?: typeof import('node:child_process').spawnSync;
 }): Api;
 export function readReleases(api: Api): Release[];

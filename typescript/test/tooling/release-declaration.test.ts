@@ -113,6 +113,92 @@ function fixture() {
 }
 
 describe('generated minimum CLI declarations', () => {
+  it.each(['1.2.3-01', '1.2.3-alpha.01', '1.2.3-0.00', '1.2.3-rc.001'])(
+    'refuses authored numeric prerelease identifiers with leading zeros: %s',
+    (version) => {
+      expect(() =>
+        parseComponentMap(
+          JSON.stringify({
+            components: {
+              ops: {
+                owns: ['ops'],
+                uses: [
+                  {
+                    feature: 'browser',
+                    label: 'Browser',
+                    extension: 'remote',
+                    requires: `>=${version}`,
+                  },
+                ],
+              },
+            },
+          })
+        )
+      ).toThrow('Invalid authored feature');
+    }
+  );
+
+  it.each(['1.2.3', '1.2.3-0', '1.2.3-alpha.0', '1.2.3-0alpha', '1.2.3-01a', '1.2.3-rc.1'])(
+    'retains ordinary authored minimum versions: %s',
+    (version) => {
+      const map = parseComponentMap(
+        JSON.stringify({
+          components: {
+            ops: {
+              owns: ['ops'],
+              uses: [
+                {
+                  feature: 'browser',
+                  label: 'Browser',
+                  extension: 'remote',
+                  requires: `>=${version}`,
+                },
+              ],
+            },
+          },
+        })
+      );
+      expect(map.components[0].uses![0].requires).toBe(`>=${version}`);
+    }
+  );
+
+  it('keeps the worst-case admitted declaration inside the installer 4 KiB cap', () => {
+    const version = `1.2.3-${'a'.repeat(56)}`;
+    // A supplementary Unicode scalar costs four UTF-8 bytes; escaped quotes cost only two.
+    const uses = Array.from({ length: 8 }, (_, i) => ({
+      feature: `f${'a'.repeat(30)}${i}`,
+      label: String.fromCodePoint(0x1f680).repeat(48),
+      extension: 'remote',
+      requires: `>=${version}`,
+    }));
+    const map = parseComponentMap(
+      JSON.stringify({
+        components: {
+          ops: { owns: ['ops'], uses, messageProtocols: [248, 249, 250, 251, 252, 253, 254, 255] },
+        },
+      })
+    );
+    const cut = 'a'.repeat(40);
+    const record: DeclarationRecord = {
+      schema: 1,
+      product: 'ops',
+      cut,
+      cli: { tag: `v${version}`, version, sha: cut },
+    };
+    const bytes = declarationBytes({ record, map, product: 'ops', cut });
+    expect(bytes.length).toBeLessThanOrEqual(4096);
+    expect(JSON.parse(bytes.toString())).toEqual({
+      version: 1,
+      requiresCli: `>=${version}`,
+      messageProtocols: [248, 249, 250, 251, 252, 253, 254, 255],
+      uses,
+    });
+    expect(bytes.at(-1)).toBe(10);
+    // The serializer must also refuse oversized bytes if a caller bypasses authored admission.
+    map.components[0].uses![0].label += 'x'.repeat(4096 - bytes.length + 1);
+    expect(() => declarationBytes({ record, map, product: 'ops', cut })).toThrow('exceeds 4 KiB');
+  });
+
   it('copies authored messageProtocols into the declaration and adds the installer floor only then', () => {
     const f = fixture();
     const generated = (map: typeof f.context.map) =>

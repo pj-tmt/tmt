@@ -663,6 +663,151 @@ describe('full repository-state release sweep', () => {
 });
 
 describe('bounded discovery and mutation safety', () => {
+  const transportCases = ['graphql', 'rest'].flatMap((kind) =>
+    ['timeout', '5xx'].map((failure) => ({ kind, failure }))
+  );
+  const transportFailure = (failure: string) => ({
+    status: failure === 'timeout' ? null : 1,
+    signal: failure === 'timeout' ? 'SIGTERM' : null,
+    error:
+      failure === 'timeout'
+        ? Object.assign(new Error('spawnSync gh ETIMEDOUT'), { code: 'ETIMEDOUT' })
+        : undefined,
+    stdout: '',
+    stderr: failure === 'timeout' ? 'request stalled' : 'gh: Service Unavailable (HTTP 503)',
+  });
+
+  it.each(transportCases)(
+    'retries a transient $kind $failure and records every attempt',
+    ({ kind, failure }) => {
+      const spawn = vi
+        .fn()
+        .mockReturnValueOnce(transportFailure(failure))
+        .mockReturnValue({
+          status: 0,
+          stdout:
+            kind === 'graphql'
+              ? '{"data":{"rateLimit":{"cost":2,"remaining":4998},"answer":42}}'
+              : '[42]',
+        });
+      const sleep = vi.fn();
+      const api = githubApi({
+        repository,
+        appToken: 'synthetic-token',
+        spawn: spawn as unknown as typeof spawnSync,
+        sleep,
+      });
+      expect(kind === 'graphql' ? api.graphql('query{}') : api.rest('releases')).toEqual(
+        kind === 'graphql' ? { rateLimit: { cost: 2, remaining: 4998 }, answer: 42 } : [42]
+      );
+      expect(api.counts[kind as 'graphql' | 'rest']).toBe(2);
+      expect(spawn).toHaveBeenCalledTimes(2);
+      expect(sleep.mock.calls).toEqual([[1000]]);
+    }
+  );
+
+  it.each(transportCases)(
+    'bounds persistent $kind $failure and names its cause',
+    ({ kind, failure }) => {
+      const failed = transportFailure(failure);
+      const spawn = vi.fn(() => ({
+        ...failed,
+        stderr: `discard-this-prefix${' old diagnostic'.repeat(300)}${failed.stderr}`,
+      }));
+      const sleep = vi.fn();
+      const api = githubApi({
+        repository,
+        appToken: 'synthetic-token',
+        spawn: spawn as unknown as typeof spawnSync,
+        sleep,
+      });
+      let message = '';
+      try {
+        if (kind === 'graphql') api.graphql('query{}');
+        else api.rest('releases');
+      } catch (error) {
+        message = (error as Error).message;
+      }
+      expect(message).toMatch(
+        failure === 'timeout'
+          ? /code=ETIMEDOUT.*signal=SIGTERM.*request stalled/s
+          : /status=1.*code=none.*signal=none.*HTTP 503/s
+      );
+      expect(message).not.toContain('discard-this-prefix');
+      expect(message.length).toBeLessThan(2500);
+      expect(spawn).toHaveBeenCalledTimes(3);
+      expect(api.counts[kind as 'graphql' | 'rest']).toBe(3);
+      expect(sleep.mock.calls).toEqual([[1000], [2000]]);
+    }
+  );
+
+  it.each(['timeout', '5xx'])(
+    'never retries a mutation after %s, even with uncertain completion',
+    (failure) => {
+      const spawn = vi.fn(() => transportFailure(failure));
+      const sleep = vi.fn();
+      const api = githubApi({
+        repository,
+        appToken: 'synthetic-token',
+        spawn: spawn as unknown as typeof spawnSync,
+        sleep,
+      });
+      expect(() =>
+        api.graphql('mutation{updateProjectV2ItemFieldValue{clientMutationId}}')
+      ).toThrow(
+        failure === 'timeout' ? /code=ETIMEDOUT.*signal=SIGTERM.*request stalled/s : /HTTP 503/
+      );
+      expect(spawn).toHaveBeenCalledTimes(1);
+      expect(api.counts.graphql).toBe(1);
+      expect(sleep).not.toHaveBeenCalled();
+    }
+  );
+
+  it('charges retry attempts to the original budget and refuses before an extra call', () => {
+    const spawn = vi.fn(() => transportFailure('5xx'));
+    const sleep = vi.fn();
+    const api = githubApi({
+      repository,
+      appToken: 'synthetic-token',
+      spawn: spawn as unknown as typeof spawnSync,
+      sleep,
+    });
+    api.counts.graphql = LIMITS.graphql - 1;
+    expect(() => api.graphql('query{}')).toThrow('budget exceeded');
+    expect(api.counts.graphql).toBe(LIMITS.graphql);
+    expect(spawn).toHaveBeenCalledTimes(1);
+    expect(sleep.mock.calls).toEqual([[1000]]);
+  });
+
+  it.each([
+    { status: 1, stdout: '', stderr: 'gh: Forbidden (HTTP 403)' },
+    {
+      status: null,
+      error: Object.assign(new Error('reset'), { code: 'ECONNRESET' }),
+      stdout: '',
+      stderr: '',
+    },
+    { status: 0, stdout: 'invalid JSON', stderr: '' },
+    {
+      status: 0,
+      stdout:
+        '{"data":{"rateLimit":{"cost":1,"remaining":4999}},"errors":[{"message":"invalid query"}]}',
+      stderr: 'warning referring to HTTP 503',
+    },
+  ])('never retries validation or other transport failures %#', (failed) => {
+    const spawn = vi.fn(() => failed);
+    const sleep = vi.fn();
+    const api = githubApi({
+      repository,
+      appToken: 'synthetic-token',
+      spawn: spawn as unknown as typeof spawnSync,
+      sleep,
+    });
+    expect(() => api.graphql('query{}')).toThrow();
+    expect(spawn).toHaveBeenCalledTimes(1);
+    expect(sleep).not.toHaveBeenCalled();
+  });
+
   it('paginates complete releases and closing relationships, including closed PRs', () => {
     const api = fakeApi((url) =>
       url.endsWith('page=1')
@@ -1080,7 +1225,7 @@ describe('bounded discovery and mutation safety', () => {
     expect(p.items.get('issue-1')!.status!.name).toBe('Merged');
   });
 
-  it('counts real transport attempts, scopes credentials and stops without retries', () => {
+  it('counts real transport attempts, scopes credentials and stops at the cap', () => {
     const spawn = vi.fn(() => ({
       status: 0,
       stdout: '{"data":{"rateLimit":{"cost":1,"remaining":4999}}}',
