@@ -1,3 +1,4 @@
+import { browserElements } from '@tmt/browser-ui/elements-manifest';
 import { readFileSync } from 'node:fs';
 import { expect, test } from '@playwright/test';
 const fixture = '/test/ask-page-browser.tsx';
@@ -60,6 +61,50 @@ for (const width of [1440, 390])
             const previews = catalog.locator('[data-design-ready]');
             await expect(previews).toHaveCount(surface === 'index' ? 12 : 1);
             await expect(catalog.getByRole('alert')).toHaveCount(0);
+            if (surface === 'index') {
+              const lifetimes = [];
+              for (const entry of browserElements) {
+                const preview = catalog.getByRole('region', {
+                  name: `${entry.name} live preview`,
+                  exact: true,
+                });
+                const frame = preview.frameLocator('iframe');
+                lifetimes.push(
+                  await frame.locator('body').evaluate((body) => ({
+                    readyState: document.readyState,
+                    widgets: [...body.querySelectorAll('*')]
+                      .filter((node) => node.localName.startsWith('tmt-ui-'))
+                      .map((node) => ({
+                        tag: node.localName,
+                        registered: !!customElements.get(node.localName),
+                        children: node.childElementCount,
+                        controls: node.querySelectorAll(
+                          'button,input,[role="tablist"],.tmt-ui-notice,.tmt-ui-chip',
+                        ).length,
+                      })),
+                  })),
+                );
+              }
+              await info.attach('preview-lifetimes', {
+                body: JSON.stringify(lifetimes, null, 2),
+                contentType: 'application/json',
+              });
+              for (const entry of browserElements) {
+                const preview = catalog.getByRole('region', {
+                  name: `${entry.name} live preview`,
+                  exact: true,
+                });
+                await expect(
+                  preview
+                    .frameLocator('iframe')
+                    .locator('button,input,[role="tablist"],.tmt-ui-notice,.tmt-ui-chip')
+                    .first(),
+                  `${entry.tag} must finish upgrading in its real catalog frame`,
+                ).toBeVisible();
+                await preview.scrollIntoViewIfNeeded();
+              }
+            }
+
             if (surface === 'detail') {
               const frame = catalog.frameLocator('iframe');
               const trigger = frame

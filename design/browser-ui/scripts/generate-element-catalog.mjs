@@ -30,7 +30,8 @@ const collect = (suite) => {
 };
 for (const suite of JSON.parse(listed.stdout).suites) collect(suite);
 const read = (name) => readFile(new URL(name, root), 'utf8');
-const readme = await read('README.md');
+const repository = new URL('../../', root);
+const readme = await readFile(new URL('design/browser-ui/README.md', repository), 'utf8');
 const anchors = new Set(
   [...readme.matchAll(/^#{1,6} (.+)$/gm)].map((match) =>
     match[1]
