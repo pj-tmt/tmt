@@ -2,8 +2,34 @@
 
 use crate::output::Failure;
 use std::error::Error;
-use tmt_adapters::{host::HostError, storage::StorageError};
+use tmt_adapters::{
+    host::HostError,
+    storage::StorageError,
+    verified_stop::{StopCause, StopRefusal},
+};
 use tmt_core::binding::BindingError;
+
+/// A refusal of a stop or move: conflicts exit 5, everything else 1.
+pub fn refusal(code: impl Into<String>, reason: impl std::fmt::Display) -> Failure {
+    let code = code.into();
+    let status = if matches!(code.as_str(), "RUNTIME_CONFLICT" | "IDENTITY_CONFLICT") {
+        5
+    } else {
+        1
+    };
+    Failure::new(code, reason.to_string(), status)
+}
+
+/// The CLI form of a verified stop's refusal.
+pub fn stop_refusal(error: StopRefusal) -> Failure {
+    match error.cause.map(|cause| *cause) {
+        Some(StopCause::Host(error)) => endpoint_failure(error),
+        Some(StopCause::Storage(cause)) => {
+            Failure::new(error.code, error.reason, 1).caused_by(cause)
+        }
+        None => refusal(error.code, error.reason),
+    }
+}
 
 pub fn endpoint_failure(error: HostError) -> Failure {
     if error.socket_permission_denied() {
@@ -34,6 +60,8 @@ pub fn binding_failure(error: BindingError<StorageError, HostError>) -> Failure 
         BindingError::NameTaken(_) => ("NAME_ALREADY_ACTIVE", 5),
         BindingError::PaneAlreadyBound => ("PANE_ALREADY_BOUND", 5),
         BindingError::ConfirmationRequired => ("CONFIRMATION_REQUIRED", 5),
+        BindingError::AgentRunning(..) => ("AGENT_RUNNING", 5),
+        BindingError::Changed => ("IDENTITY_CONFLICT", 5),
         _ => ("RECONCILIATION_FAILED", 1),
     };
     Failure::new(code, error.to_string(), status).caused_by(error)

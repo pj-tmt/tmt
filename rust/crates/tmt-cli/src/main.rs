@@ -71,7 +71,6 @@ mod storage_command;
 mod talk_command;
 mod target;
 mod uninstall_command;
-mod verified_stop;
 mod workspace_command;
 mod workspace_hook;
 mod workspace_restore_command;

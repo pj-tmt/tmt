@@ -81,6 +81,8 @@ pub mod storage;
 pub mod tmux;
 #[cfg(unix)]
 pub mod user;
+#[cfg(unix)]
+pub mod verified_stop;
 
 #[cfg(all(test, unix))]
 mod scripted_runner;

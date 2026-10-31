@@ -152,6 +152,128 @@ pub(super) fn rename(
     serde_json::to_vec(&value).map_err(|_| Fault::unavailable())
 }
 
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct StopInput {
+    identity_id: String,
+    expected_name: String,
+    close: bool,
+}
+
+pub(super) fn decode_stop(input: &[u8]) -> Result<Request, Fault> {
+    let wire: StopInput = serde_json::from_slice(input).map_err(|_| invalid())?;
+    if !tmt_core::dispatch::canonical_id(&wire.identity_id) {
+        return Err(invalid());
+    }
+    Ok(Request::IdentityStop {
+        identity_id: wire.identity_id,
+        expected_name: wire.expected_name,
+        close: wire.close,
+    })
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct RemoveInput {
+    identity_id: String,
+    expected_name: String,
+}
+
+pub(super) fn decode_remove(input: &[u8]) -> Result<Request, Fault> {
+    let wire: RemoveInput = serde_json::from_slice(input).map_err(|_| invalid())?;
+    if !tmt_core::dispatch::canonical_id(&wire.identity_id) {
+        return Err(invalid());
+    }
+    Ok(Request::IdentityRemove {
+        identity_id: wire.identity_id,
+        expected_name: wire.expected_name,
+    })
+}
+
+/// `identity.stop`: the verified stop behind `tmt stop`. Every fault means the
+/// agent may still be running; a kept pane is still a stop.
+pub(super) fn stop(
+    storage: &mut Storage,
+    paths: &crate::config::ConfigPaths,
+    identity_id: &str,
+    expected_name: &str,
+    close: bool,
+) -> Result<Vec<u8>, Fault> {
+    use crate::verified_stop::{PaneOutcome, StopOutcome, stop_identity};
+    let Some(identity) = storage
+        .find_identity_by_id(identity_id)
+        .map_err(|_| Fault::unavailable())?
+    else {
+        return outcome(json!({"outcome":"not-found", "identityId":identity_id}));
+    };
+    if identity.name != expected_name {
+        return outcome(
+            json!({"outcome":"conflict", "identityId":identity_id, "name":identity.name}),
+        );
+    }
+    let stopped = stop_identity(storage, paths, &identity, close).map_err(|refusal| {
+        let fault = match refusal.cause.as_deref() {
+            Some(crate::verified_stop::StopCause::Storage(_)) => Fault::unavailable(),
+            _ => Fault::detailed(refusal.code, refusal.reason),
+        };
+        fault.with_signalled(refusal.signalled)
+    })?;
+    let mut value = json!({
+        "outcome": match stopped.outcome {
+            StopOutcome::Stopped => "stopped",
+            StopOutcome::AlreadyEnded => "already-ended",
+            StopOutcome::NotRunning => "not-running",
+        },
+        "identityId": identity_id,
+        "name": identity.name,
+    });
+    match stopped.pane {
+        None => (),
+        Some(PaneOutcome::Closed) => value["pane"] = json!("closed"),
+        Some(PaneOutcome::Gone) => value["pane"] = json!("gone"),
+        Some(PaneOutcome::Kept(kept)) => {
+            value["pane"] = json!("kept");
+            value["paneReason"] = json!(kept.reason(&identity.name));
+        }
+    }
+    outcome(value)
+}
+
+/// `identity.remove`: the guarded removal behind `tmt rm`, without the Saved
+/// confirmation; the caller's own confirmation is the consent.
+pub(super) fn remove(
+    storage: &mut Storage,
+    identity_id: &str,
+    expected_name: &str,
+) -> Result<Vec<u8>, Fault> {
+    use tmt_core::binding::{BindingError, RemoveOutcome};
+    let result = crate::verified_stop::remove_by_id(storage, identity_id, expected_name).map_err(
+        |error| match &error {
+            BindingError::AgentRunning(..) => Fault::detailed("AGENT_RUNNING", error.to_string()),
+            BindingError::Changed => Fault::detailed("IDENTITY_CONFLICT", error.to_string()),
+            BindingError::Endpoint(host) if host.socket_permission_denied() => Fault::new(
+                "TMUX_PERMISSION_DENIED",
+                "TMT cannot access the tmux socket. Nothing was removed.",
+            ),
+            BindingError::Endpoint(_) | BindingError::Unverified | BindingError::Deadline => {
+                Fault::detailed("RECONCILIATION_FAILED", error.to_string())
+            }
+            _ => Fault::unavailable(),
+        },
+    )?;
+    outcome(match result {
+        RemoveOutcome::Removed(entry) => json!({"outcome":"removed", "identityId":identity_id,
+            "name":entry.identity.name}),
+        RemoveOutcome::Conflict(identity) => json!({"outcome":"conflict", "identityId":identity_id,
+            "name":identity.name}),
+        RemoveOutcome::NotFound => json!({"outcome":"not-found", "identityId":identity_id}),
+    })
+}
+
+fn outcome(value: serde_json::Value) -> Result<Vec<u8>, Fault> {
+    serde_json::to_vec(&value).map_err(|_| Fault::unavailable())
+}
+
 #[cfg(test)]
 mod metadata_tests {
     use super::*;

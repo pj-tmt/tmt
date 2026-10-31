@@ -15,7 +15,8 @@ pub use operations::{
     bind_auto_identity, bind_existing_identity, bind_guarded, bind_identity, bind_identity_at,
     bind_identity_with_creation, bind_identity_with_creation_at,
     bind_runtime_identity_with_creation, move_identity, name_auto_identity, remove_identity,
-    rename_identity, rename_identity_by_id, retire_failed_auto_launch, unbind_identity,
+    remove_identity_by_id, rename_identity, rename_identity_by_id, retire_failed_auto_launch,
+    unbind_identity,
 };
 
 use crate::{
@@ -162,6 +163,26 @@ pub enum RenameOutcome {
     Applied(Box<RenamedIdentity>),
     Conflict(Identity),
     NotFound,
+}
+
+/// Exact UUID/name compare-and-set result of a guarded removal.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum RemoveOutcome {
+    Removed(Box<BindingEntry>),
+    Conflict(Identity),
+    NotFound,
+}
+
+/// Why an identity is not removed: its bound agent may still be running.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AgentRunning {
+    /// The recorded agent process is alive.
+    Alive,
+    /// No ended agent can be proven: the process is suspended or unobservable,
+    /// or the pane is live and no agent process was recorded.
+    Unproven,
+    /// The binding's host could not be observed.
+    HostUnobserved,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -412,6 +433,10 @@ pub enum BindingError<R, O> {
     /// Another unretired identity already holds the requested name.
     NameTaken(String),
     ConfirmationRequired,
+    /// The identity's bound agent may still be running; nothing was removed.
+    AgentRunning(String, AgentRunning),
+    /// The binding changed between the remove guard and the delete.
+    Changed,
     Unverified,
     Deadline,
     Repository(R),
@@ -447,6 +472,10 @@ impl<R, O: fmt::Display> fmt::Display for BindingError<R, O> {
             Self::NameAlreadyActive => output.write_str("Name is already active on another pane."),
             Self::NameTaken(name) => write!(output, "Another identity is already named '{name}'."),
             Self::ConfirmationRequired => output.write_str("Saved identity removal requires --force. Its role and preamble will be removed; exchanges are retained."),
+            Self::AgentRunning(name, AgentRunning::Alive) => write!(output, "{name}'s agent is still running; stop it first with tmt stop {name}, then remove. Nothing was removed."),
+            Self::AgentRunning(name, AgentRunning::Unproven) => write!(output, "{name}'s agent cannot be proven ended; exit it in its pane (or run tmt unbind {name}), then remove. Nothing was removed."),
+            Self::AgentRunning(name, AgentRunning::HostUnobserved) => write!(output, "{name}'s host could not be observed, so TMT cannot tell whether its agent ended. Nothing was removed; retry once the host is reachable."),
+            Self::Changed => output.write_str("The identity's binding changed before it was removed. Nothing was removed."),
             Self::Unverified => output.write_str("Could not verify the identity binding. No successful binding change is claimed."),
             Self::Deadline => output.write_str("Identity coordination deadline exceeded."),
             Self::Repository(_) => output.write_str("Could not update identity state."),

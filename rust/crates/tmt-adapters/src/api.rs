@@ -82,6 +82,8 @@ const OPS: &[&str] = &[
     "identities.status",
     "identity.meta.apply",
     "identity.rename",
+    "identity.stop",
+    "identity.remove",
     "user.identity",
     "consumption.history",
     "consumption.limits",
@@ -94,7 +96,15 @@ pub struct Fault {
     code: &'static str,
     message: std::borrow::Cow<'static, str>,
     storage_access: Option<(StorageError, &'static str)>,
-    metadata_conflicts: Option<Box<tmt_core::identity_metadata::MetadataConflicts>>,
+    detail: Option<Box<FaultDetail>>,
+}
+
+/// A fault's one resource-specific field beside `code` and `message`.
+#[derive(Debug)]
+enum FaultDetail {
+    MetadataConflicts(tmt_core::identity_metadata::MetadataConflicts),
+    /// For an `identity.stop` refusal: whether a TERM was, or may have been, sent.
+    Signalled(bool),
 }
 impl Fault {
     pub fn new(code: &'static str, message: &'static str) -> Self {
@@ -102,7 +112,7 @@ impl Fault {
             code,
             message: message.into(),
             storage_access: None,
-            metadata_conflicts: None,
+            detail: None,
         }
     }
     /// A fault whose message names the specific skill, path or owner.
@@ -111,7 +121,7 @@ impl Fault {
             code,
             message: message.into(),
             storage_access: None,
-            metadata_conflicts: None,
+            detail: None,
         }
     }
     pub fn unavailable() -> Self {
@@ -138,7 +148,12 @@ impl Fault {
         mut self,
         current: tmt_core::identity_metadata::MetadataConflicts,
     ) -> Self {
-        self.metadata_conflicts = Some(Box::new(current));
+        self.detail = Some(Box::new(FaultDetail::MetadataConflicts(current)));
+        self
+    }
+
+    pub(super) fn with_signalled(mut self, signalled: bool) -> Self {
+        self.detail = Some(Box::new(FaultDetail::Signalled(signalled)));
         self
     }
 
@@ -159,8 +174,10 @@ impl Fault {
 
     pub fn encode(&self) -> Vec<u8> {
         let mut error = json!({"code":self.code,"message":self.message});
-        if let Some(current) = &self.metadata_conflicts {
-            error["current"] = json!(current);
+        match self.detail.as_deref() {
+            Some(FaultDetail::MetadataConflicts(current)) => error["current"] = json!(current),
+            Some(FaultDetail::Signalled(signalled)) => error["signalled"] = json!(signalled),
+            None => (),
         }
         if self.code == "API_VERSION_UNSUPPORTED" {
             error["supported"] = json!({"min":1,"max":1});
@@ -302,6 +319,17 @@ pub enum Request {
         expected_name: String,
         name: String,
     },
+    /// The verified stop of one exact UUID while its name is unchanged.
+    IdentityStop {
+        identity_id: String,
+        expected_name: String,
+        close: bool,
+    },
+    /// The guarded removal of one exact UUID while its name is unchanged.
+    IdentityRemove {
+        identity_id: String,
+        expected_name: String,
+    },
     MetadataApply {
         identity_id: String,
         changes: tmt_core::identity_metadata::MetadataChanges,
@@ -426,6 +454,8 @@ pub fn decode(body: &str) -> Result<Request, Fault> {
         "identities.status" => identities::decode(input)?,
         "identity.meta.apply" => identities::decode_metadata(input)?,
         "identity.rename" => identities::decode_rename(input)?,
+        "identity.stop" => identities::decode_stop(input)?,
+        "identity.remove" => identities::decode_remove(input)?,
         "consumption.history" => consumption::decode(input)?,
         "extensions.uses" => extensions::decode(input)?,
         "identityHooks.pending" => identity_hooks::decode_pending(input)?,
@@ -639,6 +669,15 @@ impl Session {
                 expected_name,
                 name,
             } => identities::rename(storage, &identity_id, &expected_name, &name),
+            Request::IdentityStop {
+                identity_id,
+                expected_name,
+                close,
+            } => identities::stop(storage, paths, &identity_id, &expected_name, close),
+            Request::IdentityRemove {
+                identity_id,
+                expected_name,
+            } => identities::remove(storage, &identity_id, &expected_name),
             Request::MetadataApply {
                 identity_id,
                 changes,

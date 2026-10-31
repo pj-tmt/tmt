@@ -48,7 +48,7 @@ fn an_unknown_or_retired_id_is_refused_and_binds_nothing() {
     let retired = bind_identity(&mut storage, &mut endpoint, "%2", "Gone", true)
         .unwrap()
         .identity;
-    remove_identity(&mut storage, &mut endpoint, "Gone", true).unwrap();
+    remove_identity(&mut storage, &mut endpoint, "Gone", true, |_, _| Ok(())).unwrap();
 
     for id in [retired.id.as_str(), "7f0c2f2e-0000-4000-8000-000000000000"] {
         let error =

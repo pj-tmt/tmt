@@ -1190,10 +1190,10 @@ fn end_captured_binding<R: BindingRepository, O: BindingEndpoint>(
             Ok(true)
         })?;
         if !acquired {
-            return if matches!(ending, Ending::FailedAutomatic) {
-                Ok(false)
-            } else {
-                Err(BindingError::Unverified)
+            return match ending {
+                Ending::FailedAutomatic => Ok(false),
+                Ending::Remove => Err(BindingError::Changed),
+                Ending::Unbind => Err(BindingError::Unverified),
             };
         }
         let now = endpoint.publication_time_ms();
@@ -1245,10 +1245,10 @@ fn end_captured_binding<R: BindingRepository, O: BindingEndpoint>(
         Ok(true)
     })?;
     if !changed {
-        return if matches!(ending, Ending::FailedAutomatic) {
-            Ok(false)
-        } else {
-            Err(BindingError::Unverified)
+        return match ending {
+            Ending::FailedAutomatic => Ok(false),
+            Ending::Remove => Err(BindingError::Changed),
+            Ending::Unbind => Err(BindingError::Unverified),
         };
     }
     if active
@@ -1305,11 +1305,17 @@ pub fn unbind_identity<R: BindingRepository, O: BindingEndpoint>(
     }))
 }
 
+/// Removes the identity a name or UUID selects. `agent` is the caller's remove
+/// guard: it sees the captured entry and fresh binding evidence, and refuses while
+/// the bound agent may still be running. The delete itself rechecks the captured
+/// entry in one binding transaction, so a binding that changed after the guard
+/// is never removed.
 pub fn remove_identity<R: BindingRepository, O: BindingEndpoint>(
     repository: &mut R,
     endpoint: &mut O,
     name: &str,
     force: bool,
+    agent: impl FnOnce(&BindingEntry, &BindingEvidence) -> Result<(), AgentRunning>,
 ) -> Result<BindingEntry, BindingError<R::Error, O::Error>> {
     let entry = repository.with_binding_transaction(|records| {
         selected_entry(records, name)?.ok_or_else(|| BindingError::NameNotFound(name.into()))
@@ -1317,6 +1323,39 @@ pub fn remove_identity<R: BindingRepository, O: BindingEndpoint>(
     if entry.identity.lifetime == Lifetime::Saved && !force {
         return Err(BindingError::ConfirmationRequired);
     }
+    remove_entry(repository, endpoint, entry, agent)
+}
+
+/// [`remove_identity`] for one exact active UUID, only while its display name
+/// equals `expected_name`. The caller's own confirmation stands in for `force`.
+pub fn remove_identity_by_id<R: BindingRepository, O: BindingEndpoint>(
+    repository: &mut R,
+    endpoint: &mut O,
+    identity_id: &str,
+    expected_name: &str,
+    agent: impl FnOnce(&BindingEntry, &BindingEvidence) -> Result<(), AgentRunning>,
+) -> Result<RemoveOutcome, BindingError<R::Error, O::Error>> {
+    let entry = repository.with_binding_transaction(|records| {
+        records
+            .entry_by_id(identity_id)
+            .map_err(BindingError::Repository)
+    })?;
+    let Some(entry) = entry else {
+        return Ok(RemoveOutcome::NotFound);
+    };
+    if entry.identity.name != expected_name {
+        return Ok(RemoveOutcome::Conflict(entry.identity));
+    }
+    remove_entry(repository, endpoint, entry, agent)
+        .map(|entry| RemoveOutcome::Removed(Box::new(entry)))
+}
+
+fn remove_entry<R: BindingRepository, O: BindingEndpoint>(
+    repository: &mut R,
+    endpoint: &mut O,
+    entry: BindingEntry,
+    agent: impl FnOnce(&BindingEntry, &BindingEvidence) -> Result<(), AgentRunning>,
+) -> Result<BindingEntry, BindingError<R::Error, O::Error>> {
     endpoint.begin_coordination();
     let evidence = if entry.binding.is_some() {
         let probe = observe(endpoint, &entry).map_err(BindingError::Endpoint)?;
@@ -1324,6 +1363,8 @@ pub fn remove_identity<R: BindingRepository, O: BindingEndpoint>(
     } else {
         BindingEvidence::EndpointLost
     };
+    agent(&entry, &evidence)
+        .map_err(|why| BindingError::AgentRunning(entry.identity.name.clone(), why))?;
     if entry.binding.is_some() && evidence == BindingEvidence::Unknown {
         return Err(BindingError::Unverified);
     }
