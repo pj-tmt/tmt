@@ -18,6 +18,7 @@ import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vite-plus/test';
 import { listE2eFiles } from '../../scripts/e2e-shards.mjs';
 import { readCargoWorkspace } from '../../scripts/cargo-workspace.mjs';
+import { QUALIFIER_README, qualifierCommands } from '../../scripts/remote-squads-qualifier.mjs';
 import {
   RUST_WORKERS,
   MAIN_FULL_JOBS,
@@ -693,27 +694,39 @@ describe('native dependency notices selection', () => {
     const read = (file: string) =>
       readFileSync(new URL(`../../../${file}`, import.meta.url), 'utf8');
     const workflow = read('.github/workflows/remote-squads-emulator.yml');
-    const readme = read('extensions/tmt-remote/rust/tmt-remote/src/squads/README.md');
-    // The Remote README owns the command; the job runs its two lines verbatim.
-    const commands = readme
+    const readme = read(QUALIFIER_README);
+    // The Remote README owns the command; the script reads its two lines at run time.
+    const lines = readme
       .split('## Native CLI emulator qualifier\n')[1]
       .split('```sh\n')[1]
       .split('```')[0]
       .trim()
       .split('\n');
-    expect(commands).toHaveLength(2);
-    expect(commands[1]).toContain('--only auth,firestore --project demo-native-pairing');
+    expect(lines).toHaveLength(2);
+    expect(lines[1]).toContain('--only auth,firestore --project demo-native-pairing');
+    const prefix =
+      'CARGO_BUILD_JOBS=3 cargo test --offline --locked --manifest-path rust/Cargo.toml -p tmt-remote --lib --features test-emulator';
+    expect(qualifierCommands(readme)).toEqual({
+      build: [lines[0], `${prefix} --no-run`],
+      qualify: [lines[1]],
+    });
+    expect(lines[1]).toContain(` '${prefix.replace('CARGO_BUILD_JOBS=3 ', '')} cloud_pairing::`);
+    for (const broken of [
+      readme.replace('## Native CLI emulator qualifier', '## Renamed'),
+      readme.replace(lines[1], `${lines[1]}\n${lines[1]}`),
+      readme.replace(' -- --ignored', ''),
+      readme.replace(' firebase emulators:exec ', ' firebase serve '),
+    ])
+      expect(() => qualifierCommands(broken)).toThrow(QUALIFIER_README);
+    // Remote's test_emulator_guard refuses the default-off feature anywhere under .github/.
+    expect(workflow).not.toMatch(/--features|--all-features|test-emulator/);
     const step = (name: string) =>
       workflow.split(`      - name: ${name}\n`)[1].split('\n      - ')[0];
-    const build = step('Build the emulator-featured door and qualifier test');
-    expect(build).toContain('        timeout-minutes: 25\n');
-    expect(build).toContain(`\n          ${commands[0]}\n`);
-    expect(build).toMatch(/-p tmt-remote --lib --features test-emulator --no-run$/);
-    const qualifier = step(
-      'Run the two-machine squads qualifier against Auth and Firestore emulators'
+    expect(step('Build the emulator-featured door and qualifier test')).toBe(
+      '        timeout-minutes: 25\n        run: node typescript/scripts/remote-squads-qualifier.mjs build'
     );
-    expect(qualifier).toBe(
-      `        timeout-minutes: 10\n        run: |\n          ${commands[1]}\n`
+    expect(step('Run the two-machine squads qualifier against Auth and Firestore emulators')).toBe(
+      '        timeout-minutes: 10\n        run: node typescript/scripts/remote-squads-qualifier.mjs qualify\n'
     );
     expect(workflow).toContain('    timeout-minutes: 40\n');
     // The Firestore emulator shares the Unit tests pins: hosted Temurin 21 and firebase-tools.
@@ -732,6 +745,7 @@ describe('native dependency notices selection', () => {
     for (const input of [
       'extensions/tmt-remote/rust/**',
       '.github/workflows/remote-squads-emulator.yml',
+      'typescript/scripts/remote-squads-qualifier.mjs',
       'rust/Cargo.lock',
     ])
       expect(`${filter('pull_request')}\n`).toContain(`      - '${input}'\n`);

@@ -9,6 +9,7 @@ on:
       - 'extensions/tmt-remote/rust/**'
       - '.github/workflows/remote-squads-emulator.yml'
       - 'scripts/install-ci-rust.sh'
+      - 'typescript/scripts/remote-squads-qualifier.mjs'
       - 'rust/Cargo.toml'
       - 'rust/Cargo.lock'
   push:
@@ -17,6 +18,7 @@ on:
       - 'extensions/tmt-remote/rust/**'
       - '.github/workflows/remote-squads-emulator.yml'
       - 'scripts/install-ci-rust.sh'
+      - 'typescript/scripts/remote-squads-qualifier.mjs'
       - 'rust/Cargo.toml'
       - 'rust/Cargo.lock'
   workflow_dispatch:
@@ -51,12 +53,11 @@ jobs:
       - name: Fetch locked dependencies before offline builds
         working-directory: rust
         run: cargo fetch --locked
-      # Compile outside the emulator step so its timeout bounds only the qualifier run.
+      # The script runs the Remote squads README command; Remote's test_emulator_guard keeps
+      # the default-off feature out of `.github/`. Compiling first bounds only the qualifier run.
       - name: Build the emulator-featured door and qualifier test
         timeout-minutes: 25
-        run: |
-          CARGO_BUILD_JOBS=3 cargo build --offline --locked --manifest-path rust/Cargo.toml -p tmt-remote --bin tmt-remote --features test-emulator
-          CARGO_BUILD_JOBS=3 cargo test --offline --locked --manifest-path rust/Cargo.toml -p tmt-remote --lib --features test-emulator --no-run
+        run: node typescript/scripts/remote-squads-qualifier.mjs build
       - name: Select the hosted Temurin 21 for the Firestore emulator
         run: |
           test -n "$JAVA_HOME_21_X64"
@@ -67,5 +68,4 @@ jobs:
         run: npm install --global firebase-tools@15.29.0
       - name: Run the two-machine squads qualifier against Auth and Firestore emulators
         timeout-minutes: 10
-        run: |
-          TMT_REMOTE_QUALIFIER_BIN="$PWD/rust/target/debug/tmt-remote" CARGO_BUILD_JOBS=3 firebase emulators:exec --only auth,firestore --project demo-native-pairing --config extensions/tmt-remote/rust/tmt-remote/tests/emulator/native-squads.firebase.json --non-interactive 'cargo test --offline --locked --manifest-path rust/Cargo.toml -p tmt-remote --lib --features test-emulator cloud_pairing::service::tests::emulator::squads_cli_qualifier::native_cli_squad_change_heartbeat_restart_revoke_and_budget -- --ignored --exact --test-threads=1'
+        run: node typescript/scripts/remote-squads-qualifier.mjs qualify

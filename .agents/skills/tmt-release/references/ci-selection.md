@@ -51,9 +51,11 @@ and no credentials. Both fail closed within step bounds, without retries or cach
 
 [Remote squads emulator qualifier](../../../../.github/workflows/remote-squads-emulator.yml)
 is advisory and outside required aggregates: PRs and main pushes touching Remote Rust,
-the workflow, `rust/Cargo.toml` or `rust/Cargo.lock` run the Remote squads README
-command verbatim against loopback Auth and Firestore emulators with the same pins.
-It compiles before starting the emulators, so the qualifier step stays bounded at 10 minutes.
+the workflow, its script, `rust/Cargo.toml` or `rust/Cargo.lock` run
+[the qualifier script](../../../../typescript/scripts/remote-squads-qualifier.mjs). It reads
+the Remote squads README command at run time, because Remote's emulator guard keeps the
+default-off feature out of `.github/`. It runs against loopback Auth and Firestore emulators
+with the same pins and compiles first, so the qualifier step stays bounded at 10 minutes.
 
 ## Worker gates
 
