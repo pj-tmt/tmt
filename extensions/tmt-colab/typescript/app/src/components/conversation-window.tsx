@@ -182,7 +182,14 @@ export function ConversationWindow({
     };
   }, [waitForFonts]);
   useLayoutEffect(() => {
-    if (waitForFonts && historyReady) latest();
+    if (!waitForFonts || !historyReady) return;
+    latest();
+    // The composer can finish laying out in the opening frame. Re-measure before
+    // that frame paints, while respecting a requested jump to a specific reply.
+    const frame = requestAnimationFrame(() => {
+      if (following.current && !notificationRef.current.reveal) latest();
+    });
+    return () => cancelAnimationFrame(frame);
   }, [historyReady, latest, waitForFonts]);
   useLayoutEffect(() => {
     const ids = new Set(messageIds);

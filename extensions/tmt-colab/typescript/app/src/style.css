@@ -884,7 +884,7 @@ body:has(.needs-you-header-menu):not(:has(.tmt-ui-shell)) {
   min-width: 0;
   min-height: 0;
 }
-.conversation-history[hidden] {
+.chat-panel .conversation-history[hidden] {
   display: none;
 }
 .conversation-message-content {
@@ -925,8 +925,8 @@ body:has(.needs-you-header-menu):not(:has(.tmt-ui-shell)) {
   border-top: 1px solid var(--c-rule);
   padding: 12px 16px 16px;
 }
-/* Unbounded Comments presentations use the drawer body as their scroller. The fixed
-   Discussion frame overrides this below and scrolls its history instead. */
+/* The Comments panel is unbounded: its drawer body is the one scroller, so the message list and
+   composer must not be scroll containers of their own (a contained, non-scrolling list swallows the wheel). */
 .comments-panel .conversation-messages,
 .comments-panel .conversation-composer {
   overflow: visible;
@@ -1625,28 +1625,6 @@ button.discussion-quote:focus-visible {
   color: var(--tmt-ui-surface-sheet);
 }
 /* The composer sits on its panel's own surface, with no rule above it. */
-/* The floating Discussion has a fixed frame: history scrolls inside it and the
-   composer stays at its bottom, independent of the length of the conversation. */
-.tmt-ui-panel[data-floating-discussion]
-  .tmt-ui-drawer-body:has(.comments-panel[data-view='discussion']) {
-  overflow: hidden;
-}
-.comments-panel[data-view='discussion'] {
-  display: flex;
-  flex: 1;
-  flex-direction: column;
-  min-height: 0;
-}
-.comments-panel[data-view='discussion'] .discussion-status {
-  flex: none;
-}
-.comments-panel[data-view='discussion'] .conversation-messages {
-  overflow: auto;
-}
-.comments-panel[data-view='discussion'] .conversation-composer {
-  position: static;
-  overflow: auto;
-}
 .comment-thread[data-layout='discussion'] .conversation-composer {
   border-top: 0;
 }
