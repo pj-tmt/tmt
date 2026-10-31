@@ -5,6 +5,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { productOfTag, productOfComponent, archivePrefix } from './native-release-policy.mjs';
 import { compareVersions, versionOfTag } from './release-versions.mjs';
 import { readReleaseSourceAtRef } from './release-source-at-ref.mjs';
+import { retryReleaseRead } from './release-read-retry.mjs';
 import { runPackedCommand } from './packed-command.mjs';
 import { reconcilePublishedTags } from './release-tag-refs.mjs';
 import { ownerOf, parseComponentMap, releasedComponentsForPath } from './ci-scope.mjs';
@@ -34,8 +35,8 @@ export function releaseIdentity(tag) {
   return { product, version, label: `${archivePrefix(product)} ${version}` };
 }
 
-/** A hard budget counts requests, including failed calls; no retries or polling. */
-export function githubApi({ appToken, readToken, repository, spawn = spawnSync }) {
+/** A hard budget counts every attempt; only timeout/5xx reads receive bounded retries. */
+export function githubApi({ appToken, readToken, repository, spawn = spawnSync, sleep }) {
   if (!appToken)
     throw new Error(
       'RELEASE_APP_TOKEN is missing; mint the release App installation token before running the updater.'
@@ -75,24 +76,40 @@ export function githubApi({ appToken, readToken, repository, spawn = spawnSync }
       points.cost += rateLimit.cost;
       points.remaining = rateLimit.remaining;
     }
-    if (data?.errors?.length) {
+    const transportFailed = result.error || result.status !== 0 || data === undefined;
+    const transientRead = Boolean(
+      transportFailed &&
+      (result.error?.code === 'ETIMEDOUT' || /\bHTTP 5\d\d\b/i.test(String(result.stderr ?? '')))
+    );
+    const details = `status=${result.status ?? 'none'}, code=${result.error?.code ?? 'none'}, signal=${result.signal ?? 'none'}; error=${String(result.error?.message ?? 'none').slice(-1024)}; stderr tail: ${String(result.stderr ?? '').slice(-2048) || '(empty)'}`;
+    if (data?.errors?.length && !transientRead) {
       throw new Error(
-        `GitHub GraphQL rejected the request: ${data.errors.map((error) => error.message).join('; ')}. ${recovery}`
+        `GitHub GraphQL rejected the request: ${data.errors.map((error) => error.message).join('; ')}. ${details}. ${recovery}`
       );
     }
-    if (result.error || result.status !== 0 || data === undefined)
-      throw new Error(
-        `GitHub ${kind} request failed for ${endpoint}; no automatic retry. ${recovery}`
+    if (transportFailed)
+      throw Object.assign(
+        new Error(`GitHub ${kind} request failed for ${endpoint}: ${details}. ${recovery}`),
+        { transientRead }
       );
     if (kind === 'graphql' && input.query.startsWith('query') && !validRateLimit)
       throw new Error('GraphQL read omitted valid rate-limit cost/remaining evidence.');
     return kind === 'graphql' ? data.data : data;
   };
+  const read = (kind, endpoint, input) =>
+    retryReleaseRead(() => invoke(kind, endpoint, input), {
+      label: `GitHub ${kind} read`,
+      retryIf: (failure) => failure.transientRead === true,
+      sleep,
+    });
   return {
     counts,
     points,
-    rest: (path) => invoke('rest', `repos/${repository}/${path}`),
-    graphql: (query) => invoke('graphql', 'graphql', { query }),
+    rest: (path) => read('rest', `repos/${repository}/${path}`),
+    graphql: (query) =>
+      query.startsWith('query')
+        ? read('graphql', 'graphql', { query })
+        : invoke('graphql', 'graphql', { query }),
     reserve: (requests) => {
       if (counts.graphql + requests > LIMITS.graphql)
         throw new Error(`Insufficient GraphQL budget before writes. ${recovery}`);
