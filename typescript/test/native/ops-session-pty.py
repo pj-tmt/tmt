@@ -90,23 +90,41 @@ def open_session():
     wait_for(lambda: len(output) > before and screen.contains("Enter runs · Esc closes"),
              "selected agent Actions menu", deadline)
 
+    # Actions paints its cursor directly beside the selected label. Wait for
+    # that selection to change after each Down: an unrelated refresh paint
+    # must not admit another key and queue movement beyond Member session.
+    def selection():
+        rows = ["".join(row) for row in screen.cells]
+        footer = next(line for line in rows if "Enter runs · Esc closes" in line)
+        label = footer.index("Enter runs · Esc closes")
+        left = footer.rfind("│", 0, label)
+        right = footer.find("│", label)
+        assert 0 <= left < right, "Actions menu has no painted bounds"
+        return tuple((index, line[left + 1:right]) for index, line in enumerate(rows)
+                     if "›" in line[left + 1:right])
+
     def session_selected():
-        return any("›" in line and line.split("›", 1)[1].lstrip().startswith("Member session")
-                   for line in ("".join(row) for row in screen.cells))
+        return any("Member session" in line
+                   and line.split("Member session", 1)[0].rstrip().endswith("›")
+                   for _, line in selection())
 
     for _ in range(80):
         if session_selected():
             break
-        before = len(output)
+        previous = selection()
         os.write(master, b"\x1b[B")
-        wait_for(lambda: len(output) > before and screen.contains("Enter runs · Esc closes"),
+        wait_for(lambda: selection() != previous and screen.contains("Enter runs · Esc closes"),
                  "Actions selection advanced", deadline)
     else:
-        raise AssertionError("Member session missing from the selected agent Actions menu")
+        raise AssertionError("Member session never selected in the agent Actions menu")
+    selected_frame = "\n".join("".join(row) for row in screen.cells)
     before = len(output)
     os.write(master, b"\r")
-    wait_for(lambda: len(output) > before and screen.contains("Launch preset:"),
-             "session public read completed", deadline)
+    try:
+        wait_for(lambda: len(output) > before and screen.contains("Launch preset:"),
+                 "session public read completed", deadline)
+    except AssertionError as error:
+        raise AssertionError("Actions frame before Enter:\n" + selected_frame) from error
 
 
 def open_review():
