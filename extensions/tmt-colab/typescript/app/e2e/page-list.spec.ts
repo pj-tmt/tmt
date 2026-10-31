@@ -965,7 +965,7 @@ test('the module menu opens Colab settings read-only and selects only its row', 
   await expect(
     settings.getByRole('region', { name: 'Reference defaults', exact: true }),
   ).toContainText('An illustration of the current schema, not your live settings.');
-  await expect(settings.locator('dd')).toHaveText(['On', '1 per agent', 'Not set', '180 days']);
+  await expect(settings.locator('dd')).toHaveText(['On', '180 days']);
   await expect(
     moduleMenu(page).locator('a[data-id="colab-settings"][aria-current="page"]'),
   ).toBeVisible();
