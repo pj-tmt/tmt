@@ -510,7 +510,7 @@
   min-width: 20px;
   margin-left: auto;
   padding: var(--tmt-ui-rail-count-padding-block) var(--tmt-ui-space-s);
-  border-radius: var(--tmt-ui-radius-pill);
+  border-radius: var(--tmt-ui-radius-badge);
   background: color-mix(in srgb, var(--tmt-ui-color-secondary) 35%, var(--tmt-ui-surface-sheet));
   color: var(--tmt-ui-color-text);
   font: var(--tmt-ui-rail-count-size)/1 var(--tmt-ui-font-body);

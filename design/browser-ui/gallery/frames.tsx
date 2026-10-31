@@ -34,6 +34,7 @@ import {
 import { startShellHost, type ShellSlot } from '../src/shell-host.js';
 import { FramePair, Section, noop } from './kit.js';
 import { EditorialSection } from './editorial.js';
+import { ThemeBFrame } from './theme-b.js';
 import { menuItems, NoticeSection } from './components.js';
 import { UiOverlayFrame } from './ui-overlays.js';
 import { createIcon } from '../src/glyph.js';
@@ -667,6 +668,8 @@ export function frameFor(name: string, params: URLSearchParams): ReactNode {
       return <MenuFrame />;
     case 'notifications':
       return <NotificationsFrame />;
+    case 'theme-b':
+      return <ThemeBFrame params={params} />;
     case 'ui-overlay':
       return <UiOverlayFrame params={params} />;
     default:

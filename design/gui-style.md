@@ -50,6 +50,14 @@ named below; explicitly labelled design targets remain unshipped.
 
 ## Tokens
 
+Tokens come in three tiers. **ref** is the primitive tier (the spec page calls it "primitive"): raw
+values such as `ink-950`, `red-500`, the `radius` knob and the `size-1`…`size-9` type steps, projected
+as `--tmt-ui-ref-*` and read only by roles. **Semantic roles** (`--tmt-ui-color-*`,
+`--tmt-ui-surface-*`, the metrics) are what components read. **Component tokens** (`--tmt-foundation-*`
+in the ui layer) alias the semantic roles. Palette B (red, black, white and grey, #5821) maps the
+semantic roles onto refs inside `[data-tmt-palette='b']` only. Its accent red marks only the brand,
+focus, the selected tab and the primary action, never a state: blocked is a darker red with its ✕.
+
 Use the leaf's [roles and generation](browser-ui/README.md#entries-and-generation)
 and [host metric inputs](browser-ui/README.md#host-metric-inputs); those are the
 single owner of browser projection and metrics. Light/system-dark defaults and

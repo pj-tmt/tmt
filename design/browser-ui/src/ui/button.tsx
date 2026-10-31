@@ -6,7 +6,7 @@ import { Slot } from 'radix-ui';
 import { cn } from './utils.js';
 
 const buttonVariants = cva(
-  "tmt:bg-transparent tmt:appearance-none tmt:[border-radius:var(--tmt-foundation-radius)] tmt:font-body tmt:m-0 tmt:box-border tmt:border-solid tmt:border-(length:--tmt-foundation-rule-width) tmt:border-transparent tmt:inline-flex tmt:shrink-0 tmt:items-center tmt:justify-center tmt:gap-2 tmt:text-(length:--tmt-foundation-command-size) tmt:font-(weight:--tmt-foundation-eyebrow-weight) tmt:whitespace-nowrap tmt:focus-visible:border-ring tmt:focus-visible:outline-none tmt:disabled:pointer-events-none tmt:disabled:opacity-50 tmt:aria-invalid:border-destructive tmt:[&_svg]:pointer-events-none tmt:[&_svg]:shrink-0 tmt:[&_svg:not([class*='size-'])]:size-4",
+  "tmt:bg-transparent tmt:appearance-none tmt:[border-radius:var(--tmt-foundation-radius)] tmt:font-body tmt:m-0 tmt:box-border tmt:border-solid tmt:border-(length:--tmt-foundation-rule-width) tmt:border-transparent tmt:inline-flex tmt:shrink-0 tmt:items-center tmt:justify-center tmt:gap-2 tmt:text-(length:--tmt-foundation-command-size) tmt:font-(weight:--tmt-foundation-eyebrow-weight) tmt:whitespace-nowrap tmt:focus-visible:border-ring tmt:focus-visible:outline-none tmt:disabled:pointer-events-none tmt:disabled:opacity-50 tmt:aria-invalid:border-destructive tmt:[&_svg]:pointer-events-none tmt:[&_svg]:shrink-0 tmt:[&_svg:not([class*='size-'])]:size-4 tmt:transition-[color,background-color,border-color,scale] tmt:duration-(--tmt-foundation-motion-fast) tmt:ease-(--tmt-foundation-motion-ease-out) tmt:enabled:active:scale-(--tmt-foundation-motion-press-scale)",
   {
     variants: {
       variant: {

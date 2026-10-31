@@ -9,6 +9,7 @@ const tokens = JSON.parse(
     color: Record<string, Record<'light' | 'dark', string>>;
     surface: Record<string, Record<'light' | 'dark', string>>;
     metric: Record<string, string>;
+    shadow: Record<string, Record<'light' | 'dark', string>>;
     ui: Record<string, string>;
   };
 };
@@ -163,8 +164,13 @@ async function assertTokens(
   await expect(node).toHaveCSS('border-color', rgb(tokens.browser.surface.rule[theme]));
   await expect(node).toHaveCSS('border-width', tokens.browser.metric['rule-width']);
   await expect(node).toHaveCSS('border-radius', tokens.browser.metric[radius]!);
-  // A floating layer carries the one overlay shadow.
-  await expect(node).toHaveCSS('box-shadow', /60px/);
+  // A floating layer carries an elevation level (#5821): overlay (level 2), or level 3 for a modal.
+  const level = (name: 'overlay' | 'elevation-3') =>
+    tokens.browser.shadow[name][theme].split(' ').slice(1, 3).join(' ');
+  await expect(node).toHaveCSS(
+    'box-shadow',
+    new RegExp(`${level('overlay')}|${level('elevation-3')}`),
+  );
   await expect(node).toHaveCSS('z-index', tokens.browser.ui['z-layer']);
   await expect(node).toHaveCSS('font-size', tokens.browser.metric['command-size']);
   expect(

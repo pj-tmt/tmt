@@ -87,7 +87,11 @@ export function Frame({
   height: number;
   params?: Record<string, string>;
 }) {
-  const query = new URLSearchParams({ frame, theme, ...params });
+  const page = new URLSearchParams(location.search);
+  const preview = Object.fromEntries(
+    ['palette', 'radius'].flatMap((key) => (page.get(key) ? [[key, page.get(key)!]] : [])),
+  );
+  const query = new URLSearchParams({ frame, theme, ...preview, ...params });
   return (
     <iframe
       className="gallery-frame"

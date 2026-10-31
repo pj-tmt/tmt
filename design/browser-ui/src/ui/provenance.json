@@ -72,13 +72,25 @@
     {
       "path": "apps/v4/registry/new-york-v4/ui/command.tsx",
       "sha256": "b0917eab214054724ebbf4aa59228ab68d881ac03bfc0f64106f1b3f77cb6d46"
+    },
+    {
+      "path": "apps/v4/registry/new-york-v4/ui/skeleton.tsx",
+      "sha256": "ba48dd5be5a6a1378bd4e011028654b5bf419f1e7d20ee4b9f8330c1264e7239"
+    },
+    {
+      "path": "apps/v4/registry/new-york-v4/ui/empty.tsx",
+      "sha256": "ae95bdcf367a076ae02e7925f14522a148798f72d9651749c6d55497dba584c0"
+    },
+    {
+      "path": "apps/v4/registry/new-york-v4/ui/card.tsx",
+      "sha256": "c48dd3b96be90a7066f1aebf294f0af9d00ebcdc367d5d4aca55429ade570c1c"
     }
   ],
   "repository": "https://github.com/shadcn-ui/ui",
   "license": "MIT",
   "adaptation": {
     "helper": "src/ui/utils.ts; typed/formatting change and fixed tmt prefix via extendTailwindMerge; local assignRefs helper preserves object/callback ref cleanup for Combobox and Chips",
-    "components": "Slice2 adapts Button, Input, Textarea, Checkbox, Switch, Separator, Badge, Alert and Tabs. Slice3 adapts Dialog, Sheet, DropdownMenu, Tooltip and Popover, with local token classes, originating-island portals, shared surface viewport observation and optional host-owned controlled close admission/menu handoff. Tooltip retains stock Radix behavior without busy veto. Select remains excluded pending #3057; Slice4 adapts the pinned Command family and composes controlled Combobox/Chip/Chips from cmdk plus the accepted Popover, Button and Badge. Original selection events are admitted locally, with host filtering and close admission; cmdk retains active-option navigation. Layer-boundary, generic border and input aliases project existing browser.surface.rule; indicator preserves browser.color.edge for Checkbox/Switch state legibility, while focus and checked-state roles remain unchanged; Checkbox also names its `form` on the trigger so a reset of a form it is not inside reaches it.",
+    "components": "Slice2 adapts Button, Input, Textarea, Checkbox, Switch, Separator, Badge, Alert and Tabs. Slice3 adapts Dialog, Sheet, DropdownMenu, Tooltip and Popover, with local token classes, originating-island portals, shared surface viewport observation and optional host-owned controlled close admission/menu handoff. Tooltip retains stock Radix behavior without busy veto. Theme B (#5821) adds Select, with the menu's visual-viewport fit (#3057), and Skeleton, Empty and Card; Slice4 adapts the pinned Command family and composes controlled Combobox/Chip/Chips from cmdk plus the accepted Popover, Button and Badge. Original selection events are admitted locally, with host filtering and close admission; cmdk retains active-option navigation. Layer-boundary, generic border and input aliases project existing browser.surface.rule; indicator preserves browser.color.edge for Checkbox/Switch state legibility, while focus and checked-state roles remain unchanged; Checkbox also names its `form` on the trigger so a reset of a form it is not inside reaches it.",
     "combobox": "Pinned Radix Popover plus Command/cmdk; CommandDialog depends on Dialog; do not use current Base UI combobox registry; owner-approved PopoverContent outsidePress='dismiss-only' adds a transparent same-portal pointer shield for Chips with an external persistent input. Default 'through' remains stock nonmodal behavior; the shield always consumes a first press, including close veto, without new open state or document listener ownership. Chips alone scopes a visualViewport resize listener and cancellable animation frame to its open lifetime, revealing only its focused off-viewport persistent input with nearest scrollIntoView; no popup placement, focus or query mutation is introduced."
   },
   "dependencies": {

@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useLayoutEffect, useRef, useState } from 'react';
 import tokens from '../../tokens/tokens.json';
 import { BrowserAction } from '../src/react.js';
 import { Pair, Section, noop, type Theme } from './kit.js';
@@ -7,6 +7,48 @@ import { ThemeCell } from './theme-cell.js';
 type Rendering = { light: string; dark: string };
 const roles = (group: Record<string, unknown>) =>
   Object.entries(group).filter(([name]) => !name.startsWith('$')) as [string, Rendering][];
+
+/** The value a swatch really paints, read back from the page, so a scope such as palette B shows its
+ * own values (#5821); `fallback` is the token document's value until the swatch has painted. */
+function LiveValue({ fallback, from }: { fallback: string; from: () => HTMLElement | null }) {
+  const [value, setValue] = useState(fallback);
+  useLayoutEffect(() => {
+    const node = from();
+    if (!node) return;
+    const parts = getComputedStyle(node)
+      .backgroundColor.match(/[\d.]+/g)
+      ?.map(Number);
+    if (!parts || parts.length < 3) return;
+    const hex = parts
+      .slice(0, 3)
+      .map((part) => part.toString(16).padStart(2, '0'))
+      .join('');
+    const alpha =
+      parts.length > 3 && parts[3]! < 1
+        ? Math.round(parts[3]! * 255)
+            .toString(16)
+            .padStart(2, '0')
+        : '';
+    setValue(`#${hex}${alpha}`);
+    // The gallery's palette and theme switches reload the page, so one read after mount is enough.
+  }, [from]);
+  return <span className="gallery-value">{value}</span>;
+}
+
+function Swatch({ name, prefix, fallback }: { name: string; prefix: string; fallback: string }) {
+  const swatch = useRef<HTMLSpanElement>(null);
+  return (
+    <li>
+      <span
+        ref={swatch}
+        className="gallery-swatch"
+        style={{ background: `var(--tmt-ui-${prefix}-${name})` }}
+      />
+      <code>{name}</code>
+      <LiveValue fallback={fallback} from={() => swatch.current} />
+    </li>
+  );
+}
 
 function Swatches({
   group,
@@ -20,15 +62,21 @@ function Swatches({
   return (
     <ul className="gallery-swatches">
       {roles(group).map(([name, value]) => (
-        <li key={name}>
-          <span
-            className="gallery-swatch"
-            style={{ background: `var(--tmt-ui-${prefix}-${name})` }}
-          />
-          <code>{name}</code>
-          <span className="gallery-value">{value[theme].toLowerCase()}</span>
-        </li>
+        <Swatch key={name} name={name} prefix={prefix} fallback={value[theme].toLowerCase()} />
       ))}
+    </ul>
+  );
+}
+
+/** The primitive tier's colours (`tokens.browser.ref`), the raw values palette B's roles read. */
+function RefSwatches() {
+  return (
+    <ul className="gallery-swatches">
+      {Object.entries(tokens.browser.ref)
+        .filter(([name, value]) => !name.startsWith('$') && String(value).startsWith('#'))
+        .map(([name, value]) => (
+          <Swatch key={name} name={name} prefix="ref" fallback={String(value)} />
+        ))}
     </ul>
   );
 }
@@ -177,6 +225,12 @@ function MotionDemo() {
 export function TokensSection() {
   return (
     <Section id="tokens">
+      <Pair
+        title="Primitive tier (tokens.browser.ref)"
+        note="The raw values palette B's roles read; the labels show what each swatch paints."
+      >
+        {() => <RefSwatches />}
+      </Pair>
       <Pair title="Colour roles (tokens.browser.color)">
         {(theme) => <Swatches group={tokens.browser.color} prefix="color" theme={theme} />}
       </Pair>

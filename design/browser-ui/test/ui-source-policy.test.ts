@@ -21,13 +21,16 @@ it('requires literal prefixed, square, token-backed utilities instead of stock s
     expect(() => uiCandidates(source), source).toThrow();
 });
 
-it('allows the named radius tokens, the one overlay shadow and token-backed motion, nothing else', () => {
+it('allows the named radius tokens, the elevation levels and token-backed motion, nothing else', () => {
   for (const source of [
     'className="tmt:rounded-control"',
     'className="tmt:rounded-small"',
     'className="tmt:rounded-surface"',
     'className="tmt:rounded-pill"',
     'className="tmt:shadow-overlay"',
+    'className="tmt:shadow-elevation-1"',
+    'className="tmt:shadow-elevation-3"',
+    'className="tmt:duration-(--tmt-foundation-motion-fast) tmt:ease-(--tmt-foundation-motion-ease-out)"',
     'className="tmt:data-[state=open]:animate-[tmt-foundation-pop-in_var(--tmt-foundation-motion-fast)_var(--tmt-foundation-motion-ease-out)_both]"',
   ])
     expect(() => uiCandidates(source), source).not.toThrow();
@@ -40,6 +43,13 @@ it('allows the named radius tokens, the one overlay shadow and token-backed moti
     'className="tmt:ring"',
     'className="tmt:ring-2"',
     'className="tmt:hover:shadow-md"',
+    'className="tmt:duration-200"',
+    'className="tmt:duration-[150ms]"',
+    'className="tmt:delay-100"',
+    'className="tmt:ease-in-out"',
+    'className="tmt:ease-[cubic-bezier(0,0,1,1)]"',
+    'className="tmt:animate-[spin_1s_linear_infinite]"',
+    'className="tmt:shadow-elevation-2"',
   ])
     expect(() => uiCandidates(source), source).toThrow();
 });

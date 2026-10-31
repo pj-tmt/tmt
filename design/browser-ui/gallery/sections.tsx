@@ -20,6 +20,7 @@ import { PageSectionsSection, TablesSection, VisuallyHiddenSection } from './lay
 import { NotificationsSection, OverlaysSection, ShellSection } from './frames.js';
 import { ChartsSection } from './charts.js';
 import { UiLayerSection } from './ui-layer.js';
+import { ThemeBSection } from './theme-b.js';
 import { UiOverlaysSection } from './ui-overlays.js';
 import {
   AvatarSection,
@@ -67,6 +68,7 @@ export function GallerySections() {
       <NotificationsSection />
       <ChartsSection />
       <UiLayerSection />
+      <ThemeBSection />
     </>
   );
 }

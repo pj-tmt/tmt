@@ -5,7 +5,7 @@ import { cva, type VariantProps } from 'class-variance-authority';
 import { cn } from './utils.js';
 
 const alertVariants = cva(
-  'tmt:box-border tmt:font-body tmt:[border-radius:var(--tmt-foundation-radius)] tmt:border-border tmt:relative tmt:grid tmt:w-full tmt:grid-cols-[0_1fr] tmt:items-start tmt:gap-y-0.5 tmt:border-solid tmt:border-(length:--tmt-foundation-rule-width) tmt:px-4 tmt:py-3 tmt:text-(length:--tmt-foundation-command-size) tmt:has-[>svg]:grid-cols-[calc(var(--tmt-foundation-spacing-unit)*4)_1fr] tmt:has-[>svg]:gap-x-3 tmt:[&>svg]:size-4 tmt:[&>svg]:translate-y-0.5 tmt:[&>svg]:text-current',
+  'tmt:animate-rise-in tmt:box-border tmt:font-body tmt:[border-radius:var(--tmt-foundation-radius)] tmt:border-border tmt:relative tmt:grid tmt:w-full tmt:grid-cols-[0_1fr] tmt:items-start tmt:gap-y-0.5 tmt:border-solid tmt:border-(length:--tmt-foundation-rule-width) tmt:px-4 tmt:py-3 tmt:text-(length:--tmt-foundation-command-size) tmt:has-[>svg]:grid-cols-[calc(var(--tmt-foundation-spacing-unit)*4)_1fr] tmt:has-[>svg]:gap-x-3 tmt:[&>svg]:size-4 tmt:[&>svg]:translate-y-0.5 tmt:[&>svg]:text-current',
   {
     variants: {
       variant: {

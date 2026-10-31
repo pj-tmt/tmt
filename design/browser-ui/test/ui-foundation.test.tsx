@@ -34,14 +34,36 @@ it('does not invent a body portal before its own island container is mounted', (
   expect(html).toContain('data-tmt-ui-portal=""');
   expect(() => renderToStaticMarkup(<PortalConsumer />)).toThrow('originating UiTheme');
 });
-it('publishes only a separate scoped namespace, without preflight, global variables or global registrations', () => {
+/** ui.css without its palette-B block (#5821), and that block alone: only inside
+ * `[data-tmt-palette='b']` does the foundation read the leaf's semantic roles (static.css remaps them
+ * there, with the one radius knob); everywhere else it stays a standalone namespace. */
+function paletteSplit(): { standalone: string; paletteB: string } {
   const css = readFileSync(new URL('../generated/ui.css', import.meta.url), 'utf8');
+  const block = css.match(
+    /\[data-tmt-palette='b'\] \[data-tmt-ui\],\n\[data-tmt-ui\]\[data-tmt-palette='b'\] \{[^}]*\}\n/,
+  );
+  if (!block) throw new Error('ui.css has no palette-B block');
+  return { standalone: css.replace(block[0], ''), paletteB: block[0] };
+}
+
+it('reads the semantic roles only inside the palette-B scope, by name and never by value', () => {
+  const { paletteB } = paletteSplit();
+  const values = [...paletteB.matchAll(/--tmt-foundation-[\w-]+: ([^;]+);/g)].map((m) => m[1]!);
+  expect(values.length).toBeGreaterThan(20);
+  expect(values.every((value) => /^var\(--tmt-ui-[\w-]+\)$/.test(value))).toBe(true);
+  expect(paletteB).toContain('--tmt-foundation-radius: var(--tmt-ui-radius);');
+});
+
+it('publishes only a separate scoped namespace, without preflight, global variables or global registrations', () => {
+  const css = paletteSplit().standalone;
   expect(css).not.toMatch(/:root|@property|@import|@theme|@tailwind|@layer|--tw-|--tmt-ui-/);
   expect(() => assertUiUtilities(css)).not.toThrow();
   expect(css).toContain(':where([data-tmt-ui]) {');
   expect(css).toContain('.tmt\\:bg-background');
-  // The one shadow is the overlay token, from the `shadow-overlay` utility alone.
-  expect([...css.matchAll(/\.tmt\\:shadow[^\s{]*/g)].map((match) => match[0])).toEqual([
+  // Shadows are the elevation levels alone (#5821): a card, the floating layers and a modal.
+  expect([...css.matchAll(/\.tmt\\:shadow[^\s{]*/g)].map((match) => match[0]).sort()).toEqual([
+    '.tmt\\:shadow-elevation-1',
+    '.tmt\\:shadow-elevation-3',
     '.tmt\\:shadow-overlay',
   ]);
   expect(css).toMatch(/--tmt-foundation-tw-shadow:\s*var\(--tmt-foundation-shadow-overlay\)/);
@@ -116,7 +138,7 @@ it('keeps original source export targets and direct dependency pins explicit', (
 });
 
 it('projects light frame roles separately from strong focus and state indicators', () => {
-  const css = readFileSync(new URL('../generated/ui.css', import.meta.url), 'utf8');
+  const css = paletteSplit().standalone;
   const tokens = JSON.parse(
     readFileSync(new URL('../../tokens/tokens.json', import.meta.url), 'utf8'),
   );

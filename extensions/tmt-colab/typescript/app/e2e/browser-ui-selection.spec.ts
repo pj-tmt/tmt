@@ -390,8 +390,10 @@ for (const width of [320, 390, 1440]) {
       expect(
         await popup.evaluate((node) => Number.parseFloat(getComputedStyle(node).borderRadius)),
       ).toBe(Number.parseFloat(tokens.browser.metric.radius));
-      // A floating layer carries the one overlay shadow.
-      expect(await popup.evaluate((node) => getComputedStyle(node).boxShadow)).toMatch(/60px/);
+      // A floating layer carries the overlay elevation (#5821).
+      expect(await popup.evaluate((node) => getComputedStyle(node).boxShadow)).toMatch(
+        new RegExp(tokens.browser.shadow.overlay[theme].split(' ').slice(1, 3).join(' ')),
+      );
       const assertContained = async () => {
         await expect
           .poll(() =>

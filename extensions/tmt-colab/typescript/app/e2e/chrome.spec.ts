@@ -475,8 +475,11 @@ for (const width of [1440, 390, 320])
       await expect(menu.getByRole('menuitem', { name: 'Agent status', exact: true })).toBeVisible();
       const surface = actions.getByRole('dialog', { name: 'More', exact: true });
       expect(await surface.evaluate((node) => node.matches(':modal'))).toBe(true);
-      // A floating layer carries the one overlay shadow.
-      await expect(surface).toHaveCSS('box-shadow', /60px/);
+      // A floating layer carries the overlay elevation (#5821).
+      await expect(surface).toHaveCSS(
+        'box-shadow',
+        new RegExp(tokens.browser.shadow.overlay[theme].split(' ').slice(1, 3).join(' ')),
+      );
       await expect(surface).toHaveCSS('border-width', '1px');
       expect(tokens.browser.metric['radius-l']).toBe('12px');
       await expect(surface).toHaveCSS('border-radius', tokens.browser.metric['radius-l']);

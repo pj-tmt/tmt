@@ -35,6 +35,16 @@
 .tmt-ui-checkbox:checked::before,
 .tmt-ui-checkbox[data-state='checked']::before {
   visibility: visible;
+  /* The tick draws in from its short stroke to its long one (#5821); 0ms under reduced motion. */
+  animation: tmt-ui-check-draw var(--tmt-ui-motion-base) var(--tmt-ui-motion-ease-out);
+}
+@keyframes tmt-ui-check-draw {
+  from {
+    mask: linear-gradient(currentColor, currentColor) 0 0 / 0 100% no-repeat;
+  }
+  to {
+    mask: linear-gradient(currentColor, currentColor) 0 0 / 100% 100% no-repeat;
+  }
 }
 .tmt-ui-checkbox:indeterminate::before,
 .tmt-ui-checkbox[data-state='indeterminate']::before {

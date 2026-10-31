@@ -38,7 +38,7 @@ export function TooltipContent({
         sideOffset={sideOffset}
         collisionPadding={collisionPadding}
         className={cn(
-          'tmt:box-border tmt:font-body tmt:text-(length:--tmt-foundation-command-size) tmt:z-(--tmt-foundation-z-tooltip) tmt:w-fit tmt:max-w-(--tmt-layer-available-width) tmt:border-solid tmt:border-layer-boundary tmt:border-(length:--tmt-foundation-rule-width) tmt:bg-foreground tmt:text-background tmt:px-3 tmt:py-1.5 tmt:text-balance',
+          'tmt:box-border tmt:font-body tmt:text-(length:--tmt-foundation-command-size) tmt:z-(--tmt-foundation-z-tooltip) tmt:w-fit tmt:max-w-(--tmt-layer-available-width) tmt:bg-foreground tmt:text-background tmt:px-3 tmt:py-1.5 tmt:text-balance',
           'tmt:rounded-small',
           popMotion,
           className,
@@ -46,7 +46,9 @@ export function TooltipContent({
         style={{ ...style, ...surface.viewportStyle }}
       >
         {children}
-        <Primitive.Arrow aria-hidden="true" className="tmt:fill-foreground" />
+        {/* One filled shape: no border, and the arrow overlaps the body by 1px on every side (Radix
+            rotates the arrow's frame per side, so -1px in its own y always points into the body). */}
+        <Primitive.Arrow aria-hidden="true" className="tmt:fill-foreground tmt:-translate-y-px" />
       </Primitive.Content>
     </Primitive.Portal>
   ) : null;

@@ -96,6 +96,18 @@
     background: none;
     font-size: inherit;
   }
+  /* Under the compact width a table scrolls inside its own box with readable columns (#5821), so a
+     phone pans the table, never the page. */
+  @media (max-width: __compact-max-width__) {
+    & table {
+      display: block;
+      max-width: 100%;
+      overflow-x: auto;
+    }
+    & :where(th, td) {
+      min-width: 8rem;
+    }
+  }
 }
 /* A tag names an audience or kind: a square mono outline, never a control; a tag link underlines on hover. */
 .tmt-ui-tag {

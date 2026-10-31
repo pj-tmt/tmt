@@ -36,14 +36,18 @@ const roles = {
   indicator: ['color', 'edge'],
   ring: ['color', 'focus'],
   scrim: ['surface', 'scrim'],
-  // Not a colour utility: the one shadow, for floating layers only (`shadow-overlay`).
+  // Not colour utilities: the elevation scale (#5821). `shadow-overlay` is the floating layers' level.
   'shadow-overlay': ['shadow', 'overlay'],
+  'shadow-elevation-1': ['shadow', 'elevation-1'],
+  'shadow-elevation-3': ['shadow', 'elevation-3'],
 };
-const colourRoles = Object.keys(roles).filter((key) => key !== 'shadow-overlay');
+const colourRoles = Object.keys(roles).filter((key) => !key.startsWith('shadow-'));
 /** The motion tokens as foundation properties; `reduced` zeroes every duration. */
 function motion(reduced = false, indent = '  ') {
   return Object.entries(tokens.browser.motion)
-    .filter(([key]) => !key.startsWith('$') && (!reduced || ['fast', 'base'].includes(key)))
+    .filter(
+      ([key]) => !key.startsWith('$') && (!reduced || ['fast', 'base', 'pulse'].includes(key)),
+    )
     .map(([key, value]) => `${indent}--tmt-foundation-motion-${key}: ${reduced ? '0ms' : value};`);
 }
 const themed = (theme) =>
@@ -53,6 +57,16 @@ const themed = (theme) =>
         `  --tmt-foundation-${name}: ${tokens.browser[group][role][theme].toLowerCase()};`,
     )
     .join('\n');
+// Palette B (#5821): inside [data-tmt-palette='b'] the foundation reads the leaf's semantic roles, which
+// static.css remaps there, so the set follows B, the viewer theme and the radius knob with no values here.
+const paletteB = [
+  ...Object.entries(roles).map(
+    ([name, [group, role]]) => `  --tmt-foundation-${name}: var(--tmt-ui-${group}-${role});`,
+  ),
+  ...['radius', 'radius-s', 'radius-l'].map(
+    (key) => `  --tmt-foundation-${key}: var(--tmt-ui-${key});`,
+  ),
+].join('\n');
 const fixed = [
   ...Object.entries(tokens.browser.ui).map(
     ([key, value]) => `  --tmt-foundation-${key}: ${value};`,
@@ -94,7 +108,14 @@ const source = (
 const candidates = uiCandidates(source);
 // Layer enter and exit as named animations (`animate-pop-in`, `animate-slide-out-right`, ...) over
 // the keyframes below, on the motion tokens: `pop-fast-*` is the fast duration, the rest the base.
+// #5821: entering takes the base duration with ease-out (a floating layer the fast one), leaving the
+// fast one with ease-in, and a floating layer leaves in two thirds of its entry, so exit is quicker.
 const motionVar = (token) => `var(--tmt-foundation-motion-${token})`;
+const durations = {
+  fast: motionVar('fast'),
+  base: motionVar('base'),
+  quick: `calc(${motionVar('fast')} * 2 / 3)`,
+};
 const animations = [
   ['pop-fast-in', 'pop-in', 'fast', 'ease-out'],
   ['pop-fast-out', 'pop-out', 'fast', 'ease-in'],
@@ -102,18 +123,28 @@ const animations = [
   ['pop-out', 'pop-out', 'base', 'ease-in'],
   ['fade-in', 'fade-in', 'base', 'ease-out'],
   ['fade-out', 'fade-out', 'base', 'ease-in'],
+  ['fade-fast-out', 'fade-out', 'fast', 'ease-in'],
+  ['fade-quick-out', 'fade-out', 'quick', 'ease-in'],
   ...['right', 'left', 'top', 'bottom'].flatMap((side) => [
     [`slide-in-${side}`, `slide-in-${side}`, 'base', 'ease-out'],
-    [`slide-out-${side}`, `slide-out-${side}`, 'base', 'ease-in'],
+    [`slide-out-${side}`, `slide-out-${side}`, 'fast', 'ease-in'],
+    [`rise-in-${side}`, `rise-in-${side}`, 'fast', 'ease-out'],
   ]),
-].map(
-  ([name, keyframes, duration, ease]) =>
-    `--animate-${name}: tmt-foundation-${keyframes} ${motionVar(duration)} ${motionVar(`ease-${ease.slice(5)}`)} both;`,
-);
+  ['rise-in', 'rise-in-top', 'base', 'ease-out'],
+]
+  .map(
+    ([name, keyframes, duration, ease]) =>
+      `--animate-${name}: tmt-foundation-${keyframes} ${durations[duration]} ${motionVar(`ease-${ease.slice(5)}`)} both;`,
+  )
+  .concat(
+    `--animate-pulse-calm: tmt-foundation-pulse ${motionVar('pulse')} ${motionVar('ease-in')} infinite alternate;`,
+  );
 const theme = [
   '--*: initial;',
   ...colourRoles.map((key) => `--color-${key}: var(--tmt-foundation-${key});`),
   '--shadow-overlay: var(--tmt-foundation-shadow-overlay);',
+  '--shadow-elevation-1: var(--tmt-foundation-shadow-elevation-1);',
+  '--shadow-elevation-3: var(--tmt-foundation-shadow-elevation-3);',
   '--radius-control: var(--tmt-foundation-radius);',
   '--radius-small: var(--tmt-foundation-radius-s);',
   '--radius-surface: var(--tmt-foundation-radius-l);',
@@ -154,12 +185,26 @@ const slides = ['right', 'left', 'top', 'bottom'].map((side) => {
   }[side];
   return `@keyframes tmt-foundation-slide-in-${side} {\n  from {\n    transform: ${from};\n  }\n}\n@keyframes tmt-foundation-slide-out-${side} {\n  to {\n    transform: ${from};\n  }\n}`;
 });
+// A floating layer rises a short way from the side it opens toward: a layer placed below its anchor
+// comes down to it, one placed above comes up, and so on.
+const rises = ['right', 'left', 'top', 'bottom'].map((side) => {
+  const rise = 'var(--tmt-foundation-motion-rise)';
+  const from = {
+    right: `calc(${rise} * -1) 0`,
+    left: `${rise} 0`,
+    top: `0 ${rise}`,
+    bottom: `0 calc(${rise} * -1)`,
+  }[side];
+  return `@keyframes tmt-foundation-rise-in-${side} {\n  from {\n    opacity: 0;\n    translate: ${from};\n  }\n}`;
+});
 const keyframes = [
   '@keyframes tmt-foundation-fade-in {\n  from {\n    opacity: 0;\n  }\n}',
   '@keyframes tmt-foundation-fade-out {\n  to {\n    opacity: 0;\n  }\n}',
   '@keyframes tmt-foundation-pop-in {\n  from {\n    opacity: 0;\n    scale: var(--tmt-foundation-motion-scale);\n  }\n}',
   '@keyframes tmt-foundation-pop-out {\n  to {\n    opacity: 0;\n    scale: var(--tmt-foundation-motion-scale);\n  }\n}',
   ...slides,
+  ...rises,
+  '@keyframes tmt-foundation-pulse {\n  to {\n    opacity: 0.55;\n  }\n}',
 ].join('\n');
 const css = `/* Generated by scripts/generate-ui-css.mjs; no preflight or global theme. */
 [data-tmt-ui] {\n${fixed}\n${themed('light')}\n  color-scheme: light;\n}
@@ -168,6 +213,16 @@ const css = `/* Generated by scripts/generate-ui-css.mjs; no preflight or global
 }
 [data-tmt-ui][data-tmt-theme='light'] {\n${themed('light')}\n  color-scheme: light;\n}
 [data-tmt-ui][data-tmt-theme='dark'] {\n${themed('dark')}\n  color-scheme: dark;\n}
+[data-tmt-palette='b'] [data-tmt-ui],
+[data-tmt-ui][data-tmt-palette='b'] {\n${paletteB}\n}
+/* Under palette B a disabled button of any variant is neutral grey, never a faded accent (#5821). */
+[data-tmt-palette='b'] [data-tmt-ui] [data-slot='button']:disabled,
+[data-tmt-ui][data-tmt-palette='b'] [data-slot='button']:disabled {
+  border-color: var(--tmt-foundation-border);
+  background: var(--tmt-foundation-muted);
+  color: var(--tmt-foundation-muted-foreground);
+  opacity: 1;
+}
 @media (prefers-reduced-motion: reduce) {
   [data-tmt-ui] {\n${motion(true, '    ').join('\n')}\n  }
 }

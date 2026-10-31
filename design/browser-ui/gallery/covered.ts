@@ -37,6 +37,7 @@ export const sections = [
   ['notifications', 'Notifications'],
   ['charts', 'Charts'],
   ['ui-layer', 'UI layer'],
+  ['theme-b', 'Theme B'],
 ] as const;
 export type SectionId = (typeof sections)[number][0];
 

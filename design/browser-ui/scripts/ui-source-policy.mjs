@@ -43,14 +43,24 @@ export function uiCandidates(source) {
       throw new Error('Arbitrary UI styling must reference the foundation token namespace');
     if (candidate.includes('border-radius:') && !candidate.includes('--tmt-foundation-radius'))
       throw new Error('UI radius must reference a foundation radius token');
-    // A radius is a named token (`rounded-control`, `-small`, `-surface`, `-pill`); the one shadow is
-    // `shadow-overlay`, for floating layers only. A ring stays rejected: focus is a token outline.
+    // A radius is a named token (`rounded-control`, `-small`, `-surface`, `-pill`); a shadow is a level
+    // of the one elevation scale (#5821): `shadow-elevation-1`, `shadow-overlay` (level 2, floating
+    // layers) or `shadow-elevation-3` (modal). A ring stays rejected: focus is a token outline.
     if (/(?:^|:)rounded(?:-(?!(?:control|small|surface|pill)$)|$)/.test(candidate))
       throw new Error(
         'UI radius must be a named token: rounded-control, -small, -surface or -pill',
       );
-    if (/(?:^|:)shadow(?:-(?!overlay$)|$)/.test(candidate))
-      throw new Error('UI has one shadow, shadow-overlay, and only on a floating layer');
+    if (/(?:^|:)shadow(?:-(?!(?:overlay|elevation-1|elevation-3)$)|$)/.test(candidate))
+      throw new Error(
+        'UI shadows are elevation levels: shadow-elevation-1, -overlay or -elevation-3',
+      );
+    // Motion reads the motion tokens only (#5821): no literal duration, delay or easing.
+    if (
+      /(?:^|:)(?:duration|delay)-(?!\(--tmt-foundation-motion-)/.test(candidate) ||
+      /(?:^|:)ease-(?!\(--tmt-foundation-motion-)/.test(candidate) ||
+      /\d(?:ms|s)(?![a-z])/.test(candidate)
+    )
+      throw new Error('UI motion must read the motion tokens: no literal duration or easing');
     if (/(?:^|:)ring(?:-|$)/.test(candidate))
       throw new Error('UI focus is a token-backed outline, never a ring');
     if (
