@@ -235,7 +235,7 @@ Consumers install pinned Rust for tests using Cargo metadata, pass real Cargo in
 writes caches. Phase evidence covers compile/list/archive/extract/execute; Actions
 steps retain setup/transfer/emulator/collection cost. Separate VMs own cleanup;
 local heavy proofs require Infra's run grant. Failed commands drain captured output
-before throwing, keeping names/details/summary in job logs and phase artifacts.
+before throwing, keeping names/details/summary in job logs and phase artifacts. `nextest list` (inventory, slice checks and downloaded-archive extraction/listing) has a 60 s command bound; compile/archive/execute retain 18 min. A timeout names the phase and bound while preserving its original cause/output and `timeoutMs`/`errorCode` phase evidence. It is not retried.
 
 Only a fully successful producer job and both uploads yield its receipt, binding
 original attempt, exact manifest bytes, archive hash/size and immutable inventory/
