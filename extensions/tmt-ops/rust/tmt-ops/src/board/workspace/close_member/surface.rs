@@ -40,7 +40,7 @@ fn text(draft: &Draft, app: &App) -> Vec<(String, Role)> {
                     Role::Muted,
                 );
                 if let Some(reason) = pane_reason {
-                    push(format!("Pane left open: {reason}"), Role::Muted);
+                    push(format!("Pane left open · {reason}"), Role::Muted);
                 }
             }
             Outcome::Refused {
@@ -60,7 +60,21 @@ fn text(draft: &Draft, app: &App) -> Vec<(String, Role)> {
                     ),
                     Role::Blocked,
                 );
-                if *step == Step::Delete && error.code != "AGENT_RUNNING" {
+                let unavailable = *step == Step::Stop
+                    && error.code == "RESUME_UNAVAILABLE"
+                    && error.signalled == Some(false);
+                if unavailable {
+                    push(
+                        "No recorded agent session · nothing was signalled.".into(),
+                        Role::Text,
+                    );
+                    push("Delete may follow; Core checks it.".into(), Role::Text);
+                } else if error.code == "AGENT_RUNNING" {
+                    push(
+                        "Still running or unproven · quit it in its pane, then Delete.".into(),
+                        Role::Text,
+                    );
+                } else if *step == Step::Delete {
                     let stopped = pane_reason.is_some()
                         || matches!(
                             draft.operation.as_ref(),
@@ -77,43 +91,29 @@ fn text(draft: &Draft, app: &App) -> Vec<(String, Role)> {
                         ),
                         Role::Blocked,
                     );
+                    push(
+                        "Delete asks Core to check again; nothing is retried automatically.".into(),
+                        Role::Text,
+                    );
                 } else {
                     push(error.message.clone(), Role::Blocked);
-                }
-                if *step == Step::Stop {
                     push(
                         match error.signalled {
-                            Some(true) => "A stop was requested; the agent may still be running.",
+                            Some(true) => {
+                                "A stop was requested · quit it in its pane, then Delete."
+                            }
                             Some(false) => "Nothing was signalled.",
                             None => "Whether a stop was requested is unknown.",
                         }
                         .into(),
                         Role::Muted,
                     );
-                }
-                if *step == Step::Stop
-                    && error.code == "RESUME_UNAVAILABLE"
-                    && error.signalled == Some(false)
-                {
-                    push(
-                        "No recorded agent session; Delete may follow, Core checks it.".into(),
-                        Role::Text,
-                    );
-                } else if error.code == "AGENT_RUNNING" {
-                    push(
-                        "Still running or unproven · quit it in its pane, then Delete.".into(),
-                        Role::Text,
-                    );
-                } else if *step == Step::Delete {
-                    push(
-                        "Delete asks Core to check again; nothing is retried automatically.".into(),
-                        Role::Text,
-                    );
-                } else {
-                    push("Quit it yourself in its pane, then come back. Delete asks Core to check again.".into(), Role::Text);
+                    if error.signalled != Some(true) {
+                        push("Delete may follow; Core checks it.".into(), Role::Text);
+                    }
                 }
                 if let Some(reason) = pane_reason {
-                    push(format!("Pane left open: {reason}"), Role::Muted);
+                    push(format!("Pane left open · {reason}"), Role::Muted);
                 }
             }
             Outcome::Removed { .. } => unreachable!("removed closes the dialog"),

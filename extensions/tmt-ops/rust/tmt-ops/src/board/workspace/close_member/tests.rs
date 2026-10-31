@@ -282,7 +282,7 @@ fn failed_delete_does_not_ask_to_quit_an_already_stopped_agent() {
             "{screen}"
         );
         assert!(
-            screen.contains("Pane left open: User-opened pane."),
+            screen.contains("Pane left open · User-opened pane."),
             "{screen}"
         );
         assert!(screen.contains("Delete identity"), "{screen}");
@@ -328,6 +328,64 @@ fn explicit_delete_failure_does_not_claim_an_unproven_stop_succeeded() {
         screen.contains("Delete asks Core to check again"),
         "{screen}"
     );
+}
+#[test]
+fn refusal_captions_present_each_fact_and_next_step_once() {
+    for (step, code, signalled, message, expected, absent) in [
+        (
+            Step::Delete,
+            "AGENT_RUNNING",
+            None,
+            "The recorded agent is still running or unproven.",
+            "Still running or unproven · quit it in its pane, then Delete.",
+            "The recorded agent is still running",
+        ),
+        (
+            Step::Stop,
+            "RESUME_UNAVAILABLE",
+            Some(false),
+            "No recorded agent session.",
+            "No recorded agent session · nothing was signalled.",
+            "Nothing was signalled.",
+        ),
+        (
+            Step::Stop,
+            "PROCESS_ERROR",
+            Some(true),
+            "The agent did not exit within three seconds.",
+            "A stop was requested · quit it in its pane, then Delete.",
+            "the agent may still be running",
+        ),
+        (
+            Step::Stop,
+            "RUNTIME_CONFLICT",
+            Some(false),
+            "The agent shares a runtime; quit it yourself in its pane.",
+            "Delete may follow; Core checks it.",
+            "Quit it yourself in its pane, then come back",
+        ),
+    ] {
+        let mut app = board();
+        let _commands = crate::runner::forbid_commands();
+        let request = begin(&mut app);
+        let mut error = fault(code, signalled);
+        error.message = message.into();
+        app.finished_close_member(Completed {
+            request,
+            outcome: Outcome::Refused {
+                step,
+                error,
+                pane_reason: None,
+            },
+        });
+        let screen = paint(&app, 160, 50);
+        assert_eq!(screen.matches(expected).count(), 1, "{code}: {screen}");
+        assert!(!screen.contains(absent), "{code}: {screen}");
+        if code == "RESUME_UNAVAILABLE" {
+            assert_eq!(screen.matches("No recorded agent session").count(), 1);
+            assert!(screen.contains("Delete may follow; Core checks it."));
+        }
+    }
 }
 #[test]
 fn close_pending_survives_hide_reopen_and_late_unrelated_completion_is_ignored() {
@@ -531,7 +589,7 @@ fn a_remove_conflict_keeps_the_confirmed_stop_and_kept_pane_reason_visible() {
         outcome: result,
     });
     let screen = paint(&app, 100, 36);
-    assert!(screen.contains("Pane left open: User-opened pane."));
+    assert!(screen.contains("Pane left open · User-opened pane."));
     app.shell.tab = crate::board::shell::OpsTab::Digest;
     assert_eq!(app.workspace_begin(Kind::RemoveMember), Effect::None);
     assert!(
