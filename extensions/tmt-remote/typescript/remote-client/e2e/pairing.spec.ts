@@ -123,6 +123,29 @@ async function assertPhoneTable(page: Page, selector: string, width = 390) {
   await page.setViewportSize(previous);
 }
 
+/** The phone registry keeps the name and menu above the adjacent status badges. */
+async function assertPhoneRegistry(page: Page, width = 390) {
+  const previous = page.viewportSize()!;
+  await page.setViewportSize({ width, height: 900 });
+  const row = page.locator('.remote-registry-table .tmt-ui-list-table-row').first();
+  const box = async (index: number) =>
+    (await row.locator('[role="cell"]').nth(index).boundingBox())!;
+  const name = await box(1);
+  const connection = await box(2);
+  const role = await box(3);
+  const menu = await box(6);
+  expect(Math.abs(name.y - menu.y)).toBeLessThanOrEqual(1);
+  expect(connection.y).toBeGreaterThan(name.y);
+  expect(Math.abs(connection.y - role.y)).toBeLessThanOrEqual(1);
+  expect(role.x).toBeGreaterThan(connection.x);
+  const footer = page.locator('.remote-list-footer');
+  const lines = await footer.locator('span').all();
+  expect(lines).toHaveLength(2);
+  expect((await lines[1]!.boundingBox())!.y).toBeGreaterThan((await lines[0]!.boundingBox())!.y);
+  await expect(page.locator('html')).toHaveJSProperty('scrollWidth', width);
+  await page.setViewportSize(previous);
+}
+
 /** Capture the real served state; media and viewport changes never activate it. */
 async function captureState(
   page: Page,
@@ -5264,8 +5287,8 @@ test('landing registry keeps two origins independent and confirms public-only ha
         'data-remote',
         'studio',
       );
-      await assertPhoneTable(page, '.remote-registry-table');
-      await assertPhoneTable(page, '.remote-registry-table', 700);
+      await assertPhoneRegistry(page);
+      await assertPhoneRegistry(page, 700);
       await expect(page.locator('#remote-head .tmt-ui-shell-count')).toHaveCount(0);
       await expect(page.locator('#remote-head .tmt-ui-subheader-text p')).toContainText(
         '2 remotes',
