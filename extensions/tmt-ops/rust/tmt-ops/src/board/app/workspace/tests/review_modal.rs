@@ -529,7 +529,7 @@ pub(in crate::board) fn crud_capture_case(scene: &str, look: crate::look::Look) 
                     "close-member-pane-kept" => (
                         Step::Delete,
                         "API_UNAVAILABLE",
-                        "Deletion was not confirmed. The agent has stopped.",
+                        "Core command did not complete.",
                         None,
                     ),
                     _ => (
