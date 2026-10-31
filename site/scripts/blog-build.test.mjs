@@ -43,11 +43,16 @@ test("Vite bundles complete article HTML and external modules at project and roo
       assert.ok(index.includes(`href="${base}blog/feed.xml"`));
       for (const page of [index, html]) {
         assert.ok(page.includes(`src="${base}blog/mark.svg"`));
-        assert.ok(page.includes(`href="${base}blog/mark.svg"`));
+        assert.ok(page.includes(`href="${base}blog/favicon.png"`));
       }
       assert.equal(
         await readFile(join(dist, "blog/mark.svg"), "utf8"),
         await readFile(join(root, "src/blog/mark.svg"), "utf8"),
+      );
+      assert.ok(
+        (await readFile(join(dist, "blog/favicon.png"))).equals(
+          await readFile(join(root, "src/blog/favicon.png")),
+        ),
       );
       assert.match(await readFile(join(dist, "index.html"), "utf8"), /Site home/);
     }
@@ -67,12 +72,13 @@ test("Vite bundles complete article HTML and external modules at project and roo
   }
 });
 
-test("dev serves the file-backed mark at exactly one site base on index and post pages", async () => {
+test("dev serves the file-backed mark and favicon at exactly one site base on index and post pages", async () => {
   const root = await mkdtemp(join(tmpdir(), "tmt-blog-dev-mark-"));
   try {
     for (const path of ["src/blog", "src/posts", "scripts/fixtures/blog"])
       await cp(path, join(root, path), { recursive: true });
     const mark = await readFile(join(root, "src/blog/mark.svg"), "utf8");
+    const favicon = await readFile(join(root, "src/blog/favicon.png"));
     for (const base of ["/", "/tmt/", "/custom/path/"]) {
       const blog = await blogBuild({ root, base, demo: true, development: true });
       const server = await createServer({
@@ -93,13 +99,16 @@ test("dev serves the file-backed mark at exactly one site base on index and post
           const html = await response.text();
           const image = html.match(/<img[^>]+src="([^"]+)"/)[1];
           const icon = html.match(/<link[^>]+rel="icon"[^>]+href="([^"]+)"/)[1];
-          for (const asset of [image, icon]) {
-            assert.equal(new URL(asset, url).pathname, `${base}blog/mark.svg`);
-            const fetched = await fetch(new URL(asset, url));
-            assert.equal(fetched.status, 200);
-            assert.match(fetched.headers.get("content-type"), /image\/svg\+xml/);
-            assert.equal(await fetched.text(), mark);
-          }
+          assert.equal(new URL(image, url).pathname, `${base}blog/mark.svg`);
+          const fetchedMark = await fetch(new URL(image, url));
+          assert.equal(fetchedMark.status, 200);
+          assert.match(fetchedMark.headers.get("content-type"), /image\/svg\+xml/);
+          assert.equal(await fetchedMark.text(), mark);
+          assert.equal(new URL(icon, url).pathname, `${base}blog/favicon.png`);
+          const fetchedIcon = await fetch(new URL(icon, url));
+          assert.equal(fetchedIcon.status, 200);
+          assert.match(fetchedIcon.headers.get("content-type"), /image\/png/);
+          assert.ok(Buffer.from(await fetchedIcon.arrayBuffer()).equals(favicon));
         }
       } finally {
         await server.close();
