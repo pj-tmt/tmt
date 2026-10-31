@@ -203,8 +203,7 @@ function PageFloatingActions({
     const workspace = host?.closest('.workspace');
     const place = () => {
       const box = host?.getBoundingClientRect();
-      // An open panel the dock hides for keeps the place it opens out of and closes back into.
-      if (!box || element.current?.hasAttribute('data-panel-open')) return;
+      if (!box) return;
       const margin = innerWidth <= 640 ? 16 : 24;
       // These parent-owned overlays sit outside the renderer host's layout box.
       // Their actual bounds keep the control clear without altering author geometry.
@@ -295,12 +294,7 @@ function PageFloatingActions({
     };
   }, [host, enabled, panel, discussionOpen, slots, onPlacement]);
   return (
-    <div
-      ref={element}
-      className="selection-mode"
-      style={placement}
-      data-panel-open={panel === 'chat' ? '' : undefined}
-    >
+    <div ref={element} className="selection-mode" style={placement}>
       {enabled && !discussionOpen && (
         <p className="selection-mode-hint">{text.selectionModeHint}</p>
       )}
@@ -337,7 +331,6 @@ function PageFloatingActions({
             tooltipPlacement={tooltipPlacement}
             label={chatUnread ? `${text.chat} · ${text.chatUnread}` : text.chat}
             buttonRef={chatButton}
-            hasPopup="dialog"
             expanded={panel === 'chat'}
             icon={
               <>
@@ -1339,6 +1332,10 @@ function OpenPage({
     },
     [],
   );
+  const closeChat = () => {
+    floatingChat.current?.focus({ preventScroll: true });
+    close();
+  };
   const closeComments = () => {
     const marker = discussionMarkerOpener.current;
     const currentRenderer = renderer.current;
@@ -1644,7 +1641,7 @@ function OpenPage({
   };
   escapeAnnotation.current = () => {
     if (panel === 'chat') {
-      if (!chatBusy.current) close();
+      if (!chatBusy.current) closeChat();
     } else if (panel === 'comments') {
       if (!annotationBusy.current && !statusBusy.current) closeComments();
     } else if (annotationRef.current) closeRef.current(true);
@@ -2555,18 +2552,27 @@ function OpenPage({
         />
       </BrowserDrawer>
       <AttachmentDropPanel key={`chat-drop:${snapshot.id}`} target="chat" active={panel === 'chat'}>
-        <BrowserDrawer
-          notice={archived ? endedNotice : undefined}
+        <BrowserPanel
+          keepMounted
           focusFallback={() => floatingChat.current ?? environment.focusFallback()}
           open={panel === 'chat'}
+          mode={panelMode === 'column' ? 'card' : panelMode}
+          data-floating-discussion=""
+          data-panel="chat"
+          style={
+            {
+              '--discussion-right': `${dockPlacement.right}px`,
+              '--discussion-bottom': `${dockPlacement.bottom + dockPlacement.height + 16}px`,
+            } as React.CSSProperties
+          }
           title="Chat"
-          panel="chat"
           caption={text.chatVisible}
           onDismiss={(reason) => {
-            if (reason === 'close') close();
+            if (reason === 'close') closeChat();
             else escapeAnnotation.current();
           }}
         >
+          {archived && endedNotice && <div className="panel-notice">{endedNotice}</div>}
           {chatOpened && discussionPending && !liveError && (
             <p role="status" className="discussion-pending">
               {text.discussionPending}
@@ -2606,11 +2612,11 @@ function OpenPage({
               title={view.title || snapshot.title}
               blocked={discussionBlocked}
               recoveryRequired={recoveryRequired}
-              close={() => close()}
+              close={closeChat}
               escape={() => escapeAnnotation.current()}
             />
           )}
-        </BrowserDrawer>
+        </BrowserPanel>
       </AttachmentDropPanel>
     </section>
   );

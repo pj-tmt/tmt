@@ -430,7 +430,7 @@ test('connection soak: explicit revoke ends access and cannot dispatch a retaine
       clientId(world, s.browser.name),
       '--json',
     ]);
-    await expect(s.page.locator('.tmt-ui-drawer[data-panel=chat]')).toContainText(
+    await expect(s.page.locator('.tmt-ui-panel[data-panel=chat]')).toContainText(
       text.failurePairingRemoved,
       { timeout: 90_000 },
     );

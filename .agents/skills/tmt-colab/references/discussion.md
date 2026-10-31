@@ -333,3 +333,5 @@ still disable retries. The shared overlap helper and presence projection serve
 both refusal and own-lock cleanup. No browser or server-wide write guard is added.
 Native CLI cases cover people, unrelated/no-op patches, holder release, lifecycle
 observations and a real lock acquired between snapshot and preparation.
+
+Chat and Discussion use the same non-modal floating window above the dock. Chat retains its existing message, composer, mode and draft owners; page-level comments are sent from Chat.

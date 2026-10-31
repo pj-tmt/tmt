@@ -58,35 +58,13 @@ for (const width of [320, 390, 1440])
         await expect(action(page)).toBeFocused();
         await page.screenshot({ path: capturePath(`chat-cleared-${width}-${theme}.png`) });
         await action(page).click();
-        await expect(page.locator('.tmt-ui-drawer[data-panel="chat"]')).toHaveJSProperty(
-          'open',
-          true,
-        );
+        await expect(page.locator('.tmt-ui-panel[data-panel="chat"]')).toBeVisible();
         await expect(page.getByTestId('chat-panel')).toBeVisible();
         await expect(input).toHaveText('Keep this exact unsent draft.');
         expect(await input.evaluate((node, original) => node === original, editor)).toBe(true);
-        if (width > 640) {
-          // The dock sits under the panel while Chat is open (#4919); the native backdrop is the rest
-          // of the window, and it alone dismisses.
-          await page.mouse.click(40, 450);
-        } else {
-          // Compact modality covers/inerts the original control, not a duplicate
-          // over the composer. Close is the reachable pointer dismissal action.
-          expect(
-            await action(page).evaluate((button) => {
-              button.focus();
-              return {
-                modal: !!document.querySelector('.tmt-ui-drawer[data-panel="chat"]:modal'),
-                floatingFocused: document.activeElement === button,
-                focusInside: !!document.activeElement?.closest('.tmt-ui-drawer[data-panel="chat"]'),
-              };
-            }),
-          ).toEqual({ modal: true, floatingFocused: false, focusInside: true });
-          // Role locators query DOM semantics, not Chromium's native inertness.
-          // The focus attempt above proves containment; no duplicate is mounted.
-          await expect(page.getByRole('button', { name: /^Chat(?: · Unread)?$/ })).toHaveCount(1);
-          await page.getByRole('button', { name: 'Close Chat', exact: true }).click();
-        }
+        // The dock and page remain interactive; closing Chat preserves its draft.
+        await expect(action(page)).toBeVisible();
+        await page.getByRole('button', { name: 'Close Chat', exact: true }).click();
         await expect(page.getByTestId('chat-panel')).toBeHidden();
         await expect(action(page)).toBeFocused();
         await select.click();

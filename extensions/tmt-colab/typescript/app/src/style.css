@@ -827,7 +827,7 @@ body:has(.needs-you-header-menu):not(:has(.tmt-ui-shell)) {
   min-width: 0;
 }
 
-.tmt-ui-drawer[data-panel='chat'] .tmt-ui-drawer-body {
+.tmt-ui-panel[data-panel='chat'] .tmt-ui-drawer-body {
   /* Chat fills the drawer edge to edge in one row, not the body's spaced stack. */
   display: flex;
   flex-direction: row;
@@ -2004,35 +2004,10 @@ button.discussion-quote:focus-visible {
 .dock-count[data-pending] {
   min-width: 1ch;
 }
-/* The existing Chat drawer retains its dock transition until its frame is decided. */
-.selection-mode[data-panel-open] {
-  opacity: 0;
-  pointer-events: none;
-}
-.selection-mode {
-  transition: opacity var(--tmt-ui-motion-base) var(--tmt-ui-motion-ease-out);
-}
-/* Chat does not slide in from the edge: its motion is the clip in dock-motion.ts, so the drawer is
-   always in its place and only the leaf's leaving transition keeps it rendered. */
-/* The leaf lays the open drawer out as a column (`[open]`); a leaving drawer is still rendered but no longer
-   `[open]`, so it would fall back to a row. Chat keeps its column while it closes into the dock. */
-.tmt-ui-drawer[data-panel='chat'],
-.tmt-ui-drawer[data-panel='chat'][open] {
-  flex-direction: column;
-  translate: 0 0;
-  transition:
-    overlay var(--tmt-ui-motion-base) allow-discrete,
-    display var(--tmt-ui-motion-base) allow-discrete;
-}
-@starting-style {
-  .tmt-ui-drawer[data-panel='chat'][open] {
-    translate: 0 0;
-  }
-}
 /* The Comments panel as a card or a sheet is hidden, not unmounted, when it closes: its leaving
    `display` transition keeps it rendered for the motion's length, so the clip runs back into the dock. A
    column leaves the page grid at once and has no leaving motion. */
-.tmt-ui-panel[data-panel='comments']:not([data-mode='column']) {
+.tmt-ui-panel[data-floating-discussion]:not([data-mode='column']) {
   transition: display var(--tmt-ui-motion-base) allow-discrete;
 }
 .chat-unread {

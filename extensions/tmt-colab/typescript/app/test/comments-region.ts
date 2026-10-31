@@ -17,5 +17,7 @@ export function commentsClose(page: Page, _view: 'empty' | 'discussion'): Locato
 /** Whichever surface is open: a modal drawer, or the Comments region. Use it for "no panel is open"
  * and for specs that open a panel by name; use `commentsRegion` when the spec means Comments. */
 export function openPanel(page: Page): Locator {
-  return page.locator(`.tmt-ui-drawer[open], ${commentsSelector}`);
+  return page.locator(
+    `.tmt-ui-drawer[open], .tmt-ui-panel[data-panel="chat"]:not([hidden]), ${commentsSelector}`,
+  );
 }

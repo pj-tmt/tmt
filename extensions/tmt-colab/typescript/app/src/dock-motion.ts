@@ -3,7 +3,7 @@ import type { PanelMode } from './panel-mode.js';
 
 /** The panels that open out of the dock, and the element each one is. */
 const PANELS = {
-  chat: '.tmt-ui-drawer[data-panel="chat"]',
+  chat: '.tmt-ui-panel[data-panel="chat"]',
   comments: '.tmt-ui-panel[data-panel="comments"]',
 } as const;
 export type DockPanel = keyof typeof PANELS;

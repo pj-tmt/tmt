@@ -178,7 +178,7 @@ for (const width of [1440, 390])
       await expect(comments).not.toBeVisible();
       await expect(commentsAction(page)).toBeFocused();
       await (await pageAction(page, 'Chat')).click();
-      const asks = page.locator('.tmt-ui-drawer[data-panel=chat]');
+      const asks = page.locator('.tmt-ui-panel[data-panel=chat]');
       await expect(asks.getByTestId('chat-panel')).toBeVisible();
       await page.getByRole('button', { name: 'Close Chat', exact: true }).focus();
       await page.keyboard.press('Escape');
@@ -256,7 +256,7 @@ for (const width of [1440, 390])
     // The dock opens Chat; Escape closes it and focus returns to the action that opened it.
     const dockChat = chatAction(page);
     await dockChat.press('Enter');
-    const drawer = page.locator('.tmt-ui-drawer[data-panel=chat][open]');
+    const drawer = page.locator('.tmt-ui-panel[data-panel=chat]:not([hidden])');
     await expect(drawer).toBeVisible();
     const close = drawer.getByRole('button', { name: 'Close Chat', exact: true });
     await close.focus();

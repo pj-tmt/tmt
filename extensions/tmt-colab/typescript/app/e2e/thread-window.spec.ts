@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
-import { commentsAction } from '../test/page-actions.js';
+import { chatAction, commentsAction } from '../test/page-actions.js';
 import { commentsRegion } from '../test/comments-region.js';
 
 async function run(page: Page, method: string, argument?: unknown) {
@@ -363,4 +363,7 @@ for (const width of [390, 1440])
       await page.screenshot({ path: info.outputPath('empty.png') });
       await panel.getByRole('button', { name: 'Close (Esc)', exact: true }).click();
       await page.screenshot({ path: info.outputPath('dock.png') });
+      await chatAction(page.locator('#ask-page-fixture')).click();
+      await expect(page.getByTestId('chat-panel')).toBeVisible();
+      await page.screenshot({ path: info.outputPath('chat.png') });
     });

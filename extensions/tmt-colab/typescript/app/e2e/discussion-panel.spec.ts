@@ -62,6 +62,26 @@ test('Discussion uses twelve-pixel phone gutters above the dock', async ({ page 
   expect(frame.y + frame.height).toBeLessThanOrEqual(dock.y);
 });
 
+test('Chat shares the non-modal Discussion frame and keeps the page interactive', async ({
+  page,
+}) => {
+  const { frame, panel } = await openFirst(page, 1440);
+  const discussion = (await panel.boundingBox())!;
+  await page
+    .locator('#ask-page-fixture .page-floating-actions')
+    .getByRole('button', { name: 'Chat', exact: true })
+    .click();
+  const chat = page.locator('#ask-page-fixture .tmt-ui-panel[data-panel="chat"]:visible');
+  await expect(chat).toBeVisible();
+  const chatBox = (await chat.boundingBox())!;
+  expect(chatBox).toEqual(discussion);
+  await expect(
+    page.locator('#ask-page-fixture .tmt-ui-drawer[data-panel="chat"][open]'),
+  ).toHaveCount(0);
+  await frame.locator('p').first().click();
+  await expect(chat).toBeVisible();
+});
+
 const highlights = (frame: ReturnType<Page['frameLocator']>) =>
   frame.locator('html').evaluate(() => ({
     quiet: CSS.highlights.has('colab-quiet'),

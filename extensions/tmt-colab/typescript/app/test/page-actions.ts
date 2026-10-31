@@ -33,10 +33,16 @@ export async function pageAction(host: Page | Locator, name: string): Promise<Lo
   // the non-modal Comments panel (which leaves the header live) through its own Close.
   const drawer = page.locator('.tmt-ui-drawer[open]');
   const comments = commentsRegion(page);
+  const chat = page.locator('.tmt-ui-panel[data-panel=chat]:not([hidden])');
   const dismissDrawer = async () => {
     if (await comments.isVisible()) {
       await comments.getByRole('button', { name: 'Close (Esc)' }).click();
       await comments.waitFor({ state: 'hidden' });
+      return;
+    }
+    if (await chat.isVisible()) {
+      await chat.getByRole('button', { name: 'Close Chat' }).click();
+      await chat.waitFor({ state: 'hidden' });
       return;
     }
     // The first covered-header press dismisses only; the action needs a second press.
@@ -45,7 +51,8 @@ export async function pageAction(host: Page | Locator, name: string): Promise<Lo
     await page.mouse.click(button.x + button.width / 2, button.y + button.height / 2);
     await drawer.waitFor({ state: 'hidden' });
   };
-  const anythingOpen = async () => (await drawer.isVisible()) || (await comments.isVisible());
+  const anythingOpen = async () =>
+    (await drawer.isVisible()) || (await comments.isVisible()) || (await chat.isVisible());
   if (await anythingOpen()) await dismissDrawer();
   if (name.startsWith('Theme:')) {
     // Theme is the shared top bar's menu, not a page action.

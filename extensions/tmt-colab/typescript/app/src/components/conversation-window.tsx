@@ -165,11 +165,12 @@ export function ConversationWindow({
     const ids = new Set(messageIds);
     const opened = previous.current === undefined;
     const added = [...ids].filter((id) => !previous.current?.has(id));
-    const own =
-      ownWriter &&
-      added.some(
-        (id) => id.startsWith(`comment:${ownWriter}:`) || id.startsWith(`ask:${ownWriter}:`),
-      );
+    const own = added.some(
+      (id) =>
+        id.startsWith('echo:') ||
+        (ownWriter &&
+          (id.startsWith(`comment:${ownWriter}:`) || id.startsWith(`ask:${ownWriter}:`))),
+    );
     previous.current = ids;
     if (opened || own || (added.length && following.current)) latest();
     else if (added.length) setPending(true);

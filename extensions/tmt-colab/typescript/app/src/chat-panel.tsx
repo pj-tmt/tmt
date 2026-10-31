@@ -69,6 +69,7 @@ export function ChatPanel({
       </Fragment>
     ));
   const messageIds = [
+    ...echoes.map((echo) => `echo:${echo.local}`),
     ...chats.flatMap((thread) => [
       ...thread.comments.map((comment) =>
         conversationRecordKey('comment', comment.ref.writer, comment.messageId),

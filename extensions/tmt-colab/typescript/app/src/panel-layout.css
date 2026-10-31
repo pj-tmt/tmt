@@ -6,7 +6,7 @@
 }
 
 /* The Discussion window floats above its measured dock without reflow. */
-.workspace .tmt-ui-panel[data-panel='comments'][data-floating-discussion] {
+.tmt-ui-panel[data-panel][data-floating-discussion] {
   inset: auto var(--discussion-right) var(--discussion-bottom) auto;
   width: 360px;
   height: 470px;
@@ -14,7 +14,7 @@
 }
 
 @media (max-width: 760px) {
-  .workspace .tmt-ui-panel[data-panel='comments'][data-floating-discussion] {
+  .tmt-ui-panel[data-panel][data-floating-discussion] {
     left: 12px;
     right: 12px;
     width: auto;

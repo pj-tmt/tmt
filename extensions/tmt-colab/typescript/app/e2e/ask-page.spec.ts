@@ -205,16 +205,16 @@ test('read refusals show ephemeral copy without changing the admitted operation 
   });
 });
 
-test('mobile modal Chat keeps the shared autocomplete visible and clickable in its top layer', async ({
+test('mobile floating Chat keeps the shared autocomplete visible and clickable', async ({
   page,
 }) => {
   await page.setViewportSize({ width: 390, height: 900 });
   await mount(page);
-  const drawer = page.locator('.tmt-ui-drawer[data-panel=chat][open]');
-  expect(await drawer.evaluate((node) => node.matches(':modal'))).toBe(true);
+  const drawer = page.locator('.tmt-ui-panel[data-panel=chat]:not([hidden])');
+  expect(await drawer.evaluate((node) => node.matches(':modal'))).toBe(false);
   const input = drawer.getByRole('combobox', { name: 'Message' });
   await input.fill('@');
-  const option = drawer.getByRole('option').first();
+  const option = page.getByRole('listbox', { name: 'Message' }).getByRole('option').first();
   await expect(option).toBeInViewport();
   await expect
     .poll(() =>
@@ -237,19 +237,19 @@ test('mobile Chat preserves an open autocomplete inside its dialog across keyboa
 }) => {
   await page.setViewportSize({ width: 390, height: 900 });
   await mount(page);
-  const drawer = page.locator('.tmt-ui-drawer[data-panel=chat][open]');
+  const drawer = page.locator('.tmt-ui-panel[data-panel=chat]:not([hidden])');
   const input = drawer.getByRole('combobox', { name: 'Message' });
   await input.fill('@');
-  await expect(drawer.getByRole('option')).toHaveCount(5);
+  await expect(page.getByRole('listbox', { name: 'Message' }).getByRole('option')).toHaveCount(5);
   const close = drawer.getByRole('button', { name: 'Close Chat' });
   await close.focus();
   await close.press('Enter');
-  await expect(page.locator('.tmt-ui-drawer[data-panel=chat][open]')).toHaveCount(0);
+  await expect(page.locator('.tmt-ui-panel[data-panel=chat]:not([hidden])')).toHaveCount(0);
   const toggle = await pageAction(page.locator('#ask-page-fixture'), 'Chat');
   await toggle.focus();
   await toggle.press('Enter');
   await expect(input).toHaveText('@', { useInnerText: true });
-  const option = drawer.getByRole('option').first();
+  const option = page.getByRole('listbox', { name: 'Message' }).getByRole('option').first();
   await expect(option).toBeInViewport();
   await expect
     .poll(() =>
@@ -272,7 +272,7 @@ for (const selected of [false, true]) {
   }) => {
     await page.setViewportSize({ width: 390, height: 900 });
     await mount(page);
-    const drawer = page.locator('.tmt-ui-drawer[data-panel=chat][open]');
+    const drawer = page.locator('.tmt-ui-panel[data-panel=chat]:not([hidden])');
     const input = drawer.getByRole('combobox', { name: 'Message', exact: true });
     const draft = 'Before draft after';
     await input.fill(draft);
@@ -313,8 +313,8 @@ for (const selected of [false, true]) {
       await page.evaluate((width) => {
         document.documentElement.dataset.theme = width === 390 ? 'dark' : 'light';
       }, width);
-      // The same modal owner stays mounted across the geometry change.
-      await expect.poll(() => drawer.evaluate((node) => node.matches(':modal'))).toBe(true);
+      // The same panel stays mounted across the geometry change.
+      await expect.poll(() => drawer.evaluate((node) => node.matches(':modal'))).toBe(false);
       await expect(input).toBeFocused();
       await expect(input).toHaveAttribute('id', editorId!);
       await expect(input).toHaveText(draft, { useInnerText: true });
@@ -335,7 +335,7 @@ for (const selected of [false, true]) {
       selection.addRange(range);
     });
     await input.pressSequentially(' @');
-    await drawer.getByRole('option').first().click();
+    await page.getByRole('listbox', { name: 'Message' }).getByRole('option').first().click();
     await input.press('Enter');
     await expect.poll(async () => (await run(page, 'proof')).sends.length).toBe(1);
     expect((await run(page, 'proof')).sends[0].message).toContain(

@@ -1614,6 +1614,13 @@ export function scrollHistory() {
   emit();
 }
 
+/** Keep one admitted turn to exercise a history that fits the fixed Chat window. */
+export function shortHistory() {
+  const thread = current.threads![0];
+  current = { ...current, threads: [{ ...thread, comments: thread.comments.slice(-1) }] };
+  emit();
+}
+
 /** Foreign comment or a newly admitted answer; never dispatches an Ask. */
 export function scrollArrival(kind: 'comment' | 'reply' = 'comment') {
   const thread = current.threads![0];
