@@ -146,6 +146,20 @@ of the navigation link and never activate it. On hover or focus within the row, 
 replace the visible pills in their reserved trailing area; their icons are 16px with 1.75
 stroke and the button targets are at least 28px. Labels and row geometry do not shift. The left reorder handle follows the same hover/focus rule.
 
+A `ShellMenuItem` may carry `children`, one nested level only (for example squad → member
+rows); a child's own `children` are not drawn. Disclosure is host-owned: the item says
+`expanded`, and its trailing chevron button (`aria-expanded`, "Show/Hide <label>") calls
+the item's `toggle()`. The rail never flips the state itself, and toggling keeps the
+phone drawer open. Children hang from a hairline under the parent's label, with the
+shared `rail-sub-indent` (8px). A current child is the selected row while its parent is
+expanded; a collapsed parent of the current child shows as the selected row instead
+(`visibleCurrent`). `emphasis: 'unread'` makes the label bold primary ink and adds
+"unread" to its accessible name. It is never a colour, and the `count` slot is unchanged.
+In the module menu, ArrowUp/Down move between visible rows. ArrowRight opens a parent, or
+enters it when it is open; ArrowLeft closes an open parent or returns from a child to its
+parent. Enter follows a link or activates the focused disclosure. Menus without
+`children` or `emphasis` draw no tree markup.
+
 Optional `ShellMenuGroup.reorder(fromId, toId)` requests moving `fromId` to the position
 currently occupied by `toId` in that same group. Dragging the handle or pressing
 Alt+ArrowUp/Down within the focused row uses this callback. The host owns the resulting

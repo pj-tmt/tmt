@@ -171,6 +171,11 @@
     var(--tmt-ui-rail-brand-height) + var(--tmt-ui-rail-brand-after) +
       var(--tmt-ui-rail-padding-top)
   );
+  /* A nested row's label start; a parent's children hang from a rule at this offset. */
+  --tmt-ui-rail-sub-label-start: 36px;
+  /* A parent's trailing disclosure, and the end space its label and row actions keep clear of it. */
+  --tmt-ui-rail-disclosure-size: var(--tmt-ui-space-xl);
+  --tmt-ui-rail-disclosure-end: calc(var(--tmt-ui-rail-disclosure-size) + var(--tmt-ui-space-s));
   grid-area: 1 / 1 / 3 / 2;
   position: sticky;
   top: 0;
@@ -315,7 +320,8 @@
   margin: var(--tmt-ui-space-xs) 0 var(--tmt-ui-space-s);
   padding-left: 0;
 }
-.tmt-ui-rail-sub-items {
+.tmt-ui-rail-sub-items,
+.tmt-ui-rail-sub-children {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
   gap: 2px;
@@ -349,7 +355,7 @@
 /* The same indent applies to every child and its heading, including named groups. */
 .tmt-ui-rail-sub .tmt-ui-rail-sub-item,
 .tmt-ui-rail-sub-group {
-  padding-inline-start: 36px;
+  padding-inline-start: var(--tmt-ui-rail-sub-label-start);
 }
 .tmt-ui-rail-sub-group > span {
   overflow: hidden;
@@ -387,7 +393,8 @@
   text-align: left;
   cursor: pointer;
 }
-.tmt-ui-rail-add > svg {
+.tmt-ui-rail-add > svg,
+.tmt-ui-rail-disclosure > svg {
   width: 14px;
   height: 14px;
 }
@@ -407,6 +414,36 @@
   background: var(--tmt-ui-surface-selection);
   color: var(--tmt-ui-color-selected-text);
   font-weight: 600;
+}
+/* Unread is weight alone: primary ink and bold, never a colour. */
+.tmt-ui-rail-sub-item[data-emphasis='unread'] {
+  color: var(--tmt-ui-color-selected-text);
+  font-weight: 700;
+}
+/* A parent row's trailing disclosure; its children hang from a rule under the parent's label. */
+.tmt-ui-rail-menu-row[data-disclosure] > a {
+  padding-inline-end: var(--tmt-ui-rail-disclosure-end);
+}
+.tmt-ui-rail-menu-row[data-disclosure] > .tmt-ui-rail-row-actions {
+  right: var(--tmt-ui-rail-disclosure-end);
+}
+.tmt-ui-rail-disclosure {
+  position: absolute;
+  top: var(--tmt-ui-space-xs);
+  right: var(--tmt-ui-space-xs);
+  width: var(--tmt-ui-rail-disclosure-size);
+  height: var(--tmt-ui-rail-disclosure-size);
+}
+.tmt-ui-rail-disclosure[aria-expanded='true'] > svg {
+  rotate: 90deg;
+}
+.tmt-ui-rail-sub-children {
+  margin-left: var(--tmt-ui-rail-sub-label-start);
+  padding-left: var(--tmt-ui-rail-sub-indent);
+  border-left: var(--tmt-ui-rule-width) solid var(--tmt-ui-surface-rule);
+}
+.tmt-ui-rail-sub-children .tmt-ui-rail-sub-item {
+  padding-inline-start: var(--tmt-ui-rail-sub-padding-inline);
 }
 /* Optional row commands share one reserved area with the counts; neither state shifts the label. */
 .tmt-ui-rail-menu-row {

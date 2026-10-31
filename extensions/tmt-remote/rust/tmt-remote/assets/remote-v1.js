@@ -5829,6 +5829,19 @@ function count(document, value) {
 	return badge;
 }
 /**
+* The one selected row a menu shows: the first current entry, where a current child selects
+* itself while its parent is expanded and selects its parent while collapsed.
+*/
+function visibleCurrent(menu) {
+	if (!menu) return void 0;
+	for (const item of [...menu.groups.flatMap((group) => group.items), ...menu.settings ? [menu.settings] : []]) {
+		const child = item.children?.find((entry) => entry.current);
+		if (child) return item.expanded ? child : item;
+		if (item.current) return item;
+	}
+}
+var branchIds = 0;
+/**
 * Render the rail and module menu into `root`, the `.tmt-ui-shell` element that holds
 * `.tmt-ui-shell-content` with the host's `.tmt-ui-shell-bar` (its one header) and
 * `.tmt-ui-shell-main`. On wide screens the TMT mark and the bar form one header row
@@ -5969,6 +5982,13 @@ function mountShell(root, view, select) {
 		label.textContent = item.label;
 		if (!item.note) label.title = item.label;
 		anchor.append(label);
+		if (item.emphasis === "unread") {
+			anchor.dataset.emphasis = "unread";
+			const spoken = document.createElement("span");
+			spoken.className = "tmt-ui-visually-hidden";
+			spoken.textContent = " unread";
+			anchor.append(spoken);
+		}
 		const shown = entryCounts(item);
 		if (shown.length || item.actions?.length) {
 			const counts = document.createElement("span");
@@ -6010,10 +6030,73 @@ function mountShell(root, view, select) {
 		menuInteractions.push(controls);
 		return controls;
 	};
+	const disclose = (row, anchor, item, index, selected) => {
+		const live = () => latest.menu?.groups[index]?.items.find((entry) => entry.id === item.id);
+		const expanded = item.expanded === true;
+		row.classList.add("tmt-ui-rail-menu-row");
+		row.dataset.menuItem = item.id;
+		row.dataset.disclosure = expanded ? "open" : "closed";
+		anchor.dataset.railPart = "link";
+		const button = document.createElement("button");
+		button.type = "button";
+		button.className = "tmt-ui-rail-group-action tmt-ui-rail-disclosure";
+		button.dataset.railPart = "disclosure";
+		button.setAttribute("aria-expanded", String(expanded));
+		button.setAttribute("aria-label", `${expanded ? "Hide" : "Show"} ${item.label}`);
+		button.append(icon(document, "chevron-right"));
+		button.onclick = () => live()?.toggle?.();
+		row.append(button);
+		if (!expanded) return;
+		const children = document.createElement("ul");
+		children.className = "tmt-ui-rail-sub-children";
+		children.id = `tmt-ui-rail-children-${++branchIds}`;
+		children.setAttribute("aria-label", item.label);
+		button.setAttribute("aria-controls", children.id);
+		for (const child of item.children) {
+			const childRow = document.createElement("li");
+			const link = menuEntry("tmt-ui-module-menu-item tmt-ui-rail-sub-item", child, selected);
+			childRow.classList.add("tmt-ui-rail-menu-row");
+			childRow.dataset.menuItem = child.id;
+			childRow.dataset.menuGroup = String(index);
+			link.dataset.railPart = "link";
+			childRow.append(link);
+			if (child.actions?.length) interactions(() => {
+				const branch = live()?.children;
+				return branch ? { items: [...branch] } : void 0;
+			}).decorate(childRow, link, child);
+			children.append(childRow);
+		}
+		row.append(children);
+	};
+	const walk = (list) => list.addEventListener("keydown", (event) => {
+		if (event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return;
+		const row = event.target.closest("li");
+		const link = row?.querySelector(":scope > a");
+		if (!row || !link) return;
+		const disclosure = row.querySelector(":scope > .tmt-ui-rail-disclosure");
+		const open = disclosure?.getAttribute("aria-expanded") === "true";
+		const branch = row.parentElement?.classList.contains("tmt-ui-rail-sub-children") ? row.parentElement.parentElement?.querySelector(":scope > a") : void 0;
+		let next;
+		if (event.key === "ArrowUp" || event.key === "ArrowDown") {
+			const links = [...list.querySelectorAll("a.tmt-ui-rail-sub-item")];
+			next = links[links.indexOf(link) + (event.key === "ArrowUp" ? -1 : 1)];
+			event.preventDefault();
+		} else if (event.key === "ArrowRight" && disclosure) {
+			event.preventDefault();
+			if (open) next = row.querySelector(":scope > ul a");
+			else disclosure.click();
+		} else if (event.key === "ArrowLeft" && (open || branch)) {
+			event.preventDefault();
+			if (open) disclosure.click();
+			else next = branch;
+		}
+		next?.focus();
+	});
 	const nested = (menuView, selected) => {
 		const list = document.createElement("ul");
 		list.className = "tmt-ui-rail-sub";
 		list.setAttribute("aria-label", menuView.title);
+		walk(list);
 		menuView.groups.forEach((group, index) => {
 			const controls = group.reorder || group.items.some((item) => item.actions?.length) ? interactions(() => latest.menu?.groups[index]) : void 0;
 			let entries = list;
@@ -6038,6 +6121,7 @@ function mountShell(root, view, select) {
 				row.dataset.menuGroup = String(index);
 				row.append(anchor);
 				if (item.actions?.length || group.reorder) controls?.decorate(row, anchor, item);
+				if (item.children?.length) disclose(row, anchor, item, index, selected);
 				entries.append(row);
 			}
 			if (group.add) {
@@ -6100,7 +6184,7 @@ function mountShell(root, view, select) {
 		hideTip();
 		const railTop = rail.scrollTop;
 		const current = [...next.rail.main, ...next.rail.bottom].find((item) => item.current);
-		const selected = current ? [...next.menu?.groups.flatMap((group) => group.items) ?? [], ...next.menu?.settings ? [next.menu.settings] : []].find((item) => item.current) : void 0;
+		const selected = current ? visibleCurrent(next.menu) : void 0;
 		rail.replaceChildren(brand, railSearch, railList(next.rail.main, current, selected, void 0, next.menu), railList(next.rail.bottom, current, selected, "tmt-ui-rail-bottom", next.menu));
 		rail.scrollTop = railTop;
 		syncRailScroll();
