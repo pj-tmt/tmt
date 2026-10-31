@@ -219,7 +219,7 @@ check keeps name/pane routing and its existing Digest opportunity.
   hands off once and uses the existing stop/move and caller-owned launch paths.
   Drivers verify processes, map events and own state; core never parses it. CLI learns direct sessions after output via this admission/CAS,
   with bounded silent refusal, storage-only prechecks and private TTL hints.
-  Only proven process loss ends the incarnation, including a driver-selected native child behind an owned launcher.
+  Only proven process loss ends an incarnation, including behind a launcher.
 - Presence reads acquire host evidence outside the writer lock; changed records
   never authorize retirement or detachment.
 - Lifecycle hooks complete existing bindings, never create or move identities. The one binding a
@@ -315,12 +315,11 @@ flocks, current screens, bounded startup output and live attach with a streamed 
 
 ### Agent drivers
 
-`DriverDescriptor` and adapters feed `drivers::Registry` for detection, setup,
-launch, caller recognition, foreground argv/process selection, allowance reads and typed refusals.
-Each descriptor sets `full` (hooks/runtime) or `basic` (detection/skills), published
-as `driverSupport` by `tmt ls`. Detection never starts agents. Launch adds no plugin
-arguments or persistent provider settings. Module rules and name ownership:
-[agent drivers](.agents/skills/tmt-core-runtime/references/hosts-drivers.md#agent-drivers).
+`drivers::Registry` uses `DriverDescriptor` and adapters for detection, setup, launch,
+caller recognition, foreground argv/process selection, allowance reads and typed refusals.
+Descriptors expose `driverSupport` as `full` (hooks/runtime) or `basic` (detection/skills).
+Detection never starts agents; launches add no plugin arguments or persistent provider settings.
+Rules: [agent drivers](.agents/skills/tmt-core-runtime/references/hosts-drivers.md#agent-drivers).
 
 ### Provider channels
 
