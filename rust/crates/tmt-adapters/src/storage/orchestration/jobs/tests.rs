@@ -13,13 +13,6 @@ impl Fixture {
     fn new() -> Self {
         let directory = TestDirectory::new();
         let mut storage = Storage::open(directory.path.join("office.db")).unwrap();
-        // Until reserved predecessor 086 lands this PR's schema is deliberately
-        // unregistered. Exercise its real SQL after the supported main chain.
-        storage
-            .connection()
-            .unwrap()
-            .execute_batch(include_str!("../../schema/087.sql"))
-            .unwrap();
         let owner = create_or_resolve(&mut storage, "Member", Lifetime::Saved)
             .unwrap()
             .identity

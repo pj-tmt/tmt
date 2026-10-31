@@ -21,7 +21,7 @@ fn the_typed_checklist_migration_confirms_every_earlier_delivery() {
     old.close().unwrap();
 
     let mut storage = Storage::open(&path).unwrap();
-    assert_eq!(storage.health().unwrap().schema_version, 86);
+    assert_eq!(storage.health().unwrap().schema_version, 87);
     storage.close().unwrap();
 
     let oracle = Connection::open(&path).unwrap();

@@ -165,6 +165,7 @@ function expectNativeSchema(
     { version: 84, name: 'receipt durable hook capture ingestion' },
     { version: 85, name: 'name bounded Digest worker and caller failure stages' },
     { version: 86, name: 'record a binding that runs a plain program, not an agent' },
+    { version: 87, name: 'create canonical agent jobs and legacy import receipts' },
   ];
   expect(migrated.migrations.slice(8)).toEqual(additions);
   expect(migrated.tables.map(({ name }) => name)).toEqual(
@@ -228,6 +229,11 @@ function expectNativeSchema(
       'orchestration_member_overrides',
       'orchestration_focus',
       'orchestration_decisions',
+      'orchestration_jobs',
+      'orchestration_job_legacy',
+      'orchestration_job_legacy_counters',
+      'orchestration_job_imports',
+      'orchestration_job_runs',
       'digest_receiving_settings',
       'orchestration_pending_wakes',
       'orchestration_wake_clock',

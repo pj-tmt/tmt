@@ -17,7 +17,7 @@ fn a_request_turn_is_one_bounded_row_that_moves_the_cursor_and_leaves_with_its_r
     old.close().unwrap();
 
     let mut storage = Storage::open(&path).unwrap();
-    assert_eq!(storage.health().unwrap().schema_version, 86);
+    assert_eq!(storage.health().unwrap().schema_version, 87);
     storage.close().unwrap();
 
     let db = Connection::open(&path).unwrap();

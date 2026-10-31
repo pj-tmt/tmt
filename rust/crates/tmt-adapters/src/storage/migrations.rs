@@ -34,6 +34,8 @@ mod local_block_tests;
 #[cfg(test)]
 mod notification_tests;
 #[cfg(test)]
+mod orchestration_job_tests;
+#[cfg(test)]
 mod orchestration_receiving_tests;
 #[cfg(test)]
 mod orchestration_wake_tests;
@@ -425,6 +427,10 @@ const MIGRATIONS: &[Migration] = &[
     migration!(
         "record a binding that runs a plain program, not an agent",
         "schema/086.sql"
+    ),
+    migration!(
+        "create canonical agent jobs and legacy import receipts",
+        "schema/087.sql"
     ),
 ];
 
