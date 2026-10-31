@@ -136,3 +136,16 @@ export function planPartitionRecovery(
   read: (resource: string) => unknown,
   workflowHead?: string
 ): PartitionSelection;
+
+/** Owns one bounded command and its durable phase evidence. */
+export function runWorkspacePhase(
+  directory: string,
+  phase: string,
+  program: string,
+  args: string[],
+  options?: {
+    isolated?: boolean;
+    base?: NodeJS.ProcessEnv;
+    spawn?: typeof import('node:child_process').spawnSync;
+  }
+): Promise<string>;

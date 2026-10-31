@@ -16,6 +16,7 @@ import { runInPrivateWorld } from '../../scripts/private-world.mjs';
 import { writeExecutable } from '../support/executable-fixture.mjs';
 import { describe, expect, it } from 'vite-plus/test';
 import {
+  runWorkspacePhase,
   admitProducerReceipt,
   admitManifest,
   admitExecutionIdentity,
@@ -1328,4 +1329,153 @@ describe('successful producer generations and explicit recovery executions', () 
     now += 90_000;
     expect(() => expired('actions/runs/123/attempts/1')).toThrow('deadline');
   });
+});
+
+describe('workspace nextest list bounds', () => {
+  it.each(['cargo-nextest', '/opt/fixture/cargo'])(
+    'returns successful list output unchanged through %s',
+    async (program) => {
+      const root = mkdtempSync(path.join(tmpdir(), 'workspace-list-success-'));
+      try {
+        let observed = 0;
+        const spawn = ((_program: string, _args: string[], options: { timeout?: number }) => {
+          observed = options.timeout ?? 0;
+          return { status: 0, signal: null, stdout: '{"rust-suites":{}}', stderr: '' };
+        }) as unknown as typeof spawnSync;
+        expect(
+          await runWorkspacePhase(root, 'future-list-label', program, ['nextest', 'list'], {
+            spawn,
+          })
+        ).toBe('{"rust-suites":{}}');
+        expect(observed).toBe(60_000);
+        expect(JSON.parse(readFileSync(path.join(root, 'phases.json'), 'utf8'))).toMatchObject([
+          { phase: 'future-list-label', exit: 0, timeoutMs: 60_000, errorCode: null },
+        ]);
+      } finally {
+        rmSync(root, { recursive: true, force: true });
+      }
+    }
+  );
+
+  it('uses a real OS timeout through the spawn port and preserves the failure evidence', async () => {
+    const root = mkdtempSync(path.join(tmpdir(), 'workspace-list-real-timeout-'));
+    try {
+      const spawn = ((
+        _program: string,
+        _args: string[],
+        options: Parameters<typeof spawnSync>[2]
+      ) => {
+        expect(options?.timeout).toBe(60_000);
+        return spawnSync(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], {
+          ...options,
+          timeout: 250,
+        });
+      }) as typeof spawnSync;
+      await expect(
+        runWorkspacePhase(root, 'downloaded-extract-list', 'cargo-nextest', ['nextest', 'list'], {
+          spawn,
+        })
+      ).rejects.toThrow('Workspace phase downloaded-extract-list timed out after 60000 ms');
+      expect(JSON.parse(readFileSync(path.join(root, 'phases.json'), 'utf8'))).toMatchObject([
+        { timeoutMs: 60_000, errorCode: 'ETIMEDOUT', signal: 'SIGTERM', exit: null },
+      ]);
+      expect(existsSync(path.join(root, 'downloaded-extract-list.log'))).toBe(true);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it.each([
+    ['compile-inventory', 'cargo', ['test', '--workspace']],
+    ['archive', 'cargo-nextest', ['nextest', 'archive']],
+    ['nextest-execution', 'cargo-nextest', ['nextest', 'run']],
+  ])('keeps the existing long bound for %s', async (phase, program, args) => {
+    const root = mkdtempSync(path.join(tmpdir(), 'workspace-other-phase-'));
+    try {
+      let observed = 0;
+      const spawn = ((_program: string, _args: string[], options: { timeout?: number }) => {
+        observed = options.timeout ?? 0;
+        return { status: 0, signal: null, stdout: 'complete', stderr: '' };
+      }) as unknown as typeof spawnSync;
+      expect(await runWorkspacePhase(root, phase, program, args, { spawn })).toBe('complete');
+      expect(observed).toBe(18 * 60_000);
+      expect(
+        JSON.parse(readFileSync(path.join(root, 'phases.json'), 'utf8'))[0].errorCode
+      ).toBeNull();
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('forwards non-timeout spawn errors without relabelling or retrying them', async () => {
+    const root = mkdtempSync(path.join(tmpdir(), 'workspace-phase-spawn-error-'));
+    try {
+      const failure = Object.assign(new Error('missing executable'), { code: 'ENOENT' });
+      let calls = 0;
+      const spawn = (() => {
+        calls++;
+        return {
+          status: null,
+          signal: null,
+          stdout: '',
+          stderr: 'original diagnostic',
+          error: failure,
+        };
+      }) as unknown as typeof spawnSync;
+      await expect(
+        runWorkspacePhase(root, 'nextest-inventory', 'cargo-nextest', ['nextest', 'list'], {
+          spawn,
+        })
+      ).rejects.toBe(failure);
+      expect(calls).toBe(1);
+      expect(JSON.parse(readFileSync(path.join(root, 'phases.json'), 'utf8'))[0].errorCode).toBe(
+        'ENOENT'
+      );
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it.each(['nextest-inventory', 'partition-list-1', 'downloaded-extract-list'])(
+    'bounds %s and preserves the named timeout and original output',
+    async (phase) => {
+      const root = mkdtempSync(path.join(tmpdir(), 'workspace-list-timeout-'));
+      const failure = Object.assign(new Error('spawnSync cargo-nextest ETIMEDOUT'), {
+        code: 'ETIMEDOUT',
+      });
+      try {
+        let observed = 0;
+        const spawn = ((_program: string, _args: string[], options: { timeout?: number }) => {
+          observed = options.timeout ?? 0;
+          return {
+            status: null,
+            signal: 'SIGTERM',
+            stdout: 'partial list output',
+            stderr: 'original list diagnostic',
+            error: failure,
+          };
+        }) as unknown as typeof spawnSync;
+        const execution = runWorkspacePhase(
+          root,
+          phase,
+          'cargo-nextest',
+          ['nextest', 'list', '--message-format', 'json'],
+          { spawn }
+        );
+        await expect(execution).rejects.toThrow(
+          `Workspace phase ${phase} timed out after 60000 ms`
+        );
+        await expect(execution).rejects.toHaveProperty('cause', failure);
+        expect(observed).toBe(60_000);
+        expect(readFileSync(path.join(root, `${phase}.log`), 'utf8')).toBe(
+          'partial list outputoriginal list diagnostic'
+        );
+        expect(JSON.parse(readFileSync(path.join(root, 'phases.json'), 'utf8'))).toMatchObject([
+          { phase, timeoutMs: 60_000, errorCode: 'ETIMEDOUT', signal: 'SIGTERM', exit: null },
+        ]);
+      } finally {
+        rmSync(root, { recursive: true, force: true });
+      }
+    }
+  );
 });

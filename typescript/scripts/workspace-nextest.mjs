@@ -679,17 +679,28 @@ function executionIdentity(context = runIdentity()) {
 }
 
 /** Every effect is bounded and its timing/result survives a failing phase. */
-async function command(directory, phase, program, args, isolated = false, base = process.env) {
+export async function runWorkspacePhase(
+  directory,
+  phase,
+  program,
+  args,
+  { isolated = false, base = process.env, spawn: spawnCommand = spawnSync } = {}
+) {
   const started = new Date().toISOString();
   const clock = performance.now();
   let result;
   const diagnostics = [];
+  const nextestList =
+    ['cargo', 'cargo-nextest'].includes(path.basename(program)) &&
+    args[0] === 'nextest' &&
+    args[1] === 'list';
+  const timeoutMs = nextestList ? 60_000 : 18 * 60_000;
   const spawn = (executable, argv, options = {}) => {
-    result = spawnSync(executable, argv, {
+    result = spawnCommand(executable, argv, {
       env: options.env ?? base,
       encoding: 'utf8',
       maxBuffer: 64 * 1024 ** 2,
-      timeout: 18 * 60_000,
+      timeout: timeoutMs,
     });
     return result;
   };
@@ -718,6 +729,8 @@ async function command(directory, phase, program, args, isolated = false, base =
     seconds,
     exit: result.status,
     signal: result.signal,
+    timeoutMs,
+    errorCode: result.error?.code ?? null,
     world: world?.world.root,
     worldRemoved,
     leaks: world?.leaks,
@@ -744,13 +757,18 @@ async function command(directory, phase, program, args, isolated = false, base =
   }
   if (world) assert.equal(worldRemoved, true, 'private world retained');
   console.log(`#3284 phase=${phase} seconds=${seconds.toFixed(3)} exit=${result.status}`);
+  if (result.error?.code === 'ETIMEDOUT')
+    throw new Error(
+      `Workspace phase ${phase} timed out after ${timeoutMs} ms (${program}; code=ETIMEDOUT, signal=${result.signal ?? 'none'})`,
+      { cause: result.error }
+    );
   if (result.error) throw result.error;
   assert.equal(result.status, 0, `${program} ${args.join(' ')} failed`);
   return result.stdout;
 }
 
 async function inventory(directory, total) {
-  const run = (phase, program, args) => command(directory, phase, program, args);
+  const run = (phase, program, args) => runWorkspacePhase(directory, phase, program, args);
   const build = await run('compile-inventory', 'cargo', [
     'test',
     '--locked',
@@ -844,7 +862,7 @@ async function archive(directory, total) {
   const config = path.join(directory, 'archive-config.toml');
   writeFileSync(config, runtimeArchiveConfig(runtimeFiles));
   const archive = path.join(directory, 'workspace.tar.zst');
-  await command(directory, 'archive', 'cargo-nextest', [
+  await runWorkspacePhase(directory, 'archive', 'cargo-nextest', [
     'nextest',
     '--config-file',
     config,
@@ -903,7 +921,7 @@ async function consume(directory, index) {
   assert.ok(!existsSync('target'), 'consumer target must start absent');
   // nextest owns decoding; extraction into this existing workspace preserves compiled absolute paths.
   const inventory = JSON.parse(
-    await command(directory, 'downloaded-extract-list', 'cargo-nextest', [
+    await runWorkspacePhase(directory, 'downloaded-extract-list', 'cargo-nextest', [
       'nextest',
       'list',
       '--archive-file',
@@ -936,7 +954,7 @@ async function consume(directory, index) {
     '--cargo-metadata',
     path.resolve('target/nextest/cargo-metadata.json'),
   ];
-  await command(
+  await runWorkspacePhase(
     directory,
     'nextest-execution',
     'cargo-nextest',
@@ -950,8 +968,7 @@ async function consume(directory, index) {
       '--partition',
       `slice:${index}/${manifest.partitions}`,
     ],
-    true,
-    consumerEnvironment(machine.cargo)
+    { isolated: true, base: consumerEnvironment(machine.cargo) }
   );
   const phases = readJSON(path.join(directory, 'phases.json'));
   const worldRemoved = phases.at(-1).worldRemoved;
@@ -988,7 +1005,7 @@ if (process.argv[1] && realpathSync(process.argv[1]) === fileURLToPath(import.me
     assert.match(value ?? '', /^[a-z][a-z0-9-]{0,63}$/);
     const [program, ...args] = process.argv.slice(5);
     assert.ok(program, 'phase program missing');
-    await command(directory, value, program, args, true);
+    await runWorkspacePhase(directory, value, program, args, { isolated: true });
   } else if (mode === 'plan') {
     const collector = runIdentity();
     const states = {
