@@ -110,10 +110,15 @@ ask when resolution would require an undecided product or authorization choice.
 
 - GitHub Issues is the active tracker for TMT. Historical Linear links are
   references, not a second workflow or a requirement to duplicate tickets.
-- For development beyond incidental edits, use one tracked GitHub issue, one
+- For development beyond incidental edits, use tracked GitHub issues, one
   dedicated branch/worktree, and one reviewable PR. Confirm outcome, scope,
   acceptance criteria, dependencies and project relationship before editing;
-  mark the issue started when implementation begins. Split oversized work first.
+  mark each issue started when implementation begins. Issues may stay small so each
+  is easy to verify; PRs may not. One member carries a whole feature, or the fixes in
+  one module, as one PR that closes several issues (one `Fixes #N` line each, or
+  `Part of #N` for an issue it does not finish); a PR of a few thousand lines is fine.
+  The reviewing lead decides the bundle and records the mapping on each issue. Split
+  a PR only when it crosses squad paths and needs another owner.
 - Keep decisions, progress, blockers, deferred work, branch/PR links and evidence
   synchronized in GitHub. Do not mark work done before its delivery state supports it.
 - Keep the issue's Project fields, tracker parentage and Status current as defined in
