@@ -30,19 +30,15 @@ impl ReceivingCalendar {
                 )
             })?;
         let sender = effective(&stored.snapshot, from, now, zone).map_err(|_| corrupt())?;
-        let leads = active_leads(db)?;
-        let grant = db
-            .query_row(
-                "SELECT until_ms FROM orchestration_route_grants WHERE from_id=? AND to_id=?",
-                params![from, to],
-                |r| r.get::<_, i64>(0),
-            )
-            .optional()
-            .map_err(|e| classify(e, "Read route grant"))?
-            .map(|until| u64::try_from(until).map_err(|_| corrupt()))
-            .transpose()?;
+        let leads = active_leads(&stored.snapshot);
+        let grant = stored
+            .snapshot
+            .route_grants
+            .iter()
+            .find(|g| g.from_id == from && g.to_id == to)
+            .map(|g| g.until_ms);
         if let OrchRoute::Restricted { sending, source } =
-            route(&sender.sending, leads.iter().any(|id| id == to), grant, now)
+            route(&sender.sending, leads.contains(&to), grant, now)
         {
             return Ok(OrchTalkAdmission::Restricted(Box::new(OrchRouteRefusal {
                 sender_id: from.into(),
@@ -54,7 +50,7 @@ impl ReceivingCalendar {
             })));
         }
         // A lead's requests are never counted or held.
-        if leads.iter().any(|id| id == from) {
+        if leads.contains(&from) {
             return Ok(OrchTalkAdmission::Allowed);
         }
         let recipient = effective(&stored.snapshot, to, now, zone).map_err(|_| corrupt())?;
@@ -115,17 +111,12 @@ impl ReceivingCalendar {
 
 /// Stored leads whose identities are still active; a retired one drops out here, not by
 /// rewriting the list.
-pub(in crate::storage) fn active_leads(db: &Connection) -> Result<Vec<String>, StorageError> {
-    let mut query = db
-        .prepare(
-            "SELECT l.identity_id FROM orchestration_leads l JOIN identities i ON i.id=l.identity_id \
-             WHERE i.retired_at_ms IS NULL ORDER BY l.identity_id",
-        )
-        .map_err(|e| classify(e, "Prepare leads"))?;
-    let rows = query
-        .query_map([], |r| r.get::<_, String>(0))
-        .map_err(|e| classify(e, "Read leads"))?;
-    rows.map(|r| r.map_err(|e| classify(e, "Read lead")))
+pub(in crate::storage) fn active_leads(snapshot: &OrchSnapshot) -> Vec<&str> {
+    snapshot
+        .leads
+        .iter()
+        .filter(|id| snapshot.identities.iter().any(|i| &i.id == *id))
+        .map(String::as_str)
         .collect()
 }
 

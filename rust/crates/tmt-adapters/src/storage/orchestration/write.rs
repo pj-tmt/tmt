@@ -112,6 +112,31 @@ fn publish(
             }
         }
     }
+    if before.leads != after.leads {
+        execute(c, "DELETE FROM orchestration_leads", [])?;
+        for id in &after.leads {
+            execute(
+                c,
+                "INSERT INTO orchestration_leads(identity_id) VALUES(?1)",
+                [id],
+            )?;
+        }
+    }
+    if before.route_grants != after.route_grants {
+        execute(c, "DELETE FROM orchestration_route_grants", [])?;
+        for grant in &after.route_grants {
+            execute(
+                c,
+                "INSERT INTO orchestration_route_grants(from_id,to_id,until_ms,granted_by) VALUES(?1,?2,?3,?4)",
+                params![
+                    grant.from_id,
+                    grant.to_id,
+                    grant.until_ms as i64,
+                    grant.granted_by
+                ],
+            )?;
+        }
+    }
     for old in &before.focus {
         if !after.focus.iter().any(|f| f.identity_id == old.identity_id) {
             execute(

@@ -160,3 +160,79 @@ fn revision_overflow_is_refused_before_publication() {
     );
     assert!(full.plans.is_empty());
 }
+
+#[test]
+fn leads_and_route_grants_are_candidates_that_refuse_unknown_members() {
+    const OTHER: &str = "10000000-0000-4000-8000-000000000002";
+    let mut original = snapshot();
+    original.identities.push(OrchIdentity {
+        id: OTHER.into(),
+        name: "seat-2".into(),
+    });
+    let leads = OrchMutation::SetLeads {
+        identity_ids: vec![OTHER.into(), ID.into()],
+    };
+    let led = changed_snapshot(&original, &leads).unwrap();
+    assert_eq!(led.leads, [ID, OTHER], "canonical order");
+    assert_eq!(led.revision, 1);
+    assert_eq!(changed_snapshot(&led, &leads).unwrap().revision, 1, "no-op");
+    for (ids, error) in [
+        (vec![ID.into(), ID.into()], OrchError::Invalid),
+        (vec!["missing".into()], OrchError::MemberNotFound),
+    ] {
+        assert_eq!(
+            changed_snapshot(&original, &OrchMutation::SetLeads { identity_ids: ids }),
+            Err(error)
+        );
+    }
+
+    let grant = |until_ms| sending::OrchRouteGrant {
+        from_id: ID.into(),
+        to_id: OTHER.into(),
+        until_ms,
+        granted_by: None,
+    };
+    let allowed = changed_snapshot(
+        &original,
+        &OrchMutation::AllowRoute {
+            grant: grant(500),
+            now_ms: 100,
+        },
+    )
+    .unwrap();
+    assert_eq!(allowed.route_grants, [grant(500)]);
+    // A later allow replaces the pair's grant; an ended one is pruned.
+    let replaced = changed_snapshot(
+        &allowed,
+        &OrchMutation::AllowRoute {
+            grant: grant(900),
+            now_ms: 600,
+        },
+    )
+    .unwrap();
+    assert_eq!(replaced.route_grants, [grant(900)]);
+    for (until_ms, now_ms) in [(100, 100), (100 + sending::ORCH_MAX_GRANT_MS + 1, 100)] {
+        assert_eq!(
+            changed_snapshot(
+                &original,
+                &OrchMutation::AllowRoute {
+                    grant: grant(until_ms),
+                    now_ms
+                }
+            ),
+            Err(OrchError::Invalid)
+        );
+    }
+    let mut to_self = grant(500);
+    to_self.to_id = ID.into();
+    assert_eq!(
+        changed_snapshot(
+            &original,
+            &OrchMutation::AllowRoute {
+                grant: to_self,
+                now_ms: 100
+            }
+        ),
+        Err(OrchError::Invalid)
+    );
+}

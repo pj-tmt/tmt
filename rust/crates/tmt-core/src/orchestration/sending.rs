@@ -8,6 +8,16 @@ pub const ORCH_TALK_WINDOW_MS: u64 = 3_600_000;
 /// The longest a route grant (`route allow`) may last.
 pub const ORCH_MAX_GRANT_MS: u64 = 86_400_000;
 
+/// `route allow`: one ordered pair passes its sending rule until `until_ms`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct OrchRouteGrant {
+    pub from_id: String,
+    pub to_id: String,
+    pub until_ms: u64,
+    /// The verified caller who allowed it; `None` for a person at a terminal.
+    pub granted_by: Option<String>,
+}
+
 /// What the sender's effective `sending` value says about one recipient.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum OrchRoute {

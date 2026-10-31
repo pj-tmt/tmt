@@ -22,6 +22,15 @@ pub enum OrchMutation {
     ClearFocus {
         identity_id: String,
     },
+    /// Replace the leads list (#4892); unknown identities are refused.
+    SetLeads {
+        identity_ids: Vec<String>,
+    },
+    /// Allow one ordered route past its sending rule until `until_ms`, at `now_ms`.
+    AllowRoute {
+        grant: sending::OrchRouteGrant,
+        now_ms: u64,
+    },
 }
 
 fn next(revision: u64) -> Result<u64, OrchError> {
@@ -128,6 +137,38 @@ pub fn changed_snapshot(
                 return Err(OrchError::MemberNotFound);
             }
             candidate.focus.retain(|f| &f.identity_id != identity_id);
+        }
+        OrchMutation::SetLeads { identity_ids } => {
+            let leads: BTreeSet<_> = identity_ids.iter().cloned().collect();
+            if leads.len() != identity_ids.len() || leads.len() > ORCH_MAX_MEMBERS {
+                return Err(OrchError::Invalid);
+            }
+            if leads
+                .iter()
+                .any(|id| !candidate.identities.iter().any(|i| &i.id == id))
+            {
+                return Err(OrchError::MemberNotFound);
+            }
+            candidate.leads = leads.into_iter().collect();
+        }
+        OrchMutation::AllowRoute { grant, now_ms } => {
+            if grant.from_id == grant.to_id || !sending::valid_grant(*now_ms, grant.until_ms) {
+                return Err(OrchError::Invalid);
+            }
+            if [&grant.from_id, &grant.to_id]
+                .iter()
+                .any(|id| !candidate.identities.iter().any(|i| &i.id == *id))
+            {
+                return Err(OrchError::MemberNotFound);
+            }
+            // Expired grants are pruned here; one grant per ordered pair.
+            candidate.route_grants.retain(|g| {
+                g.until_ms > *now_ms && !(g.from_id == grant.from_id && g.to_id == grant.to_id)
+            });
+            candidate.route_grants.push(grant.clone());
+            candidate
+                .route_grants
+                .sort_by(|a, b| (&a.from_id, &a.to_id).cmp(&(&b.from_id, &b.to_id)));
         }
     }
     if candidate.plans.len() > ORCH_MAX_PLANS || candidate.focus.len() > ORCH_MAX_MEMBERS {
