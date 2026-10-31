@@ -36,27 +36,21 @@ export interface SaveResult {
   reason?: LinkRefusalReason;
   /** Rejected as `COLAB_PATCH_CONFLICT` only: the hunks, as sent (0-based), that do not fit. */
   conflicts?: number[];
-  /** A `task.convert` only: the page the operation made, whatever became of its link. */
+  /** A `subpage.create` only: the page the operation made, whatever became of its attach. */
   childPage?: string;
 }
 
-/** The one reply to a `work` frame: a save's fields, plus the ID a committed `task.add` made. */
-export interface WorkResult extends SaveResult {
-  taskId?: string;
-}
+/** The one reply to a `work` frame: a save's fields. */
+export type WorkResult = SaveResult;
 /** The closed work actions a browser sends (contract: Work); the serve refuses any other. */
 export type WorkAction =
   | 'summary.set'
   | 'summary.clear'
-  | 'task.add'
-  | 'task.set'
-  | 'task.state'
-  | 'task.assign'
-  | 'task.link'
-  | 'task.unlink'
-  | 'task.remove'
-  /** Makes a page from the task, then links it; the one action that makes a page. */
-  | 'task.convert';
+  | 'subpage.attach'
+  | 'subpage.detach'
+  | 'subpage.move'
+  /** Makes a page from a title, then attaches it; the one action that makes a page. */
+  | 'subpage.create';
 
 /** Closed metadata actions; the native owner checks the expected revision and body. */
 export type MetadataAction = 'creator.set' | 'question.handle' | 'question.reopen' | 'page.state';
@@ -78,7 +72,7 @@ export class SaveRefused extends Error {
     readonly code: string,
     message: string,
     readonly conflicts?: number[],
-    /** A convert refused after its page was made: the page exists and the task is not linked. */
+    /** A create refused after its page was made: the page exists and is not attached. */
     readonly childPage?: string,
     readonly findings?: QuestionWriteFinding[],
     readonly reason?: LinkRefusalReason,
@@ -151,7 +145,7 @@ export function saveResult(frame: Record<string, unknown>, operationId: string):
         typeof frame.reason === 'string' &&
         LINK_REFUSAL_REASONS.some((reason) => reason === frame.reason)),
   );
-  // A made page is named only where a convert's outcome is final: committed, absent or rejected.
+  // A made page is named only where a create's outcome is final: committed, absent or rejected.
   requireValue(
     frame.childPage === undefined ||
       (typeof frame.childPage === 'string' &&
@@ -219,12 +213,7 @@ export function saveResult(frame: Record<string, unknown>, operationId: string):
   };
 }
 export function workResult(frame: Record<string, unknown>, operationId: string): WorkResult {
-  const { taskId, ...rest } = frame;
-  requireValue(
-    taskId === undefined ||
-      (frame.state === 'committed' && typeof taskId === 'string' && /^T-[0-9]{1,7}$/.test(taskId)),
-  );
-  return { ...saveResult(rest, operationId), ...(typeof taskId === 'string' ? { taskId } : {}) };
+  return saveResult(frame, operationId);
 }
 /** A settled result as the outcome the caller sees: success returns, everything else throws. */
 export function settled(result: SaveResult): SaveResult {

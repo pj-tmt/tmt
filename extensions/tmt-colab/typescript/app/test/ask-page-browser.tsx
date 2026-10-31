@@ -60,12 +60,8 @@ let records: PageAsk[];
 let current: PageView;
 /** One linked sub-page: enough for the work band to have a list to open. */
 const SUBPAGE_WORK: NonNullable<PageView['work']> = {
-  version: 1,
-  next: 2,
-  order: ['T-1'],
-  tasks: {
-    'T-1': { title: 'Sub-page', state: 'todo', child: '20000000-0000-4000-8000-000000000002' },
-  },
+  version: 2,
+  order: ['20000000-0000-4000-8000-000000000002'],
 };
 let registryAgents: readonly AgentDestination[] = [];
 let admitFixtureQuestions = true;

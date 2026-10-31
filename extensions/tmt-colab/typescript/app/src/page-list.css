@@ -595,7 +595,7 @@
   border-bottom: 0;
 }
 
-/* Keep task details in their own track so the primary title and metadata share a centre. */
+/* Keep sub-page progress in its own track so the primary title and metadata share a centre. */
 .pages [data-page-id]:has(.page-work) {
   height: auto;
   min-height: 70px;

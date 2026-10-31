@@ -3,7 +3,7 @@ import { metadataRequest } from '@tmt/colab-client';
 import { validateDiscussionRecord } from './thread-records.js';
 import { validateShell, type Shell } from './shell.js';
 import { canonical } from './closed.js';
-import { validateWork, type Work } from './work.js';
+import { validateWork, type StoredWork } from './work.js';
 import {
   validateTemplateMark,
   validateTemplateSource,
@@ -84,8 +84,8 @@ export interface Projection {
   /** Structured content retains an empty wire text container; never render it as HTML. */
   pageType?: 'shell';
   shell?: Shell;
-  /** An ordinary page's summary and task list (`meta.work`); never on a dashboard. */
-  work?: Work;
+  /** An ordinary page's sub-pages and summary (`meta.work`); never on a dashboard. */
+  work?: StoredWork;
   pageState?: 'todo' | 'in-progress' | 'done';
   attachments?: attachment.AttachmentDescriptor[];
   creationRecipient?: CreationRecipient;

@@ -1,4 +1,4 @@
-//! A browser's sub-page action over the owner-authenticated sync socket. Like a whole-source save,
+//! A browser's work action (a sub-page or summary action) over the owner-authenticated sync socket. Like a whole-source save,
 //! the serve prepares it natively from a snapshot of its own outside every lock and commits the
 //! frozen publication, signing as the root-local writer; unlike a save it names an action, not a
 //! source, and runs the write command's admission (the link rules) first. It applies to the
@@ -23,9 +23,10 @@ pub struct SubpageEdit {
     pub body: Value,
 }
 
-/// The closed list actions (contract: Sub-pages); anything else is refused before any read.
+/// The closed list and summary actions (contract: Work); anything else is refused before any read.
 pub fn known(action: &str) -> bool {
     crate::work::SUBPAGE_ACTIONS.contains(&action)
+        || matches!(action, "summary.set" | "summary.clear")
 }
 
 /// A browser's create: a page made from a title, then attached, as one operation.
@@ -77,4 +78,29 @@ pub fn prepare(
         clock,
     )?;
     super::save::structured(&source, &edit.page, &edit.operation_id, prepared)
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn the_browser_sends_list_and_summary_actions_but_never_the_migration_or_a_task() {
+        for action in [
+            "subpage.attach",
+            "subpage.detach",
+            "subpage.move",
+            "summary.set",
+            "summary.clear",
+        ] {
+            assert!(super::known(action), "{action}");
+        }
+        for action in [
+            crate::work::MIGRATE,
+            crate::work::CREATE,
+            "task.add",
+            "task.link",
+        ] {
+            assert!(!super::known(action), "{action}");
+        }
+        assert!(super::is_create(crate::work::CREATE));
+    }
 }

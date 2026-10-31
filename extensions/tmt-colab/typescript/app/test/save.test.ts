@@ -144,30 +144,28 @@ it('a refusal that names hunks which no longer fit is the conflict the first one
   expect(settledAgainst(committed, hunks)).toBe(committed);
 });
 
-it('a work reply is a save reply plus the ID a committed task.add made', () => {
+it('a work reply is a save reply, with no task ID', () => {
   const reply = (fields: Record<string, unknown>) => ({ ...frame(fields), type: 'workresult' });
-  expect(
-    workResult(reply({ state: 'committed', revision: 'v1:abc', taskId: 'T-12' }), 'o'),
-  ).toMatchObject({ state: 'committed', revision: 'v1:abc', taskId: 'T-12' });
-  expect(workResult(reply({ state: 'unchanged', revision: 'v1:abc' }), 'o').taskId).toBeUndefined();
+  expect(workResult(reply({ state: 'committed', revision: 'v1:abc' }), 'o')).toMatchObject({
+    state: 'committed',
+    revision: 'v1:abc',
+  });
   expect(
     workResult(
-      reply({ state: 'rejected', code: 'COLAB_WIP_LIMIT', message: 'Atlas would hold T-1' }),
+      reply({ state: 'rejected', code: 'COLAB_LINK_REFUSED', reason: 'second-parent' }),
       'o',
     ),
-  ).toMatchObject({ state: 'rejected', code: 'COLAB_WIP_LIMIT' });
+  ).toMatchObject({ state: 'rejected', code: 'COLAB_LINK_REFUSED', reason: 'second-parent' });
   for (const broken of [
-    { state: 'committed', revision: 'v1:abc', taskId: 'x' },
-    { state: 'committed', revision: 'v1:abc', taskId: 12 },
-    { state: 'unchanged', revision: 'v1:abc', taskId: 'T-1' },
-    { state: 'rejected', code: 'COLAB_INPUT_INVALID', taskId: 'T-1' },
+    // The task-era result field is gone.
+    { state: 'committed', revision: 'v1:abc', taskId: 'T-12' },
     { state: 'committed', revision: 'v1:abc', extra: true },
   ])
     expect(() => workResult(reply(broken), 'o'), JSON.stringify(broken)).toThrow();
   expect(() => workResult(reply({ state: 'committed', revision: 'v1:abc' }), 'other')).toThrow();
 });
 
-it('a convert names the page it made in every final outcome, and nowhere else', () => {
+it('a create names the page it made in every final outcome, and nowhere else', () => {
   const page = '20000000-0000-4000-8000-000000000009';
   const reply = (fields: Record<string, unknown>) => ({ ...frame(fields), type: 'workresult' });
   expect(

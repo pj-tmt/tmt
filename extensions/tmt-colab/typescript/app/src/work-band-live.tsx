@@ -11,7 +11,7 @@ import type { PageBinding, PageTransport } from './transport.js';
 import { rememberPages } from './quick-switcher-source.js';
 import { useLinkedPages } from './work-stages.js';
 import { subpageTree, type SubpageRow } from './work-tree.js';
-import type { Work } from './work.js';
+import type { StoredWork } from './work.js';
 
 const PAGE_STATES = ['todo', 'in-progress', 'done'] as const;
 const t = text.workBand;
@@ -52,11 +52,14 @@ export function PageWorkBand({
   pageId,
   work,
   title,
+  openPage,
   ...band
 }: Omit<WorkBandProps, 'subpages' | 'childrenOf' | 'counts' | 'stateControl'> & {
   /** Absent for a page that never had work. */
-  work?: Work;
+  work?: StoredWork;
   title: string;
+  /** Opens a sub-page in this app, as its title link does, without reloading. */
+  openPage?(pageId: string): void;
   binding?: PageBinding;
   /** Where sub-page titles, states and deeper levels are read: the owner list this viewer
    * already has. */
@@ -93,22 +96,15 @@ export function PageWorkBand({
   };
   if (!owner) return <WorkBand {...shared} />;
   const add = async (choice: AddChoice): Promise<string | undefined> => {
-    const added = await binding.work!('task.add', {
-      task: { title: choice.kind === 'create' ? choice.title : choice.title.slice(0, 120) },
-    }).catch((failure: unknown) => ({ failure }));
-    if ('failure' in added)
-      return explained(added.failure) ? saveMessage(added.failure) : t.attachUnknown;
-    const taskId = added.taskId;
-    if (taskId === undefined) return t.attachUnknown;
     try {
-      if (choice.kind === 'create') await binding.work!('task.convert', { taskId });
-      else await binding.work!('task.link', { taskId, pageId: choice.pageId });
+      // One action each: an attach that fails leaves nothing behind, and a create that made its
+      // page before failing names it.
+      if (choice.kind === 'create') await binding.work!('subpage.create', { title: choice.title });
+      else await binding.work!('subpage.attach', { pageId: choice.pageId });
       void reload();
       return undefined;
     } catch (failure) {
       if (!explained(failure)) return t.attachUnknown;
-      // The panel shows no tasks, so the task made only to hold the link goes with its refusal.
-      await binding.work!('task.remove', { taskId }).catch(() => undefined);
       const made = (failure as SaveRefused | SaveNotApplied).childPage;
       if (made !== undefined) {
         void reload();
@@ -118,7 +114,7 @@ export function PageWorkBand({
     }
   };
   const detach = async (row: SubpageRow) => {
-    const remove = (on: PageBinding) => on.work!('task.remove', { taskId: row.carrier });
+    const remove = (on: PageBinding) => on.work!('subpage.detach', { pageId: row.id });
     if (row.parent === pageId) await remove(binding);
     else await onPage(transport, row.parent, remove);
     void reload();
@@ -138,7 +134,11 @@ export function PageWorkBand({
           />
         )}
         rowActions={(row) => (
-          <RowMenu row={row} href={band.pageHref?.(row.id)} detach={() => detach(row)} />
+          <RowMenu
+            row={row}
+            open={openPage ? () => openPage(row.id) : undefined}
+            detach={() => detach(row)}
+          />
         )}
       />
       {adding && (
@@ -156,11 +156,11 @@ export function PageWorkBand({
 
 function RowMenu({
   row,
-  href,
+  open,
   detach,
 }: {
   row: SubpageRow;
-  href?: string;
+  open?(): void;
   detach(): Promise<void>;
 }) {
   const [error, setError] = useState<string>();
@@ -170,11 +170,11 @@ function RowMenu({
         label={t.more(row.title ?? t.unknownPage)}
         icon={<MoreHorizontal aria-hidden="true" />}
         items={[
-          ...(href ? [{ key: 'open', label: t.open }] : []),
+          ...(open ? [{ key: 'open', label: t.open }] : []),
           { key: 'detach', label: t.detach },
         ]}
         onSelect={(key) => {
-          if (key === 'open' && href) window.location.assign(href);
+          if (key === 'open') open?.();
           if (key === 'detach')
             detach().then(
               () => setError(undefined),

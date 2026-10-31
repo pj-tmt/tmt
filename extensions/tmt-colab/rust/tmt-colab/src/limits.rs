@@ -189,7 +189,7 @@ pub const WORK_ID_MAX: u64 = 9_999_999;
 pub const WORK_TITLE_POINTS: usize = 120;
 /// The most the owner's `/api/pages` reply may hold: the browser refuses a longer one
 /// (`DISCOVERY_BYTES` in `bootstrap.ts` holds the same number). The 1,000-row worst case without
-/// titles is 2,087,197 bytes, leaving about 10 KB for optional titles or other additions.
+/// titles is 1,052,197 bytes, so every row's longest title fits as well.
 pub const DISCOVERY_BYTES: usize = 2 * 1024 * 1024;
 /// The longest page title the owner's local title projection keeps, in UTF-8 bytes: a longer one is
 /// not stored, so every consumer's reply stays bounded and shows its own fallback instead. The title

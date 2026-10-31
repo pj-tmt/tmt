@@ -147,7 +147,7 @@ or `td`, with a fresh UUID per `data-id`; more examples are in the comment after
 carry `data-group` (`question-group-conflict`). Detail: [questions](references/questions.md) (`tmt colab skill questions`),
 [components](references/components.md#questions), [reading](references/reading.md)
 (`tmt colab skill reading`), [reviews](references/reviews.md) (`tmt colab skill reviews`).
-Tasks: [work](references/work.md) (`tmt colab skill work`).
+Sub-pages: [work](references/work.md) (`tmt colab skill work`).
 
 ## Answer annotations and Chat
 

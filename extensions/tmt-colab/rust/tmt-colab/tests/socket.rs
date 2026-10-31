@@ -5238,6 +5238,16 @@ fn browser_list_actions_commit_and_meet_the_same_admission_as_the_write_command(
         json!({"pageId":two}),
     );
     assert_eq!(reattached["state"], "committed", "{reattached}");
+    assert_eq!(native_work(&layout, &key), [one.clone(), two.clone()]);
+    // The summary is a work action of the browser too, and keeps the list.
+    let summary = work_action(
+        &server,
+        &mut peer,
+        "60000000-0000-4000-8000-00000000000a",
+        "summary.set",
+        json!({"line1":"Shipping","line2":"Two sub-pages left"}),
+    );
+    assert_eq!(summary["state"], "committed", "{summary}");
     assert_eq!(native_work(&layout, &key), [one, two]);
     // An action the contract does not name is a protocol violation, and nothing is read for it.
     send(

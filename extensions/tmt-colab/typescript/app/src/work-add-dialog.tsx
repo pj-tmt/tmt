@@ -26,7 +26,7 @@ export type AddChoice =
   | { kind: 'create'; title: string };
 
 const t = text.workBand;
-/** A task title is at most 120 code points, and the created page takes its title. */
+/** A new sub-page's title is at most 120 code points, inside the native page title bound. */
 const TITLE_POINTS = 120;
 
 function why(refusal: AttachRefusal): string {

@@ -1,14 +1,12 @@
 import type { PageState } from './bootstrap.js';
 import type { PageSummary } from './transport.js';
-import { taskNumber, type Work } from './work.js';
+import { subpages, type StoredWork } from './work.js';
 
-/** A sub-page row of the work panel. Its link is still stored as a task of its parent that
- * follows it (#4118); `carrier` names that task so Detach can remove it. */
+/** A sub-page row of the work panel. */
 export interface SubpageRow {
   id: string;
-  /** The page whose task holds the link. */
+  /** The page whose list holds the link; Detach removes it there. */
   parent: string;
-  carrier: string;
   title?: string;
   state?: PageState | null;
 }
@@ -28,13 +26,13 @@ export type AttachRefusal =
 
 /**
  * The sub-page tree as the owner list shows it. This page's own work names its direct sub-pages in
- * task order; a deeper level comes from the list's parent links (`summary.parent`), ordered by the
- * parent's task number, which is the parent's creation order. A page the list does not name has no
- * title or state and no children here: nothing is read to find them.
+ * order; a deeper level comes from the list's parent links (`summary.parent`), in each parent's
+ * own order. A page the list does not name has no title or state and no children here: nothing is
+ * read to find them.
  */
 export function subpageTree(
   pageId: string,
-  work: Work | undefined,
+  work: StoredWork | undefined,
   pages: readonly PageSummary[] | undefined,
 ): {
   top: readonly SubpageRow[];
@@ -43,33 +41,29 @@ export function subpageTree(
   refusal(candidate: string): AttachRefusal | undefined;
 } {
   const byId = new Map((pages ?? []).map((page) => [page.id, page]));
-  const row = (id: string, parent: string, carrier: string): SubpageRow => {
+  const row = (id: string, parent: string): SubpageRow => {
     const page = byId.get(id);
-    return { id, parent, carrier, title: page?.title, state: page?.state };
+    return { id, parent, title: page?.title, state: page?.state };
   };
-  const seen = new Set<string>();
-  const top: SubpageRow[] = [];
-  for (const task of work?.order ?? []) {
-    const child = work?.tasks[task]?.child;
-    // One row per page even when two tasks follow it; the first task in order carries it.
-    if (child === undefined || seen.has(child)) continue;
-    seen.add(child);
-    top.push(row(child, pageId, task));
-  }
-  const below = new Map<string, SubpageRow[]>();
+  const listed = subpages(work);
+  const top = listed.map((child) => row(child, pageId));
+  const below = new Map<string, { row: SubpageRow; index: number }[]>();
   for (const page of pages ?? []) {
     const link = page.summary?.parent;
     if (!link || link.page === pageId) continue;
     const rows = below.get(link.page) ?? [];
-    rows.push(row(page.id, link.page, link.task));
+    rows.push({ row: row(page.id, link.page), index: link.index });
     below.set(link.page, rows);
   }
-  for (const rows of below.values())
-    rows.sort(
-      (a, b) =>
-        (taskNumber(a.carrier) ?? 0) - (taskNumber(b.carrier) ?? 0) || (a.id < b.id ? -1 : 1),
-    );
-  const childrenOf = (id: string) => (id === pageId ? top : (below.get(id) ?? []));
+  const ordered = new Map(
+    [...below].map(([parent, rows]) => [
+      parent,
+      rows
+        .sort((a, b) => a.index - b.index || (a.row.id < b.row.id ? -1 : 1))
+        .map(({ row }) => row),
+    ]),
+  );
+  const childrenOf = (id: string) => (id === pageId ? top : (ordered.get(id) ?? []));
   const counts = (rows: readonly SubpageRow[]): SubpageCounts => {
     const found = { done: 0, inProgress: 0, todo: 0, unknown: 0, total: rows.length };
     for (const { state } of rows) {
@@ -93,7 +87,8 @@ export function subpageTree(
     if (ancestors.has(candidate)) return { kind: 'loop' };
     const link = byId.get(candidate)?.summary?.parent;
     if (link) return { kind: 'attached', parentTitle: byId.get(link.page)?.title };
-    if (seen.has(candidate)) return { kind: 'attached', parentTitle: byId.get(pageId)?.title };
+    if (listed.includes(candidate))
+      return { kind: 'attached', parentTitle: byId.get(pageId)?.title };
     return undefined;
   };
   return { top, childrenOf, counts, refusal };

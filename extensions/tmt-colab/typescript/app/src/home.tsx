@@ -214,8 +214,8 @@ function PageArchiveAction({ page, operate }: { page: PageSummary; operate(): vo
 }
 
 /**
- * A stage tab with no page. While the list is still reading the pages' tasks it says so instead of
- * claiming the tab is empty; an empty In progress names where pages without tasks are and offers
+ * A stage tab with no page. While the list is still reading the pages' sub-pages it says so instead of
+ * claiming the tab is empty; an empty In progress names where pages without sub-pages are and offers
  * the way out, and never opens another tab by itself.
  */
 function StageEmpty({
@@ -301,14 +301,14 @@ export function Home() {
     archived ? Boolean(p.archived) : search.includeArchived || !p.archived,
   );
   // The pages the tab holds: a stage tab keeps the pages at that stage, so one that has not
-  // reported its tasks yet is in none of them.
+  // reported its sub-pages yet is in none of them.
   const staged = filter.stage ? shown.filter((p) => pageStage(p) === filter.stage) : shown;
   const projectNames = projectCounts(space.pages, space.projects).map((project) => project.name);
   // The scope is the base: filters, counts and the needs-you chip see only the pages in it.
   const scope = knownScope(search.scope, projectNames);
   const scoped = inScope(staged, scope);
   // The tabs count what the scope holds: an archived page counts only under Archived, and a page
-  // that has not reported its tasks yet under no stage.
+  // that has not reported its sub-pages yet under no stage.
   const archivedInScope = inScope(
     homePages.filter((p) => p.archived),
     scope,

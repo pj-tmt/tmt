@@ -137,32 +137,32 @@ Hosted owns the serialized own-record sender, never Firebase or content writes.
   owns roots, action grammar, attribution and shared validation vectors.
 
 - `work.rs` and browser `work.ts` own the closed work value an ordinary page carries in
-  `meta.work` (a two-line summary and a task list) and its detached trial actions and derived
-  values; `closed.rs`/`closed.ts` and `summary_lines.rs`/`summary-lines.ts` hold the checks the
-  dashboard and work values share (`summary.rs` is the unrelated list summary). The decoder treats a
-  dashboard edit and a work edit as one `StructuredEdit`, admits `meta.work` only on a page that is
-  not a dashboard, and carries it through `BaselineInput`, so a fresh epoch baseline and an HTML
-  source write keep it. `page::read_work` and `page::prepare_structured_publication` are the page
-  owner's read and write. `wip.rs` owns the work-in-progress limit, the write owner's admission
-  rule and never a property of the value, so no published state is invalid for it;
-  `work_index.rs` reads every page's work for it and for the CLI list through one derived file keyed
-  by the page's own progress (`work-index.json`, rebuildable, never signed or synced). The shared
-  page index retains current live neighbors across scans, prunes stale or deleted entries only with a
-  verified catalog, and evicts largest unrequested entries first to stay within 1 MiB; if the catalog
-  is unavailable it returns the requested results without changing the file. `settings.rs` stores the limits. A task may follow a page (`child`): `work_links.rs` is pure over
-  that index and resolves a page's derived values through the pages its tasks follow (a page's
-  stage is its tasks' states, bounded in depth and cycle-safe) and decides whether `task.link` is
-  admitted (one parent, no loop, a page that exists), since one page's value cannot see another's;
-  the owner list resolves its rows and parents through the same `Graph` (`registration.rs`).
-  `cli_work.rs` runs the `task` and `summary` commands: it checks the limit and the link before it
-  prepares a change, so the decoder and the browser never see them, `task convert` makes the page
-  through `cli_management::commit_creation` and then links it, and `ls` adds each page's derived
-  work and its parent. Export publishes `meta.work` as `work.json` beside the
-  HTML. The browser fold validates the value and projects it through the Worker and the parent's
-  prepared-content check; the browser shows nothing new yet. The
+  `meta.work` (its direct sub-pages in order and a two-line summary), its detached trial actions,
+  and the read-only projection of the task-era version 1 value (#5825); `closed.rs`/`closed.ts` and
+  `summary_lines.rs`/`summary-lines.ts` hold the checks the dashboard and work values share
+  (`summary.rs` is the unrelated list summary). The decoder treats a dashboard edit and a work edit
+  as one `StructuredEdit`, admits `meta.work` only on a page that is not a dashboard, and carries it
+  through `BaselineInput`, so a fresh epoch baseline and an HTML source write keep it.
+  `page::read_work` and `page::prepare_structured_publication` are the page owner's read and write.
+  `work_index.rs` reads every page's manual state and direct sub-pages through one derived file
+  keyed by the page's own progress (`work-index.json`, rebuildable, never signed or synced). The
+  shared page index retains current live neighbors across scans, prunes stale or deleted entries
+  only with a verified catalog, and evicts largest unrequested entries first to stay within 1 MiB;
+  if the catalog is unavailable it returns the requested results without changing the file.
+  `work_links.rs` is pure over that index: direct progress (`page_state::progress`), the list row's
+  `work` and `parent {page,index}`, the hierarchy warnings and whether `subpage.attach` is admitted
+  (one parent, no loop, an available page), since one page's value cannot see another's; the owner
+  list resolves its rows and parents through the same `Graph` (`registration.rs`), and
+  `work_admission.rs` is the one admission the CLI and the browser frame share. `cli_work.rs` runs
+  the `subpage` and `summary` commands: it checks the link before it prepares a change, so the
+  decoder and the browser never see the rules; `subpage create` makes the page through
+  `cli_management::commit_creation` (`subpage_create.rs` owns the title, the heading source and the
+  derived page ID) and then attaches it; `migrate_space` is the serve's one-shot `work.migrate` of
+  version 1 values at open; and `ls` adds each page's derived work and its parent. Export
+  publishes `meta.work` as `work.json` beside the HTML. The browser fold validates the value and
+  projects it through the Worker and the parent's prepared-content check. The
   [Work contract](../../../../extensions/tmt-colab/contracts/colab-v1.md#work-4050) owns the
-  schema, limits, actions and derived values, and `work-v1.json` is shared by Rust and
-  TypeScript.
+  schema, limits, actions and link rules, and `work-v2.json` is shared by Rust and TypeScript.
 
 - `page.rs` reads and writes admitted source locally: it prepares through the fold and
   decoder, and the opaque token binds the owner head, page epoch and every namespace
@@ -261,17 +261,17 @@ Hosted owns the serialized own-record sender, never Firebase or content writes.
   `saveresult` and the shared fan-out. The browser's `Connection.save` paces the chunks and holds one
   request in flight; `Live.edit` settles a lost reply with one `savestatus` and never resends.
   A browser work action (`work`/`workresult`, colab-v1 Browser work actions) rides the same pipeline: its
-  `SaveJob` carries a `WorkEdit` instead of a source, `run_save_job` calls `page::work::prepare` (which reads the
-  page's work, runs `work_admission::admit`, the one admission the `tmt colab task` write command also runs,
-  and prepares `prepare_structured_publication` with the browser's operation ID) and `finish_save` commits
-  it with `Access::Publish` and answers `workresult`; `savestatus` settles a lost reply. The connection
-  sends at most eight frames before the browser acknowledges some, so a client acks each frame it reads.
-  `task.convert` is the one work action that makes a page, so it is the owner device's narrow authority
-  over page creation: `page::convert::prepare` runs the refusals of `work_convert::convertible` on a
-  snapshot, makes the page named by `work_convert::child_page_id` (space and operation) through
-  `Server::create_child` (the one step under the sync lock: it re-checks `Access::Publish`, then
-  `Admission::create_child` runs the root-local `page.create` with a fixed title and `child_source`),
-  and prepares `task.link` with `prepare_expecting`, which refuses a task that changed meanwhile.
+  `SaveJob` carries a `SubpageEdit` instead of a source, `run_save_job` calls `page::subpage::prepare` (which
+  reads the page's work, runs `work_admission::admit`, the one admission the `tmt colab subpage` write
+  command also runs, and prepares `prepare_structured_publication` with the browser's operation ID) and
+  `finish_save` commits it with `Access::Publish` and answers `workresult`; `savestatus` settles a lost
+  reply. The connection sends at most eight frames before the browser acknowledges some, so a client acks
+  each frame it reads. `subpage.create` is the one work action that makes a page, so it is the owner
+  device's narrow authority over page creation: `page::subpage_create::prepare` runs the hierarchy
+  preflight on a snapshot, makes the page named by `subpage_create::child_page_id` (space and operation)
+  through `Server::create_child` (the one step under the sync lock: it re-checks `Access::Publish`, then
+  `Admission::create_child` runs the root-local `page.create` with the title and `child_source`), and
+  prepares `subpage.attach` of it.
   `finish_save` and `savestatus` attach `childPage` to every outcome, so nothing made is lost.
   A `save` may carry the editor's change as `hunks` (`save-hunks.ts` `hunksOf`, no evaluator in the
   browser): `page::save::prepare_merging` runs `prepare` first and, only when the page moved

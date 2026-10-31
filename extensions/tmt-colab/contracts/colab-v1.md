@@ -1133,14 +1133,14 @@ reference the creator remains absent.
 `questions` is an array of at most 50 entries, unique by the existing authored question UUID.
 Each entry is exactly `{id,state,attribution,agent?,title?,group?,task?}`. Optional `agent` uses
 the same stable ID/display-label pair; absence means unassigned and null is invalid. `title` is nonempty inert text of at most 200 Unicode code
-points; `group` is an authored group UUID. Stored `state` is `open` or `handled`; `task` is
-optional only for `handled` and must name a task on this page when the action sets it.
+points; `group` is an authored group UUID. Stored `state` is `open` or `handled`. `task` is
+task-era input only (#5825): a `handled` entry may still carry a `T-<n>` (a decimal number from 1
+to 9999999 without a leading zero), no action sets it, and the entry's next state change drops it.
 `question add PAGE --id UUID [--agent NAME|UUID] [--title TITLE] [--group UUID]` registers or
 explicitly updates that entry. Omitted agent leaves a new entry unassigned and preserves an
 existing assignment. Repeating an unchanged registration publishes nothing;
 changed routing, group or title is attributed and never reopens it. `question handle PAGE
-ID [--task T-n]` and `question reopen PAGE ID` change the editor-owned lifecycle; reopening
-clears the task link. These closed actions use the ordinary conditional content publisher,
+ID` and `question reopen PAGE ID` change the editor-owned lifecycle. These closed actions use the ordinary conditional content publisher,
 never a new publication kind or commenter content write.
 
 A bounded public lookup may confirm that a referenced identity is missing; unavailable,
@@ -1335,7 +1335,7 @@ The owner resolves `selector` through the existing bounded authenticated identit
 not found refuses `COLAB_IDENTITY_UNKNOWN`, and unavailable, ambiguous or malformed lookup
 refuses `COLAB_IDENTITY_UNVERIFIED`. No guessed/stored fallback binding or directory is supplied
 to the link. Only the resolved ID and observed label enter creator metadata; the publisher
-supplies attribution. Source, question registration, assignment, answers, Ask and tasks are
+supplies attribution. Source, question registration, assignment, answers, Ask and work are
 unchanged. No approval queue or owner confirmation is involved.
 
 Metadata requests reuse the existing save result and operation journal. The internal operation
@@ -3111,35 +3111,33 @@ consume the shared `shell-v1.json` vectors.
 
 An ordinary page has an independent manual state: `todo`, `in-progress`, or `done`. It is the optional `meta.pageState` string in the encrypted content document; an absent value reads as `todo`. Invalid values are refused by native and browser decoders. A dashboard shell is not a ticket: it cannot carry this field and its state and progress read as `null`. Only an explicit owner-device structured `page.state` action `{state}` changes the field; its revision and operation follow the existing structured publication path. The owner's CLI, agents and paired browser use that admission; a share or non-owner writer gains no authority. Other devices and admitted readers observe the encrypted page state through normal sync. Source edits and epoch baselines retain it.
 
-Page progress is derived at read time and never stored in the page or used to change its manual state. It is `progress: {done,inProgress,todo,unknown,total}`, all nonnegative integers, where `total` is the sum of the four buckets. An unlinked task counts once: `todo` is todo, `done` is done, and `in-progress`, `blocked`, and `in-review` are in progress. A task following a child and that child count once, using the child's manual state; duplicate links to the same child count once per parent. Resolution reads one level and terminates even for legacy cycles. Archived children count normally. A child whose current state is unavailable or stale counts as unknown, never done. If the page's own current projection cannot be read, state and progress are null with an unavailable reason rather than invented counts.
+Page progress is derived at read time and never stored in the page or used to change its manual state. It is `progress: {done,inProgress,todo,unknown,total}`, all nonnegative integers, where `total` is the sum of the four buckets. It counts the page's direct [sub-pages](#sub-pages-5825), each once, by its own manual state; it is never recursive. A sub-page whose current state is unavailable or stale counts as unknown, never done. Archived sub-pages count normally. If the page's own current projection cannot be read, state and progress are null with an unavailable reason rather than invented counts.
 
-`tmt colab page state PAGE todo|in-progress|done [--json]` writes a manual state; `tmt colab show PAGE --json` returns state and progress; `tmt colab ls --json` returns state. Owner page-list rows likewise carry state, not the progress buckets, to stay within the bounded discovery response. The existing owner-only per-page summary-details read carries the state and progress pair when its projection is fresh; pending, unreadable, or shell projections yield no progress. Mounted page reads return this bounded projection when available. A share reader gets its state from the encrypted fold and progress `null`. `ls --state` selects known pages in an explicit state and never matches shells. It succeeds when a page is unreadable and reports those page IDs in the top-level `stateUnavailable` array (and in text output), so callers know the filtered result may be incomplete. The existing task-derived stage remains a separate value.
+`tmt colab page state PAGE todo|in-progress|done [--json]` writes a manual state; `tmt colab show PAGE --json` returns state and progress; `tmt colab ls --json` returns state. Owner page-list rows likewise carry state, not the progress buckets, to stay within the bounded discovery response. The existing owner-only per-page summary-details read carries the state and progress pair when its projection is fresh; pending, unreadable, or shell projections yield no progress. Mounted page reads return this bounded projection when available. A share reader gets its state from the encrypted fold and progress `null`. `ls --state` selects known pages in an explicit state and never matches shells. It succeeds when a page is unreadable and reports those page IDs in the top-level `stateUnavailable` array (and in text output), so callers know the filtered result may be incomplete. The list's stage (below) is derived from the same direct sub-pages.
 
 ### Work (#4050)
 
-An ordinary HTML page may carry work: a two-line summary and a task list, in the content
-document's `meta.work` beside its HTML. A page with tasks is just a page; there is no other
-tracker concept. A dashboard never carries work (it keeps its own summary), and a page with
-`meta.work` has no `pageType`. The isolated native decoder and the browser fold validate the
-value on every incoming state and prepared action, so raw Yjs cannot bypass the schema. Writing a
-page's HTML source and rotating its epoch keep the value exactly. A page that has had no work carries no `meta.work`; its first action starts from the
-empty value, and an action that leaves it empty writes nothing.
+An ordinary HTML page may carry work: its direct sub-pages in order and a two-line summary, in the
+content document's `meta.work` beside its HTML. A page with sub-pages is just a page; there is no
+task, assignee or other tracker concept. A dashboard never carries work (it keeps its own
+summary), and a page with `meta.work` has no `pageType`. The isolated native decoder and the
+browser fold validate the value on every incoming state and prepared action, so raw Yjs cannot
+bypass the schema. Writing a page's HTML source and rotating its epoch keep the value exactly. A
+page that has had no work carries no `meta.work`; its first action starts from the empty value,
+and an action that leaves it empty writes nothing.
 
 ```json
 {
-  "version": 1,
-  "next": 4,
-  "summary": { "line1": "", "line2": "", "attribution": {} },
-  "tasks": { "T-3": {} },
-  "order": ["T-3"]
+  "version": 2,
+  "order": ["20000000-0000-4000-8000-000000000002"],
+  "summary": { "line1": "", "line2": "", "attribution": {} }
 }
 ```
 
-`version` is `1`. `next` is the number the next task takes, from 1 to 10000000. `tasks` maps
-`T-<n>` (a decimal number from 1 to 9999999 without a leading zero, always below `next`) to a
-task; a removed number is never handed out again, so `next` only grows. `order` lists every task
-ID once, in creation order; there is no move action. There are at most 256 tasks. The whole
-value, encoded as compact UTF-8 JSON with lexically sorted ASCII field and ID keys and integral
+`version` is `2`. `order` lists the direct sub-pages, each a page ID (a generated UUID) at most
+once, in the page's order; there are at most 256. The value never says whether a listed page
+exists or where else it is listed: those are the write owner's [link rules](#sub-pages-5825). The
+whole value, encoded as compact UTF-8 JSON with lexically sorted ASCII field keys and integral
 numbers normalized, is at most 131072 bytes, so a replacement stays within one update. Existing
 update, history and transport limits apply too.
 
@@ -3149,271 +3147,166 @@ rules, and attribution that the write owner records (its authenticated writer UU
 Unix milliseconds and the optional Core-resolved `displayAgent`, never proof of agent authority).
 An action cannot supply attribution.
 
-A task is a closed object whose optional fields are omitted, never `null`:
-
-| Field          | Value                                                                                                                                                                        |
-| -------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `title`        | Required; 1 to 120 code points of inert text                                                                                                                                 |
-| `state`        | Required; `todo`, `in-progress`, `blocked`, `in-review` or `done`                                                                                                            |
-| `detail`       | The spec: scope and what to do, at most 4096 UTF-8 bytes of plain text; line feeds allowed, no other control characters                                                      |
-| `reason`       | Present exactly when `state` is `blocked`: 1 to 256 bytes of inert text                                                                                                      |
-| `assignee`     | `{kind:"agent",name,id?}` (the shell's display-metadata shape) or `{kind:"person",name}`; a name is 1 to 128 bytes                                                           |
-| `acceptance`   | 1 to 8 criteria, each `{kind:"test",name}` (a test name), `{kind:"check",command,result?}` (a command and, once run, its result) or `{kind:"person",who}` (a person or lead) |
-| `needsSignoff` | `true` when the task waits for the owner's sign-off; omitted otherwise                                                                                                       |
-| `externalId`   | At most 128 bytes: the external issue a driver syncs; the GitHub driver's is `#N` (see [GitHub driver](#github-driver-4053))                                                 |
-| `child`        | A page ID (a generated UUID): the page this task follows (see [A task that follows a page](#a-task-that-follows-a-page-4118)); never together with `externalId`              |
-
-Text is inert and contains no control characters (except the line feeds of `detail`) or unpaired
-surrogates. A criterion records what makes the task acceptable; nothing in this version ticks it
-or runs a command. `needsSignoff` is stored and counted; it gates no state change. The owner
-answers it from the band by moving the task to `done` (sign off) or back to `in-progress`.
+Version 1 is the task-era value (`{version:1,next,tasks,order,summary?}`, where `tasks` maps
+`T-<n>` to a task and a task's optional `child` names a page). It is accepted only as stored input
+to migrate: both validators check that its `order` and `tasks` agree, that a `child` is a page ID
+and that the summary is valid, and readers project it read only as the version 2 value it migrates
+to: the `child` of each task in task order, each page once, plain tasks dropped, and the summary
+kept. Every action applies to that projection, so any write stores version 2. When the owner's
+serve opens a space it runs `work.migrate` (body `{}`, which changes nothing else) once on every page
+still at version 1; a page it cannot rewrite then keeps its value until the next open or its next
+write. The browser never sends `work.migrate`.
 
 Each action is trial-applied to a detached admitted document. Only a schema-valid whole result
-becomes an ordinary signed content publication. The nine closed bodies are:
+becomes an ordinary signed content publication. The closed bodies are:
 
-| Action          | Body                                                                     | Effect                                                                                                                   |
-| --------------- | ------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------ |
-| `task.add`      | `{task:{title,detail?,assignee?,acceptance?,needsSignoff?,externalId?}}` | Add a `todo` task as `T-<next>` and count `next` on; the caller never chooses the ID, and it is returned.                |
-| `task.set`      | `{taskId,title,detail?,acceptance?,needsSignoff?,externalId?}`           | Replace the editable fields as a whole (an omitted optional is cleared); never state, reason, assignee or child.         |
-| `task.state`    | `{taskId,state,reason?}`                                                 | Set the state; `reason` is required for `blocked` and refused for any other state, and a move out of `blocked` drops it. |
-| `task.assign`   | `{taskId,assignee?}`                                                     | Set the assignee; omitted clears it.                                                                                     |
-| `task.link`     | `{taskId,pageId}`                                                        | Set `child`; the same page again is a no-op, and another page while one is set is refused (unlink first).                |
-| `task.unlink`   | `{taskId}`                                                               | Remove `child`; absent already is a valid no-op.                                                                         |
-| `task.remove`   | `{taskId}`                                                               | Remove the task and its order entry; its number is never reused.                                                         |
-| `summary.set`   | `{line1,line2}`                                                          | Set both lines and system attribution.                                                                                   |
-| `summary.clear` | `{}`                                                                     | Remove the summary; absent already is a valid no-op.                                                                     |
+| Action           | Body                 | Effect                                                                                                         |
+| ---------------- | -------------------- | -------------------------------------------------------------------------------------------------------------- |
+| `subpage.attach` | `{pageId,before?}`   | List a page that is not listed, in front of the listed `before` or last; admitted by the link rules.           |
+| `subpage.move`   | `{pageId,before?}`   | Move a listed page in front of the listed `before`, or to the end.                                             |
+| `subpage.detach` | `{pageId}`           | Remove a listed page from the list; the page itself is unchanged. Always admitted, so links can be repaired.   |
+| `summary.set`    | `{line1,line2}`      | Set both lines and system attribution.                                                                         |
+| `summary.clear`  | `{}`                 | Remove the summary; absent already is a valid no-op.                                                           |
+| `work.migrate`   | `{}`                 | Store a version 1 value as version 2; the serve's own migration only.                                          |
 
-Extra or missing fields, invalid types, `null` optionals, overlimits, a caller-chosen or unknown
-task ID, an unknown state or kind, a `reason` without `blocked` (or `blocked` without one), a
-dashboard and any caller-supplied attribution refuse the whole action with
-`COLAB_INPUT_INVALID`, leaving the base untouched. A changed revision is `COLAB_STALE_BASE`: read
-again, without an automatic retry. The revision fence, not a caller ID, makes a retried
-`task.add` safe: after a publication that did commit, the repeat is stale. An action that changes
-nothing is a no-op with the ordinary no-op receipt. The page's own HTML is unchanged by every
-action.
+Extra or missing fields, invalid types, `null` optionals, overlimits, an attach of a listed page, a
+move or detach of an unlisted one, a `before` that names the page being placed or is not listed, a dashboard
+and any caller-supplied attribution refuse the whole action with `COLAB_INPUT_INVALID`, leaving the
+base untouched. A changed revision is `COLAB_STALE_BASE`: read again, without an automatic retry. An
+action that changes nothing is a no-op with the ordinary no-op receipt. The page's own HTML is
+unchanged by every action.
 
-Derived values are computed from the tasks and never stored or edited. The stage is
-`discussion` with no task, `done` when every task is done, and `in-progress` otherwise. Progress
-is the done count over the total. Who is working is the assignees of `in-progress` tasks, each
-once, in task order. Sign-off is the count of `in-review` tasks with `needsSignoff`. The browser folds and validates work, while the ordinary-page route and share reader draw a work
-panel pinned under the nav as the page scrolls (#5820). It lists sub-pages only; plain tasks are
-stored and counted natively but never shown there. Its head row is one toggle (pointer, Enter or
+The list's stage is derived and never stored: `discussion` without sub-pages, `done` when every
+direct sub-page is `done`, and `in-progress` otherwise (an unknown sub-page is not done). The
+browser folds and validates work, while the ordinary-page route and share reader draw a work panel
+pinned under the nav as the page scrolls (#5820). Its head row is one toggle (pointer, Enter or
 Space) holding the independent manual page state chip, which is its own menu and never toggles,
 then a segmented bar, `N of M done` (`N/M` on a phone) and a chevron. The bar and count are the
-direct sub-pages by their own manual states from the owner list (Done theme green, In progress review
-purple, To do empty, Unknown neutral), never the task-derived stage and never recursive. With no
-sub-page the head shows `No sub-pages yet` and no bar, and for the owner opens Add. A share reader
-has no owner list, so it shows the chip and sub-page rows without titles, states or counts.
+direct sub-pages by their own manual states from the owner list (Done theme green, In progress
+review purple, To do empty, Unknown neutral), the same count as the list row's `work`, never
+recursive. With no sub-page the head shows `No sub-pages yet` and no bar, and for the owner opens
+Add. A share reader has no owner list, so it shows the chip and sub-page rows without titles,
+states or counts.
 
 Opening the panel animates with the motion tokens (instant under reduced motion) and shows one
 list: each sub-page row has a disclosure when the owner list names sub-pages under it, which expands
 the next level in place (no depth limit, a level indented by `space-xl`, each level from the same
-list's parent links, ordered by the parent's task number; a stored loop is drawn once), a title link,
-its own direct `N of M`, its state chip and a ⋯ menu. Right-hand columns align across levels. When
-the list is taller than the room under the nav, only the list scrolls. The panel reports its
-measured height to the existing renderer viewport owner, so the frame keeps one scroll region.
+list's parent links, in the parent's own order; a stored loop is drawn once), a title link, its own
+direct `N of M`, its state chip and a ⋯ menu. Right-hand columns align across levels. When the list
+is taller than the room under the nav, only the list scrolls. The panel reports its measured height
+to the existing renderer viewport owner, so the frame keeps one scroll region.
 
 The owner state menu sends `page.state` through the expected-revision metadata route and captures
 the shown manual value independently of creator/question editors; busy or refused writes do not
 optimistically change the chip. A row's chip sets that sub-page's own state the same way, through
 that page's binding opened only for the write; the row moves when the owner list reports it. The
-⋯ menu offers Open and Detach; Detach sends `task.remove` for the task that holds the link, on the
-page that holds it, and never deletes the page. Optional owner progress details survive initial
-subscription and are read as before (one active and one trailing read per burst, no timers).
-Page export includes it as `work.json`
+⋯ menu offers Open, which navigates in the app like the title link, and Detach, which sends
+`subpage.detach` on the page whose list holds the row and never deletes the page. Optional owner
+progress details survive initial subscription and are read as before (one active and one trailing
+read per burst, no timers). Page export includes the value as `work.json`
 (see [Plaintext page export](#plaintext-page-export-1309)). Native and browser consume the shared
-`work-v1.json` vectors.
+`work-v2.json` vectors, which carry version 1 cases as migration input.
 
-#### A task that follows a page (#4118)
+#### Sub-pages (#5825)
 
-A task with a `child` follows that page, and a page is the child of at most one task. The task's
-own `state` is kept, ignored while it follows and shown again when it stops, and `task.state` is
-refused for it. The task shows the stage of its page as a state: `discussion` (no task) is `todo`,
-`in-progress` is `in-progress`, and `done` is `done`, or `in-review` when the task has
-`needsSignoff`. A blocked task inside the page does not propagate (the page stays `in-progress`).
-`child` and `externalId` exclude each other on one task, so a task's state has one owner. Both
-validators enforce the exclusion, the id form and the closed actions, so raw Yjs cannot bypass them.
-
-The value never holds the page's stage: derived values take a resolver from page ID to stage, and
-a task whose page the resolver cannot answer for (deleted, unreadable, not asked) shows its own state.
-The page's own stage, progress, workers and sign-off count are computed from the states the tasks
-show, so a page whose tasks all follow finished pages is `done`; they are returned with the states of
-the tasks that follow a page as `derived.states` (`{T-n: state}`, present only when some task does). A
-page's stage is resolved through the pages it follows, at most 8 pages deep; a page already being
-resolved, or one past the depth, answers nothing, so its task shows its own state and the resolution
-always ends. The native resolver is the work index (below); the browser takes a resolver from the
-owner's rows and never reads another page's document, and a reader without them shows a task that
-follows a page without a state.
-
-`task.link` is admitted by the write command, like the work-in-progress limit, because one page's
-document cannot see another's. It is refused as `COLAB_LINK_REFUSED` when the page is the task's own
-page, is not a page of the space (deleted, or one the owner cannot read), already has a parent (a task
-of this page or of any other, naming it), or has the task's page below it (a loop). Sub-pages nest
-without a depth limit: a sub-page may have sub-pages of its own, and a page with sub-pages may be
-attached under another page. A valid same-task/same-child retry
-is unchanged. CLI JSON puts a stable `reason` beside `error.code` and `error.message`; a rejected
-browser `workresult` puts it beside `code` and `message`:
+A page is a sub-page of at most one page, a link never closes a loop, and sub-pages nest without a
+depth limit: a sub-page may have sub-pages of its own, and a page with sub-pages may be attached
+under another page. One page's document cannot see another's, so these are admission rules of the
+write owner, never rules of the stored value. `subpage.attach` (and `subpage.create`) is refused as
+`COLAB_LINK_REFUSED` when the page is the page itself, is not a page of the space (deleted, or one
+the owner cannot read), is already listed by another page, or has this page below it (a loop). CLI
+JSON puts a stable `reason` beside `error.code` and `error.message`; a rejected browser `workresult`
+puts it beside `code` and `message`:
 
 | `reason`            | Refusal                                                                                      |
 | ------------------- | -------------------------------------------------------------------------------------------- |
-| `second-parent`     | Another task already follows the child; the message names that task and page.                |
-| `cycle`             | A self-link or a link to an ancestor would close a loop.                                     |
+| `second-parent`     | Another page already lists the page; the message names that page.                            |
+| `cycle`             | The page itself, or a page above it, would close a loop.                                     |
 | `invalid-hierarchy` | An existing connected hierarchy already has conflicting links; repair it before adding more. |
-| `unavailable`       | The proposed child is not an available page of this space.                                   |
+| `unavailable`       | The proposed sub-page is not an available page of this space.                                |
 
 Self/missing-target and second-parent checks precede ancestor-cycle checks; existing-invalid-hierarchy
-checks follow. A refused action publishes no page, content, work,
-membership change or successful operation receipt; a rebuildable admission cache may be refreshed.
-Unlink and removal remain available to repair links, including when unlink restores an assigned
-task above its work-in-progress limit. Existing task/value, authority and revision fences still apply.
+checks follow. A refused action publishes no page, content, work, membership change or successful
+operation receipt; a rebuildable admission cache may be refreshed. Detach and move remain available
+to repair links. Existing value, authority and revision fences still apply.
 
-Two writers on different pages can still race to publish conflicting links; as with the limit this
-is a working agreement, not a cross-page lock. Existing cyclic or multiple-parent data stays
-readable and is never automatically rewritten. `tmt colab show PAGE --json` adds the warning strings
-`subpage-cycle` and/or `subpage-multiple-parents` to `page.warnings` for
-pages in the affected connected hierarchy. These explicit diagnostics use the same fresh
-`work_index::scan` graph as admission, refreshing rebuildable cache entries only when their page
-fingerprints change; page content and links are never rewritten. New links involving that hierarchy are refused; unrelated valid
-components remain usable. Readers retain every stored link and resolve the displayed parent by
-the lowest page ID, then the lowest task number; a loop or a chain deeper than the stage bound is bounded as above. An archived page keeps its link and its stage
-is followed. The work-in-progress limit does not count a task that follows a page as held: the work is
-held where it is, by that page's own tasks.
+Two writers on different pages can still race to publish conflicting links; this is a working
+agreement, not a cross-page lock. Existing cyclic or multiple-parent data stays readable and is
+never automatically rewritten. `tmt colab show PAGE --json` adds the warning strings `subpage-cycle`
+and/or `subpage-multiple-parents` to `page.warnings` for pages in the affected connected hierarchy.
+These explicit diagnostics use the same fresh `work_index::scan` graph as admission, refreshing
+rebuildable cache entries only when their page fingerprints change; page content and links are
+never rewritten. New links involving that hierarchy are refused; unrelated valid components remain
+usable. Readers retain every stored link and resolve the displayed parent by the lowest page ID; a
+stored loop terminates. An archived page keeps its link.
 
-`tmt colab task ls|add|set|state|assign|link|unlink|convert|rm PAGE ...` and `tmt colab summary set|clear PAGE` run
-the actions above, one command per action, and never open a browser. A write applies to the
-revision it just read, or to `--expected-revision`; `task add` returns the new `taskId`. `task ls
---json` returns `{spaceId,pageId,title,work,derived,epoch,membershipHead,revision}`; a page with no
-work returns the empty value, and `derived` carries `states` when a task follows a page. A dashboard
-is refused with `COLAB_INPUT_INVALID`. `tmt colab ls` shows `work` (`stage`, `done`, `total`,
-`working`, `signoff`, the tasks following pages counted by the states they show) on each page that has
-current cached work, and one line under its row; a page that is followed also carries `parent` `{page,task}` and says
-"part of T-n of PAGE". This optional list projection reads only `work-index.json` entries
-whose progress key is current; missing, stale or unreadable entries are omitted without folding,
-locking or writing the index. Use `task ls PAGE` for freshly folded work. `task link PAGE TASK CHILD` and `task unlink PAGE TASK` run the two actions
-(CHILD is named as any page is). `task convert PAGE TASK` makes a new column-layout page titled like
-the task, with its detail as paragraphs of escaped text, then runs `task.link` for it; it prints
-`childPage`. Making a page moves the space, so the link is written on the revision read after it and
-only while the task is still the one copied; otherwise nothing is linked and the command says which
-page exists and the `task link` command that finishes it. It never searches for a page to adopt, so
-running it again makes another page. A task that follows a page or has an `externalId` is refused
-before any page is made. The CLI and browser also run the shared hierarchy preflight before page
-creation: converting on a page of an existing invalid component is `COLAB_LINK_REFUSED` /
-`invalid-hierarchy`, with no new page; a sub-page converts like any page. The link is checked again
-after creation; if a concurrent change makes that link fail, the existing explicit partial-failure
-result still names the page that was made.
+The rules and the list's progress read each page's manual state and direct sub-pages through a
+derived file keyed by the page's own progress (`work-index.json` beside the settings: the epoch and
+the content counts, not the membership head, so another page's creation or sharing refolds
+nothing), which holds nothing the pages do not and may be deleted. Scans retain current entries for
+other verified live pages and prune stale or deleted entries; when the 1 MiB bound is exceeded,
+requested entries take priority and the largest unrequested entries are evicted first (ties by page
+ID). If requested entries alone exceed the bound, the result is returned without replacing the
+file. If the live catalog cannot be read, the result is returned without changing the file. A
+revocation alone can leave an entry stale until the page's next write.
 
-An agent _holds_ a task while it is assigned to that agent (`assignee.kind` `agent`, by name) and the
-task is `todo` or `in-progress`. The work-in-progress limit bounds the tasks an agent holds across
-every non-archived page of the space: 1 by default, `tmt colab settings wip-limit N` for the space
-and `wip-limit AGENT N|default` for one agent, stored in `settings.json` as
-`{"wip":{"default":N,"agents":{NAME:N}}}` with N from 1 to 1000. It is an admission rule of the
-write command, not a rule of the stored value. The command refuses a change that adds a held task
-(`task.add` or `task.assign` to an agent, or `task.state` moving an assigned agent's task into `todo`
-or `in-progress`) when the agent would then hold more than its limit, as `COLAB_WIP_LIMIT`
-naming the agent and every task it would hold, with nothing written. Every other change is
-admitted, so lowering the limit, a write from another device or a person's tasks never invalidate
-published state or block finishing, unassigning or removing a task. The count reads each page's work
-through a derived file keyed by the page's own progress (`work-index.json` beside the settings: the
-epoch and the content counts, not the membership head, so another page's creation or sharing
-refolds nothing; a page whose tasks follow pages also keeps each task's state, assignee, sign-off
-flag and `child`, which is what resolution and `task.link` read), which holds nothing the pages do not
-and may be deleted. Scans retain current entries for other verified live pages and prune stale or
-deleted entries; when the 1 MiB bound is exceeded, requested entries take priority and the largest
-unrequested entries are evicted first (ties by page ID). If requested entries alone exceed the bound,
-the result is returned without replacing the file. If the live catalog cannot be read, the result is
-returned without changing the file. A revocation alone can leave an entry stale until the page's next write. Two commands racing on different pages may
-both be admitted: the limit is a working agreement, not a lock.
+`tmt colab subpage ls|attach|detach|move|create PAGE ...` and `tmt colab summary set|clear PAGE`
+run the actions above, one command per action, and never open a browser. A write applies to the
+revision it just read, or to `--expected-revision`. `attach` and `move` take `--before SUBPAGE`;
+CHILD and SUBPAGE are named as any page is. `subpage ls --json` returns
+`{spaceId,pageId,title,children,summary?,epoch,membershipHead,revision}` plus `subpages` (one
+`{pageId,title,state}` per direct sub-page, `null` where the owner cannot read it), `progress` and
+`stage`; a page with no work lists none. A dashboard is refused with `COLAB_INPUT_INVALID`.
+`subpage create PAGE --title TEXT` refuses what the attach would refuse before any page exists,
+makes a new column-layout page whose first text is the title as an escaped heading, then attaches
+it on the revision read after it; it prints `childPage` and `title`. If that attach fails the
+command says which page exists and the `subpage attach` command that finishes it. It never searches
+for a page to adopt, so running it again makes another page.
 
 #### Browser work actions (#4051)
 
 The owner browser changes work through the sync socket's `work` frame (`operationId, action, body`),
-owner device only, never a link or a public reader. `action` is one of the nine closed actions above, or `task.convert`,
-and `body` its closed body; neither carries attribution, and the write is the root-local writer's,
-with no display agent. The serve prepares it from a snapshot of its own outside the sync lock, like a
-browser Save, and runs the write command's admission first: the task the body names exists, the
-action applies, no agent ends up over its work-in-progress limit (`COLAB_WIP_LIMIT`, naming the agent
-and every task it would hold, except that unlink always remains available for repair) and a link
-obeys the one-parent, available-target and no-loop rules
-(`COLAB_LINK_REFUSED` with the stable `reason` defined above). Both callers run the same function, so the limit cannot drift between the
-command and the browser. An action the contract does not name is a protocol violation. The action
-applies to the revision the serve reads when it prepares, so the action's own preconditions fence it
-(a task that is gone is `COLAB_INPUT_INVALID`), and the commit's fences turn a page that moved
-meanwhile into `COLAB_STALE_BASE`; nothing is written on a refusal.
+owner device only, never a link or a public reader. `action` is `subpage.attach`, `subpage.move`,
+`subpage.detach`, `summary.set`, `summary.clear` or `subpage.create`, and `body` its closed body;
+neither carries attribution, and the write is the root-local writer's, with no display agent. The
+serve prepares it from a snapshot of its own outside the sync lock, like a browser Save, and runs
+the write command's admission first, so the link rules cannot drift between the command and the
+browser. An action the contract does not name, including `work.migrate` and every task-era action,
+is a protocol violation. The action applies to the revision the serve reads when it prepares, so
+the action's own preconditions fence it (a page that is no longer listed is `COLAB_INPUT_INVALID`),
+and the commit's fences turn a page that moved meanwhile into `COLAB_STALE_BASE`; nothing is written
+on a refusal.
 
 The owner work panel has one Add window (#5820): a design-system dialog that searches the observed
-page list. Choosing a page sends `task.add` (titled like the page) then `task.link` with the returned
-task ID. When no listed page has exactly the typed title, the first row creates one: `task.add`
-with the typed title, then `task.convert`. Pages the list shows cannot be attached stay listed,
-dimmed, with why (this page, above this page, already under another page); the owner's admission
-still decides. A refused link or conversion removes the task it added and shows the refusal; a
-conversion that made its page but could not link it says so, and the page can be chosen. An
-unsettled outcome is not resent: the user is asked to check the sub-pages. Share readers and shell
-pages have no Add control.
+page list. Choosing a page sends one `subpage.attach`. When no listed page has exactly the typed
+title, the first row sends one `subpage.create` with the typed title. Pages the list shows cannot be
+attached stay listed, dimmed, with why (this page, above this page, already under another page);
+the owner's admission still decides. A refusal shows its words and leaves nothing to clean up; a
+create that made its page but could not attach it says so, and the page can be chosen. An unsettled
+outcome is not resent: the user is asked to check the sub-pages. Share readers and shell pages have
+no Add control.
 
-A tenth action, `task.convert` with the body `{taskId}` and nothing else, makes the task a page of its
-own, as `tmt colab task convert` does, and is the only browser action that makes a page. Page
-creation is otherwise root-only, so this is a narrow authority of the owner device (`Access::Publish`,
-checked again under the sync lock when the page is made): the page is a column page titled like the
-task, its first text is the task's title and detail as escaped paragraphs, and no title, source,
-layout or agent comes from the caller. The serve refuses a task that is gone, follows a page or has
-an `externalId` (`COLAB_INPUT_INVALID`), or a source page refused by the shared hierarchy preflight
-(`COLAB_LINK_REFUSED` with `reason`), before anything is made; makes the page with the root-local
-`page.create` in process; reads the task again and runs `task.link` through the shared admission only
-if the task is still the one copied. The page's ID is a name-based ID over the space ID and the
-operation ID (a generated-ID shape; its creation is recorded under a second ID derived the same
-way), so the same operation never makes two pages, a replay finds its page, and a new operation makes
-a new one. A committed `workresult` carries `childPage`. If the link then fails, the result is
-rejected and still carries `childPage`: the page exists and the task is unlinked, nothing is retried,
-and `task.link` finishes it. `savestatus` for the operation carries `childPage` whenever that page
-exists, so a lost reply says whether the page was made (`absent` with a page) and whether the link
+`subpage.create` with the body `{title}` and nothing else makes a page and attaches it, as
+`tmt colab subpage create` does, and is the only browser action that makes a page. Page creation is
+otherwise root-only, so this is a narrow authority of the owner device (`Access::Publish`, checked
+again under the sync lock when the page is made): the page's first text is the title as an escaped
+heading, and no source, layout or agent comes from the caller. The serve refuses a source page the
+shared hierarchy preflight refuses (`COLAB_LINK_REFUSED` with `reason`) before anything is made,
+makes the page with the root-local `page.create` in process, and then runs `subpage.attach` through
+the shared admission. The page's ID is a name-based ID over the space ID and the operation ID (a
+generated-ID shape; its creation is recorded under a second ID derived the same way), so the same
+operation never makes two pages, a replay finds its page, and a new operation makes a new one. A
+committed `workresult` carries `childPage`. If the attach then fails, the result is rejected and
+still carries `childPage`: the page exists and is not listed, nothing is retried, and
+`subpage.attach` finishes it. `savestatus` for the operation carries `childPage` whenever that page
+exists, so a lost reply says whether the page was made (`absent` with a page) and whether the attach
 landed (`committed`). No page is ever searched for or adopted.
 
-The one `workresult` has a `saveresult`'s fields: `state` `committed` with the `revision` (and `taskId`
-for a `task.add`), `unchanged` for an action that changes nothing, or `rejected` with `code` and
-`message`. The operation ID is recorded with the commit, so `savestatus` on it answers a lost reply,
-and an ID that already has a recorded outcome never answers `unchanged` for another action. Like any
-frame, a reply is acknowledged by the browser's `ack`.
-
-#### GitHub driver (#4053)
-
-`tmt colab task github push PAGE TASK` and `tmt colab task github sync [PAGE]` link tasks to
-GitHub issues. Both run the owner's `gh` on the owner's machine with the owner's sign-in, argv only
-(the program is `gh` on PATH, or the file named by `TMT_COLAB_GH`, which is how tests supply a
-scripted fake), and write to the page only through the ordinary `task.set` and `task.state` actions
-under the revision fence. A failure writes nothing. The repository is the space's one setting,
-`tmt colab settings github-repo OWNER/REPO|none`, stored in `settings.json` as
-`{"github":{"repo":"OWNER/REPO"}}`; with none set both commands are `COLAB_GITHUB_REPO_UNSET`.
-Nothing edited on GitHub is read back except the closing described below.
-
-`push` is a command for one task and never part of `sync`: it publishes the task's title, detail
-and acceptance to GitHub, possibly to a public repository, and prints the repository and the issue's
-URL. A task that already has an `externalId`, or follows a page, is refused. The issue body carries a hidden marker
-(`<!-- tmtcolab<32 hex digits> -->`, one alphanumeric token: the first 16 bytes of the SHA-256 of the page ID, a NUL and the task ID, so the digest identifies the task without revealing the page), the detail and the acceptance criteria
-each inside a code fence longer than any run of backticks in them, so no mention or link in a page's
-text acts, and every `#N` and `GH-N` reference in the title, detail and criteria is broken by a
-zero-width space, so a page cannot link or close another issue. The page's own ID is published
-in no form. Before creating, `push` searches the repository's issues for the marker and adopts the
-one that carries it (the lowest number) instead of creating another, so a push whose record failed
-(a stale revision, a crash) is safe to run again. It then records `#N` with `task.set`, the task's
-whole editable part with its `externalId`, on the revision it read.
-
-`sync` asks about every task with an `externalId` of the form `#N` (a decimal number from 1 to
-999999999; any other ID belongs to something else) that is not `done`, on one page or on every
-non-archived page of the space. It makes one `gh api graphql` call per at most 100 distinct issues
-(`issue(number:N){state closedByPullRequestsReferences{nodes{merged}}}` under one alias each) and
-asks about at most 200 issues in a run; the rest are reported `unchecked`, to be asked on a rerun. A task
-becomes `done` (`task.state`, read again once after a `COLAB_STALE_BASE`) only when its issue is
-`CLOSED` and a closing pull request has merged: GitHub's own `Fixes #N`. A task whose issue is
-open, closed without a merged pull request, or missing is left alone. The result is
-`{repo,calls,checked,rows}` with one row `{page,task,externalId,outcome}` per task, `outcome` being
-`done`, `open`, `closed`, `missing`, `unchecked` or `failed` (a `failed` row adds
-`error:{code,message}`). Any `failed` row makes the command fail with the rows in the same JSON
-document; a failed check never moves a task.
-
-Errors: `COLAB_GITHUB_REPO_UNSET` (no repository), `COLAB_GITHUB_UNAVAILABLE` (`gh` cannot be run, or
-is not signed in; one such answer ends the run) and `COLAB_GITHUB_REFUSED` (`gh` refused, did not
-answer within 60 seconds, or answered without what was asked; its message is carried, at most 400
-characters).
+The one `workresult` has a `saveresult`'s fields: `state` `committed` with the `revision`,
+`unchanged` for an action that changes nothing, or `rejected` with `code` and `message`. The
+operation ID is recorded with the commit, so `savestatus` on it answers a lost reply, and an ID that
+already has a recorded outcome never answers `unchanged` for another action. Like any frame, a reply
+is acknowledged by the browser's `ack`.
 
 ### Answer blocks
 
@@ -4213,9 +4106,9 @@ operations are:
 | `append`         | `streamId, seq, envelopeHash, envelope`; create-only, exact frozen retry returns original receipt                                                                                                                  |
 | `save`           | `operationId, baseSha256, sourceSha256, source[, attachments \| hunks]`; owner device only; the browser's Save, prepared and committed natively                                                                    |
 | `savestatus`     | `operationId`; owner device only; what the page recorded for an earlier `save`                                                                                                                                     |
-| `saveresult`     | `operationId, state` and `revision[, merged, sourceSha256]` or `code, message[, conflicts]`, plus `childPage` where a `task.convert` made a page; the one reply to a `save` or `savestatus`                        |
+| `saveresult`     | `operationId, state` and `revision[, merged, sourceSha256]` or `code, message[, conflicts]`, plus `childPage` where a `subpage.create` made a page; the one reply to a `save` or `savestatus`                      |
 | `work`           | `operationId, action, body`; owner device only; one closed work action of the page ([Work](#work-4050)), prepared and committed natively                                                                           |
-| `workresult`     | as `saveresult`, plus optional `reason` on `COLAB_LINK_REFUSED` (the stable hierarchy reason above), and `taskId` for a committed `task.add` and `childPage` for a `task.convert`; the one reply to a `work`       |
+| `workresult`     | as `saveresult`, plus optional `reason` on `COLAB_LINK_REFUSED` (the stable hierarchy reason above), and `childPage` for a `subpage.create`; the one reply to a `work`                                                |
 | `metadata`       | `operationId, expectedRevision, action, body`; owner device only; closed `creator.set` (`{agent:{id,name}}`), `question.handle` or `question.reopen` (`{id}`), committed through the conditional content publisher |
 | `metadataresult` | as `saveresult`; the one reply to a `metadata` frame; `savestatus` settles a lost reply for the same operation ID                                                                                                  |
 | `usage`          | no fields; owner device only; how full the page is                                                                                                                                                                 |
@@ -4819,17 +4712,17 @@ as a search key, before anything else reads the location:
 - `/p/<shortId>[?query][#fragment]`: the door answers 308 to `/colab/p/<shortId>` with the query;
   the browser keeps the fragment.
 - The mount root `<mount>` with an owner fragment (`#space=…&path=/pages/<id>&read=<id>` or
-  `anchor=`/`task=`/`open=`) or a preview fragment (`#/pages/<id>`): the mounted document moves to
-  `/colab/` with its fragment, which becomes `/colab/pages/<id>?read=<id>` (or `anchor`, `task`, `open`).
+  `anchor=`/`open=`) or a preview fragment (`#/pages/<id>`): the mounted document moves to
+  `/colab/` with its fragment, which becomes `/colab/pages/<id>?read=<id>` (or `anchor`, `open`).
 - `#t=<threadId>` stays a fragment.
 
 ### Browser settings reference (#4710)
 
 The Colab settings route has no browser read or write of the machine's settings yet.
-It names `tmt colab settings` as the terminal handoff and labels its four schema examples
+It names `tmt colab settings` as the terminal handoff and labels its two schema examples
 **Reference defaults**, with a **CLI managed** badge and the explicit statement that they
 are not the reader's live settings. One exported frontend constant supplies these examples;
-its test pins browser-open, WIP, repository and expiry values to their native definitions.
+its test pins the browser-open and expiry values to their native definitions.
 An injected successful settings read keeps its own values and is never replaced by examples.
 Copying the command changes only the clipboard; it does not execute a command or change settings.
 
@@ -4846,12 +4739,10 @@ in place, retaining the visible short URL. Mounted legacy entry canonicalizes on
 after verified discovery and carries its owner reading or anchor hint over. Internal mount and
 space pins remain separate from visible location; reload and history use short paths, with at
 most one display-only fragment target: `#t=<threadId>`, `#read=<readingId>`,
-`#anchor=<elementId>` or `#task=<taskId>`; short-page resolution retains the anchor or task until the
-full page opens. A `task` is `T-` and a decimal number from 1 without a leading zero, and picks which
-task of the page's own work list the band opens with the list (once; a task the page does not have
-opens the page and nothing else). Like every hint it is cosmetic and admits nothing: at most one hint
-is read, a second or a malformed one is dropped, and the child page's breadcrumb links to its parent
-page with `task=` naming the parent task.
+or `#anchor=<elementId>`; short-page resolution retains the anchor until the full page opens. Like
+every hint it is cosmetic and admits nothing: at most one hint is read, and a second or a malformed
+one is dropped. The task-era `task` hint is no longer a display target, so an old link that carries
+it opens the page at the top.
 A plain `#<elementId>` names the same element, and the location then
 keeps it as `#anchor=<elementId>`. A fragment that names no display target is ignored: the page
 opens at the top and the location drops the fragment. Only a fragment that carries `space`, `path`
@@ -5908,7 +5799,7 @@ is not a project is `COLAB_PROJECT_NOT_FOUND`, a place out of range `COLAB_INPUT
 
 The page list can save its current validated filters as a named shortcut, edit that shortcut,
 and manage saved shortcuts. Manual `state` (`todo`, `in-progress`, `done`) is independent of the
-task-derived `stage` tab. `includeArchived` includes active and archived pages; `archived` retains
+sub-page-derived `stage` tab. `includeArchived` includes active and archived pages; `archived` retains
 its archived-only meaning and takes precedence. Projects intersect; no selected project means
 all projects. Saved filters retain text, creator, sort and stage clauses; a project scope becomes
 a project condition. Missing manual state never matches a selected state.
@@ -5982,20 +5873,14 @@ CLI's `ls`/`show`. A client treats it as untrusted text.
   agent reply. Agent prose, device labels and publisher clocks cannot substitute for provenance.
 - `waiting` is exactly `needsYou > 0`, not a separate proposal-only definition.
 - `author` is the effective creator's bounded display label ([question metadata](#question-metadata-5052)), falling back to `originalAuthor` for legacy display only. That label alone is never a creator, routing reference, identity proof or the last editor.
-- `work` is the page's tasks as the list shows them (see [Work](#work-4050)), omitted for a page
-  with no `meta.work`, so a fresh summary without it is in discussion. It is
-  `{stage, done, total, signoff, working, more?}`: the derived stage (`discussion` with no task,
-  `in-progress` while any is not done, `done` when all are), the tasks done and in all, the tasks
-  waiting in review for a sign-off, and the assignees of in-progress tasks, each once in task
-  order, at most 3 as `{kind, name}` (never an identity), with `more` counting the rest and
-  present only then. Every task that follows a page counts as that page's stage says
-  ([A task that follows a page](#a-task-that-follows-a-page-4118)), so the stage agrees with the
-  counts: `total` 0 is `discussion`, `done == total` is `done`. A followed page without a fresh
-  summary is unavailable, and its task counts as its own stored state.
-- `parent` is `{page, task, title?}`, the task that follows this page, omitted when none does. With
-  several (two writers raced) it is the first by page ID, then by task number. `title` is that task's
-  own title, clipped to 32 code points (a longer one ends in `…`), so the child's band can name the task
-  without reading the parent page; a row without it (an owner from before) names the task by number.
+- `work` is the page's direct sub-pages as the list shows them (see [Work](#work-4050)), omitted
+  for a page without sub-pages, so a fresh summary without it is in discussion. It is
+  `{stage, done, total}`: the derived stage and the direct sub-pages done and in all, each counted
+  by its own manual state, the same count the page's work panel shows. The stage agrees with the
+  counts: `total` 0 is never sent, `done == total` is `done`, and anything else is `in-progress`. A
+  sub-page without a fresh entry counts as unknown, never done.
+- `parent` is `{page, index}`, the page that lists this page and this page's position in that list,
+  omitted when none does. With several (two writers raced) it is the lowest page ID.
 
 The owner's static-source projection uses the same admitted markup, normalized quote context,
 unique-match and containment rules, canonical thread order and verified device provenance as the
@@ -6026,15 +5911,14 @@ worker running schedules nothing. A run folds each page at most once: a page who
 times out stays without a summary, and one that changes after its fold waits for the next read,
 which tries the pages that have not failed at their fingerprint first. A restart refills the cache
 lazily.
-The cache holds each page's _own_ work (its derived values and, only when a task follows a page,
-its task lines); the effective `work` and `parent` are resolved from the fresh entries on every list
-read (`work_links.rs`) and never cached, because a page's stage changes when the page it follows
-does.
-`summary` is at most `{comments:4294967295, waiting, needsYou:350, author:128 bytes, work:{3
-assignee labels of 128 bytes, counts to 256}, parent}` per page (each label and the author escape to
-at most 256 bytes on the wire), so a full space of 1,000 pages with the longest labels measures
-1,926,186 bytes and stays within the 2 MiB discovery cap (raised from 1 MiB for the work row; the
-browser boundary test pins the complete encoded reply).
+The cache holds each page's _own_ work (its manual state and direct sub-pages); the effective
+`work` and `parent` are resolved from the fresh entries on every list read (`work_links.rs`) and
+never cached, because a page's progress changes when a sub-page's state does.
+`summary` is at most `{comments:4294967295, waiting, needsYou:350, author:128 bytes, work:{counts
+to 256}, parent}` per page (the author escapes to at most 256 bytes on the wire), so a full space of
+1,000 pages with the longest labels measures 1,052,197 bytes before titles and stays within the
+2 MiB discovery cap with every page's longest title (the browser boundary test pins the complete
+encoded reply).
 
 ### Owner chapter details (#3578)
 
@@ -7003,7 +6887,7 @@ contains the canonical shell value, including summary attribution. The manifest
 also carries `pageType:"shell"`; ordinary HTML exports omit it. An ordinary page
 that has [work](#work-4050) also exports `work.json` right after `page.html`: the
 canonical `meta.work` value (sorted ASCII keys, compact separators, raw UTF-8), so
-a copy never loses its tasks or summary; a page without work has no such file.
+a copy never loses its sub-pages or summary; a page without work has no such file.
 All other snapshot, privacy, file-publication and failure rules are unchanged.
 
 The manifest is UTF-8 JSON with these fields:

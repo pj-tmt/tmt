@@ -1,4 +1,4 @@
-/* Tasks in a list row: a compact count, with the real working names when available. */
+/* Sub-page progress in a list row: a compact count. */
 .page-work {
   display: flex;
   flex-wrap: wrap;
@@ -11,18 +11,4 @@
 }
 .page-progress-count {
   font-variant-numeric: tabular-nums;
-}
-.page-workers {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 2px 8px;
-  margin: 0;
-  padding: 0;
-  list-style: none;
-}
-.page-workers > li {
-  min-width: 0;
-  max-width: 100%;
-  overflow-wrap: anywhere;
 }

@@ -2417,21 +2417,19 @@ const worked = (operationId: string, fields: Partial<SaveResult> = {}): SaveResu
   ...fields,
 });
 
-it('a work action is sent once with its closed body and resolves with the ID a task.add made', async () => {
+it('a work action is sent once with its closed body and resolves when the owner commits it', async () => {
   const live = openLive();
   try {
     await live.snapshot();
-    saves.work.mockImplementation(async (_connection, operationId) =>
-      worked(operationId, { taskId: 'T-4' } as Partial<SaveResult>),
-    );
-    await expect(live.work('task.add', { task: { title: 'Publish' } })).resolves.toEqual({
-      taskId: 'T-4',
-    });
+    saves.work.mockImplementation(async (_connection, operationId) => worked(operationId));
+    await expect(
+      live.work('subpage.attach', { pageId: '20000000-0000-4000-8000-000000000003' }),
+    ).resolves.toEqual({});
     expect(saves.work).toHaveBeenCalledOnce();
     expect(saves.work.mock.calls[0].slice(1)).toEqual([
       expect.stringMatching(/^[0-9a-f-]{36}$/),
-      'task.add',
-      { task: { title: 'Publish' } },
+      'subpage.attach',
+      { pageId: '20000000-0000-4000-8000-000000000003' },
     ]);
     expect(saves.status).not.toHaveBeenCalled();
   } finally {
@@ -2447,17 +2445,17 @@ it("a refused work action throws the serve's code and words, and is not sent aga
       worked(operationId, {
         state: 'rejected',
         revision: undefined,
-        code: 'COLAB_WIP_LIMIT',
-        message: 'Atlas would hold T-1, T-2 (limit 1)',
+        code: 'COLAB_LINK_REFUSED',
+        message: 'That page is already a sub-page of another page.',
       }),
     );
     const refused = await live
-      .work('task.assign', { taskId: 'T-2', assignee: { kind: 'agent', name: 'Atlas' } })
+      .work('subpage.attach', { pageId: '20000000-0000-4000-8000-000000000003' })
       .catch((error) => error);
     expect(refused).toBeInstanceOf(SaveRefused);
     expect(refused).toMatchObject({
-      code: 'COLAB_WIP_LIMIT',
-      message: 'Atlas would hold T-1, T-2 (limit 1)',
+      code: 'COLAB_LINK_REFUSED',
+      message: 'That page is already a sub-page of another page.',
     });
     expect(saves.work).toHaveBeenCalledOnce();
   } finally {
@@ -2475,7 +2473,7 @@ it('a work action whose reply was lost asks for the operation status exactly onc
       throw new Error('Sync disconnected');
     });
     saves.status.mockImplementation(async (_connection, operationId) => worked(operationId));
-    await live.work('task.state', { taskId: 'T-2', state: 'done' });
+    await live.work('subpage.move', { pageId: '20000000-0000-4000-8000-000000000003' });
     expect(connections.at(-1)).not.toBe(first);
     expect(saves.work).toHaveBeenCalledOnce();
     expect(saves.status).toHaveBeenCalledOnce();
@@ -2485,7 +2483,7 @@ it('a work action whose reply was lost asks for the operation status exactly onc
   }
 });
 
-it('a convert resolves with the page it made, and a refusal after the page was made still names it', async () => {
+it('a create resolves with the page it made, and a refusal after the page was made still names it', async () => {
   const live = openLive();
   const page = '20000000-0000-4000-8000-000000000009';
   try {
@@ -2493,7 +2491,7 @@ it('a convert resolves with the page it made, and a refusal after the page was m
     saves.work.mockImplementationOnce(async (_connection, operationId) =>
       worked(operationId, { childPage: page } as Partial<SaveResult>),
     );
-    await expect(live.work('task.convert', { taskId: 'T-1' })).resolves.toEqual({
+    await expect(live.work('subpage.create', { title: 'Draft the export' })).resolves.toEqual({
       childPage: page,
     });
     saves.work.mockImplementationOnce(async (_connection, operationId) =>
@@ -2501,11 +2499,13 @@ it('a convert resolves with the page it made, and a refusal after the page was m
         state: 'rejected',
         revision: undefined,
         code: 'COLAB_LINK_REFUSED',
-        message: 'That page already follows another task.',
+        message: 'That page is already a sub-page of another page.',
         childPage: page,
       }),
     );
-    const refused = await live.work('task.convert', { taskId: 'T-1' }).catch((error) => error);
+    const refused = await live
+      .work('subpage.create', { title: 'Draft the export' })
+      .catch((error) => error);
     expect(refused).toBeInstanceOf(SaveRefused);
     expect(refused).toMatchObject({ code: 'COLAB_LINK_REFUSED', childPage: page });
     // A lost reply is settled by one status, which names the page when only the page was made.
@@ -2518,7 +2518,9 @@ it('a convert resolves with the page it made, and a refusal after the page was m
       state: 'absent',
       childPage: page,
     }));
-    const unlinked = await live.work('task.convert', { taskId: 'T-1' }).catch((error) => error);
+    const unlinked = await live
+      .work('subpage.create', { title: 'Draft the export' })
+      .catch((error) => error);
     expect(unlinked).toMatchObject({ childPage: page });
     expect(saves.status).toHaveBeenCalledOnce();
   } finally {

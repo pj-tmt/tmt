@@ -2,14 +2,7 @@ import { useEffect, useState, useSyncExternalStore } from 'react';
 import { Alert, AlertDescription, UiTheme } from '@tmt/browser-ui/ui';
 import '@tmt/browser-ui/ui.css';
 import { getTheme, subscribeTheme } from './theme.js';
-import {
-  ArrowUpRight,
-  ChartNoAxesColumn,
-  Clock3,
-  Link,
-  Terminal,
-  TriangleAlert,
-} from 'lucide-react';
+import { ArrowUpRight, Clock3, Terminal, TriangleAlert } from 'lucide-react';
 import {
   colabSettingsReferenceDefaults,
   colabSettingsSource,
@@ -38,19 +31,9 @@ export function ColabSettings({ source = colabSettingsSource }: { source?: Colab
   const values = view && ('unavailable' in view ? colabSettingsReferenceDefaults : view);
   const reference = values?.sample === true;
   const heading = reference ? t.reference : t.current;
-  const agents = values
-    ? Object.entries(values.wipLimit.agents).map(([agent, limit]) => t.wipAgent(agent, limit))
-    : [];
   const rows = values
     ? [
         { icon: ArrowUpRight, title: t.open, help: t.openHelp, value: values.open ? t.on : t.off },
-        {
-          icon: ChartNoAxesColumn,
-          title: t.wip,
-          help: t.wipHelp,
-          value: [t.perAgent(values.wipLimit.default), ...agents].join(' · '),
-        },
-        { icon: Link, title: t.github, help: t.githubHelp, value: values.githubRepo ?? t.notSet },
         {
           icon: Clock3,
           title: t.expiry,

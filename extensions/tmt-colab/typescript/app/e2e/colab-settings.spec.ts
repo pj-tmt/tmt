@@ -24,7 +24,7 @@ for (const theme of ['light', 'dark'] as const)
       await expect(panel).toContainText(
         'An illustration of the current schema, not your live settings.',
       );
-      await expect(panel.locator('dd')).toHaveText(['On', '1 per agent', 'Not set', '180 days']);
+      await expect(panel.locator('dd')).toHaveText(['On', '180 days']);
       await expect(app.getByRole('button', { name: 'Copy', exact: true })).toBeEnabled();
       expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(
         width,
@@ -40,20 +40,13 @@ test('an injected non-default source never becomes reference values', async ({ p
       await import(path)
     ).mount({
       open: false,
-      wipLimit: { default: 4, agents: { pilot: 2 } },
-      githubRepo: 'team/research',
       pageExpiryDays: null,
       sample: false,
     });
   });
   const app = page.locator('#settings-fixture');
   await expect(app.getByRole('region', { name: 'Current settings', exact: true })).toBeVisible();
-  await expect(app.locator('dd')).toHaveText([
-    'Off',
-    '4 per agent · pilot 2',
-    'team/research',
-    'Never',
-  ]);
+  await expect(app.locator('dd')).toHaveText(['Off', 'Never']);
   await expect(app.getByText('Reference defaults', { exact: true })).toHaveCount(0);
 });
 

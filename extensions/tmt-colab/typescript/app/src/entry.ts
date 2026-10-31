@@ -68,14 +68,12 @@ export function entryFragment(hash: string): boolean {
     return false;
   }
 }
-/** One thread, one reading, one shell element or one task, or nothing: anything else refuses. */
+/** One thread, one reading or one shell element, or nothing: anything else refuses. */
 export function entryTarget(hash = location.hash): EntryTarget | null {
   requireValue(hash === '' || hash.startsWith('#'));
   const fields = new URLSearchParams(hash.slice(1));
   const keys = [...fields.keys()];
-  requireValue(
-    keys.length <= 1 && keys.every((key) => ['t', 'read', 'anchor', 'task'].includes(key)),
-  );
+  requireValue(keys.length <= 1 && keys.every((key) => ['t', 'read', 'anchor'].includes(key)));
   if (!keys.length) return null;
   const key = keys[0];
   requireValue(fields.getAll(key).length === 1);

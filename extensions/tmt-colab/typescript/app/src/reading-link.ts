@@ -1,6 +1,5 @@
 import { validShellAnchor } from './shell.js';
 import { validPagePrefix } from './short-links.js';
-import { taskNumber } from './work.js';
 /** Cosmetic navigation for owner/paired pages only. It never carries reader admission. */
 const readingId = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 export function validReadingId(value: string): boolean {
@@ -19,41 +18,30 @@ export function readingSearch(search: Record<string, unknown>): { read?: string 
     : {};
 }
 
-/** A page opens at one cosmetic target: a reading, one exact element of a shell item, or one task of
- * the page's own work list. Never more than one, and never anything else. It only picks what the
- * page shows; it admits nothing. */
-export type PageHint = { read: string } | { anchor: string } | { task: string };
-const HINT_KEYS = ['read', 'anchor', 'task'] as const;
+/** A page opens at one cosmetic target: a reading or one exact element of a shell item. Never more
+ * than one, and never anything else. It only picks what the page shows; it admits nothing. */
+export type PageHint = { read: string } | { anchor: string };
+const HINT_KEYS = ['read', 'anchor'] as const;
 type HintKey = (typeof HINT_KEYS)[number];
 /** The valid value of one hint key, or undefined: each key keeps its own shape. */
 function hintValue(key: HintKey, value: unknown): string | undefined {
   if (typeof value !== 'string') return;
-  const valid =
-    key === 'read'
-      ? validReadingId(value)
-      : key === 'anchor'
-        ? validShellAnchor(value)
-        : taskNumber(value) !== undefined;
+  const valid = key === 'read' ? validReadingId(value) : validShellAnchor(value);
   return valid ? value : undefined;
 }
 function hintOf(key: HintKey, value: string): PageHint {
-  return key === 'read' ? { read: value } : key === 'anchor' ? { anchor: value } : { task: value };
+  return key === 'read' ? { read: value } : { anchor: value };
 }
 /** The one key and value a hint carries, for every location form. */
 function hintPair(hint: PageHint): [HintKey, string] {
-  return 'read' in hint
-    ? ['read', hint.read]
-    : 'anchor' in hint
-      ? ['anchor', hint.anchor]
-      : ['task', hint.task];
+  return 'read' in hint ? ['read', hint.read] : ['anchor', hint.anchor];
 }
-/** A hint as router search (`?task=T-4`) or as a public fragment (`#task=T-4`). */
+/** A hint as router search (`?anchor=decisions`) or as a public fragment (`#anchor=decisions`). */
 export const hintSearch = (hint: PageHint): string => '?' + hintPair(hint).join('=');
 export const hintFragment = (hint: PageHint): string => '#' + hintPair(hint).join('=');
 export function pageSearch(search: Record<string, unknown>): {
   read?: string;
   anchor?: string;
-  task?: string;
 } {
   const found = HINT_KEYS.flatMap((key) => {
     const value = hintValue(key, search[key]);

@@ -1268,8 +1268,8 @@ function OpenPage({
   transport: PageTransport;
   space: string | undefined;
   loaded: PageSnapshot;
-  /** The reading, element or task a link or a shell item opened the page at. */
-  search: { read?: string; anchor?: string; task?: string };
+  /** The reading or element a link or a shell item opened the page at. */
+  search: { read?: string; anchor?: string };
   scope: string | undefined;
   routing: PageRouting;
   /** The page is hosted in a panel of another page: its drawers and menus stay the app's, but the
@@ -2176,6 +2176,7 @@ function OpenPage({
           pageId={snapshot.id}
           title={view.title}
           pageHref={routing.pageHref}
+          openPage={(id) => routing.open(`/pages/${id}`)}
         />
         <div className="canvas" data-layout={framedLayout(view.layout) ? view.layout : undefined}>
           {missingAnchor && (
@@ -2704,7 +2705,7 @@ let linkSpace: string | undefined;
 /**
  * Inside the TMT app Colab's routes are paths under `/colab/`. Links printed or saved before keep
  * working: the preview's `#/pages/<id>` and an owner fragment's `path=` become the same path, with
- * its reading, anchor or task hint as search keys. The module runs it before anything reads the location
+ * its reading or anchor hint as search keys. The module runs it before anything reads the location
  * (the paired bootstrap keeps only a canonical fragment).
  */
 export function shellLocation() {
@@ -2724,7 +2725,7 @@ export function shellLocation() {
   }
   if (!path) return;
   const keys = new URLSearchParams(location.search);
-  for (const key of ['read', 'anchor', 'task', 'open'])
+  for (const key of ['read', 'anchor', 'open'])
     if (fragment.has(key)) keys.set(key, fragment.get(key)!);
   const search = keys.size ? `?${keys}` : '';
   if (/^\/(?:all|settings|pages\/[0-9a-f-]+|short\/[A-Za-z0-9_-]{4,64})?$/.test(path))
