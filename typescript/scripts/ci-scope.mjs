@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 import { appendFileSync, readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { resolve } from 'node:path';
+import { isMinimumReleaseVersion } from './release-versions.mjs';
 import { e2eShardFiles } from './e2e-shards.mjs';
 import { runPackedCommand } from './packed-command.mjs';
 import {
@@ -136,9 +137,8 @@ function parseUses(name, value) {
       [use.extension, `tmt-${use.extension}`].includes(name) ||
       typeof use.requires !== 'string' ||
       Buffer.byteLength(use.requires) > 64 ||
-      !/^>=(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/.test(
-        use.requires
-      )
+      !use.requires.startsWith('>=') ||
+      !isMinimumReleaseVersion(use.requires.slice(2))
     )
       throw new Error(`Invalid authored feature in components.${name}.uses.`);
     features.add(use.feature);

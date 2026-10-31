@@ -6,7 +6,12 @@ import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseComponentMap } from './ci-scope.mjs';
 import { componentOfProduct, productOfTag } from './native-release-policy.mjs';
-import { compareVersions, publishedReleases, versionOfTag } from './release-versions.mjs';
+import {
+  compareVersions,
+  isMinimumReleaseVersion,
+  publishedReleases,
+  versionOfTag,
+} from './release-versions.mjs';
 import { ghCliAncestry } from './release-upgrade.mjs';
 import { createReleaseReader } from './release-cut-read.mjs';
 import { withReleaseSourceAtRef } from './release-source-at-ref.mjs';
@@ -22,23 +27,6 @@ export const DECLARATION_OUTPUT = `rust/target/native-declaration/${DECLARATION_
 const MARKER = 'tmt-release-cli';
 const SHA = /^[a-f0-9]{40}$/;
 const EXTENSIONS = new Set(['ops', 'digest', 'remote', 'colab']);
-// Published beta/rc versions are valid minima too; preparation -dev is not a publication floor.
-function minimumVersion(version) {
-  const match =
-    /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?$/.exec(
-      version ?? ''
-    );
-  return Boolean(
-    match &&
-    match[4] !== 'dev' &&
-    match.slice(1, 4).every((part) => Number.isSafeInteger(Number(part))) &&
-    (!match[4] ||
-      match[4]
-        .split('.')
-        .every((part) => !/^\d+$/.test(part) || part === '0' || !part.startsWith('0')))
-  );
-}
-
 /** Reuse the release-upgrade REST resolver with one cache, request cap and deadline. */
 export function declarationAncestry({ repository }) {
   let requests = 0;
@@ -157,7 +145,7 @@ export function resolveDeclaration({ map, product, cut, releases, observeCli }) 
     .reverse()
     .filter((release) => release.draft === false)) {
     const version = versionOfTag(cli.tag_name, 'cli');
-    if (!minimumVersion(version)) continue;
+    if (!isMinimumReleaseVersion(version)) continue;
     const sha = supportingCli(cli, map, product, observeCli);
     if (sha) {
       const record = { schema: 1, cut, product, cli: { tag: cli.tag_name, version, sha } };
@@ -191,7 +179,9 @@ export function captureDeclaration({ map, product, cut, git, readRelease }) {
   );
   const candidates = [...containing[0]]
     .filter((tag) => containing.every((tags) => tags.has(tag)))
-    .filter((tag) => productOfTag(tag) === 'cli' && minimumVersion(versionOfTag(tag, 'cli')))
+    .filter(
+      (tag) => productOfTag(tag) === 'cli' && isMinimumReleaseVersion(versionOfTag(tag, 'cli'))
+    )
     .sort((left, right) => compareVersions(versionOfTag(left, 'cli'), versionOfTag(right, 'cli')));
   const observeCli = gitDeclarationAncestry(git);
   for (const tag of candidates) {
@@ -272,7 +262,7 @@ export function declarationBytes({ record, map, product, cut }) {
   assert(SHA.test(record.cli.sha ?? ''), 'Frozen CLI needs an exact tag commit.');
   assert.equal(versionOfTag(record.cli.tag, 'cli'), record.cli.version);
   assert(
-    minimumVersion(record.cli.version),
+    isMinimumReleaseVersion(record.cli.version),
     'Frozen CLI minimum must be a published release version.'
   );
   assert(Buffer.byteLength(`>=${record.cli.version}`) <= 64, 'CLI minimum exceeds 64 bytes.');
