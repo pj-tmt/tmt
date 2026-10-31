@@ -11,8 +11,9 @@ use std::cell::RefCell;
 use tmt_cli_style::Role;
 use tmt_tui::components::{Completion, Editor, strip};
 
-/// What a mention starts with: `@name` reads as a file reference to Claude Code.
+/// Chosen mentions use this prefix: `@name` reads as a file reference to Claude Code.
 pub(super) const TRIGGER: &str = "tmt/";
+pub(super) const TRIGGER_HINT: &str = "@ / tmt/";
 /// A chosen mention is an expanded fold over its `tmt/<name>` text whose label holds the
 /// agent's identity, so a rename never retargets it; editing the text drops the fold.
 const IDENTITY: &str = "tmt-mention:";
@@ -96,7 +97,13 @@ impl App {
         }
         let mut completion = std::mem::take(&mut self.mentions.completion);
         if let Some(editor) = self.reference_editor() {
-            completion.update(editor, &self.references.candidates, TRIGGER);
+            // Select the trigger only; Completion owns token boundaries, folds and dismissal.
+            let token = editor.as_str()[..editor.cursor()]
+                .rsplit(char::is_whitespace)
+                .next()
+                .unwrap_or_default();
+            let trigger = if token.starts_with('@') { "@" } else { TRIGGER };
+            completion.update(editor, &self.references.candidates, trigger);
         }
         self.mentions.completion = completion;
         self.mentions.hits.borrow_mut().clear();
@@ -276,8 +283,9 @@ pub(super) fn render(frame: &mut Frame, app: &App) {
             let sent = recipient.map_or_else(String::new, |to| format!(", sent to {to}"));
             // A narrow picker drops the key hints before it cuts the recipient.
             let info = [
-                format!("Agents · ↑↓ choose · Tab insert · text only{sent}"),
-                format!("Agents · Tab insert · text only{sent}"),
+                format!("Agents · {TRIGGER_HINT} · ↑↓ choose · Tab insert · text only{sent}"),
+                format!("Agents · {TRIGGER_HINT} · Tab insert · text only{sent}"),
+                format!("{TRIGGER_HINT}  Tab insert  text only{sent}"),
                 format!("text only{sent}"),
             ]
             .into_iter()

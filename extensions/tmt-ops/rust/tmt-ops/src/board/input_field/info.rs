@@ -80,9 +80,9 @@ impl Info<'_> {
         let newline = self.newline.glyph();
         let full = format!(
             "⏎ send  {newline} new line  {} mention",
-            crate::board::mentions::TRIGGER
+            crate::board::mentions::TRIGGER_HINT
         );
-        let keys = format!("⏎  {newline}  {}", crate::board::mentions::TRIGGER);
+        let keys = format!("⏎  {newline}  {}", crate::board::mentions::TRIGGER_HINT);
         let (full, keys) = (full.as_str(), keys.as_str());
         let full_left = self.left(true, true, look);
         let (left, right) = if full_left.width() + full.width() + 2 <= usize::from(line.width) {
@@ -178,7 +178,7 @@ mod tests {
             .iter()
             .map(|c| c.symbol())
             .collect();
-        assert!(row.contains("Alt+⏎") && row.contains("tmt/"));
+        assert!(row.contains("Alt+⏎") && row.contains("@ / tmt/"));
     }
 
     #[test]

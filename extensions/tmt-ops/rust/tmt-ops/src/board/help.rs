@@ -273,13 +273,13 @@ pub(super) fn model(app: &App) -> KeyHelp {
         ("turn output", "Captured output appears under its message, marked truncated when needed. working… follows Core's pending or bound capture; Missing capture says no turn output was captured; it is never presented as a reply."),
     ]));
     sections.push(section("editor", "message editor", &[
-        ("Enter", "while typing, send to the displayed recipient; while the tmt/ picker is open, Enter/Tab insert the selected agent instead"),
+        ("Enter", "while typing, send to the displayed recipient; while the @ or tmt/ picker is open, Enter/Tab insert the selected agent instead"),
         ("Shift+Enter / Ctrl+N", "Ctrl+N always inserts a new line; Alt+Enter and Ctrl+J do too; Shift+Enter needs enhanced key reporting (in tmux: extended-keys on and extended-keys-format csi-u)"),
         ("Esc", "leave the editor and keep its draft; drafts and folded pastes are session-only and do not survive restart"),
         ("arrows / Home / End", "move by grapheme or wrapped line; Shift selects; Ctrl-A/E: line edges"),
         ("click / drag", "place the caret or select text; terminal IME commits arrive as ordinary input"),
         ("paste / Ctrl-P", "bracketed paste never sends; large pastes fold, Ctrl-P previews the range at the caret, Backspace/Delete removes a folded range"),
-        ("tmt/", "pick an agent to mention; the draft keeps who it is, the sent text is tmt/<name> and never broadcasts"),
+        ("@ / tmt/", "at a word start, pick an agent to mention; the draft keeps who it is, the sent text is tmt/<name> and never broadcasts"),
         ("response: s", "select exact response source with Shift-arrows or drag; y copies, a attaches its request and byte range to a draft without acknowledging it"),
         ("Alt-Backspace", "delete the word before the draft cursor"),
         ("native selection", "use the terminal emulator's selection override modifier, or use source selection inside the response reader"),
