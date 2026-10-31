@@ -427,10 +427,10 @@ The same key means the same thing in every view and overlay.
 
 A view may add its own keys, but never reuses one of these for something else.
 An overlay built on the shared dialog keys its ↑↓ and ←→ differently; see
-[Dialogs](#dialogs). Two overlays still take Tab: a mention list in a prompt
-inserts the chosen mention, as Enter does, and a Settings binding edit cycles
-its scope. Esc has two exceptions too: in a Settings edit it cancels that edit
-and Settings stays open; in a mention list it dismisses the list.
+[Dialogs](#dialogs). One overlay still takes Tab: a mention list in a prompt
+inserts the chosen mention, as Enter does. Esc has two exceptions too: in a
+Settings text edit it closes the edit and keeps the changed text for that key, and
+Settings stays open; in a mention list it dismisses the list.
 User bindings can change a key; help and footers always show the effective key.
 
 ### Footer and key help
