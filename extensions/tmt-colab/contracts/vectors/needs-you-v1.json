@@ -1395,6 +1395,199 @@
       ]
     },
     {
+      "source": "<h1>Page</h1><tmt-proposal data-id=\"10000000-0000-4000-8000-000000000001\"></tmt-proposal><tmt-read data-id=\"10000000-0000-4000-8000-000000000002\" data-agent=\"Agent 1\" data-why=\"Read first\"><h2 data-title>Read plan</h2><p>Read this.</p></tmt-read><tmt-questions data-id=\"10000000-0000-4000-8000-000000000003\"><p data-title>Decisions</p><tmt-question data-id=\"10000000-0000-4000-8000-000000000004\" data-kind=\"short\" data-agent=\"Agent 1\"><p data-question>First choice?</p></tmt-question><tmt-question data-id=\"10000000-0000-4000-8000-000000000005\" data-kind=\"short\" data-agent=\"Agent 1\"><p data-question>Second choice?</p></tmt-question></tmt-questions><tmt-review data-id=\"10000000-0000-4000-8000-000000000006\" data-agent=\"Agent 1\"><h2 data-title>Review scope</h2><p>Check the scope.</p></tmt-review>",
+      "deviceWriters": [
+        "10000000-0000-4000-8000-000000000101"
+      ],
+      "threads": [
+        {
+          "writer": "10000000-0000-4000-8000-000000000101",
+          "id": "10000000-0000-4000-8000-000000000001",
+          "anchor": null,
+          "proposal": {
+            "proposalId": "10000000-0000-4000-8000-000000000001",
+            "title": "Choose release",
+            "body": "Please decide",
+            "proposer": {
+              "machineId": "10000000-0000-4000-8000-000000000101",
+              "agentId": "10000000-0000-4000-8000-000000000101",
+              "label": "Agent 1"
+            }
+          },
+          "comments": []
+        },
+        {
+          "writer": "10000000-0000-4000-8000-000000000101",
+          "id": "10000000-0000-4000-8000-000000000020",
+          "anchor": {
+            "exact": "Read plan",
+            "prefix": "Page Old question? ",
+            "suffix": ""
+          },
+          "comments": [
+            {
+              "writer": "10000000-0000-4000-8000-000000000101",
+              "id": "10000000-0000-4000-8000-000000001020",
+              "sequence": "1",
+              "body": "Read \u201cRead plan\u201d\nReading: 10000000-0000-4000-8000-000000000002\nPage: Page",
+              "deleted": false
+            }
+          ],
+          "status": {
+            "actor": "person",
+            "resolved": true
+          },
+          "resolved": true
+        }
+      ],
+      "asks": [],
+      "name": "read survives a changed passage before the heading",
+      "expected": [
+        {
+          "kind": "proposal",
+          "id": "10000000-0000-4000-8000-000000000001"
+        },
+        {
+          "kind": "answer",
+          "id": "10000000-0000-4000-8000-000000000003"
+        },
+        {
+          "kind": "review",
+          "id": "10000000-0000-4000-8000-000000000006"
+        }
+      ]
+    },
+    {
+      "source": "<h1>Page</h1><tmt-proposal data-id=\"10000000-0000-4000-8000-000000000001\"></tmt-proposal><tmt-read data-id=\"10000000-0000-4000-8000-000000000002\" data-agent=\"Agent 1\" data-why=\"Read first\"><h2 data-title>Read plan</h2><p>Read this.</p></tmt-read><tmt-questions data-id=\"10000000-0000-4000-8000-000000000003\"><p data-title>Decisions</p><tmt-question data-id=\"10000000-0000-4000-8000-000000000004\" data-kind=\"short\" data-agent=\"Agent 1\"><p data-question>First choice?</p></tmt-question><tmt-question data-id=\"10000000-0000-4000-8000-000000000005\" data-kind=\"short\" data-agent=\"Agent 1\"><p data-question>Second choice?</p></tmt-question></tmt-questions><tmt-review data-id=\"10000000-0000-4000-8000-000000000006\" data-agent=\"Agent 1\"><h2 data-title>Review scope</h2><p>Check the scope.</p></tmt-review>",
+      "deviceWriters": [
+        "10000000-0000-4000-8000-000000000101"
+      ],
+      "threads": [
+        {
+          "writer": "10000000-0000-4000-8000-000000000101",
+          "id": "10000000-0000-4000-8000-000000000001",
+          "anchor": null,
+          "proposal": {
+            "proposalId": "10000000-0000-4000-8000-000000000001",
+            "title": "Choose release",
+            "body": "Please decide",
+            "proposer": {
+              "machineId": "10000000-0000-4000-8000-000000000101",
+              "agentId": "10000000-0000-4000-8000-000000000101",
+              "label": "Agent 1"
+            }
+          },
+          "comments": []
+        },
+        {
+          "writer": "10000000-0000-4000-8000-000000000101",
+          "id": "10000000-0000-4000-8000-000000000020",
+          "anchor": {
+            "exact": "Read plan",
+            "prefix": "",
+            "suffix": "Read that first."
+          },
+          "comments": [
+            {
+              "writer": "10000000-0000-4000-8000-000000000101",
+              "id": "10000000-0000-4000-8000-000000001020",
+              "sequence": "1",
+              "body": "Read \u201cRead plan\u201d\nReading: 10000000-0000-4000-8000-000000000002\nPage: Page",
+              "deleted": false
+            }
+          ],
+          "status": {
+            "actor": "person",
+            "resolved": true
+          },
+          "resolved": true
+        }
+      ],
+      "asks": [],
+      "name": "read survives a changed passage after the heading",
+      "expected": [
+        {
+          "kind": "proposal",
+          "id": "10000000-0000-4000-8000-000000000001"
+        },
+        {
+          "kind": "answer",
+          "id": "10000000-0000-4000-8000-000000000003"
+        },
+        {
+          "kind": "review",
+          "id": "10000000-0000-4000-8000-000000000006"
+        }
+      ]
+    },
+    {
+      "source": "<p>Read plan</p><h1>Page</h1><tmt-proposal data-id=\"10000000-0000-4000-8000-000000000001\"></tmt-proposal><tmt-read data-id=\"10000000-0000-4000-8000-000000000002\" data-agent=\"Agent 1\" data-why=\"Read first\"><h2 data-title>Read plan</h2><p>Read this.</p></tmt-read><tmt-questions data-id=\"10000000-0000-4000-8000-000000000003\"><p data-title>Decisions</p><tmt-question data-id=\"10000000-0000-4000-8000-000000000004\" data-kind=\"short\" data-agent=\"Agent 1\"><p data-question>First choice?</p></tmt-question><tmt-question data-id=\"10000000-0000-4000-8000-000000000005\" data-kind=\"short\" data-agent=\"Agent 1\"><p data-question>Second choice?</p></tmt-question></tmt-questions><tmt-review data-id=\"10000000-0000-4000-8000-000000000006\" data-agent=\"Agent 1\"><h2 data-title>Review scope</h2><p>Check the scope.</p></tmt-review>",
+      "deviceWriters": [
+        "10000000-0000-4000-8000-000000000101"
+      ],
+      "threads": [
+        {
+          "writer": "10000000-0000-4000-8000-000000000101",
+          "id": "10000000-0000-4000-8000-000000000001",
+          "anchor": null,
+          "proposal": {
+            "proposalId": "10000000-0000-4000-8000-000000000001",
+            "title": "Choose release",
+            "body": "Please decide",
+            "proposer": {
+              "machineId": "10000000-0000-4000-8000-000000000101",
+              "agentId": "10000000-0000-4000-8000-000000000101",
+              "label": "Agent 1"
+            }
+          },
+          "comments": []
+        },
+        {
+          "writer": "10000000-0000-4000-8000-000000000101",
+          "id": "10000000-0000-4000-8000-000000000020",
+          "anchor": {
+            "exact": "Read plan",
+            "prefix": "Gone before ",
+            "suffix": ""
+          },
+          "comments": [
+            {
+              "writer": "10000000-0000-4000-8000-000000000101",
+              "id": "10000000-0000-4000-8000-000000001020",
+              "sequence": "1",
+              "body": "Read \u201cRead plan\u201d\nReading: 10000000-0000-4000-8000-000000000002\nPage: Page",
+              "deleted": false
+            }
+          ],
+          "status": {
+            "actor": "person",
+            "resolved": true
+          },
+          "resolved": true
+        }
+      ],
+      "asks": [],
+      "name": "drifted read with the title elsewhere is not adopted",
+      "expected": [
+        {
+          "kind": "proposal",
+          "id": "10000000-0000-4000-8000-000000000001"
+        },
+        {
+          "kind": "reading",
+          "id": "10000000-0000-4000-8000-000000000002"
+        },
+        {
+          "kind": "answer",
+          "id": "10000000-0000-4000-8000-000000000003"
+        },
+        {
+          "kind": "review",
+          "id": "10000000-0000-4000-8000-000000000006"
+        }
+      ]
+    },
+    {
       "source": "<h1>Page</h1><tmt-proposal data-id=\"10000000-0000-4000-8000-000000000001\"></tmt-proposal><tmt-read data-id=\"10000000-0000-4000-8000-000000000001\" data-agent=\"Agent 1\" data-why=\"Read first\"><h2 data-title>Read plan</h2><p>Read this.</p></tmt-read><tmt-questions data-id=\"10000000-0000-4000-8000-000000000003\"><p data-title>Decisions</p><tmt-question data-id=\"10000000-0000-4000-8000-000000000004\" data-kind=\"short\" data-agent=\"Agent 1\"><p data-question>First choice?</p></tmt-question><tmt-question data-id=\"10000000-0000-4000-8000-000000000005\" data-kind=\"short\" data-agent=\"Agent 1\"><p data-question>Second choice?</p></tmt-question></tmt-questions><tmt-review data-id=\"10000000-0000-4000-8000-000000000006\" data-agent=\"Agent 1\"><h2 data-title>Review scope</h2><p>Check the scope.</p></tmt-review>",
       "deviceWriters": [
         "10000000-0000-4000-8000-000000000101"

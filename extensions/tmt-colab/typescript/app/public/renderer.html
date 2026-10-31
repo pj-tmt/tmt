@@ -1548,16 +1548,28 @@
                 if (!selector) continue;
                 const range = quoteRange(map, selector, deadline);
                 if (range) readingRanges.set(block.id, range);
+                const onHeading = (found) =>
+                  !!found &&
+                  headings[0].contains(found.startContainer) &&
+                  headings[0].contains(found.endContainer);
                 readings.push({
                   id: block.id,
                   selector,
+                  // A reading follows its heading after nearby text changed the stored context
+                  // (#5841): with no context match, the quote alone must occur exactly once. Its
+                  // fixed comment, not the context, names the reading.
                   threads: threads
                     .filter(
                       (thread) =>
-                        thread.range &&
                         thread.exact === block.title &&
-                        headings[0].contains(thread.range.startContainer) &&
-                        headings[0].contains(thread.range.endContainer),
+                        onHeading(
+                          thread.range ??
+                            quoteRange(
+                              map,
+                              { exact: thread.exact, prefix: '', suffix: '' },
+                              deadline,
+                            ),
+                        ),
                     )
                     .map((thread) => thread.id),
                 });
