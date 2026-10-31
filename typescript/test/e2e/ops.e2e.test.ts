@@ -1605,8 +1605,11 @@ exec ${quote(peer)} ${quote(fixture.executables.cli.executable)} ${quote(scenari
         await fixture.waitForCapture((screen) => screen.includes('acknowledged'), shell.pane);
         fixture.tmux(['send-keys', '-t', shell.pane, 'Enter']);
         await fixture.waitForCapture((screen) => screen.includes('Complete'), shell.pane);
-        // ↓ past the short reading reaches the actions (Back, Edit, Complete).
-        fixture.tmux(['send-keys', '-t', shell.pane, 'Down', 'Down', 'Down', 'Enter']);
+        // ↓ past the short reading reaches the actions (Back, Edit, Complete); Enter only once
+        // Complete is the focused row.
+        fixture.tmux(['send-keys', '-t', shell.pane, 'Down', 'Down', 'Down']);
+        await fixture.waitForCapture((screen) => /›\s*Complete\b/.test(screen), shell.pane);
+        fixture.tmux(['send-keys', '-t', shell.pane, 'Enter']);
         await fixture.waitForCapture(
           (screen) => screen.includes('Review exact update') && screen.includes('item revision 1'),
           shell.pane
