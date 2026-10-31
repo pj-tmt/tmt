@@ -107,6 +107,7 @@ fn entry(
             pane_pid: 2,
             pane_incarnation: None,
             session: BindingSessionState {
+                plain_program: None,
                 start_refusal: None,
                 last_transition: Some(SessionTransition::Started),
                 state: RuntimeState::Running,

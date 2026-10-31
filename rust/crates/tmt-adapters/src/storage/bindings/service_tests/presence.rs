@@ -251,3 +251,35 @@ fn list_groups_servers_orders_identities_and_preserves_rows_when_budget_is_exhau
     assert!(entries.iter().all(|entry| entry.binding.is_some()));
     storage.close().unwrap();
 }
+
+#[test]
+fn a_plain_program_is_read_only_while_its_binding_stays_attached() {
+    let fixture = Fixture::new();
+    let mut storage = fixture.open();
+    let mut endpoint = FakeEndpoint::new(&["%1"]);
+    let identity = bind_identity(&mut storage, &mut endpoint, "%1", "Alice", false)
+        .unwrap()
+        .identity;
+    assert_eq!(storage.bound_plain_program(&identity.id).unwrap(), None);
+    Connection::open(&fixture.database)
+        .unwrap()
+        .execute(
+            "UPDATE bindings SET plain_program = 'htop' WHERE identity_id = ?",
+            [&identity.id],
+        )
+        .unwrap();
+    assert_eq!(
+        storage
+            .bound_plain_program(&identity.id)
+            .unwrap()
+            .as_deref(),
+        Some("htop")
+    );
+
+    // Not active any more: the lost marker detaches the binding, and nothing is reported.
+    endpoint.pane_mut("%1").marker = None;
+    let presence = name_presence(&mut storage, &mut endpoint, "Alice").unwrap();
+    assert_eq!(presence.presence, Presence::Offline);
+    assert_eq!(storage.bound_plain_program(&identity.id).unwrap(), None);
+    storage.close().unwrap();
+}

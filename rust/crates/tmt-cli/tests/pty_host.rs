@@ -53,6 +53,8 @@ impl World {
         for (name, candidates) in [
             ("ps", ["/bin/ps", "/usr/bin/ps"]),
             ("sh", ["/bin/sh", "/usr/bin/sh"]),
+            // A basic driver's name on sh: see `agent`.
+            ("opencode", ["/bin/sh", "/usr/bin/sh"]),
         ] {
             let source = candidates
                 .iter()
@@ -93,6 +95,13 @@ impl World {
         self.remember_programs();
         output
     }
+    /// A scripted member that reads its messages. A plain `/bin/sh` is a plain program that
+    /// receives nothing (`RECIPIENT_NOT_AGENT`), so a member that must be talked to runs sh
+    /// under a known (basic) driver's executable name.
+    fn agent(&self) -> String {
+        self.root.join("bin/opencode").display().to_string()
+    }
+
     fn run(&mut self, args: &[&str]) -> Output {
         let index = self.start(args);
         self.finish(index)
@@ -278,6 +287,7 @@ impl Drop for World {
 #[test]
 fn run_without_tmux_starts_independent_members_and_check_reads_causal_output() {
     let mut world = World::new();
+    let agent = world.agent();
     world.json(&["identity", "create", "sender", "--json"]);
     let executable = env!("CARGO_BIN_EXE_tmt").replace('\'', "'\\''");
     let script = format!(
@@ -301,15 +311,7 @@ fn run_without_tmux_starts_independent_members_and_check_reads_causal_output() {
             "printf '%s' \"$$\" > '{}'; {script}",
             world.root.join(format!("{name}.pid")).display()
         );
-        let result = world.run(&[
-            "run",
-            "--no-channel",
-            "--save",
-            name,
-            "/bin/sh",
-            "-c",
-            &script,
-        ]);
+        let result = world.run(&["run", "--no-channel", "--save", name, &agent, "-c", &script]);
         assert!(result.status.success(), "{name}: {result:?}");
         // This launch has piped output and null input: it must return after
         // confirmation, without acquiring a terminal or waiting for the member.
@@ -516,6 +518,56 @@ fn stored_binding_reads_rename_and_force_remove_use_the_pty_host_without_tmux() 
         assert!(!tmux_called.exists(), "stored PTY operations invoked tmux");
         assert!(world.clean());
     }
+}
+
+#[test]
+fn a_member_running_a_plain_program_receives_nothing_and_says_why() {
+    let mut world = World::new();
+    let started = world.run(&[
+        "run",
+        "--host",
+        "pty",
+        "--no-channel",
+        "--save",
+        "plain",
+        "/bin/sh",
+        "-c",
+        "printf 'plain-ready\n'; while IFS= read -r line; do printf 'ran:%s\n' \"$line\"; done",
+    ]);
+    assert!(started.status.success(), "{started:?}");
+    let listed = world.json(&["ls", "--json"]);
+    let row = listed["identities"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|row| row["name"] == "plain")
+        .unwrap()
+        .clone();
+    assert_eq!(row["presence"], "active", "{row:#}");
+    assert_eq!(row["plainProgram"], "sh", "only the basename: {row:#}");
+    let id = row["id"].as_str().unwrap().to_owned();
+
+    let refused = world.run(&["talk", "plain", "do not run me", "--detach", "--json"]);
+    assert_eq!(refused.status.code(), Some(1), "{refused:?}");
+    let error: Value = serde_json::from_slice(&refused.stdout).unwrap();
+    assert_eq!(error["error"]["code"], "RECIPIENT_NOT_AGENT", "{error:#}");
+    let message = error["error"]["message"].as_str().unwrap();
+    assert!(
+        message.contains("plain program (sh)") && message.contains("Nothing was sent"),
+        "{message}"
+    );
+    // Nothing was stored for the recipient and nothing reached its terminal.
+    let inbox = world.json(&["inbox", "--identity", &id, "--json"]);
+    assert_eq!(
+        inbox["items"].as_array().map(Vec::len),
+        Some(0),
+        "{inbox:#}"
+    );
+    let screen = world.run(&["check", "plain"]);
+    let screen = String::from_utf8_lossy(&screen.stdout);
+    assert!(screen.contains("plain-ready"), "{screen}");
+    assert!(!screen.contains("do not run me"), "{screen}");
+    assert!(world.clean());
 }
 
 #[test]
@@ -749,6 +801,7 @@ fn an_explicit_unavailable_host_never_falls_back_or_launches_a_member() {
 #[test]
 fn supervisor_loss_after_paste_is_uncertain_and_never_replayed() {
     let mut world = World::new();
+    let agent = world.agent();
     world.json(&["identity", "create", "sender", "--json"]);
     world.json(&[
         "config",
@@ -763,15 +816,7 @@ fn supervisor_loss_after_paste_is_uncertain_and_never_replayed() {
             "printf '%s' \"$$\" > '{}'; printf 'provider-ready\\n'; while IFS= read -r line; do printf '%s\\n' \"$line\"; done",
             world.root.join(format!("{name}.pid")).display()
         );
-        let started = world.run(&[
-            "run",
-            "--no-channel",
-            "--save",
-            name,
-            "/bin/sh",
-            "-c",
-            &script,
-        ]);
+        let started = world.run(&["run", "--no-channel", "--save", name, &agent, "-c", &script]);
         assert!(started.status.success(), "{started:?}");
     }
     let listed = world.json(&["ls", "--json"]);

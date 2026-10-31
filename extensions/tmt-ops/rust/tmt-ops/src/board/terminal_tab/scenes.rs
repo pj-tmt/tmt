@@ -22,6 +22,8 @@ pub(in crate::board) const SCENES: &[&str] = &[
     "terminal-ended",
     "terminal-typing",
     "terminal-zoomed",
+    "terminal-list-focus",
+    "terminal-back-to-chat",
 ];
 
 /// A build with colours, a bold word, a wide character and the cursor on the sixth and last row
@@ -49,11 +51,15 @@ pub(in crate::board) fn capture_case(scene: &str, look: crate::look::Look) -> Ap
     app.terminal = tab().0;
     app.apply_terminal_located(MEMBER, Located::Stream(address("oracle")));
     if scene != "terminal-chips" {
-        app.key(KeyEvent::new(KeyCode::Char('t'), KeyModifiers::NONE));
+        app.key(KeyEvent::new(KeyCode::Char('j'), KeyModifiers::NONE));
         assert!(app.terminal_sync());
     }
     let events: &[StreamEvent] = &match scene {
-        "terminal-live" | "terminal-typing" | "terminal-zoomed" => {
+        "terminal-live"
+        | "terminal-typing"
+        | "terminal-zoomed"
+        | "terminal-list-focus"
+        | "terminal-back-to-chat" => {
             vec![StreamEvent::Screen(program())]
         }
         "terminal-reconnecting" => vec![
@@ -73,6 +79,12 @@ pub(in crate::board) fn capture_case(scene: &str, look: crate::look::Look) -> Ap
         "terminal-typing" => assert!(app.terminal.start_typing()),
         "terminal-zoomed" => {
             app.toggle_terminal_zoom();
+        }
+        // The list has focus: still no composer under the terminal (#5763).
+        "terminal-list-focus" => app.focus = 0,
+        // A click on the Chat chip: the chat and its composer come back.
+        "terminal-back-to-chat" => {
+            app.show_terminal(false);
         }
         _ => {}
     }

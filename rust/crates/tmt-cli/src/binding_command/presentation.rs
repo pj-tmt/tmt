@@ -129,6 +129,9 @@ pub(super) fn document(report: &Report) -> Value {
             if let Some(support) = row.driver_support {
                 value["driverSupport"] = support.as_str().into();
             }
+            if let Some(program) = &row.plain_program {
+                value["plainProgram"] = program.as_str().into();
+            }
             with_address(value, address(&row.presence, row.remembered.as_ref()))
         }).collect::<Vec<_>>()});
             // Present exactly when `--detected` was given (#4471).

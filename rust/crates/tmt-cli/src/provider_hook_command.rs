@@ -1598,7 +1598,10 @@ pub(super) fn refused_start(
         .as_ref()
         .map(|r| &r.harness)
         .or(stored.preferences.preferred_harness.as_ref());
-    if recorded.is_some_and(|recorded| recorded != harness) {
+    // A plain program is not a session: the first agent in the same verified pane replaces it,
+    // whatever this identity ran before, and its admission clears `plain_program` in the same CAS.
+    let plain = binding.session.plain_program.is_some();
+    if !plain && recorded.is_some_and(|recorded| recorded != harness) {
         return Some(Why::DriverMismatch);
     }
     // Conversation turnover inside the same verified provider remains the
@@ -1617,12 +1620,12 @@ pub(super) fn refused_start(
     if process.pid() == binding.pane_pid {
         return Some(Why::PaneProcess);
     }
-    if key.is_some() && previous == RuntimeLiveness::Unknown {
+    if !plain && key.is_some() && previous == RuntimeLiveness::Unknown {
         return Some(Why::PreviousSessionUnknown);
     }
     let ended = binding.session.state == RuntimeState::Ended
         || binding.session.last_transition == Some(SessionTransition::Ended);
-    if key.is_some() && !ended && previous != RuntimeLiveness::Gone {
+    if !plain && key.is_some() && !ended && previous != RuntimeLiveness::Gone {
         return Some(if previous == RuntimeLiveness::Alive {
             Why::PreviousSessionLive
         } else {

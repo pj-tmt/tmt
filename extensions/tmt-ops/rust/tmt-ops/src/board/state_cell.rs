@@ -11,6 +11,8 @@ pub(in crate::board) fn glyph(state: Option<&str>) -> &'static str {
         Some("review") => "◐",
         Some("idle") => "◌",
         Some("offline" | "ended") => "○",
+        // A plain program, not an agent (#5769).
+        Some("shell") => "▪",
         _ => "?",
     }
 }
@@ -80,6 +82,8 @@ mod tests {
             assert_eq!(mark(state, look).style, look.role(role));
         }
         assert_eq!(glyph(Some("ended")), "○");
+        assert_eq!(glyph(Some("shell")), "▪");
+        assert_eq!(mark(Some("shell"), look).style, look.role(Role::Muted));
         assert_eq!(glyph(None), "?");
     }
 }

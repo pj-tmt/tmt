@@ -2,7 +2,7 @@
 mod edit;
 mod input;
 mod load;
-mod model;
+pub(in crate::board) mod model;
 mod surface;
 #[cfg(test)]
 pub(in crate::board) mod tests;

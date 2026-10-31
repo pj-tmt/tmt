@@ -270,6 +270,8 @@ pub enum SendNowUntyped {
     ChannelUnavailable,
     /// The paste may have reached the pane.
     Uncertain,
+    /// The binding runs a plain program, not an agent.
+    NotAgent,
 }
 
 impl SendNowUntyped {
@@ -279,6 +281,7 @@ impl SendNowUntyped {
             Self::Unreachable => "SEND_NOW_UNREACHABLE",
             Self::ChannelUnavailable => "DELIVERY_CHANNEL_UNAVAILABLE",
             Self::Uncertain => "DELIVERY_UNCERTAIN",
+            Self::NotAgent => "RECIPIENT_NOT_AGENT",
         }
     }
 
@@ -292,6 +295,9 @@ impl SendNowUntyped {
             Self::ChannelUnavailable => "Could not send now: the agent's channel is not available",
             Self::Uncertain => {
                 "It may have been sent. Delivery is not confirmed, so do not send it again."
+            }
+            Self::NotAgent => {
+                "Could not send now: the member runs a plain program, not an AI agent"
             }
         }
     }

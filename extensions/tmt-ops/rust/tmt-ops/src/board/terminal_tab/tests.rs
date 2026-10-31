@@ -1,4 +1,4 @@
-//! The Terminal tab as the board shows it: when the tab exists, what `t` does, what each state
+//! The Terminal tab as the board shows it: when the tab exists, how `j` and the chips swap views, what each state
 //! of the stream looks like, and how cells are laid onto a pane of another size.
 use super::{
     discovery::Located,
@@ -55,8 +55,9 @@ fn text(app: &App) -> String {
         .join("\n")
 }
 
+/// Swaps the views as a click on the other chip does.
 fn press_t(app: &mut App) {
-    app.key(KeyEvent::new(KeyCode::Char('t'), KeyModifiers::NONE));
+    app.show_terminal(!app.terminal_showing());
 }
 
 fn with_stream(app: &mut App) {
@@ -118,13 +119,12 @@ fn a_failed_answer_shows_no_tab_and_is_asked_again_later() {
 }
 
 #[test]
-fn a_member_with_a_stream_gets_chips_and_t_swaps_chat_and_terminal() {
+fn a_member_with_a_stream_gets_chips_and_a_click_swaps_chat_and_terminal() {
     let mut app = reader();
     with_stream(&mut app);
     let chat = text(&app);
     assert!(chat.contains("Chat") && chat.contains("Terminal"), "{chat}");
     assert!(chat.contains("Conversation"));
-    assert!(app.bindings().contains_key("t"));
     press_t(&mut app);
     assert!(app.terminal_showing());
     assert_eq!(app.selected_read(), None, "the chat is not read behind it");
@@ -368,14 +368,34 @@ fn no_colour_leaves_the_program_colours_unpainted() {
 }
 
 #[test]
-fn the_legend_names_the_other_view() {
+fn j_on_the_list_opens_a_built_in_members_terminal_and_leads_back_and_t_does_not() {
     let mut app = reader();
-    shown(&mut app);
-    assert!(text(&app).contains("chat view"), "t leads back to the chat");
-    press_t(&mut app);
-    // Back in the chat view the focused reader's guidance takes the one footer line; `t`
-    // stays listed in `?`.
-    assert!(crate::board::app::workspace::tests::help_lists(&app, "t"));
+    with_stream(&mut app);
+    app.focus = 0;
+    let chips = |app: &App| {
+        text(app)
+            .lines()
+            .find(|line| line.contains("Chat"))
+            .expect("the chips row")
+            .to_owned()
+    };
+    assert!(
+        chips(&app).contains("Chat   j  Terminal"),
+        "{}",
+        chips(&app)
+    );
+    app.key(KeyEvent::new(KeyCode::Char('t'), KeyModifiers::NONE));
+    assert!(!app.terminal_showing(), "t has no default meaning here");
+    app.key(KeyEvent::new(KeyCode::Char('j'), KeyModifiers::NONE));
+    assert!(app.terminal_showing());
+    // From the terminal, j sits on the Chat chip and leads back with the keyboard alone.
+    let shown = chips(&app);
+    assert!(
+        shown.contains(" j  Chat") && !shown.contains(" j  Terminal"),
+        "{shown}"
+    );
+    app.key(KeyEvent::new(KeyCode::Char('j'), KeyModifiers::NONE));
+    assert!(!app.terminal_showing());
 }
 
 #[test]
@@ -876,15 +896,16 @@ fn a_zoomed_terminal_starts_typing_with_enter_and_asks_for_the_whole_room() {
 }
 
 #[test]
-fn the_key_is_a_keycap_right_before_terminal_and_its_hit_covers_both() {
+fn each_key_is_a_keycap_right_before_its_word_and_its_hit_covers_both() {
     let mut app = reader();
     with_stream(&mut app);
+    app.focus = 0;
     let drawn = text(&app);
     let line = drawn
         .lines()
         .find(|line| line.contains("Chat"))
         .expect("the chips row");
-    assert!(line.contains("Chat   t  Terminal"), "{line}");
+    assert!(line.contains("Chat   j  Terminal"), "{line}");
     let chat = line.chars().position(|c| c == 'C').unwrap();
     let hits = app.workspace_strip_hits.borrow().clone();
     let (area, _) = hits
@@ -905,11 +926,11 @@ fn the_key_is_a_keycap_right_before_terminal_and_its_hit_covers_both() {
 }
 
 #[test]
-fn t_stays_out_of_the_one_line_footer_and_is_listed_in_help() {
+fn the_terminal_action_has_no_default_key() {
     let mut app = reader();
     with_stream(&mut app);
     assert!(!text(&app).contains("t terminal"));
-    assert!(crate::board::app::workspace::tests::help_lists(&app, "t"));
+    assert!(!crate::board::app::workspace::tests::help_lists(&app, "t"));
 }
 
 #[test]
@@ -950,21 +971,29 @@ fn while_typing_the_footer_names_only_the_way_out() {
 }
 
 #[test]
-fn while_typing_the_composer_and_its_key_hints_are_not_offered() {
+fn the_terminal_view_never_offers_the_composer_whichever_pane_has_focus() {
     let mut app = reader();
     shown(&mut app);
     app.apply_terminal(1, StreamEvent::Screen(frame("hi")));
-    let before = text(&app);
-    assert!(before.contains("to message worker"), "{before}");
+    let no_composer = |app: &App, when: &str| {
+        let drawn = text(app);
+        for hint in ["to message worker", "⏎ send", "new line", "@ mention"] {
+            assert!(!drawn.contains(hint), "{when}: {hint}\n{drawn}");
+        }
+    };
+    no_composer(&app, "reader focus");
+    app.focus = 0;
+    no_composer(&app, "list focus");
+    app.focus = 1;
     app.key(key(KeyCode::Enter, KeyModifiers::NONE));
-    let typing = text(&app);
-    for hint in ["to message worker", "⏎ send", "new line", "@ mention"] {
-        assert!(!typing.contains(hint), "{hint}\n{typing}");
-    }
+    assert!(app.terminal.typing());
+    no_composer(&app, "typing");
     app.key(key(KeyCode::Char('\\'), KeyModifiers::CONTROL));
+    no_composer(&app, "after leaving typing");
+    press_t(&mut app);
     assert!(
         text(&app).contains("to message worker"),
-        "back after leaving"
+        "the chat view offers it again"
     );
 }
 
@@ -1008,9 +1037,10 @@ fn a_create_whose_stream_never_opens_leaves_no_typing_behind() {
     app.apply_terminal_located(MEMBER, Located::Stream(address("a")));
     assert!(app.terminal_sync(), "the shown terminal opens");
     assert!(!app.terminal.typing(), "the old create does not type");
+    press_t(&mut app);
     assert!(
         text(&app).contains("to message worker"),
-        "the composer is offered"
+        "the chat view offers the composer"
     );
 }
 

@@ -416,7 +416,18 @@ fn tree(frame: &mut Frame, app: &App, area: Rect) {
                 OpsTarget::Pool | OpsTarget::DigestAll | OpsTarget::Hidden => None,
             };
             let timers = scope.and_then(|scope| app.cron.counts.count(scope));
-            let tokens = if app.tok_money() {
+            // A plain program is not an agent: it has no tokens (#5769).
+            let plain = match &row.target {
+                OpsTarget::Member { identity_id, .. } => app
+                    .references
+                    .agents
+                    .get(identity_id)
+                    .is_some_and(|agent| agent.plain_program().is_some()),
+                _ => false,
+            };
+            let tokens = if plain {
+                "—".into()
+            } else if app.tok_money() {
                 let members: std::collections::BTreeSet<&str> = match &row.target {
                     OpsTarget::Squad(room) => snapshot
                         .roster
@@ -571,7 +582,8 @@ fn tree(frame: &mut Frame, app: &App, area: Rect) {
             let model: String = match &row.target {
                 OpsTarget::Member { identity_id, .. } => {
                     let agent = app.references.agents.get(identity_id);
-                    columns::model_text(
+                    columns::dense_model(
+                        agent.and_then(|agent| agent.plain_program()),
                         agent.and_then(|agent| agent.runtime.as_deref()),
                         agent.and_then(|agent| agent.model.as_deref()),
                     )

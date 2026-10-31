@@ -689,8 +689,9 @@ names the command to run (`tmt extension install remote`, or the one Remote
 suggests); Ops never installs, starts or pairs anything itself. The default `f` cycles Squads / Agents / Pinned and `t` toggles
 Talk / Measure. An authored `overview`, `overview-view` or `overview-filter` binding gets a
 located retirement notice and is not applied.
-Default `j` jumps through the observed tmux binding only from a tmux invoker; Herdr
-focus is unavailable. Standalone `j` opens the shared conversation and Esc returns.
+Default `j` jumps through the observed tmux binding only from a tmux invoker; on a
+built-in member it opens that member's Terminal view instead, and `j` again (or the
+Chat chip) leads back. Herdr focus is unavailable. Standalone `j` opens the shared conversation and Esc returns.
 The header names the target and effective action; custom bindings retain their
 actual argv. `j` is not tree navigation.
 New member shows Name, AI tool, Model, Effort, Host, Session, Squad and Keep
@@ -710,10 +711,16 @@ at the first `builtin`/`ok` published host with a launch template, and Session a
 separate review. Display and Copy use `tmt` when PATH resolves to the board's Core executable,
 otherwise its full path; execution keeps the exact executable. Temporary locks Squad to Common pool; returning to Saved restores the prior
 squad. No existing identity is reused deliberately, and Core rechecks every launch.
+The first AI tool choice, "None · plain shell (no AI)", starts a plain CLI: Model
+and Effort hide, a Command row takes the program and its arguments (split like a
+shell, never through `sh -c`; blank runs your `$SHELL`), and the preview shows
+`tmt run [--host pty] NAME PROGRAM…`. Such a member reads `▪ shell` with `—` for TOK
+and Digest and its program in Model; it has no chat (Enter and `j` open its terminal)
+and receives no messages until an AI agent starts and binds in that terminal.
 A clean start on the built-in host closes the form, selects the member and shows
-its Terminal view, typing into it. The Terminal view is chosen per member (`t` or the
-Terminal chip); every other member opens on its chat, where Enter composes as for a tmux
-member. A left drag over the screen selects its text and copies it with the chat's Copy.
+its Terminal view, typing into it. The Terminal view is chosen per member (`j` or the
+Terminal chip; `j` again or the Chat chip leads back, and in the view Enter types into the program);
+every other member opens on its chat, where Enter composes as for a tmux member. A left drag over the screen selects its text and copies it with the chat's Copy.
 While typing into a program that asked for the mouse, Ops ignores a plain drag (only
 the wheel reaches the program); drag with your terminal's selection bypass (often Shift,
 Option in iTerm2) to select. A failed or uncertain launch keeps the draft; never retry before checking public

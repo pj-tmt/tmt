@@ -290,6 +290,22 @@ pub struct BindingSessionState {
     pub launch_owner: Option<ProcessIncarnation>,
     /// The latest refused start after admission; diagnostic only, in the same CAS.
     pub start_refusal: Option<StartRefusal>,
+    /// A `tmt run` of a program no driver claims: its bounded basename, never its arguments.
+    /// The binding receives nothing while it is set (`RECIPIENT_NOT_AGENT`); any agent
+    /// admission writes a new state without it, so the first agent clears it in the same CAS.
+    pub plain_program: Option<String>,
+}
+
+/// The display name of a plain program: the basename of `argv0`, control characters dropped,
+/// at most 64 characters. `None` when nothing printable remains.
+pub fn plain_program_name(argv0: &str) -> Option<String> {
+    let base = argv0.rsplit('/').find(|part| !part.is_empty())?;
+    let name = base
+        .chars()
+        .filter(|c| !c.is_control())
+        .take(64)
+        .collect::<String>();
+    (!name.is_empty()).then_some(name)
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -332,6 +348,7 @@ impl BindingSessionState {
             return None;
         }
         Some(Self {
+            plain_program: None,
             start_refusal: self.start_refusal.clone(),
             key: Some(key),
             launch_owner: Some(owner),
@@ -360,6 +377,7 @@ impl BindingSessionState {
             return None;
         }
         Some(Self {
+            plain_program: None,
             start_refusal: self.start_refusal.clone(),
             key: Some(key),
             launch_owner: Some(owner),
@@ -429,6 +447,7 @@ impl BindingSessionState {
             return None;
         }
         Some(Self {
+            plain_program: None,
             start_refusal: None,
             key: Some(key),
             launch_owner: self.launch_owner.clone(),
@@ -467,6 +486,7 @@ impl BindingSessionState {
             return None;
         }
         Some(Self {
+            plain_program: None,
             start_refusal: None,
             launch_owner: self
                 .key
@@ -554,6 +574,7 @@ impl BindingSessionState {
             return None;
         }
         Some(Self {
+            plain_program: None,
             start_refusal: None,
             key: Some(key),
             launch_owner: self.launch_owner.clone(),
@@ -678,6 +699,7 @@ mod tests {
         assert_eq!(
             BindingSessionState::default(),
             BindingSessionState {
+                plain_program: None,
                 start_refusal: None,
                 last_transition: None,
                 state: RuntimeState::Unknown,
@@ -876,6 +898,56 @@ mod tests {
     }
 
     #[test]
+    fn a_plain_program_name_is_a_bounded_basename_without_arguments_or_controls() {
+        assert_eq!(plain_program_name("/bin/zsh").as_deref(), Some("zsh"));
+        assert_eq!(plain_program_name("htop").as_deref(), Some("htop"));
+        assert_eq!(plain_program_name("/opt/tool/").as_deref(), Some("tool"));
+        assert_eq!(plain_program_name("ev\u{1b}il").as_deref(), Some("evil"));
+        assert_eq!(
+            plain_program_name(&"x".repeat(100)).map(|n| n.len()),
+            Some(64)
+        );
+        assert_eq!(plain_program_name("/"), None);
+        assert_eq!(plain_program_name("\u{7}"), None);
+    }
+
+    #[test]
+    fn the_first_agent_admission_clears_the_plain_program() {
+        let owner = ProcessIncarnation::new(41, "owner-start").unwrap();
+        let shell = ObservedSessionKey {
+            incarnation: ProcessIncarnation::new(42, "shell-start").unwrap(),
+            provider_session: None,
+        };
+        let mut plain = BindingSessionState::default()
+            .admit_launched(
+                shell,
+                owner,
+                SessionTransition::Started,
+                RuntimeLiveness::Alive,
+                RuntimeLiveness::Alive,
+            )
+            .unwrap();
+        plain.plain_program = Some("zsh".into());
+        let agent = ObservedSessionKey {
+            incarnation: ProcessIncarnation::new(43, "agent-start").unwrap(),
+            provider_session: Some(ProviderSessionId::new("session-a").unwrap()),
+        };
+        let adopted = plain
+            .admit(
+                agent.clone(),
+                SessionTransition::Started,
+                RuntimeLiveness::Alive,
+            )
+            .unwrap();
+        assert_eq!(adopted.plain_program, None);
+        assert_eq!(adopted.key, Some(agent));
+        assert_eq!(
+            adopted.launch_owner, None,
+            "the shell's launcher does not own the agent"
+        );
+    }
+
+    #[test]
     fn a_resumed_or_compacted_start_names_only_a_running_launch_owned_unnamed_key() {
         let named = key("child-start", "session-a");
         let unnamed = ObservedSessionKey {
@@ -896,6 +968,7 @@ mod tests {
             assert_eq!(
                 launched.name_launch(named.clone(), transition),
                 Some(BindingSessionState {
+                    plain_program: None,
                     start_refusal: None,
                     last_transition: Some(transition),
                     state: RuntimeState::Running,

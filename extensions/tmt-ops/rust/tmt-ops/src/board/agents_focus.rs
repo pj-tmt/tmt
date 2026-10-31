@@ -229,9 +229,13 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
         app.focused() == Pane::Replies,
         app.look(),
     );
-    // While typing every key is the terminal's, so the composer (and its key hints) is not offered.
+    // The composer belongs to the chat: the terminal view never offers it, whichever pane has
+    // focus, and the terminal takes its rows. While typing every key is the terminal's. A member
+    // running a plain program has no chat: a message would run as a command (#5770).
     let admitted_input = retained.is_none()
+        && !app.terminal_showing()
         && !app.terminal.typing()
+        && row.is_none_or(|row| row["plainProgram"].is_null())
         && app.composer_projection().is_some_and(|projection| {
             projection.key.is_some() && (projection.focused || app.composer_start().is_some())
         });
@@ -340,7 +344,7 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
     };
     let gap = u16::from(input > 0 && available > input);
     if app.terminal_showing() && retained.is_none() {
-        // The terminal takes the exchanges' place; the composer below stays.
+        // The terminal takes the exchanges' place and the composer's.
         crate::board::terminal_tab::paint::render(
             frame.buffer_mut(),
             app,

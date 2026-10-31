@@ -13,10 +13,12 @@ fn open(f: &mut Fixture, board_pane: Option<&str>) {
 }
 
 #[test]
-fn bindings_inventory_shows_measure_and_terminal_defaults_and_preserves_authored_t() {
+fn bindings_inventory_shows_the_measure_default_no_t_default_and_preserves_authored_t() {
+    // `t` has no default since `j` opens a built-in member's Terminal view (#5765).
     for (bindings, expected_t) in [
-        ("", json!("terminal")),
-        ("[bind]\nt='talk-measure'\n", json!("talk-measure")),
+        // The inventory lists the key with no default value.
+        ("", Some(serde_json::Value::Null)),
+        ("[bind]\nt='talk-measure'\n", Some(json!("talk-measure"))),
     ] {
         let mut f = fixture("measure-bindings", bindings);
         open(&mut f, Some("%9"));
@@ -28,8 +30,7 @@ fn bindings_inventory_shows_measure_and_terminal_defaults_and_preserves_authored
             entries
                 .iter()
                 .find(|entry| entry.key == "bind.t")
-                .unwrap()
-                .value,
+                .map(|entry| entry.value.clone()),
             expected_t
         );
     }

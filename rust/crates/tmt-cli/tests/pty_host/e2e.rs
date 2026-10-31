@@ -169,6 +169,7 @@ impl World {
 #[test]
 fn two_members_talk_attach_and_resume_after_supervisor_loss_without_tmux() {
     let mut world = World::new();
+    let agent = world.agent();
     world.json(&["identity", "create", "sender", "--json"]);
     let provider = replying_provider(&mut world);
     for name in ["alpha", "beta"] {
@@ -182,15 +183,7 @@ fn two_members_talk_attach_and_resume_after_supervisor_loss_without_tmux() {
                 provider.to_str().unwrap(),
             ])
         } else {
-            world.run(&[
-                "run",
-                "--no-channel",
-                "--save",
-                name,
-                "/bin/sh",
-                "-c",
-                &script,
-            ])
+            world.run(&["run", "--no-channel", "--save", name, &agent, "-c", &script])
         };
         assert!(started.status.success(), "{name}: {started:?}");
         assert!(String::from_utf8_lossy(&started.stderr).contains("host pty"));

@@ -6,7 +6,8 @@ use crate::membership::workspace::RoomTarget;
 use std::collections::{BTreeMap, BTreeSet};
 use tmt_tui::components::Editor;
 
-/// One form field, in screen order. Every field but Keep holds text in `Draft::fields`.
+/// One form field. Every field but Keep holds text in `Draft::fields` at its `index`;
+/// `Slot::ALL` is the screen order.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum Slot {
     Name,
@@ -16,12 +17,15 @@ pub(super) enum Slot {
     Host,
     Session,
     Squad,
+    /// The plain program's command line, shown only for the plain-shell tool choice.
+    Command,
     Keep,
 }
 impl Slot {
-    pub const ALL: [Slot; 8] = [
+    pub const ALL: [Slot; 9] = [
         Slot::Name,
         Slot::Tool,
+        Slot::Command,
         Slot::Model,
         Slot::Effort,
         Slot::Host,
@@ -38,6 +42,7 @@ impl Slot {
             Slot::Host => "Host",
             Slot::Session => "Session",
             Slot::Squad => "Squad",
+            Slot::Command => "Command",
             Slot::Keep => "Keep",
         }
     }
@@ -47,7 +52,7 @@ impl Slot {
     }
     /// A field chosen from a list (▾).
     pub fn listed(self) -> bool {
-        !matches!(self, Slot::Name | Slot::Keep)
+        !matches!(self, Slot::Name | Slot::Command | Slot::Keep)
     }
     /// A field the keyboard also types into.
     pub fn typed(self) -> bool {
@@ -91,9 +96,22 @@ pub(super) fn host_label(host: &str) -> &str {
 /// The only host whose sessions are chosen in the form.
 const SESSION_HOST: &str = "tmux";
 const PROVIDER_DEFAULT: &str = "(provider default)";
+/// The AI tool choice that starts a plain program instead of an agent: its label is its value.
+pub(super) const PLAIN_TOOL: &str = "None · plain shell (no AI)";
+/// The program a blank Command runs: the board's `$SHELL`, else `/bin/sh`.
+pub(super) fn login_shell(value: Option<std::ffi::OsString>) -> String {
+    value
+        .and_then(|v| v.into_string().ok())
+        .filter(|v| !v.is_empty())
+        .unwrap_or_else(|| "/bin/sh".into())
+}
+/// One text field per slot that holds a value; Keep is a toggle, not a field.
+pub(super) const FIELDS: usize = 8;
 #[derive(Clone, Debug)]
 pub(super) struct Draft {
-    pub fields: [Editor; 7],
+    pub fields: [Editor; FIELDS],
+    /// What a blank Command runs (see `login_shell`).
+    pub shell: String,
     pub saved: bool,
     pub tools: Vec<String>,
     pub models: BTreeMap<String, Vec<String>>,
@@ -116,7 +134,7 @@ pub(in crate::board) struct Review {
     pub(super) display: Box<Display>,
 }
 /// The built-in host: it has no sessions, and its launch names the host itself.
-pub(super) const BUILT_IN_HOST: &str = "pty";
+pub(in crate::board) const BUILT_IN_HOST: &str = "pty";
 /// The Host a new form starts on: the one Ops runs in when it can launch there (a plain
 /// terminal means the built-in host), else the first eligible one. The user can change it.
 pub(super) fn default_host(loaded: &Loaded) -> Option<&crate::launch::Host> {
@@ -283,8 +301,10 @@ impl Draft {
                 host,
                 session,
                 squad.map_or("", |s| s.name.as_str()),
+                "",
             ]
             .map(Editor::from),
+            shell: login_shell(std::env::var_os("SHELL")),
             saved: true,
             tools,
             models,
@@ -294,6 +314,25 @@ impl Draft {
     }
     pub fn text(&self, slot: Slot) -> &str {
         self.fields[slot.index()].as_str()
+    }
+    /// The plain-shell choice: no agent, so no Model or Effort, and a Command instead.
+    pub fn plain(&self) -> bool {
+        self.text(Slot::Tool) == PLAIN_TOOL
+    }
+    /// The plain program's argv: the Command split like a shell would, never run through one;
+    /// blank runs `shell`.
+    pub fn plain_argv(&self) -> Result<Vec<String>, String> {
+        let typed = self.text(Slot::Command);
+        if typed.trim().is_empty() {
+            return Ok(vec![self.shell.clone()]);
+        }
+        let argv = tmt_cli_style::help::shell_words(typed)
+            .filter(|argv| !argv.is_empty())
+            .ok_or("The command has an unclosed quote or a stray backslash.")?;
+        if argv[0].starts_with('-') || argv.iter().any(|w| w.chars().any(char::is_control)) {
+            return Err("A command starts with a program, not '-', and has no controls.".into());
+        }
+        Ok(argv)
     }
     /// Sets a field's text; another AI tool has other models and efforts.
     pub fn set(&mut self, slot: Slot, value: &str) {
@@ -310,11 +349,15 @@ impl Draft {
             .get(self.text(Slot::Tool))
             .map_or(&[], |c| c.efforts.as_slice())
     }
-    /// The fields shown, in order: Effort only with efforts, Session only on tmux.
+    /// The fields shown, in order: Effort only with efforts, Session only on tmux, and the plain
+    /// shell's Command in place of Model and Effort.
     pub fn visible(&self, loaded: Option<&Loaded>) -> Vec<Slot> {
+        let plain = self.plain();
         Slot::ALL
             .into_iter()
             .filter(|slot| match slot {
+                Slot::Command => plain,
+                Slot::Model | Slot::Effort if plain => false,
                 Slot::Effort => loaded.is_some_and(|l| !self.efforts(l).is_empty()),
                 Slot::Session => self.text(Slot::Host) == SESSION_HOST,
                 _ => true,
@@ -325,13 +368,16 @@ impl Draft {
     pub fn choices(&self, slot: Slot, loaded: &Loaded) -> Vec<Choice> {
         let tool = self.text(Slot::Tool);
         match slot {
-            Slot::Tool => loaded
-                .choices
-                .keys()
-                .chain(&self.tools)
-                .collect::<BTreeSet<_>>()
-                .into_iter()
-                .map(|tool| Choice::of(tool))
+            Slot::Tool => std::iter::once(Choice::of(PLAIN_TOOL))
+                .chain(
+                    loaded
+                        .choices
+                        .keys()
+                        .chain(&self.tools)
+                        .collect::<BTreeSet<_>>()
+                        .into_iter()
+                        .map(|tool| Choice::of(tool)),
+                )
                 .chain([Choice::free("Type a tool…")])
                 .collect(),
             Slot::Model => {
@@ -363,7 +409,7 @@ impl Draft {
                 .chain(self.rooms.iter().map(|r| Choice::of(&r.name)))
                 .chain([Choice::free("New squad…")])
                 .collect(),
-            Slot::Name | Slot::Keep => vec![],
+            Slot::Name | Slot::Command | Slot::Keep => vec![],
         }
     }
     /// What a field shows: the human host name, or the empty value's meaning.
@@ -377,7 +423,7 @@ impl Draft {
         }
     }
     pub fn review(&self, loaded: &Loaded) -> Result<Review, String> {
-        let [name, tool, model, effort, host, session, squad] =
+        let [name, tool, model, effort, host, session, squad, _] =
             self.fields.each_ref().map(|field| field.as_str());
         if name.is_empty()
             || name.chars().count() > 64
@@ -389,17 +435,23 @@ impl Draft {
                 "Choose an agent name of 1–64 characters without outer spaces, controls or a leading '-'.".into(),
             );
         }
-        if tool.is_empty() || tool.starts_with('-') || tool.chars().any(char::is_control) {
-            return Err("Choose an AI tool executable.".into());
-        }
-        if !plain_word(model) {
-            return Err("A model id has no outer spaces, controls or leading '-'.".into());
-        }
-        // A hidden Effort field is never sent.
-        let effort = if self.efforts(loaded).is_empty() {
-            ""
+        // A plain program is its own argv, with no model or effort (#5769).
+        let (program, model, effort) = if self.plain() {
+            (self.plain_argv()?, "", "")
         } else {
-            effort
+            if tool.is_empty() || tool.starts_with('-') || tool.chars().any(char::is_control) {
+                return Err("Choose an AI tool executable.".into());
+            }
+            if !plain_word(model) {
+                return Err("A model id has no outer spaces, controls or leading '-'.".into());
+            }
+            // A hidden Effort field is never sent.
+            let effort = if self.efforts(loaded).is_empty() {
+                ""
+            } else {
+                effort
+            };
+            (vec![tool.to_owned()], model, effort)
         };
         if host != BUILT_IN_HOST && !plain_word(session) {
             return Err("A session name has no outer spaces, controls or leading '-'.".into());
@@ -432,7 +484,8 @@ impl Draft {
                 command.extend([option.into(), value.into()]);
             }
         }
-        command.extend([name.into(), tool.into()]);
+        command.push(name.into());
+        command.extend(program);
         let outer = loaded
             .prepare(host, session, &command)
             .map_err(|e| e.message)?;

@@ -22,7 +22,8 @@ const IDENTITY_COLUMNS: &str =
 pub(super) const BINDING_COLUMNS: &str = "b.id, b.identity_id, b.pane_id, b.server_id, b.socket_path, \
     b.server_pid, b.server_start_time, b.pane_pid, b.runtime_state, b.last_transition, \
     b.runtime_pid, b.runtime_start_identity, b.observed_provider_session_id, \
-    b.launch_owner_pid, b.launch_owner_start_identity, b.transport, b.pane_incarnation, b.runtime_start_refusal";
+    b.launch_owner_pid, b.launch_owner_start_identity, b.transport, b.pane_incarnation, b.runtime_start_refusal, \
+    b.plain_program";
 
 pub(super) struct BindingRows<'a>(pub(super) &'a Connection);
 
@@ -354,7 +355,7 @@ impl BindingRecords for BindingRows<'_> {
                  RETURNING id, identity_id, pane_id, server_id, socket_path,
                     server_pid, server_start_time, pane_pid, runtime_state, last_transition,
                     runtime_pid, runtime_start_identity, observed_provider_session_id,
-                    launch_owner_pid, launch_owner_start_identity, transport, pane_incarnation, runtime_start_refusal",
+                    launch_owner_pid, launch_owner_start_identity, transport, pane_incarnation, runtime_start_refusal, plain_program",
                 params![
                     id,
                     identity.id,
@@ -477,7 +478,7 @@ impl BindingRecords for BindingRows<'_> {
         let pane_pid =
             stored_process_id(target.pane_pid).map_err(|e| classify(e, "Validate pane PID"))?;
         self.0.query_row(
-            "INSERT INTO bindings (id, identity_id, transport, pane_id, server_id, socket_path, server_pid, server_start_time, pane_pid, pane_incarnation, bound_at, last_verified_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), strftime('%Y-%m-%dT%H:%M:%fZ', 'now')) RETURNING id, identity_id, pane_id, server_id, socket_path, server_pid, server_start_time, pane_pid, runtime_state, last_transition, runtime_pid, runtime_start_identity, observed_provider_session_id, launch_owner_pid, launch_owner_start_identity, transport, pane_incarnation, runtime_start_refusal",
+            "INSERT INTO bindings (id, identity_id, transport, pane_id, server_id, socket_path, server_pid, server_start_time, pane_pid, pane_incarnation, bound_at, last_verified_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), strftime('%Y-%m-%dT%H:%M:%fZ', 'now')) RETURNING id, identity_id, pane_id, server_id, socket_path, server_pid, server_start_time, pane_pid, runtime_state, last_transition, runtime_pid, runtime_start_identity, observed_provider_session_id, launch_owner_pid, launch_owner_start_identity, transport, pane_incarnation, runtime_start_refusal, plain_program",
             params![target.id, identity.id, target.server.host.as_str(), target.pane_id, target.server.server_id, target.server.socket_path,
                 server_pid, target.server.server_start_time, pane_pid, target.pane_incarnation], |row| binding_row(row, 0),
         ).map_err(|error| classify(error, "Activate reserved binding"))
@@ -630,6 +631,22 @@ impl Storage {
             .map_err(|error| classify(error, "Check identity binding"))
     }
 
+    /// The plain program an unretired identity's current binding runs, read without a write
+    /// transaction for polled projections. Detaching deletes the binding row, so only a binding
+    /// still attached to its pane reports one.
+    pub fn bound_plain_program(&self, identity_id: &str) -> Result<Option<String>, StorageError> {
+        self.connection()?
+            .query_row(
+                "SELECT b.plain_program FROM bindings AS b JOIN identities AS i ON i.id = b.identity_id \
+                 WHERE b.identity_id = ? AND i.retired_at_ms IS NULL",
+                [identity_id],
+                |row| row.get(0),
+            )
+            .optional()
+            .map(Option::flatten)
+            .map_err(|error| classify(error, "Read plain program"))
+    }
+
     /// Read an active identity's remembered preferences without a write
     /// transaction, for read-only projections such as show and list.
     pub fn session_preferences(
@@ -724,7 +741,7 @@ fn workspace_projection(
             .query_map(rusqlite::params_from_iter(values), |row| {
                 Ok(tmt_core::workspace::StoredIdentity {
                     entry: entry_row(row)?,
-                    preferences: session::decode_preferences(row, 24)?,
+                    preferences: session::decode_preferences(row, 25)?,
                 })
             })
             .and_then(|rows| rows.collect::<Result<Vec<_>, _>>())

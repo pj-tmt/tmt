@@ -45,6 +45,8 @@ struct ListedRow {
     running_driver: Option<String>,
     /// The identified driver's level, advisory like `driver`.
     driver_support: Option<tmt_core::driver::descriptor::Support>,
+    /// The plain program an active binding runs instead of an agent.
+    plain_program: Option<String>,
 }
 
 /// What the host did with the agent name after a committed bind or rename.
@@ -696,7 +698,13 @@ fn operation(
                         preferences.remembered.as_ref(),
                         preferences.preferred_harness.as_ref(),
                     );
+                    let plain_program = row
+                        .binding
+                        .as_ref()
+                        .filter(|_| row.presence == tmt_core::binding::Presence::Active)
+                        .and_then(|binding| binding.session.plain_program.clone());
                     Ok(ListedRow {
+                        plain_program,
                         presence: row,
                         remembered: preferences.remembered,
                         resume,

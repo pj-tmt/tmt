@@ -22,56 +22,104 @@ use tmt_tui::components::{
 };
 use unicode_width::UnicodeWidthStr;
 
-/// The chips: the two views, and Zoom while the terminal is the one shown.
-fn options(showing: bool, zoomed: bool) -> Vec<(&'static str, &'static str, Choice, bool)> {
+/// One chip: its id, its word, what a click chooses, whether it is the selected one, and the
+/// key that does the same, shown as a keycap before the word as on every tab-header control.
+type Chip = (
+    &'static str,
+    &'static str,
+    Choice,
+    bool,
+    Option<Span<'static>>,
+);
+
+/// The chips: the two views, and Zoom while the terminal is the one shown. `j` sits on the view
+/// it switches to: Terminal from the chat, Chat from the terminal (a bound `terminal` action
+/// keeps its own key on Chat). `z` zooms.
+fn options(app: &App) -> Vec<Chip> {
+    use crate::action::{OpsUiAction, Verb};
+    let (showing, zoomed) = (app.terminal_showing(), app.terminal_zoomed());
+    let ui = |action: OpsUiAction, preferred: &str| {
+        keycap::key(app, action, preferred).map(|key| keycap::control_span(app, &key, action))
+    };
+    let jump =
+        super::super::view::footer::effective_key(app, &app.workspace_bindings(), Verb::Jump, "j")
+            .map(|key| {
+                keycap::span(
+                    super::super::view::footer::key_label(&key),
+                    false,
+                    app.look(),
+                )
+            });
     let mut options = vec![
-        ("chat", "Chat", Choice::TerminalView(false), !showing),
-        ("terminal", "Terminal", Choice::TerminalView(true), showing),
+        (
+            "chat",
+            "Chat",
+            Choice::TerminalView(false),
+            !showing,
+            ui(OpsUiAction::Terminal, "t").or_else(|| jump.clone().filter(|_| showing)),
+        ),
+        (
+            "terminal",
+            "Terminal",
+            Choice::TerminalView(true),
+            showing,
+            jump.filter(|_| !showing),
+        ),
     ];
     if showing {
-        options.push(("zoom", "⤢ Zoom", Choice::TerminalZoom, zoomed));
+        options.push((
+            "zoom",
+            "Zoom",
+            Choice::TerminalZoom,
+            zoomed,
+            ui(OpsUiAction::TerminalZoom, "z"),
+        ));
     }
     options
 }
 
-/// Paints `Chat   t  Terminal  ⤢ Zoom` on `row`: the key that switches the views is a keycap right
-/// before the label it opens, as on the tab labels, and that chip's hit covers both.
+/// Paints `Chat  j Terminal  z Zoom` on `row`: each key is a keycap right before the word it
+/// acts on, and that chip's hit covers both.
 pub(in crate::board) fn chips(buffer: &mut Buffer, app: &App, row: Rect) {
-    let action = crate::action::OpsUiAction::Terminal;
-    let cap = keycap::key(app, action, "t").map(|key| keycap::control_span(app, &key, action));
-    let cap_width = cap.as_ref().map_or(0, Span::width) as u16;
-    let options = options(app.terminal_showing(), app.terminal_zoomed());
-    let width = cap_width
-        + options
-            .iter()
-            .map(|(_, label, _, _)| label.width() as u16 + 3)
-            .sum::<u16>();
+    let options = options(app);
+    let width = options.iter().map(chip_width).sum::<u16>();
     if row.height == 0 || row.width < width + 2 {
         return;
     }
     let mut x = row.x + 1;
     for option in &options {
-        let from = x;
-        if option.0 == "terminal"
-            && let Some(cap) = cap.clone()
-        {
-            strip::paint_left(
-                buffer,
-                Rect::new(x, row.y, cap_width, 1),
-                Line::from(vec![cap]),
-            );
-            x += cap_width;
-        }
-        let chip = option.1.width() as u16 + 3;
-        paint_chips(
+        paint_chip(
             buffer,
             app,
-            Rect::new(x, row.y, chip, 1),
-            std::slice::from_ref(option),
-            from,
+            Rect::new(x, row.y, chip_width(option), 1),
+            option,
         );
-        x += chip;
+        x += chip_width(option);
     }
+}
+
+fn chip_width(option: &Chip) -> u16 {
+    option.4.as_ref().map_or(0, Span::width) as u16 + option.1.width() as u16 + 3
+}
+
+/// Paints one chip in `area`, its keycap first; the hit covers the keycap too.
+fn paint_chip(buffer: &mut Buffer, app: &App, area: Rect, option: &Chip) {
+    let cap = option.4.as_ref().map_or(0, Span::width) as u16;
+    if let Some(span) = option.4.clone() {
+        strip::paint_left(
+            buffer,
+            Rect::new(area.x, area.y, cap, 1),
+            Line::from(vec![span]),
+        );
+    }
+    let (id, label, choice, selected, _) = option;
+    paint_chips(
+        buffer,
+        app,
+        Rect::new(area.x + cap, area.y, area.width - cap, 1),
+        &[(*id, *label, choice.clone(), *selected)],
+        area.x,
+    );
 }
 
 /// Paints `options` in `area`; each hit reaches left to `from`, so a keycap before a chip is part
@@ -115,15 +163,16 @@ pub(in crate::board) fn zoomed(frame: &mut ratatui::Frame, app: &App) {
     if area.height < 2 {
         return;
     }
-    let width = "⤢ Zoom".width() as u16 + 3;
-    if area.width > width {
-        paint_chips(
-            frame.buffer_mut(),
-            app,
-            Rect::new(area.x + 1, area.y, width, 1),
-            &[("zoom", "⤢ Zoom", Choice::TerminalZoom, true)],
-            area.x + 1,
-        );
+    if let Some(zoom) = options(app).into_iter().find(|option| option.0 == "zoom") {
+        let width = chip_width(&zoom);
+        if area.width > width {
+            paint_chip(
+                frame.buffer_mut(),
+                app,
+                Rect::new(area.x + 1, area.y, width, 1),
+                &zoom,
+            );
+        }
     }
     render(
         frame.buffer_mut(),

@@ -302,11 +302,15 @@ impl Controller {
                         }
                         if editor.is_empty() {
                             let placeholder = match slot {
-                                model::Slot::Name => "agent name",
-                                model::Slot::Tool => "choose or type a tool",
-                                model::Slot::Model => "(provider default)",
-                                model::Slot::Squad => "Common pool",
-                                _ => "session",
+                                model::Slot::Name => "agent name".into(),
+                                model::Slot::Tool => "choose or type a tool".into(),
+                                model::Slot::Model => "(provider default)".into(),
+                                model::Slot::Squad => "Common pool".into(),
+                                // Blank runs the board's shell, so the placeholder names it.
+                                model::Slot::Command => {
+                                    format!("{} (your shell)", self.draft.shell)
+                                }
+                                _ => "session".into(),
                             };
                             strip::paint_left(
                                 frame.buffer_mut(),

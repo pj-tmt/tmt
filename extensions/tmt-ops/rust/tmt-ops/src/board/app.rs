@@ -2572,6 +2572,11 @@ impl App {
         let Some(row) = row else {
             return self.say("No row is selected.");
         };
+        if action.verb == Verb::Jump
+            && let Some(effect) = self.jump_to_terminal(&row)
+        {
+            return effect;
+        }
         if action.verb == Verb::Jump && self.workspace_snapshot().is_some() {
             if !self.invoker_tmux {
                 self.conversation_return = Some(self.shell.tab);
@@ -2591,6 +2596,15 @@ impl App {
         let request = match action.verb {
             Verb::Talk if action.args.is_empty() && self.terminal_showing() => {
                 return self.type_into_terminal();
+            }
+            // A plain program has no chat: Enter opens its terminal, as `j` does (#5769).
+            Verb::Talk | Verb::Reply if row["plainProgram"].is_string() => {
+                return self.jump_to_terminal(&row).unwrap_or_else(|| {
+                    self.say(format!(
+                        "{} runs a plain program, not an AI agent; it has no chat. Use j to reach its terminal.",
+                        row["name"].as_str().unwrap_or("This member")
+                    ))
+                });
             }
             Verb::Talk | Verb::Annotate | Verb::Reply | Verb::UpdateStatus => {
                 return self.compose(action, &row);

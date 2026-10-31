@@ -15,7 +15,7 @@ pub(in crate::board::new_member) struct Edit {
     target: Target,
     intent: Intent,
     actor: Option<String>,
-    initial: [String; 7],
+    initial: [String; super::model::FIELDS],
     preset: Result<model::Preset, String>,
     preferences: OpsPreferences,
     enabled: bool,
@@ -198,6 +198,8 @@ impl Edit {
         };
         let mut choices = c.draft.choices(slot, loaded);
         use super::model::Slot;
+        // Edit keeps an agent an agent; a plain shell is made from New member only.
+        choices.retain(|choice| choice.value.as_deref() != Some(super::model::PLAIN_TOOL));
         if slot == Slot::Squad {
             let common =
                 matches!(&self.target,Target::Member{memberships,..} if memberships.len()<=1);

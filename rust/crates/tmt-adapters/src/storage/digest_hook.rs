@@ -115,6 +115,8 @@ fn admission(
         session,
     } = binding;
     let tmt_core::binding::session::BindingSessionState {
+        // A plain program clears only with an agent's admission, which also replaces `key`.
+        plain_program: _,
         // Lifecycle telemetry a hook rewrites on every transition, not who holds the launch.
         last_transition: _,
         state,

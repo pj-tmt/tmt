@@ -53,6 +53,7 @@ pub fn send_now(
 pub fn untyped_failure(delivery: &Delivery) -> (&'static str, &'static str) {
     let untyped = match delivery {
         Delivery::AwaitingApproval => SendNowUntyped::AwaitingApproval,
+        Delivery::NotAgent(_) => SendNowUntyped::NotAgent,
         Delivery::Offline | Delivery::Unavailable => SendNowUntyped::Unreachable,
         Delivery::ChannelUnavailable(_) => SendNowUntyped::ChannelUnavailable,
         Delivery::Uncertain | Delivery::Unacknowledged | Delivery::Transport(_) => {

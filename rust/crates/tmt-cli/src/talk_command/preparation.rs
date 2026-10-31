@@ -58,6 +58,12 @@ pub(super) fn prepare(
                 )
                 .caused_by(error)
             })?;
+            // A person's own passthrough text is typed as they wrote it; a request is not.
+            if let crate::delivery::Availability::NotAgent(program) = &availability
+                && !input.options.passthrough
+            {
+                return Err(not_agent(&identity.name, program));
+            }
             unbound = availability == crate::delivery::Availability::Unbound;
             offline = matches!(
                 availability,
@@ -399,3 +405,17 @@ pub(crate) const PRINTED_HINTS: &[crate::cli_style_tests::HintSpec] = &[
         &[],
     ),
 ];
+
+/// `RECIPIENT_NOT_AGENT`: the binding runs a plain program, so nothing is stored or pasted.
+pub(super) fn not_agent(name: &str, program: &str) -> Failure {
+    Failure::new(
+        "RECIPIENT_NOT_AGENT",
+        format!(
+            "{name} is running a plain program ({program}), not an AI agent; a message pasted there would run as a command. Nothing was sent."
+        ),
+        1,
+    )
+    .suggestion(format!(
+        "{name} receives messages once an AI agent starts in that terminal; until then use its terminal directly."
+    ))
+}

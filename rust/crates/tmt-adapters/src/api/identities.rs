@@ -42,13 +42,23 @@ pub(super) fn status(storage: &Storage, identities: Vec<String>) -> Result<Vec<u
                 .map_err(|_| Fault::unavailable())?
             {
                 None => json!({"id": id, "found": false}),
-                Some(_) => json!({"id": id, "found": true,
+                Some(_) => {
+                    let mut value = json!({"id": id, "found": true,
                     "status": crate::identity_status::status_value(statuses.get(id), now),
                     "canPassthrough": crate::passthrough::can_identity(storage, id)
                         .map_err(|_| Fault::unavailable())?
                         // A retired identity has no pane to type into.
                         .unwrap_or(crate::passthrough::Can::no(crate::passthrough::Reason::NoPane))
-                        .to_json()}),
+                        .to_json()});
+                    // The binding runs a plain program, not an agent: it receives nothing.
+                    if let Some(program) = storage
+                        .bound_plain_program(id)
+                        .map_err(|_| Fault::unavailable())?
+                    {
+                        value["plainProgram"] = program.into();
+                    }
+                    value
+                }
             },
         );
     }

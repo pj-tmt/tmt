@@ -34,6 +34,9 @@ pub(in crate::board) const SCENES: &[&str] = &[
     "new-member-partial",
     "new-member-refused",
     "new-member-load-failed",
+    "new-member-tool-list",
+    "new-member-plain",
+    "new-member-plain-command",
 ];
 pub(in crate::board) fn case(scene: &str, look: crate::look::Look) -> App {
     if scene.starts_with("edit-") {
@@ -58,6 +61,8 @@ pub(in crate::board) fn case(scene: &str, look: crate::look::Look) -> App {
         .clear();
     let c = app.new_member.as_mut().unwrap();
     c.draft.fields[2] = Editor::from("gpt-6.1-sol");
+    // The plain-shell scenes show the login shell; fix it so the capture is the same on every host.
+    c.draft.shell = "/bin/zsh".into();
     match scene {
         "new-member-loading"|"new-member-form"|"new-member-reopened"=>{},
         "new-member-temporary"=>{c.draft.saved=false;c.at=Focus::Slot(model::Slot::Keep);},
@@ -77,6 +82,12 @@ pub(in crate::board) fn case(scene: &str, look: crate::look::Look) -> App {
         "new-member-success"=>c.stage=Stage::Result("Created new-worker in product.".into()),
         "new-member-partial"=>c.stage=Stage::Result("Created new-worker in Common pool; squad add failed: The displayed squad changed.\nRepair after checking: tmt ops sq add --squad product -- 33333333-3333-4333-8333-333333333333".into()),
         "new-member-refused"=>c.notice=Some("That identity already exists; choose a new name.".into()),
+        "new-member-tool-list"=>{c.at=Focus::Slot(model::Slot::Tool);c.open_list(model::Slot::Tool);},
+        "new-member-plain"|"new-member-plain-command"=>{
+            c.draft.set(model::Slot::Tool,model::PLAIN_TOOL);
+            if scene=="new-member-plain-command" {c.draft.set(model::Slot::Command,"htop -d 10 'my dir'");}
+            c.at=Focus::Create;
+        },
         "new-member-load-failed"=>{c.loaded=None;c.notice=Some("Public host templates are unavailable. No launch attempted.".into());},
         _=>panic!("unknown new-member scene {scene}"),
     }

@@ -658,9 +658,12 @@ board-loop pass, opens, replaces or drops the stream so it matches what is shown
 member's, only while the Terminal tab shows); every open takes a new epoch and
 `BoardEvent::Terminal` carries it, so a late event of a replaced stream is dropped.
 
-The tab exists only for the selected member that has a stream; the catalog action `terminal`
-(`t`, Member and Reader scopes) switches it with the chat and is absent from the footer, help and
-Actions menu otherwise. `paint` lays the cells on the pane with the program's own colours
+The tab exists only for the selected member that has a stream. `j` on such a built-in member
+opens it (`App::jump_to_terminal`; a tmux member keeps the host jump) and `j` again or the Chat
+chip leads back; the catalog action `terminal` (no default key) switches the two when bound. The
+chips are tab-header controls, key then word (`Chat  j Terminal` from the chat, `j Chat  Terminal
+z Zoom` from the terminal), each key from the effective bindings and `j` on the view it switches to. The terminal view never offers the composer, whichever pane has focus; the terminal
+takes its rows. `paint` lays the cells on the pane with the program's own colours
 (`foreign::style`): a bigger screen is cut at the edge (a wide character that would straddle it is
 left out), a smaller one leaves the rest blank, and the screen is dimmed while the stream is not
 live. The program's cursor shows as one reversed cell (not the terminal cursor) in the live state only,
@@ -679,7 +682,7 @@ screen go to the program through `tmt-tui`'s encoders; only Ctrl-\ (or Ctrl-4) l
 `Stream::stop_typing` and is never sent, and a press outside the screen leaves too. The window is
 asked for (`Stream::resize`) in the pass after typing starts and whenever the drawn area changes
 while typing, never otherwise, and leaving resizes nothing back. A stream that ends ends typing.
-While typing the composer band is not offered (no key hint but `Ctrl-\` back is true), and the footer is that one hint.
+While typing the footer is that one hint (`Ctrl-\` back).
 
 `terminal-zoom` (default `z` on Member and Reader lists, available only while the terminal shows)
 makes the screen fill the board (`paint::zoomed`; the board's own hit lists are rebuilt, so

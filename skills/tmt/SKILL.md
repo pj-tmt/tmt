@@ -114,6 +114,11 @@ Successful submission also does not guarantee exactly-once agent processing.
 its user, so nothing was sent and the request stays queued. Retry after it
 continues; never type into its pane to get around it.
 
+`RECIPIENT_NOT_AGENT` (exit 1) means the member runs a plain program (its
+`plainProgram`), not an AI agent: a pasted message would run as a command, so
+nothing was stored or sent. It receives once an AI agent starts in that terminal
+and binds; never type the message into its pane instead.
+
 A cooperating recipient must invoke `tmt reply`; otherwise there is no final result
 yet. `check` captures diagnostics and does not retrieve a correlated result.
 Its positional count or `--lines` accepts integers from 0 through 2147483647;

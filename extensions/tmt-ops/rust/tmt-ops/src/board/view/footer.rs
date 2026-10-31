@@ -51,6 +51,7 @@ pub(in crate::board) fn hint_word(app: &App, action: &crate::action::Action) -> 
         Verb::TokenWindow => "window",
         Verb::AskLead => "ask lead",
         Verb::Jump if lead => "jump lead",
+        Verb::Jump if app.terminal_available() => "terminal",
         Verb::Jump => "host",
         Verb::Menu => "menu",
         Verb::Talk if app.terminal_showing() => "type",

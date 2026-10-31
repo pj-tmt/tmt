@@ -164,6 +164,7 @@ function expectNativeSchema(
     { version: 83, name: 'reserve binding publication outside the writer' },
     { version: 84, name: 'receipt durable hook capture ingestion' },
     { version: 85, name: 'name bounded Digest worker and caller failure stages' },
+    { version: 86, name: 'record a binding that runs a plain program, not an agent' },
   ];
   expect(migrated.migrations.slice(8)).toEqual(additions);
   expect(migrated.tables.map(({ name }) => name)).toEqual(
@@ -572,6 +573,7 @@ function expectNativeSchema(
     },
     { cid: 18, name: 'pane_incarnation', type: 'TEXT', notnull: 0, dflt_value: null, pk: 0 },
     { cid: 19, name: 'runtime_start_refusal', type: 'TEXT', notnull: 0, dflt_value: null, pk: 0 },
+    { cid: 20, name: 'plain_program', type: 'TEXT', notnull: 0, dflt_value: null, pk: 0 },
   ]);
   expect(newBindings.indexes).toEqual(oldBindings.indexes);
   expect(newBindings.foreignKeys).toEqual(oldBindings.foreignKeys);
@@ -588,6 +590,7 @@ function expectNativeSchema(
       // Bindings made before schema 42 keep an unknown pane incarnation.
       pane_incarnation: null,
       runtime_start_refusal: null,
+      plain_program: null,
     }))
   );
 

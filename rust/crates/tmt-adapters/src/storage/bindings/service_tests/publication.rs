@@ -387,6 +387,7 @@ fn same_interface_rebind_retains_runtime_observation_and_preferences() {
     let mut endpoint = FakeEndpoint::new(&["%1"]);
     let first = bind_identity(&mut storage, &mut endpoint, "%1", "Session", true).unwrap();
     let state = BindingSessionState {
+        plain_program: None,
         start_refusal: None,
         launch_owner: None,
         state: RuntimeState::Running,
