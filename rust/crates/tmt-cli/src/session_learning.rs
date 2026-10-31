@@ -756,3 +756,6 @@ pub fn document(view: &LearningView) -> serde_json::Value {
 
 #[cfg(test)]
 pub(crate) mod tests;
+
+#[cfg(test)]
+mod launcher_tests;

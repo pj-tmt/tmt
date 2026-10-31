@@ -35,6 +35,13 @@ impl HostEvidence {
 #[derive(Debug)]
 pub struct LifecycleUnavailable;
 
+/// Immutable launch coordinates; process control stays with the owned child.
+pub struct ForegroundLaunch<'a> {
+    pub command: &'a super::RuntimeCommand,
+    pub owner: &'a ProcessIncarnation,
+    pub pane_pid: u64,
+}
+
 /// A runtime-owned explanation and recovery action. This is presentation, never
 /// caller admission or permission to retry an operation under another identity.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -127,6 +134,18 @@ impl CallerSessionRefusal {
 }
 
 pub trait RuntimeLifecycle {
+    /// Select the driver-owned runtime inside the original observation budget.
+    /// The default is the directly owned process; no process control transfers.
+    fn observe_foreground(
+        &self,
+        _runner: &dyn crate::process::CommandRunner,
+        _launch: ForegroundLaunch<'_>,
+        child: &crate::process::runtime::ProcessObservation,
+        _deadline: Instant,
+    ) -> crate::process::runtime::ProcessObservation {
+        child.clone()
+    }
+
     /// Whether the provider still keeps this session's transcript (#4062). A
     /// driver that cannot tell answers `Unknown`, which never refuses a resume.
     fn session_presence(

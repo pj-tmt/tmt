@@ -12,6 +12,7 @@ pub mod channel_hooks;
 pub mod delivery;
 mod digest;
 mod launch_permissions;
+mod launch_process;
 pub mod lease;
 mod models;
 pub mod pane;
@@ -530,6 +531,16 @@ fn prepare_managed_launch(
 }
 
 impl crate::runtime::lifecycle::RuntimeLifecycle for CodexLifecycle {
+    fn observe_foreground(
+        &self,
+        runner: &dyn crate::process::CommandRunner,
+        launch: crate::runtime::lifecycle::ForegroundLaunch<'_>,
+        child: &crate::process::runtime::ProcessObservation,
+        deadline: std::time::Instant,
+    ) -> crate::process::runtime::ProcessObservation {
+        launch_process::observe(runner, launch, child, deadline)
+    }
+
     fn prepare_launch(
         &self,
         command: &mut crate::runtime::RuntimeCommand,

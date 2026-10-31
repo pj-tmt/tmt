@@ -12,6 +12,100 @@ use std::{
 };
 use tmt_core::{binding::session::RuntimeLiveness, endpoint::ProcessIncarnation};
 
+/// Select only a unique immediate named child, then pin it to this owned launch.
+/// Recognition of the launcher remains with the driver's lifecycle policy.
+pub(crate) fn observe_direct_main_child(
+    runner: &impl CommandRunner,
+    launcher: &ProcessIncarnation,
+    owner: &ProcessIncarnation,
+    pane: u64,
+    deadline: Instant,
+    executable: &str,
+) -> Result<Option<ProcessIncarnation>, crate::process::ancestry::AncestryError> {
+    use crate::process::ancestry::{AncestryError, pinned_chain};
+    let snapshot = || {
+        query_ps(
+            runner,
+            &["-A".into(), "-o".into(), "pid=,ppid=,comm=".into()],
+            deadline,
+            4 * 1024 * 1024,
+        )
+        .map_err(AncestryError::Command)
+        .and_then(|out| String::from_utf8(out.stdout).map_err(|_| AncestryError::Unavailable))
+    };
+    let exact_live = |expected: &ProcessIncarnation| {
+        observe_runtime_process(runner, expected.pid(), deadline)
+            .map(|actual| actual.matches(expected) == RuntimeLiveness::Alive)
+            .map_err(AncestryError::Command)
+    };
+    if !exact_live(launcher)? || !exact_live(owner)? {
+        return Err(AncestryError::Unavailable);
+    }
+    let Some(pid) = direct_child(&snapshot()?, launcher.pid(), executable)? else {
+        return Ok(None);
+    };
+    let ProcessObservation::Live(native) =
+        observe_runtime_process(runner, pid, deadline).map_err(AncestryError::Command)?
+    else {
+        return Err(AncestryError::Unavailable);
+    };
+    let chain = pinned_chain(runner, native.pid(), deadline)?;
+    if chain
+        .links()
+        .first()
+        .is_none_or(|link| link.process != native)
+        || chain
+            .links()
+            .get(1)
+            .is_none_or(|link| &link.process != launcher)
+        || chain
+            .links()
+            .get(2)
+            .is_none_or(|link| &link.process != owner)
+    {
+        return Err(AncestryError::Unavailable);
+    }
+    // Read native before this snapshot: classify_recorded's incarnation check
+    // then proves the row belonged to this process throughout that read.
+    let verified = snapshot()?;
+    let verified_rows = rows(&verified).ok_or(AncestryError::Unavailable)?;
+    if row(&verified_rows, launcher.pid()).map(|(parent, _)| parent) != Some(owner.pid())
+        || direct_child(&verified, launcher.pid(), executable)? != Some(native.pid())
+        || classify_recorded(runner, &verified, &native, pane, deadline) != RecordedRuntime::Main
+        || !exact_live(launcher)?
+        || !exact_live(owner)?
+        || Instant::now() >= deadline
+    {
+        return Err(AncestryError::Unavailable);
+    }
+    Ok(Some(native))
+}
+
+fn direct_child(
+    text: &str,
+    parent: u64,
+    executable: &str,
+) -> Result<Option<u64>, crate::process::ancestry::AncestryError> {
+    use crate::process::ancestry::AncestryError;
+    let parsed = rows(text).ok_or(AncestryError::Unavailable)?;
+    // This is an absence/uniqueness proof, like replacement discovery: a bad
+    // row could hide a second candidate, so it cannot be ignored here.
+    if parsed.values().any(Option::is_none) || row(&parsed, parent).is_none() {
+        return Err(AncestryError::Unavailable);
+    }
+    let mut children = parsed.iter().filter_map(|(&pid, value)| {
+        let (observed_parent, command) = value.as_ref()?;
+        (*observed_parent == parent
+            && Path::new(command).file_name() == Some(std::ffi::OsStr::new(executable)))
+        .then_some(pid)
+    });
+    let first = children.next();
+    if children.next().is_some() {
+        return Err(AncestryError::Unavailable);
+    }
+    Ok(first)
+}
+
 /// A direct conversation or an independent hook must belong to the pane's
 /// main provider, never a nested invocation. Reuse the same native process
 /// snapshot and incarnation boundary.
@@ -668,6 +762,116 @@ mod tests {
                 movable_process(&runner, &recorded(20), 10, soon(), "claude"),
                 None
             );
+        }
+    }
+}
+
+#[cfg(test)]
+mod direct_child_tests {
+    use super::*;
+
+    use crate::process::{
+        CommandError, CommandOutput, CommandRequest,
+        ancestry::{ProcessLink, StartOrder},
+    };
+    use std::{cell::Cell, time::Duration};
+
+    struct LaunchTree {
+        parent: u64,
+        reused: Option<u64>,
+        replace_native: bool,
+        native_reads: Cell<u32>,
+    }
+    fn incarnation(pid: u64) -> ProcessIncarnation {
+        ProcessIncarnation::new(pid, "fixture-start").unwrap()
+    }
+    impl CommandRunner for LaunchTree {
+        fn execute(&self, _: CommandRequest<'_>) -> Result<CommandOutput, CommandError> {
+            Ok(CommandOutput {
+                stdout: format!(
+                    "1 0 init\n4 1 sh\n5 4 tmt\n10 {} node\n20 10 codex\n",
+                    self.parent
+                )
+                .into_bytes(),
+                stderr: vec![],
+            })
+        }
+        fn process_observation(&self, pid: u64, _: Instant) -> Option<ProcessObservation> {
+            if pid == 20 {
+                self.native_reads.set(self.native_reads.get() + 1);
+            }
+            let reused = self.reused == Some(pid)
+                || (pid == 20 && self.replace_native && self.native_reads.get() > 1);
+            Some(ProcessObservation::Live(if reused {
+                ProcessIncarnation::new(pid, "replacement-start").unwrap()
+            } else {
+                incarnation(pid)
+            }))
+        }
+        fn process_link(&self, pid: u64, deadline: Instant) -> Option<ProcessLink> {
+            Some(ProcessLink {
+                observation: self.process_observation(pid, deadline).unwrap(),
+                parent: match pid {
+                    20 => 10,
+                    10 => self.parent,
+                    5 => 4,
+                    4 => 1,
+                    1 => 0,
+                    _ => return None,
+                },
+                start: StartOrder::precise(1, 0),
+            })
+        }
+    }
+
+    #[test]
+    fn selection_pins_both_launch_edges_and_every_incarnation() {
+        for (parent, reused, replace_native, accepted) in [
+            (5, None, false, true),
+            (4, None, false, false),
+            (5, Some(10), false, false),
+            (5, Some(5), false, false),
+            (5, None, true, false),
+        ] {
+            let runner = LaunchTree {
+                parent,
+                reused,
+                replace_native,
+                native_reads: Cell::new(0),
+            };
+            let result = observe_direct_main_child(
+                &runner,
+                &incarnation(10),
+                &incarnation(5),
+                4,
+                Instant::now() + Duration::from_secs(1),
+                "codex",
+            );
+            assert_eq!(
+                result.ok().flatten(),
+                accepted.then(|| incarnation(20)),
+                "parent={parent} reused={reused:?} replace_native={replace_native}"
+            );
+        }
+    }
+
+    #[test]
+    fn native_selection_requires_one_immediate_child_and_complete_rows() {
+        assert_eq!(
+            direct_child("10 1 node\n20 10 codex\n30 20 codex\n", 10, "codex").unwrap(),
+            Some(20)
+        );
+        assert_eq!(
+            direct_child("10 1 node\n20 11 codex\n", 10, "codex").unwrap(),
+            None
+        );
+        for text in [
+            "10 1 node\n20 10 codex\n21 10 codex\n",
+            "10 1 node\n20 10 codex\n20 10 codex\n",
+            "10 1 node\n20 invalid\n",
+            "20 10 codex\n",
+        ] {
+            assert!(direct_child(text, 10, "codex").is_err(), "{text}");
         }
     }
 }

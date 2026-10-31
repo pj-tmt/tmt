@@ -252,6 +252,14 @@ in the same transaction. A matching intervening End stays ended. A concurrent
 binding or preference change wins; no event replaces another session's key.
 An admitted start commits the session before optional context work.
 
+For a recognized Codex npm launcher, the driver may select its unique immediate
+native child within the existing foreground observation budget. The native and
+launcher incarnations and their exact original launch-owner edges must all be
+proved; uncertainty grants no session authority. The original owned launcher
+retains process control and its exit status. Its exit alone cannot end the native
+session or stale a resume: those settlements require conclusive evidence that
+the exact native incarnation ended, under the existing binding and owner fences.
+
 The row retains only driver/session coordinates, bounded driver state, fixed
 diagnostic codes and times. It is settled at launch exit, removed with its
 binding on rebind/retirement, and retained for at most 24 hours (at most eight

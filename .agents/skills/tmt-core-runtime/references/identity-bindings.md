@@ -388,6 +388,16 @@ pane ([list detected panes](../../../../contracts/identity-status-v1.md#list-det
   step. It never guesses a session from cwd, titles, recency or a transcript scan.
 - The channel choice (nullable) is recorded after an admitted fresh launch or explicit resume
   flag; null keeps the driver default; flagless resume does not rewrite it.
+- Codex's lifecycle recognizes the selected `@openai/codex` npm entry point and
+  proves its unique immediate native child, including exact native, Node launcher and
+  original launch-owner incarnations and parent edges. It shares the foreground's
+  existing three-second observation deadline; uncertainty never substitutes ancestry
+  or weakens session admission. The native incarnation owns session/channel evidence,
+  while the original child handle owns signals, terminal control, wait and exit status.
+  Launcher exit alone never ends a separately selected native foreground: exit/resume
+  settlement first observes that exact native incarnation outside the writer, then
+  retains the existing binding/key/launch-owner fences. Live or uncertain native
+  evidence preserves its state and channel enrollment.
 - `session_learning` coordinates the managed launch's single early SessionStart with
   `run_command::admission`; `launch_observations` holds the intent and pending event
   in one binding-owned row. A provider launch without a confirmed native owner
