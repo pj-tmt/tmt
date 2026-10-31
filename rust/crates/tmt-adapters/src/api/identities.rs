@@ -200,8 +200,9 @@ pub(super) fn stop(
     close: bool,
 ) -> Result<Vec<u8>, Fault> {
     use crate::verified_stop::{PaneOutcome, StopOutcome, stop_identity};
+    // A retired UUID is not found, as in `identity.remove`.
     let Some(identity) = storage
-        .find_identity_by_id(identity_id)
+        .find_active_identity_by_id(identity_id)
         .map_err(|_| Fault::unavailable())?
     else {
         return outcome(json!({"outcome":"not-found", "identityId":identity_id}));

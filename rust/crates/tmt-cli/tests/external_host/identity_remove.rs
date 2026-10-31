@@ -277,4 +277,15 @@ fn an_unbound_member_stops_as_not_running_and_removes() {
     // A saved identity needs no force through the API.
     assert_eq!(remove(&fixture, &idle.id, "idle").1["outcome"], "removed");
     assert!(!found(&fixture, &idle.id));
+    // The retired UUID with its old name is not found by either operation.
+    for (code, value) in [
+        stop(&fixture, &idle.id, "idle", true),
+        remove(&fixture, &idle.id, "idle"),
+    ] {
+        assert_eq!(code, Some(0), "{value}");
+        assert_eq!(
+            value,
+            serde_json::json!({"outcome":"not-found","identityId":idle.id})
+        );
+    }
 }
