@@ -178,15 +178,13 @@ pub const SHELL_AUDIENCE_BYTES: usize = 128;
 /// line 2 what comes next.
 pub const SUMMARY_LINE1_POINTS: usize = 24;
 pub const SUMMARY_LINE2_POINTS: usize = 60;
-/// The most direct sub-pages one page lists (contract: Sub-pages).
+/// The most direct sub-pages one page lists (contract: Work). The whole `meta.work` value is one
+/// replacement, so it stays within the shell's single-update size.
 pub const SUBPAGES: usize = 256;
-/// Legacy-migration-only bounds: the task-era `meta.work` value is still validated while it is
-/// rewritten into `meta.subpages` and `meta.summary` (#5825). Nothing writes it any more.
-pub const WORK_TASKS: usize = 256;
 pub const WORK_BYTES: usize = 128 * 1024;
-/// The highest task number; `next` may reach one past it, and a task is never numbered twice.
-pub const WORK_ID_MAX: u64 = 9_999_999;
-pub const WORK_TITLE_POINTS: usize = 120;
+/// Legacy-migration-only: the most tasks a task-era version 1 value held. It is still read while
+/// the serve rewrites it as version 2 (#5825); nothing writes it any more.
+pub const WORK_TASKS: usize = 256;
 /// The most the owner's `/api/pages` reply may hold: the browser refuses a longer one
 /// (`DISCOVERY_BYTES` in `bootstrap.ts` holds the same number). The 1,000-row worst case without
 /// titles is 1,052,197 bytes, so every row's longest title fits as well.
@@ -196,13 +194,6 @@ pub const DISCOVERY_BYTES: usize = 2 * 1024 * 1024;
 /// is measured after it is made one line of plain text (control and bidirectional formatting
 /// characters become spaces, whitespace collapses).
 pub const PAGE_TITLE_BYTES: usize = 512;
-pub const WORK_DETAIL_BYTES: usize = 4096;
-pub const WORK_REASON_BYTES: usize = 256;
-pub const WORK_NAME_BYTES: usize = 128;
-pub const WORK_EXTERNAL_ID_BYTES: usize = 128;
-pub const WORK_ACCEPTANCE: usize = 8;
-pub const WORK_CRITERION_BYTES: usize = 256;
-pub const WORK_RESULT_BYTES: usize = 512;
 /// Page markup the browser admits (`questions.ts` holds the same numbers; the shared vectors in
 /// `contracts/vectors/page-markup-v1.json` fail when they differ).
 /// Elements a page may nest. A browser's parser stops nesting at the same depth (512), and the

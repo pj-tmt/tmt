@@ -83,6 +83,7 @@ pub fn subpage_command() -> Command {
             "Read only: takes no write lock and creates nothing. Shows each direct sub-page with its state, the page's progress and its summary.",
             example!("tmt colab subpage ls 10000000-0000-4000-8000-000000000001 --json"),
         )
+        .alias("list")
         .arg(crate::cli_grammar::page()),
     )
     .subcommand(

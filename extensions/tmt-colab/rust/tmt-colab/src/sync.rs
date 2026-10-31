@@ -443,8 +443,8 @@ pub(crate) struct SaveJob {
     save: crate::page::save::Save,
     /// The editor's change as anchored hunks, evaluated when the page moved since its base.
     hunks: Option<Vec<crate::page::patch::Hunk>>,
-    /// A sub-page action instead of a source: `save` then names only the page and the operation,
-    /// and the job prepares from the action.
+    /// A work action (a sub-page or summary action) instead of a source: `save` then names only
+    /// the page and the operation, and the job prepares from the action.
     subpage: Option<crate::page::subpage::SubpageEdit>,
     metadata: Option<crate::page::metadata::MetadataEdit>,
 }

@@ -14,7 +14,7 @@ use crate::{
 };
 use serde_json::Value;
 
-/// One sub-page action of a page, with the operation ID the browser chose so its outcome can be
+/// One work action of a page, with the operation ID the browser chose so its outcome can be
 /// read back (`savestatus`).
 pub struct SubpageEdit {
     pub page: String,
