@@ -1637,10 +1637,19 @@ exec ${quote(peer)} ${quote(fixture.executables.cli.executable)} ${quote(scenari
             !screen.includes('○ Native board item'),
           shell.pane
         );
+        // Esc closes only the Checklist; the ? panel it was opened from shows again on Actions.
         fixture.tmux(['send-keys', '-t', shell.pane, 'Escape']);
         await fixture.waitForCapture(
           (screen) =>
             !screen.includes('┌ Checklist') &&
+            screen.includes('Enter apply or open') &&
+            /›\s*Actions\b/.test(screen),
+          shell.pane
+        );
+        fixture.tmux(['send-keys', '-t', shell.pane, 'Escape']);
+        await fixture.waitForCapture(
+          (screen) =>
+            !screen.includes('Enter apply or open') &&
             screen.includes('Checklist · 0 todo') &&
             /^[ \t]*[▸▾] product[ \t]+—[ \t]+0\b/m.test(screen) &&
             screen.includes('0 members'),
