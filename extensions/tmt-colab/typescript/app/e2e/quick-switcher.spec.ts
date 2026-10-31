@@ -35,7 +35,7 @@ for (const width of [1440, 390]) {
   }) => {
     await page.setViewportSize({ width, height: 900 });
     await mount(page);
-    await expect(page.locator('.pages > li')).toHaveCount(3);
+    await expect(page.locator('.pages [data-page-id]')).toHaveCount(3);
     // Search is the first control at the bar's left; Theme and Remote close the right group.
     const searchBox = await control(page).boundingBox();
     const themeBox = await page

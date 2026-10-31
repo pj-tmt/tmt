@@ -905,6 +905,7 @@ fn every_door_html_page_serves_the_shared_favicon_with_the_exact_data_only_polic
         ("/settings/", 200),
         ("/remote/overview", 200),
         ("/remote/members", 200),
+        ("/remote/invites", 200),
         ("/remote/my-devices", 200),
         ("/remote/service", 200),
         ("/remote/settings", 200),
@@ -1114,6 +1115,7 @@ fn remote_tabs_have_exact_public_admission_and_obsolete_views_have_no_redirects(
         "/remote/join",
         "/remote/overview",
         "/remote/members",
+        "/remote/invites",
         "/remote/my-devices",
         "/remote/settings",
         "/remote/service",
@@ -1124,7 +1126,6 @@ fn remote_tabs_have_exact_public_admission_and_obsolete_views_have_no_redirects(
     for path in [
         "/remote/machine",
         "/remote/devices",
-        "/remote/invites",
         "/remote/connect",
         "/remote/no-such-tab",
         "/remote/overview/extra",

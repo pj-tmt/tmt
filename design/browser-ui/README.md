@@ -47,9 +47,9 @@ its original declarations and spelling. Only that generated distribution
 is excluded from formatting; authored CSS remains formatted. Source-level policy tests inspect
 the assembled source, byte checks inspect the distribution, and browser comparisons verify
 that compilation preserves computed paint and layout. The check compares expected bytes without writing. `test/byte-budget.test.ts` holds the gzip
-size (level 9) of `generated/static.css` plus `generated/ui.css` to 21,978 bytes. The GUI
-lead approved the exact 217-byte increase over 21,761 bytes for grouped menus, with no
-headroom or change to the UI foundation budget. The [Linux measurement](https://github.com/tmt-ninja/tmt/actions/runs/41128808110/job/124320431163) records the approved size.
+size (level 9) of `generated/static.css` plus `generated/ui.css` to 22,267 bytes. The GUI
+lead approved 21,978 → 22,267 bytes for ListTable and PageSubheader (#5517), with no
+headroom or change to the UI foundation budget. The [Linux measurement](https://github.com/tmt-ninja/tmt/actions/runs/41143551311/job/124363432535) records the approved size.
 Class encapsulation is retained, and further increases return to the lead. Each pull request
 that changes these stylesheets reports their raw sizes. Consumers embed checked CSS;
 Cargo and installed products never run the generator. Select light/system-dark
@@ -839,8 +839,8 @@ state, a React component.
   and a label that states the value.
 - **Glyph.** `createIcon(name)` (from `@tmt/browser-ui/glyph`, outside the static graph because it reads the
   shell's icon data) returns a `tmt-ui-glyph`: a line icon from the shell's icon set,
-  drawn at 1em in the colour of its text and hidden from assistive tech. `link` and `info` use the
-  pinned Lucide Link/Info nodes; they do not expand the module-describe icon allowlist.
+  drawn at 1em in the colour of its text and hidden from assistive tech. `link`, `info` and `user` use the
+  pinned Lucide Link/Info/User nodes; they do not expand the module-describe icon allowlist.
   `?frame=glyphs` shows both at 14px and 24px.
 - **Page head.** `tmt-ui-page-head` holds a `tmt-ui-page-title` (the display face, the page's
   first read) over a `tmt-ui-page-subtitle`. Static only.
@@ -1159,3 +1159,16 @@ border-only control contrast and the named soft-edge field exception, plus overl
 and reduced motion. Seeded controls prove each audit detects a violation and accepts its
 repair. CI selection and gate ownership live in the
 [CI guide](../../.agents/skills/tmt-release/references/ci-selection.md#worker-gates).
+
+### List table and page subheader
+
+`BrowserListTable` and the framework-free `createListTable` render caller-supplied columns and rows without owning navigation, selection, data, or keyboard state. Columns supply `id`, `label` and optionally `hideBelow: 'phone'`. The host passes a root `className` (the third argument to `createListTable`) and sets `--tmt-ui-list-tracks` and optionally `--tmt-ui-list-tracks-compact` in its stylesheet; no inline style is emitted. Shared CSS selects compact tracks at the shared compact breakpoint, falling back to the regular tracks and then a single `minmax(0, 1fr)` column. The host supplies one cell per column and owns links and row actions; a React column may pass `header` content in place of its label text (a select-all control), each cell names its column in `data-column` for host placement, and a row may carry host `data-*` attributes (`data` in React, the second argument to `row`, named without the prefix) for its own selection, keys or tests. Compact layouts hide headers and marked cells; supply compact tracks so the remaining cells align:
+
+```css
+.people-table {
+  --tmt-ui-list-tracks: 2fr 1fr;
+  --tmt-ui-list-tracks-compact: minmax(0, 1fr);
+}
+```
+
+`BrowserPageSubheader` and `createPageSubheader` render a content subheader with a title, optional count, subtitle, actions, and heading level (default 2). Counts use the shell count pill. The host owns actions and the top-bar title; the subheader does not replace the page identity in the top bar.

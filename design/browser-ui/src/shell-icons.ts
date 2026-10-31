@@ -69,6 +69,10 @@ export const shellIconNodes = {
     ['path', { d: 'M7 19h5' }],
     ['rect', { width: '6', height: '10', x: '16', y: '12', rx: '2' }],
   ],
+  user: [
+    ['path', { d: 'M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2' }],
+    ['circle', { cx: '12', cy: '7', r: '4' }],
+  ],
   users: [
     ['path', { d: 'M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2' }],
     ['path', { d: 'M16 3.128a4 4 0 0 1 0 7.744' }],

@@ -192,7 +192,7 @@ test('native sharing and lifecycle verification preserve Ask, page recovery and 
     await page.goto(`${door.address}/x/colab/`);
     await expect(homeList(page)).toBeVisible();
     await page.getByRole('tab', { name: /^Archived/ }).click();
-    const row = page.locator(`ul.pages li[data-page-id="${first.pageId}"]`);
+    const row = page.locator(`.pages [role="row"][data-page-id="${first.pageId}"]`);
     await expect(row).toContainText('Archived');
     await row.getByRole('button', { name: /^Actions for/ }).click();
     await page.getByRole('menuitem', { name: 'Manage page' }).click();
@@ -206,7 +206,7 @@ test('native sharing and lifecycle verification preserve Ask, page recovery and 
     await expect(managementStatus(dialog)).toContainText('Done.');
     await dialog.getByRole('button', { name: 'Close', exact: true }).click();
     await page.getByRole('tab', { name: /^All, \d+\+?$/ }).click();
-    const remaining = page.locator(`ul.pages li[data-page-id="${second.pageId}"]`);
+    const remaining = page.locator(`.pages [role="row"][data-page-id="${second.pageId}"]`);
     await remaining.getByRole('button', { name: /^Actions for/ }).click();
     await page.getByRole('menuitem', { name: 'Manage page' }).click();
     dialog = page.locator('dialog.management-dialog');

@@ -7,7 +7,7 @@ import { useHomeSpace, useSpaceTitle } from './home-space.js';
 import {
   BrowserAction,
   BrowserIconAction,
-  BrowserList,
+  BrowserListTable,
   BrowserMenu,
   BrowserTabs,
   BrowserCheckbox,
@@ -74,7 +74,7 @@ import {
   toggleProject,
   type SearchEdit,
 } from './page-list-search.js';
-import { PageListItem, PinnedPages } from './page-list-items.js';
+import { pageListColumns, pageListRow, PinnedPages } from './page-list-items.js';
 import { RetentionHint } from './retention-hint.js';
 import { text } from './strings.js';
 import type { PageSummary } from './transport.js';
@@ -82,6 +82,16 @@ import './page-list.css';
 import { AppHeader } from './app-header.js';
 
 const t = text.pageList;
+const columnLabels = {
+  select: '',
+  title: t.titleColumn,
+  projects: t.projectColumn,
+  stage: t.stageColumn,
+  updated: t.updatedColumn,
+  author: t.authorColumn,
+  access: t.accessColumn,
+  actions: '',
+} as const;
 const rootRoute = getRouteApi('__root__');
 const homeRoute = getRouteApi('/');
 export { validateHomeSearch, type HomeSearch } from './page-list-filter.js';
@@ -874,116 +884,105 @@ export function Home() {
       </p>
       {pages.length ? (
         <div className="page-list-scroll">
-          <div className="page-list-table">
-            <div className="page-list-columns">
-              <span>
-                {port ? (
+          <BrowserListTable
+            label={text.pages}
+            className="page-list-table pages"
+            columns={pageListColumns.map((id) => ({
+              id,
+              label: columnLabels[id],
+              header:
+                id === 'select' ? (
+                  port ? (
+                    <BrowserCheckbox
+                      aria-label={t.selectAllPages}
+                      checked={pages.length > 0 && chosen.length === pages.length}
+                      indeterminate={chosen.length > 0 && chosen.length < pages.length}
+                      onChange={(event) =>
+                        setSelectedIds(
+                          event.target.checked ? new Set(pages.map((page) => page.id)) : new Set(),
+                        )
+                      }
+                    />
+                  ) : (
+                    ''
+                  )
+                ) : undefined,
+            }))}
+            rows={pages.slice(0, drawn).map((p) =>
+              pageListRow({
+                page: p,
+                hints: titleHints,
+                scope: scope,
+                now: now,
+                selected: selectedIds.has(p.id),
+                leading: port ? (
                   <BrowserCheckbox
-                    aria-label={t.selectAllPages}
-                    checked={pages.length > 0 && chosen.length === pages.length}
-                    indeterminate={chosen.length > 0 && chosen.length < pages.length}
-                    onChange={(event) =>
-                      setSelectedIds(
-                        event.target.checked ? new Set(pages.map((page) => page.id)) : new Set(),
-                      )
-                    }
+                    aria-label={t.selectPage(pageTitle(p))}
+                    checked={selectedIds.has(p.id)}
+                    onChange={() => toggleSelected(p.id)}
                   />
-                ) : null}
-              </span>
-              <span>{t.titleColumn}</span>
-              <span>{t.projectColumn}</span>
-              <span>{t.stageColumn}</span>
-              <span>{t.updatedColumn}</span>
-              <span>{t.authorColumn}</span>
-              <span>{t.accessColumn}</span>
-              <span />
-            </div>
-            <BrowserList label={text.pages} className="pages">
-              {pages.slice(0, drawn).map((p) => {
-                return (
-                  <PageListItem
-                    key={p.id}
+                ) : undefined,
+                projects: port ? (
+                  <PageRowProjects
                     page={p}
-                    hints={titleHints}
-                    scope={scope}
-                    now={now}
-                    selected={selectedIds.has(p.id)}
-                    leading={
-                      port ? (
-                        <BrowserCheckbox
-                          aria-label={t.selectPage(pageTitle(p))}
-                          checked={selectedIds.has(p.id)}
-                          onChange={() => toggleSelected(p.id)}
-                        />
-                      ) : undefined
+                    names={projectNames}
+                    openRequest={
+                      projectsRequest?.pageId === p.id ? projectsRequest.count : undefined
                     }
-                    projects={
-                      port ? (
-                        <PageRowProjects
-                          page={p}
-                          names={projectNames}
-                          openRequest={
-                            projectsRequest?.pageId === p.id ? projectsRequest.count : undefined
-                          }
-                          open={() => openProjects(p.id)}
-                          toggle={(page, name) => void toggleOnPage(page, name)}
-                          create={(page) => setDialog({ kind: 'new', initial: [page.id] })}
-                        />
-                      ) : p.projects?.length ? (
-                        <ul className="page-projects" aria-label={t.projects}>
-                          {p.projects.map((name) => (
-                            <li key={name}>
-                              <button
-                                type="button"
-                                className="page-project"
-                                title={name}
-                                data-project-tone={projectTone(name)}
-                                aria-pressed={filter.projects.includes(name)}
-                                onClick={(event) => {
-                                  if (event.isTrusted) replaceDraft(toggleProject(edit, name));
-                                }}
-                              >
-                                <span>{name}</span>
-                              </button>
-                            </li>
-                          ))}
-                        </ul>
-                      ) : null
-                    }
-                    actions={
-                      port ? (
-                        <>
-                          <span className="page-row-shortcuts">
-                            <OpenInNewTabAction page={p} />
-                            <PagePinAction
-                              page={p}
-                              busy={pinning === p.id}
-                              toggle={() => void togglePin(p)}
-                            />
-                            <PageArchiveAction
-                              page={p}
-                              operate={() =>
-                                setOperation({
-                                  kind: p.archived ? 'page.unarchive' : 'page.archive',
-                                  pages: [p],
-                                })
-                              }
-                            />
-                          </span>
-                          <PageListActions
-                            page={p}
-                            manage={() => setManagedPage({ id: p.id, title: p.title })}
-                            projects={() => openProjects(p.id)}
-                            operate={(kind, page) => setOperation({ kind, pages: [page] })}
-                          />
-                        </>
-                      ) : undefined
-                    }
+                    open={() => openProjects(p.id)}
+                    toggle={(page, name) => void toggleOnPage(page, name)}
+                    create={(page) => setDialog({ kind: 'new', initial: [page.id] })}
                   />
-                );
-              })}
-            </BrowserList>
-          </div>
+                ) : p.projects?.length ? (
+                  <ul className="page-projects" aria-label={t.projects}>
+                    {p.projects.map((name) => (
+                      <li key={name}>
+                        <button
+                          type="button"
+                          className="page-project"
+                          title={name}
+                          data-project-tone={projectTone(name)}
+                          aria-pressed={filter.projects.includes(name)}
+                          onClick={(event) => {
+                            if (event.isTrusted) replaceDraft(toggleProject(edit, name));
+                          }}
+                        >
+                          <span>{name}</span>
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                ) : null,
+                actions: port ? (
+                  <>
+                    <span className="page-row-shortcuts">
+                      <OpenInNewTabAction page={p} />
+                      <PagePinAction
+                        page={p}
+                        busy={pinning === p.id}
+                        toggle={() => void togglePin(p)}
+                      />
+                      <PageArchiveAction
+                        page={p}
+                        operate={() =>
+                          setOperation({
+                            kind: p.archived ? 'page.unarchive' : 'page.archive',
+                            pages: [p],
+                          })
+                        }
+                      />
+                    </span>
+                    <PageListActions
+                      page={p}
+                      manage={() => setManagedPage({ id: p.id, title: p.title })}
+                      projects={() => openProjects(p.id)}
+                      operate={(kind, page) => setOperation({ kind, pages: [page] })}
+                    />
+                  </>
+                ) : undefined,
+              }),
+            )}
+          />
           <p className="page-list-count" data-page-list-count ref={listEnd}>
             <span>{t.showing(Math.min(drawn, pages.length), pages.length)}</span>
             <span>{port ? t.ownerAccess : t.viewerAccess}</span>

@@ -7,6 +7,10 @@ import type {
   RemoteMembers,
 } from './members.js';
 import { memberName } from './management-codec.js';
+import { readPersonDrafts, writePersonDraft } from './person-drafts.js';
+import { createListTable } from '@tmt/browser-ui/list-table';
+import { createIcon } from '@tmt/browser-ui/glyph';
+import { mountBrowserMenu, type BrowserMenuHost } from '@tmt/browser-ui/menu-host';
 
 export type MemberIntent =
   | { kind: 'rename'; input: MemberChange & { name: string } }
@@ -251,10 +255,26 @@ export function mountMembersPage(
     value.className = 'tmt-ui-action';
     return value;
   };
+  const compact = window.matchMedia('(max-width: 760px)');
+  compact.addEventListener('change', () => render(), { signal });
   const status = node('p', 'Checking people…');
   status.setAttribute('role', 'status');
   const facts = node('p');
-  const list = node('div');
+  const table = createListTable(
+    [
+      { id: 'icon', label: '', hideBelow: 'phone' },
+      { id: 'person', label: 'Person' },
+      { id: 'role', label: 'Role' },
+      { id: 'sending', label: 'Sending' },
+      { id: 'machines', label: 'Machines' },
+      { id: 'actions', label: '' },
+    ],
+    'People',
+    'remote-people-table remote-phone-rows',
+  );
+  const list = table.body;
+  const footer = node('p');
+  footer.className = 'people-list-footer';
   const refreshButton = button('Refresh people');
   const first = button('First people');
   const more = button('Next people');
@@ -265,6 +285,14 @@ export function mountMembersPage(
     {
       root: HTMLElement;
       summary: HTMLElement;
+      nameText: HTMLElement;
+      roleText: HTMLElement;
+      roleChip: HTMLElement;
+      sendingText: HTMLElement;
+      sendingChip: HTMLElement;
+      nameActions: HTMLElement;
+      memberActions: HTMLElement;
+      menu: BrowserMenuHost<string>;
       input: HTMLInputElement;
       baseline: string;
       save: HTMLButtonElement;
@@ -279,12 +307,37 @@ export function mountMembersPage(
     }
   >();
   let localNotice = '';
+  let draftsLoaded = false;
+  function persistDraft(memberId: string, baseline: string, value: string): void {
+    const remoteId = page.roster?.remoteId;
+    if (!remoteId) return;
+    try {
+      writePersonDraft(
+        sessionStorage,
+        remoteId,
+        memberId,
+        value === baseline ? undefined : { baseline, value },
+      );
+    } catch {
+      localNotice = 'This browser could not retain the unsent name after reload.';
+    }
+  }
   let selected: string | undefined;
   let machineCursor: string | null = null;
   let confirmation:
     | { memberId: string; kind: 'sending' | 'revoke'; revision: number; enabled?: boolean }
     | undefined;
-  root.replaceChildren(status, facts, refreshButton, list, first, more, original, recover);
+  root.replaceChildren(
+    status,
+    facts,
+    refreshButton,
+    table.root,
+    footer,
+    first,
+    more,
+    original,
+    recover,
+  );
 
   function draftReason(): string {
     for (const row of rows.values())
@@ -380,7 +433,26 @@ export function mountMembersPage(
     const item = node('article');
     item.className = 'people-person';
     const summary = node('p');
-    summary.className = 'people-person-summary';
+    summary.className = 'tmt-ui-visually-hidden';
+    const nameText = node('span', name);
+    nameText.dataset.phone = 'name';
+    const person = node('span');
+    person.className = 'tmt-ui-list-leading';
+    person.append(createIcon('user'));
+    const roleText = node('span');
+    roleText.className = 'tmt-ui-chip-label';
+    const roleChip = node('span');
+    roleChip.className = 'tmt-ui-chip remote-role';
+    roleChip.append(roleText);
+    const sendingText = node('span');
+    sendingText.className = 'tmt-ui-chip-label';
+    const sendingChip = node('span');
+    sendingChip.className = 'tmt-ui-chip remote-stage';
+    const sendingMark = node('span');
+    sendingMark.className = 'tmt-ui-state-mark';
+    sendingMark.dataset.shape = 'dot';
+    sendingMark.setAttribute('aria-hidden', 'true');
+    sendingChip.append(sendingMark, sendingText);
     const field = node('div');
     field.className = 'tmt-ui-field';
     const label = node('label', 'Person name');
@@ -397,19 +469,54 @@ export function mountMembersPage(
     nameActions.className = 'people-name-actions';
     const memberActions = node('div');
     memberActions.className = 'people-member-actions';
+    nameActions.hidden = true;
+    memberActions.hidden = true;
     const save = button('Save name');
     const restore = button('Restore name');
     const send = button('Enable sending');
     const revoke = button('Remove person');
     revoke.dataset.variant = 'destructive';
     const expand = button('Show machines');
+    expand.dataset.variant = 'ghost';
+    // Phones reach this action through the row menu.
+    expand.dataset.phone = 'hidden';
     const machines = node('div');
     const confirmText = node('p');
     confirmText.setAttribute('role', 'status');
     const cancel = button('Cancel');
+    const menuHost = node('div');
+    menuHost.dataset.phone = 'menu';
+    const menuOptions = () => ({
+      label: `Actions for ${nameText.textContent}`,
+      items: [
+        ...(compact.matches ? [{ key: 'machines', label: 'Show machines' }] : []),
+        { key: 'rename', label: 'Rename' },
+        { key: 'sending', label: send.textContent ?? 'Enable sending', disabled: send.disabled },
+        { key: 'revoke', label: 'Remove person', disabled: revoke.disabled, separated: true },
+      ],
+      onSelect(key: string) {
+        if (key === 'machines') expand.click();
+        else if (key === 'rename') {
+          nameActions.hidden = false;
+          input.focus();
+        } else if (key === 'sending' || key === 'revoke') {
+          memberActions.hidden = false;
+          confirm(memberId, key);
+        }
+      },
+    });
+    const menu = mountBrowserMenu(menuHost, menuOptions());
     const row = {
       root: item,
       summary,
+      nameText,
+      roleText,
+      roleChip,
+      sendingText,
+      sendingChip,
+      nameActions,
+      memberActions,
+      menu,
       input,
       baseline: name,
       save,
@@ -423,17 +530,26 @@ export function mountMembersPage(
       cancel,
     };
     nameActions.append(field, save, restore);
-    memberActions.append(send, revoke, expand);
-    item.append(summary, nameActions, memberActions, machines, confirmText, cancel);
+    memberActions.append(send, revoke);
+    const tableRow = table.row([person, nameText, roleChip, sendingChip, expand, menuHost]);
+    item.append(tableRow, summary, nameActions, memberActions, machines, confirmText, cancel);
     restore.addEventListener(
       'click',
       () => {
         input.value = row.baseline;
+        persistDraft(memberId, row.baseline, input.value);
         render();
       },
       { signal },
     );
-    input.addEventListener('input', render, { signal });
+    input.addEventListener(
+      'input',
+      () => {
+        persistDraft(memberId, row.baseline, input.value);
+        render();
+      },
+      { signal },
+    );
     save.addEventListener(
       'click',
       () => {
@@ -509,6 +625,16 @@ export function mountMembersPage(
   function render(): void {
     if (signal.aborted) return;
     const view = page.roster;
+    footer.replaceChildren(
+      node(
+        'span',
+        view
+          ? `${view.members.length} ${view.members.length === 1 ? 'person' : 'people'} in this page`
+          : '',
+      ),
+      node('span', 'Remove person · Enable / Disable sending in the row menu'),
+    );
+    footer.hidden = !view;
     const outcome = page.outcome;
     if (localNotice) status.textContent = localNotice;
     else if (outcome?.state === 'unknown')
@@ -556,14 +682,30 @@ export function mountMembersPage(
       observations.textContent = pendingMemberObservations(view);
       observations.hidden = !observations.textContent;
     }
+    if (view && !draftsLoaded) {
+      draftsLoaded = true;
+      try {
+        for (const [id, draft] of readPersonDrafts(sessionStorage, view.remoteId)) {
+          const member = view.members.find((item) => item.memberId === id);
+          const row = rows.get(id) ?? rowFor(id, member?.displayName ?? draft.baseline);
+          row.input.value = draft.value;
+          if (row.input.value !== row.baseline) row.nameActions.hidden = false;
+          else persistDraft(id, row.baseline, row.input.value);
+        }
+      } catch {
+        localNotice = 'This browser could not restore an unsent name after reload.';
+      }
+    }
     const current = new Set(view?.members.map((member) => member.memberId) ?? []);
     for (const [id, row] of rows) {
       if (!current.has(id)) {
         if (row.input.value === row.baseline) {
+          row.menu.dispose();
           row.root.remove();
           rows.delete(id);
         } else {
           row.root.hidden = false;
+          row.summary.className = '';
           row.summary.textContent =
             'This person is not in the current page. Your unsent name is kept; restore it to continue.';
           row.save.disabled = row.send.disabled = row.revoke.disabled = row.expand.disabled = true;
@@ -575,9 +717,24 @@ export function mountMembersPage(
     for (const member of view?.members ?? []) {
       const row = rows.get(member.memberId) ?? rowFor(member.memberId, member.displayName);
       row.root.hidden = false;
+      row.summary.className = 'tmt-ui-visually-hidden';
       if (row.input.value === row.baseline) row.input.value = member.displayName;
       row.baseline = member.displayName;
+      if (row.input.value === row.baseline)
+        persistDraft(member.memberId, row.baseline, row.input.value);
+      else row.nameActions.hidden = false;
       row.summary.textContent = `${member.displayName} · ${member.role === 'owner' ? 'Owner' : 'Member'} · Sending ${member.sendingEnabled ? 'on' : 'off'}${member.revokedAtMs === null ? '' : ' · Revoked'}`;
+      row.nameText.textContent = member.displayName;
+      row.roleText.textContent = member.role === 'owner' ? 'Owner' : 'Member';
+      row.roleChip.dataset.roleTone = member.role === 'owner' ? 'selected' : 'neutral';
+      row.sendingChip.dataset.tone =
+        member.revokedAtMs !== null ? 'blocked' : member.sendingEnabled ? 'working' : 'neutral';
+      row.sendingText.textContent =
+        member.revokedAtMs !== null
+          ? 'Revoked'
+          : member.sendingEnabled
+            ? 'Sending on'
+            : 'Sending off';
       const editable = available() && member.revokedAtMs === null;
       row.input.disabled = !editable;
       row.save.disabled = !editable || row.input.value === row.baseline;
@@ -672,6 +829,38 @@ export function mountMembersPage(
           : `${confirmation!.enabled ? 'Enable' : 'Disable'} sending for ${member.displayName}. Press the same action again to confirm.`;
       row.confirmation.hidden = !pending;
       row.cancel.hidden = !pending;
+      row.memberActions.hidden = !pending;
+      row.menu.update({
+        label: `Actions for ${member.displayName}`,
+        items: [
+          ...(compact.matches
+            ? [
+                {
+                  key: 'machines',
+                  label: row.expand.textContent ?? 'Show machines',
+                  disabled: row.expand.disabled,
+                },
+              ]
+            : []),
+          { key: 'rename', label: 'Rename', disabled: row.input.disabled },
+          {
+            key: 'sending',
+            label: row.send.textContent ?? 'Enable sending',
+            disabled: row.send.disabled,
+          },
+          { key: 'revoke', label: 'Remove person', disabled: row.revoke.disabled, separated: true },
+        ],
+        onSelect(key) {
+          if (key === 'machines') row.expand.click();
+          else if (key === 'rename') {
+            row.nameActions.hidden = false;
+            row.input.focus();
+          } else if (key === 'sending' || key === 'revoke') {
+            row.memberActions.hidden = false;
+            confirm(member.memberId, key);
+          }
+        },
+      });
     }
   }
   refreshButton.addEventListener('click', () => void refresh(), { signal });
@@ -691,7 +880,14 @@ export function mountMembersPage(
     { signal },
   );
   recover.addEventListener('click', () => void run(() => page.recover()), { signal });
-  signal.addEventListener('abort', () => page.dispose(), { once: true });
+  signal.addEventListener(
+    'abort',
+    () => {
+      for (const row of rows.values()) row.menu.dispose();
+      page.dispose();
+    },
+    { once: true },
+  );
   render();
   return { render, refresh, heldBy };
 }

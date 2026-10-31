@@ -11,7 +11,7 @@ async function mount(page: Page, size: 'work' | 'few' | 'unmanaged' = 'work') {
 }
 const row = (page: Page, title: string) =>
   app(page)
-    .locator('.pages > li')
+    .locator('.pages [data-page-id]')
     .filter({ has: page.getByRole('link', { name: title, exact: true }) });
 async function pin(page: Page, title: string) {
   const target = row(page, title);
@@ -110,7 +110,7 @@ test('the header selection includes matching pages not drawn yet and clears as o
 }) => {
   await page.setViewportSize({ width: 1586, height: 992 });
   await mount(page);
-  await expect(app(page).locator('.pages > li')).toHaveCount(50);
+  await expect(app(page).locator('.pages [data-page-id]')).toHaveCount(50);
   await app(page).getByRole('checkbox', { name: 'Select all matching pages' }).check();
   await expect(app(page).getByRole('region', { name: 'Bulk actions' })).toContainText('75');
   await app(page).getByRole('button', { name: 'Clear selection', exact: true }).click();

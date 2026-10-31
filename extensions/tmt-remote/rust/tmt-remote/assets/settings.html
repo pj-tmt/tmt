@@ -40,6 +40,10 @@
       <section id="people" class="tmt-ui-section" data-view="members" aria-label="People">
         <div id="people-content">Checking people…</div>
       </section>
+      <section id="invites" class="tmt-ui-section" data-view="invites" aria-label="Invites">
+        <div id="invites-content">Checking invitations…</div>
+      </section>
+      <button id="remote-invite" class="tmt-ui-action" data-variant="primary" type="button" hidden><span class="tmt-ui-action-label">Invite</span></button>
       <section id="owner-invitation" class="sheet tmt-ui-notice" data-tone="neutral" data-view="members" aria-labelledby="invitation-heading">
         <div class="sheet-body tmt-ui-notice-body">
           <h2 id="invitation-heading" class="tmt-ui-section-heading">Confirm an invitation</h2>
@@ -365,7 +369,7 @@
               </button>
             </div>
           </div>
-          <div id="devices"></div>
+          <div id="devices" class="tmt-ui-list"></div>
           <button
             class="tmt-ui-action"
             aria-describedby="controls-reason"

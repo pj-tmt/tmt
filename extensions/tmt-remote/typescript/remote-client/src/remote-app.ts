@@ -1,4 +1,5 @@
 import type { Session } from './device.js';
+import { members, type MemberSummary } from './members.js';
 /** One mounted Remote model and persistent tab panels; paths are declared in remote-routes. */
 import { remoteRegistryPage, type RemoteRegistryPage } from './remote-registry-page.js';
 import { REMOTE_ITEMS, remoteItem, remoteTabAccess, type RemoteItem } from './remote-routes.js';
@@ -9,6 +10,7 @@ import { joinPage } from './join-page.js';
 import { invitationFromInput } from './invite-page.js';
 import { createIcon } from '@tmt/browser-ui/glyph';
 import { browserUiClasses as c } from '@tmt/browser-ui/static';
+import { createPageSubheader } from '@tmt/browser-ui/list-table';
 
 export interface RemotePages {
   landing(
@@ -89,12 +91,16 @@ export async function remoteApp(
   const started = new Map<RemoteItem['page'], Promise<void>>();
   let shown: RemoteItem | undefined;
   let observed: RemoteRegistryView | undefined;
+  let memberSummary: MemberSummary | undefined;
   let admitted: Session | undefined;
+  let summarySession: Session | undefined;
+  let summaryGeneration = 0;
   let observeSession: ((session: Session) => void) | undefined;
   const tabs = REMOTE_ITEMS.filter((item) => !['remotes', 'create', 'join'].includes(item.id));
   const frame = document.createElement('div');
   frame.id = 'remote-context';
   frame.className = `tmt-page remote-context ${c.tabs}`;
+  frame.dataset.variant = 'flat';
   const needsYou = document.createElement('p');
   needsYou.id = 'remote-needs-you';
   needsYou.hidden = true;
@@ -108,6 +114,34 @@ export async function remoteApp(
   const buttons = new Map<string, HTMLButtonElement>();
   const panels = new Map<string, HTMLElement>();
   const globalPanel = document.createElement('div');
+  const subheaders = new Map<RemoteItem['id'], HTMLElement>();
+  // People and Invites share the one Invite action; layout moves it into the shown subheader.
+  const invite = main.querySelector<HTMLElement>('#remote-invite');
+  const inviteSlots = new Map<RemoteItem['id'], HTMLElement>();
+  for (const item of REMOTE_ITEMS) {
+    if (
+      !['create', 'join', 'members', 'invites', 'my-devices', 'service', 'settings'].includes(
+        item.id,
+      )
+    )
+      continue;
+    const slot = ['members', 'invites'].includes(item.id)
+      ? document.createElement('span')
+      : undefined;
+    if (slot) inviteSlots.set(item.id, slot);
+    subheaders.set(
+      item.id,
+      createPageSubheader({
+        title: item.title,
+        ...(item.id === 'members' ? { subtitle: 'Sending is off until an admin enables it.' } : {}),
+        ...(item.id === 'invites'
+          ? { subtitle: 'Invitations from the last 7 days · a code works once and expires' }
+          : {}),
+        ...(slot ? { actions: slot } : {}),
+      }),
+    );
+  }
+  document.getElementById('firestore-title')?.classList.add('tmt-ui-visually-hidden');
   for (const item of tabs) {
     const button = document.createElement('button');
     button.id = `remote-tab-${item.id}`;
@@ -175,6 +209,7 @@ export async function remoteApp(
   shell.signal.addEventListener('abort', () => resize.disconnect(), { once: true });
   function layout(): void {
     if (!shown) return;
+    main.dataset.remoteView = shown.id;
     if (listActions) listActions.hidden = shown.id !== 'remotes';
     const localName = document.getElementById('remote-local-name-value');
     if (localName) localName.textContent = observed?.current.name ?? 'This machine';
@@ -196,7 +231,12 @@ export async function remoteApp(
     frame.hidden = global;
     shell.setTitle(
       shown.title,
-      global ? ['Remote'] : ['Remote', observed?.current.name ?? 'This Remote'],
+      global
+        ? ['Remote']
+        : [
+            'Remote',
+            `${observed?.current.name ?? 'This machine'} · ${observed?.current.roleLabel ?? 'Role unknown'}`,
+          ],
     );
     designation.textContent =
       role === 'owner'
@@ -211,7 +251,8 @@ export async function remoteApp(
       button.setAttribute('aria-selected', String(selected));
       button.tabIndex = selected ? 0 : -1;
       const label = policy.locked ? `Locked · ${item.label}` : item.label;
-      if (button.textContent !== label) {
+      if (button.dataset.tabLabel !== label) {
+        button.dataset.tabLabel = label;
         button.replaceChildren();
         if (policy.locked) button.append(createIcon('lock'));
         const text = document.createElement('span');
@@ -219,11 +260,39 @@ export async function remoteApp(
         text.textContent = label;
         button.append(text);
       }
+      if (item.id === 'members') {
+        const previous = button.querySelector(`.${c.tabCount}`);
+        const total = memberSummary?.memberCount;
+        if (total == null) {
+          previous?.remove();
+          button.removeAttribute('aria-label');
+        } else {
+          const count = previous ?? document.createElement('span');
+          count.className = c.tabCount;
+          count.textContent = String(total);
+          count.setAttribute('aria-hidden', 'true');
+          if (!previous) button.append(count);
+          button.setAttribute(
+            'aria-label',
+            `${label} · ${total} ${total === 1 ? 'person' : 'people'}`,
+          );
+        }
+      }
       panels.get(item.id)!.hidden = !selected;
     }
     keepTabVisible();
     globalPanel.hidden = !global;
     const panel = global ? globalPanel : panels.get(shown.id)!;
+    const header = subheaders.get(shown.id);
+    const peopleSubtitle = subheaders.get('members')?.querySelector('p');
+    if (peopleSubtitle) {
+      const total = memberSummary?.memberCount;
+      peopleSubtitle.textContent = `${total == null ? '' : `${total} ${total === 1 ? 'person' : 'people'} · `}Sending is off until an admin enables it.`;
+    }
+    for (const [id, value] of subheaders) value.hidden = id !== shown.id;
+    const inviteSlot = inviteSlots.get(shown.id);
+    if (invite && inviteSlot && invite.parentElement !== inviteSlot) inviteSlot.append(invite);
+    if (header && header.parentElement !== panel) panel.prepend(header);
     // Move the same retained models, never clone/restart their forms or original outcomes.
     for (const model of models) {
       if (model.parentElement !== panel) panel.append(model);
@@ -250,11 +319,44 @@ export async function remoteApp(
     reportedNeeds = answer?.modules.find((module) => module.extension === 'remote')?.needsYou;
     layout();
   });
+  function observeSummary(): void {
+    const session = admitted;
+    if (
+      !session ||
+      observed?.current.role !== 'owner' ||
+      observed.current.connection.text !== 'Connected'
+    ) {
+      if (summarySession) {
+        summarySession = undefined;
+        summaryGeneration++;
+      }
+      return;
+    }
+    if (summarySession === session) return;
+    summarySession = session;
+    const generation = ++summaryGeneration;
+    void members(session)
+      .summary()
+      .then((summary) => {
+        if (admitted === session && summaryGeneration === generation && !shell.signal.aborted)
+          registry.setSummary(summary);
+      })
+      .catch(() => {
+        if (admitted === session && summaryGeneration === generation)
+          registry.setSummary(undefined);
+      });
+  }
   const unsubscribe = registry.watch((view) => {
     observed = view;
+    observeSummary();
     layout();
   });
   shell.signal.addEventListener('abort', unsubscribe, { once: true });
+  const stopSummary = registry.watchSummary((value) => {
+    memberSummary = value;
+    layout();
+  });
+  shell.signal.addEventListener('abort', stopSummary, { once: true });
   function start(page: RemoteItem['page']): Promise<void> {
     let run = started.get(page);
     if (!run) {
@@ -264,6 +366,10 @@ export async function remoteApp(
         if (page === 'landing')
           await code.landing(shell.signal, registry, (session) => {
             admitted = session;
+            summarySession = undefined;
+            summaryGeneration++;
+            registry.setSummary(undefined);
+            observeSummary();
             shell.observedSession?.(session);
             if (observeSession) observeSession(session);
             else void start('settings');
@@ -329,6 +435,13 @@ export async function remoteApp(
         );
     },
     { signal: shell.signal },
+  );
+  shell.signal.addEventListener(
+    'abort',
+    () => {
+      delete main.dataset.remoteView;
+    },
+    { once: true },
   );
   await show();
 }

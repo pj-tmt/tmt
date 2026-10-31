@@ -18,7 +18,7 @@ async function mount(page: Page, size: Size = 'stages', hash = '/') {
   );
 }
 const app = (page: Page) => page.locator('#list-fixture');
-const rows = (page: Page) => app(page).locator('.pages > li');
+const rows = (page: Page) => app(page).locator('.pages [data-page-id]');
 const titles = (page: Page) => rows(page).locator('.tmt-ui-list-title > a');
 const search = (page: Page) => app(page).getByRole('combobox', { name: 'Search pages' });
 const tab = (page: Page, name: string | RegExp) => app(page).getByRole('tab', { name });

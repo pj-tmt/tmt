@@ -1,4 +1,4 @@
-import { ClientError, RefusalError, ReopenSessionError, budget, invitationPage, management, members, reopenSession } from "/sdk/remote-v1.js";
+import { ClientError, RefusalError, ReopenSessionError, budget, invitationPage, invitations, management, members, reopenSession } from "/sdk/remote-v1.js";
 //#region src/remote-routes.ts
 var REMOTE_ITEMS = [
 	{
@@ -37,17 +37,18 @@ var REMOTE_ITEMS = [
 		page: "settings"
 	},
 	{
+		id: "invites",
+		path: "/remote/invites",
+		label: "Invites",
+		title: "Invites",
+		page: "settings",
+		adminOnly: true
+	},
+	{
 		id: "my-devices",
 		path: "/remote/my-devices",
 		label: "My devices",
 		title: "My devices",
-		page: "settings"
-	},
-	{
-		id: "settings",
-		path: "/remote/settings",
-		label: "Settings",
-		title: "Settings",
 		page: "settings"
 	},
 	{
@@ -57,6 +58,13 @@ var REMOTE_ITEMS = [
 		title: "Service & upgrade",
 		page: "settings",
 		adminOnly: true
+	},
+	{
+		id: "settings",
+		path: "/remote/settings",
+		label: "Settings",
+		title: "Settings",
+		page: "settings"
 	}
 ];
 [...REMOTE_ITEMS.filter((item) => item.id !== "remotes").map((item) => item.path), remotePath("remotes")];
@@ -937,6 +945,11 @@ var shellIconNodes = {
 			rx: "2"
 		}]
 	],
+	user: [["path", { d: "M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2" }], ["circle", {
+		cx: "12",
+		cy: "7",
+		r: "4"
+	}]],
 	users: [
 		["path", { d: "M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" }],
 		["path", { d: "M16 3.128a4 4 0 0 1 0 7.744" }],
@@ -1485,6 +1498,77 @@ function mountBrowserMenu(container, initial) {
 		}
 	};
 }
+//#endregion
+//#region ../../../../design/browser-ui/src/list-table-host.ts
+/** Framework-free owner for the same table presentation used by the React entry. */
+function createListTable(columns, label, className) {
+	const root = document.createElement("div");
+	root.className = ["tmt-ui-list-table", className].filter(Boolean).join(" ");
+	root.setAttribute("role", "table");
+	root.setAttribute("aria-label", label);
+	const header = document.createElement("div");
+	header.className = "tmt-ui-list-columns";
+	header.setAttribute("role", "row");
+	for (const column of columns) {
+		const cell = document.createElement("span");
+		cell.setAttribute("role", "columnheader");
+		if (column.hideBelow) cell.dataset.hideBelow = column.hideBelow;
+		cell.textContent = column.label;
+		header.append(cell);
+	}
+	const body = document.createElement("div");
+	body.setAttribute("role", "rowgroup");
+	root.append(header, body);
+	return {
+		root,
+		body,
+		row(cells, data = {}) {
+			if (cells.length !== columns.length) throw new Error("A cell is required for every column.");
+			const row = document.createElement("div");
+			row.className = "tmt-ui-list-table-row";
+			row.setAttribute("role", "row");
+			for (const [name, value] of Object.entries(data)) if (value !== void 0) row.setAttribute(`data-${name}`, value);
+			cells.forEach((content, index) => {
+				const cell = document.createElement("div");
+				cell.setAttribute("role", "cell");
+				cell.dataset.column = columns[index].id;
+				if (columns[index]?.hideBelow) cell.dataset.hideBelow = columns[index].hideBelow;
+				cell.append(content);
+				row.append(cell);
+			});
+			return row;
+		}
+	};
+}
+/** Framework-free subheader. The caller owns its actions and the top-bar title. */
+function createPageSubheader(options) {
+	const root = document.createElement("header");
+	root.className = "tmt-ui-subheader";
+	const text = document.createElement("div");
+	text.className = "tmt-ui-subheader-text";
+	const heading = document.createElement(`h${options.headingLevel ?? 2}`);
+	heading.textContent = options.title;
+	if (options.count !== void 0) {
+		const count = document.createElement("span");
+		count.className = "tmt-ui-shell-count";
+		count.textContent = String(options.count);
+		heading.append(" ", count);
+	}
+	text.append(heading);
+	if (options.subtitle !== void 0) {
+		const subtitle = document.createElement("p");
+		subtitle.textContent = options.subtitle;
+		text.append(subtitle);
+	}
+	root.append(text);
+	if (options.actions) {
+		const actions = document.createElement("div");
+		actions.className = "tmt-ui-subheader-actions";
+		actions.append(options.actions);
+		root.append(actions);
+	}
+	return root;
+}
 new TextEncoder();
 function requireValue(condition, label) {
 	if (!condition) throw new Error(`Invalid ${label}.`);
@@ -1926,6 +2010,16 @@ function node$2(tag, text = "") {
 	result.textContent = text;
 	return result;
 }
+function paintConnection(state, connection) {
+	state.dataset.tone = connection.text === "Connected" ? "working" : connection.text === "Offline" ? "blocked" : "neutral";
+	const mark = node$2("span");
+	mark.className = browserUiClasses.stateMark;
+	mark.dataset.shape = "dot";
+	mark.setAttribute("aria-hidden", "true");
+	const label = node$2("span", connection.text);
+	label.className = browserUiClasses.chipLabel;
+	state.replaceChildren(mark, label);
+}
 function action(text, run, variant) {
 	const button = node$2("button");
 	const label = node$2("span", text);
@@ -1963,13 +2057,70 @@ function remoteRegistryPage(initialBlocked = () => "", shell) {
 	const root = document.getElementById("remotes");
 	if (!root) return Object.assign(() => {}, {
 		blockedBy: () => {},
+		setSummary: () => {},
+		watchSummary: () => () => {},
 		renameCurrent: () => {},
 		watch: () => () => {}
 	});
 	const listeners = /* @__PURE__ */ new Set();
+	const summaryListeners = /* @__PURE__ */ new Set();
 	const fragment = location.hash;
 	if (fragment) history.replaceState(null, "", location.pathname + location.search);
-	const list = document.getElementById("remote-list");
+	const oldList = document.getElementById("remote-list");
+	const table = createListTable([
+		{
+			id: "icon",
+			label: "",
+			hideBelow: "phone"
+		},
+		{
+			id: "name",
+			label: "Name"
+		},
+		{
+			id: "connection",
+			label: "Connection"
+		},
+		{
+			id: "role",
+			label: "Your role"
+		},
+		{
+			id: "members",
+			label: "Members",
+			hideBelow: "phone"
+		},
+		{
+			id: "active",
+			label: "Last active",
+			hideBelow: "phone"
+		},
+		{
+			id: "actions",
+			label: ""
+		}
+	], "My Remotes", "remote-registry-table remote-phone-rows");
+	const list = table.body;
+	list.id = "remote-list";
+	oldList.replaceWith(table.root);
+	const footer = node$2("p");
+	footer.className = "remote-list-footer";
+	table.root.after(footer);
+	const head = document.getElementById("remote-head");
+	const actions = head.querySelector(".remote-head-actions");
+	const primary = actions.querySelector("a[data-variant=primary]");
+	if (primary) {
+		primary.prepend(createIcon("plus"));
+		actions.prepend(primary);
+	}
+	const subheader = createPageSubheader({
+		title: "My Remotes",
+		subtitle: "Names and addresses stay in this browser.",
+		actions
+	});
+	head.replaceChildren(...subheader.childNodes);
+	head.className = subheader.className;
+	const subtitle = head.querySelector(".tmt-ui-subheader-text p");
 	const status = document.getElementById("remote-status");
 	const joinHost = document.getElementById("remote-join");
 	const joinMenu = mountBrowserMenu(joinHost, {
@@ -1996,6 +2147,7 @@ function remoteRegistryPage(initialBlocked = () => "", shell) {
 	}, { once: true });
 	let observed = "Checking";
 	let observedRole;
+	let summary;
 	let address = document.documentElement.dataset.tmtPage === "settings" ? new URL("./", location.href).href : void 0;
 	let currentDialog;
 	(shell ?? void 0)?.signal.addEventListener("abort", () => {
@@ -2169,6 +2321,10 @@ function remoteRegistryPage(initialBlocked = () => "", shell) {
 			address,
 			role: observedRole
 		});
+		const visibleSummary = observed === "Connected" && observedRole === "owner" ? summary : void 0;
+		summaryListeners.forEach((listener) => listener(visibleSummary));
+		if (subtitle) subtitle.textContent = `${projection.rows.length} ${projection.rows.length === 1 ? "remote" : "remotes"} · Names and addresses stay in this browser.`;
+		footer.replaceChildren(node$2("span", `${projection.rows.length} ${projection.rows.length === 1 ? "remote" : "remotes"} in this view`), node$2("span", "Saved in this browser · Forget leaves access unchanged"));
 		listeners.forEach((listener) => listener(projection));
 		const existing = [...list.children];
 		if (existing.length === projection.rows.length && existing.every((row, index) => {
@@ -2180,9 +2336,11 @@ function remoteRegistryPage(initialBlocked = () => "", shell) {
 				const role = row.querySelector("[data-role]");
 				role.querySelector(".tmt-ui-chip-label").textContent = entry.roleLabel;
 				role.dataset.roleTone = entry.role === "owner" ? "selected" : entry.role === void 0 ? "muted" : "neutral";
-				const state = row.querySelector(".tmt-ui-list-state");
-				state.textContent = `${entry.connection.mark} ${entry.connection.text}`;
-				state.dataset.tone = entry.connection.tone;
+				paintConnection(row.querySelector(".tmt-ui-list-state"), entry.connection);
+				const countCell = row.querySelector("[data-summary=members]");
+				const activeCell = row.querySelector("[data-summary=active]");
+				countCell.textContent = entry.thisMachine && observedRole === "owner" && summary?.memberCount != null ? String(summary.memberCount) : "";
+				activeCell.textContent = entry.thisMachine && observedRole === "owner" && summary?.lastActiveAtMs != null ? new Date(summary.lastActiveAtMs).toLocaleString() : "";
 				const open = row.querySelector("[data-action=\"open\"]");
 				open.setAttribute("aria-disabled", String(!entry.thisMachine && !!blocked()));
 				if (!entry.thisMachine && blocked()) open.removeAttribute("href");
@@ -2195,18 +2353,12 @@ function remoteRegistryPage(initialBlocked = () => "", shell) {
 		rowMenus.forEach((item) => item.dispose());
 		rowMenus = [];
 		list.replaceChildren(...projection.rows.map((entry) => {
-			const row = node$2("li");
-			row.className = browserUiClasses.listRow;
-			row.dataset.remote = entry.id;
-			row.dataset.thisMachine = String(entry.thisMachine);
-			row.dataset.url = entry.url;
-			row.dataset.kind = entry.reference?.kind ?? "local";
-			row.dataset.leading = "";
 			const leading = node$2("div");
 			leading.className = browserUiClasses.listLeading;
 			leading.append(createIcon(entry.backend === "Local" ? "terminal" : "box"));
 			const title = node$2("div");
 			title.className = browserUiClasses.listTitle;
+			title.dataset.phone = "name";
 			const label = node$2("span");
 			label.className = `${browserUiClasses.listLabel} remote-label`;
 			const open = node$2("a", entry.name);
@@ -2240,23 +2392,24 @@ function remoteRegistryPage(initialBlocked = () => "", shell) {
 				box.append(value);
 				return box;
 			};
-			if (entry.thisMachine && entry.name !== "This machine") label.append(chip("This machine"));
+			if (entry.thisMachine && entry.name !== "This machine") {
+				const current = chip("This machine");
+				current.className += " remote-role";
+				label.append(current);
+			}
 			const role = chip(entry.roleLabel);
 			role.className += " remote-role";
 			role.dataset.role = "";
 			role.dataset.roleTone = entry.role === "owner" ? "selected" : entry.role === void 0 ? "muted" : "neutral";
-			label.append(role);
 			const description = node$2("span", `${entry.backend}${entry.project ? ` · ${entry.project}` : ""} · ${entry.url}`);
 			description.className = browserUiClasses.listDescription;
 			title.append(label, description);
-			const meta = node$2("div");
-			meta.className = browserUiClasses.listMeta;
-			const state = node$2("div", `${entry.connection.mark} ${entry.connection.text}`);
-			state.className = browserUiClasses.listState;
-			state.dataset.tone = entry.connection.tone;
-			meta.append(state);
+			const state = node$2("div");
+			state.className = `${browserUiClasses.listState} ${browserUiClasses.chip} remote-stage`;
+			paintConnection(state, entry.connection);
 			const actions = node$2("div");
 			actions.className = browserUiClasses.listActions;
+			actions.dataset.phone = "menu";
 			if (entry.reference) {
 				const reference = entry.reference;
 				const destructive = node$2("span", "Forget");
@@ -2280,7 +2433,23 @@ function remoteRegistryPage(initialBlocked = () => "", shell) {
 				});
 				rowMenus.push(rowMenu);
 			}
-			row.append(leading, title, meta, actions);
+			const memberCount = node$2("span", entry.thisMachine && observedRole === "owner" && summary?.memberCount != null ? String(summary.memberCount) : "");
+			memberCount.dataset.summary = "members";
+			const lastActive = node$2("span", entry.thisMachine && observedRole === "owner" && summary?.lastActiveAtMs != null ? new Date(summary.lastActiveAtMs).toLocaleString() : "");
+			lastActive.dataset.summary = "active";
+			const row = table.row([
+				leading,
+				title,
+				state,
+				role,
+				memberCount,
+				lastActive,
+				actions
+			]);
+			row.dataset.remote = entry.id;
+			row.dataset.thisMachine = String(entry.thisMachine);
+			row.dataset.url = entry.url;
+			row.dataset.kind = entry.reference?.kind ?? "local";
 			return row;
 		}));
 		menu(projection);
@@ -2330,12 +2499,23 @@ function remoteRegistryPage(initialBlocked = () => "", shell) {
 	}, { signal: (shell ?? void 0)?.signal });
 	const observe = (state, checkedAddress, role) => {
 		observed = state;
-		if (state !== "Connected" || role === null) observedRole = void 0;
-		else if (role !== void 0) observedRole = role;
+		if (state !== "Connected" || role === null) {
+			observedRole = void 0;
+			summary = void 0;
+		} else if (role !== void 0) observedRole = role;
 		if (checkedAddress) address = checkedAddress;
 		paint();
 	};
 	return Object.assign(observe, {
+		setSummary: (value) => {
+			summary = observed === "Connected" ? value : void 0;
+			paint();
+		},
+		watchSummary: (listener) => {
+			summaryListeners.add(listener);
+			listener(observed === "Connected" && observedRole === "owner" ? summary : void 0);
+			return () => summaryListeners.delete(listener);
+		},
 		renameCurrent: (opener) => {
 			const current = registryView(catalog, {
 				pageUrl: location.href,
@@ -3166,6 +3346,27 @@ function memberName(value) {
 	return typeof value === "string" && value.trim().length > 0 && new TextEncoder().encode(value).length <= 64 && ![...value].some((character) => character.charCodeAt(0) < 32 || character.charCodeAt(0) === 127);
 }
 //#endregion
+//#region src/person-drafts.ts
+var key = (remote) => `tmt-remote-person-drafts-v1:${remote}`;
+function readPersonDrafts(storage, remote) {
+	const raw = storage.getItem(key(remote));
+	if (!raw) return /* @__PURE__ */ new Map();
+	try {
+		const data = JSON.parse(raw);
+		if (!Array.isArray(data)) return /* @__PURE__ */ new Map();
+		return new Map(data.filter((item) => Array.isArray(item) && item.length === 2 && typeof item[0] === "string" && item[1] !== null && typeof item[1] === "object" && typeof item[1].baseline === "string" && typeof item[1].value === "string"));
+	} catch {
+		return /* @__PURE__ */ new Map();
+	}
+}
+function writePersonDraft(storage, remote, member, draft) {
+	const drafts = readPersonDrafts(storage, remote);
+	if (draft) drafts.set(member, draft);
+	else drafts.delete(member);
+	if (drafts.size) storage.setItem(key(remote), JSON.stringify([...drafts]));
+	else storage.removeItem(key(remote));
+}
+//#endregion
 //#region src/members-page.ts
 /** Keeps one roster page and one explicitly opened machine page, never a second authority. */
 var MembersPage = class {
@@ -3366,10 +3567,41 @@ function mountMembersPage(root, page, signal, otherBusy, changed = () => {}, obs
 		value.className = "tmt-ui-action";
 		return value;
 	};
+	const compact = window.matchMedia("(max-width: 760px)");
+	compact.addEventListener("change", () => render(), { signal });
 	const status = node("p", "Checking people…");
 	status.setAttribute("role", "status");
 	const facts = node("p");
-	const list = node("div");
+	const table = createListTable([
+		{
+			id: "icon",
+			label: "",
+			hideBelow: "phone"
+		},
+		{
+			id: "person",
+			label: "Person"
+		},
+		{
+			id: "role",
+			label: "Role"
+		},
+		{
+			id: "sending",
+			label: "Sending"
+		},
+		{
+			id: "machines",
+			label: "Machines"
+		},
+		{
+			id: "actions",
+			label: ""
+		}
+	], "People", "remote-people-table remote-phone-rows");
+	const list = table.body;
+	const footer = node("p");
+	footer.className = "people-list-footer";
 	const refreshButton = button("Refresh people");
 	const first = button("First people");
 	const more = button("Next people");
@@ -3377,10 +3609,23 @@ function mountMembersPage(root, page, signal, otherBusy, changed = () => {}, obs
 	const recover = button("Check original outcome");
 	const rows = /* @__PURE__ */ new Map();
 	let localNotice = "";
+	let draftsLoaded = false;
+	function persistDraft(memberId, baseline, value) {
+		const remoteId = page.roster?.remoteId;
+		if (!remoteId) return;
+		try {
+			writePersonDraft(sessionStorage, remoteId, memberId, value === baseline ? void 0 : {
+				baseline,
+				value
+			});
+		} catch {
+			localNotice = "This browser could not retain the unsent name after reload.";
+		}
+	}
 	let selected;
 	let machineCursor = null;
 	let confirmation;
-	root.replaceChildren(status, facts, refreshButton, list, first, more, original, recover);
+	root.replaceChildren(status, facts, refreshButton, table.root, footer, first, more, original, recover);
 	function draftReason() {
 		for (const row of rows.values()) if (row.input.value !== row.baseline) return "Save or restore the unsent person name first.";
 		return "";
@@ -3462,7 +3707,26 @@ function mountMembersPage(root, page, signal, otherBusy, changed = () => {}, obs
 		const item = node("article");
 		item.className = "people-person";
 		const summary = node("p");
-		summary.className = "people-person-summary";
+		summary.className = "tmt-ui-visually-hidden";
+		const nameText = node("span", name);
+		nameText.dataset.phone = "name";
+		const person = node("span");
+		person.className = "tmt-ui-list-leading";
+		person.append(createIcon("user"));
+		const roleText = node("span");
+		roleText.className = "tmt-ui-chip-label";
+		const roleChip = node("span");
+		roleChip.className = "tmt-ui-chip remote-role";
+		roleChip.append(roleText);
+		const sendingText = node("span");
+		sendingText.className = "tmt-ui-chip-label";
+		const sendingChip = node("span");
+		sendingChip.className = "tmt-ui-chip remote-stage";
+		const sendingMark = node("span");
+		sendingMark.className = "tmt-ui-state-mark";
+		sendingMark.dataset.shape = "dot";
+		sendingMark.setAttribute("aria-hidden", "true");
+		sendingChip.append(sendingMark, sendingText);
 		const field = node("div");
 		field.className = "tmt-ui-field";
 		const label = node("label", "Person name");
@@ -3479,19 +3743,67 @@ function mountMembersPage(root, page, signal, otherBusy, changed = () => {}, obs
 		nameActions.className = "people-name-actions";
 		const memberActions = node("div");
 		memberActions.className = "people-member-actions";
+		nameActions.hidden = true;
+		memberActions.hidden = true;
 		const save = button("Save name");
 		const restore = button("Restore name");
 		const send = button("Enable sending");
 		const revoke = button("Remove person");
 		revoke.dataset.variant = "destructive";
 		const expand = button("Show machines");
+		expand.dataset.variant = "ghost";
+		expand.dataset.phone = "hidden";
 		const machines = node("div");
 		const confirmText = node("p");
 		confirmText.setAttribute("role", "status");
 		const cancel = button("Cancel");
+		const menuHost = node("div");
+		menuHost.dataset.phone = "menu";
+		const menuOptions = () => ({
+			label: `Actions for ${nameText.textContent}`,
+			items: [
+				...compact.matches ? [{
+					key: "machines",
+					label: "Show machines"
+				}] : [],
+				{
+					key: "rename",
+					label: "Rename"
+				},
+				{
+					key: "sending",
+					label: send.textContent ?? "Enable sending",
+					disabled: send.disabled
+				},
+				{
+					key: "revoke",
+					label: "Remove person",
+					disabled: revoke.disabled,
+					separated: true
+				}
+			],
+			onSelect(key) {
+				if (key === "machines") expand.click();
+				else if (key === "rename") {
+					nameActions.hidden = false;
+					input.focus();
+				} else if (key === "sending" || key === "revoke") {
+					memberActions.hidden = false;
+					confirm(memberId, key);
+				}
+			}
+		});
 		const row = {
 			root: item,
 			summary,
+			nameText,
+			roleText,
+			roleChip,
+			sendingText,
+			sendingChip,
+			nameActions,
+			memberActions,
+			menu: mountBrowserMenu(menuHost, menuOptions()),
 			input,
 			baseline: name,
 			save,
@@ -3505,13 +3817,25 @@ function mountMembersPage(root, page, signal, otherBusy, changed = () => {}, obs
 			cancel
 		};
 		nameActions.append(field, save, restore);
-		memberActions.append(send, revoke, expand);
-		item.append(summary, nameActions, memberActions, machines, confirmText, cancel);
+		memberActions.append(send, revoke);
+		const tableRow = table.row([
+			person,
+			nameText,
+			roleChip,
+			sendingChip,
+			expand,
+			menuHost
+		]);
+		item.append(tableRow, summary, nameActions, memberActions, machines, confirmText, cancel);
 		restore.addEventListener("click", () => {
 			input.value = row.baseline;
+			persistDraft(memberId, row.baseline, input.value);
 			render();
 		}, { signal });
-		input.addEventListener("input", render, { signal });
+		input.addEventListener("input", () => {
+			persistDraft(memberId, row.baseline, input.value);
+			render();
+		}, { signal });
 		save.addEventListener("click", () => {
 			const member = page.roster?.members.find((value) => value.memberId === memberId);
 			if (!member || !available() || input.value === row.baseline) return;
@@ -3561,6 +3885,8 @@ function mountMembersPage(root, page, signal, otherBusy, changed = () => {}, obs
 	function render() {
 		if (signal.aborted) return;
 		const view = page.roster;
+		footer.replaceChildren(node("span", view ? `${view.members.length} ${view.members.length === 1 ? "person" : "people"} in this page` : ""), node("span", "Remove person · Enable / Disable sending in the row menu"));
+		footer.hidden = !view;
 		const outcome = page.outcome;
 		if (localNotice) status.textContent = localNotice;
 		else if (outcome?.state === "unknown") status.textContent = "This change is unconfirmed. Check its original outcome before another change.";
@@ -3581,13 +3907,29 @@ function mountMembersPage(root, page, signal, otherBusy, changed = () => {}, obs
 			observations.textContent = pendingMemberObservations(view);
 			observations.hidden = !observations.textContent;
 		}
+		if (view && !draftsLoaded) {
+			draftsLoaded = true;
+			try {
+				for (const [id, draft] of readPersonDrafts(sessionStorage, view.remoteId)) {
+					const member = view.members.find((item) => item.memberId === id);
+					const row = rows.get(id) ?? rowFor(id, member?.displayName ?? draft.baseline);
+					row.input.value = draft.value;
+					if (row.input.value !== row.baseline) row.nameActions.hidden = false;
+					else persistDraft(id, row.baseline, row.input.value);
+				}
+			} catch {
+				localNotice = "This browser could not restore an unsent name after reload.";
+			}
+		}
 		const current = new Set(view?.members.map((member) => member.memberId) ?? []);
 		for (const [id, row] of rows) if (!current.has(id)) {
 			if (row.input.value === row.baseline) {
+				row.menu.dispose();
 				row.root.remove();
 				rows.delete(id);
 			} else {
 				row.root.hidden = false;
+				row.summary.className = "";
 				row.summary.textContent = "This person is not in the current page. Your unsent name is kept; restore it to continue.";
 				row.save.disabled = row.send.disabled = row.revoke.disabled = row.expand.disabled = true;
 				row.restore.hidden = false;
@@ -3597,9 +3939,17 @@ function mountMembersPage(root, page, signal, otherBusy, changed = () => {}, obs
 		for (const member of view?.members ?? []) {
 			const row = rows.get(member.memberId) ?? rowFor(member.memberId, member.displayName);
 			row.root.hidden = false;
+			row.summary.className = "tmt-ui-visually-hidden";
 			if (row.input.value === row.baseline) row.input.value = member.displayName;
 			row.baseline = member.displayName;
+			if (row.input.value === row.baseline) persistDraft(member.memberId, row.baseline, row.input.value);
+			else row.nameActions.hidden = false;
 			row.summary.textContent = `${member.displayName} · ${member.role === "owner" ? "Owner" : "Member"} · Sending ${member.sendingEnabled ? "on" : "off"}${member.revokedAtMs === null ? "" : " · Revoked"}`;
+			row.nameText.textContent = member.displayName;
+			row.roleText.textContent = member.role === "owner" ? "Owner" : "Member";
+			row.roleChip.dataset.roleTone = member.role === "owner" ? "selected" : "neutral";
+			row.sendingChip.dataset.tone = member.revokedAtMs !== null ? "blocked" : member.sendingEnabled ? "working" : "neutral";
+			row.sendingText.textContent = member.revokedAtMs !== null ? "Revoked" : member.sendingEnabled ? "Sending on" : "Sending off";
 			const editable = available() && member.revokedAtMs === null;
 			row.input.disabled = !editable;
 			row.save.disabled = !editable || row.input.value === row.baseline;
@@ -3664,6 +4014,43 @@ function mountMembersPage(root, page, signal, otherBusy, changed = () => {}, obs
 			row.confirmation.textContent = !pending ? "" : confirmation.kind === "revoke" ? `This removes ${member.displayName}'s Remote access. Press Remove person again to confirm.` : `${confirmation.enabled ? "Enable" : "Disable"} sending for ${member.displayName}. Press the same action again to confirm.`;
 			row.confirmation.hidden = !pending;
 			row.cancel.hidden = !pending;
+			row.memberActions.hidden = !pending;
+			row.menu.update({
+				label: `Actions for ${member.displayName}`,
+				items: [
+					...compact.matches ? [{
+						key: "machines",
+						label: row.expand.textContent ?? "Show machines",
+						disabled: row.expand.disabled
+					}] : [],
+					{
+						key: "rename",
+						label: "Rename",
+						disabled: row.input.disabled
+					},
+					{
+						key: "sending",
+						label: row.send.textContent ?? "Enable sending",
+						disabled: row.send.disabled
+					},
+					{
+						key: "revoke",
+						label: "Remove person",
+						disabled: row.revoke.disabled,
+						separated: true
+					}
+				],
+				onSelect(key) {
+					if (key === "machines") row.expand.click();
+					else if (key === "rename") {
+						row.nameActions.hidden = false;
+						row.input.focus();
+					} else if (key === "sending" || key === "revoke") {
+						row.memberActions.hidden = false;
+						confirm(member.memberId, key);
+					}
+				}
+			});
 		}
 	}
 	refreshButton.addEventListener("click", () => void refresh(), { signal });
@@ -3675,11 +4062,463 @@ function mountMembersPage(root, page, signal, otherBusy, changed = () => {}, obs
 		if (cursor && !heldBy()) run(() => page.refresh(cursor));
 	}, { signal });
 	recover.addEventListener("click", () => void run(() => page.recover()), { signal });
-	signal.addEventListener("abort", () => page.dispose(), { once: true });
+	signal.addEventListener("abort", () => {
+		for (const row of rows.values()) row.menu.dispose();
+		page.dispose();
+	}, { once: true });
 	render();
 	return {
 		render,
 		refresh,
+		heldBy
+	};
+}
+//#endregion
+//#region src/issued-invitations-page.ts
+/** One view's observations and original effect. The signed service owns authority and storage. */
+var IssuedInvitationsPage = class {
+	client;
+	reopen;
+	history;
+	outcome;
+	secret;
+	intent;
+	access = "checking";
+	busy = false;
+	generation = 0;
+	disposed = false;
+	cursor = null;
+	constructor(client, reopen) {
+		this.client = client;
+		this.reopen = reopen;
+	}
+	get onFirstPage() {
+		return this.cursor === null;
+	}
+	get canRecover() {
+		return !!this.intent && this.outcome?.state === "unknown" && !this.busy && !this.disposed;
+	}
+	async refresh(cursor = this.cursor) {
+		if (this.busy || this.disposed) return;
+		const turn = ++this.generation;
+		this.busy = true;
+		try {
+			const page = await this.client.list({ cursor });
+			if (!this.current(turn)) return;
+			this.history = page;
+			this.cursor = cursor;
+			this.access = "live";
+		} catch {
+			if (this.current(turn)) {
+				this.history = void 0;
+				this.access = "unconfirmed";
+			}
+		} finally {
+			if (this.current(turn)) this.busy = false;
+		}
+	}
+	async create(operationId) {
+		await this.submit(Object.freeze({
+			kind: "create",
+			operationId
+		}));
+	}
+	async cancel(operationId, offerId) {
+		await this.submit(Object.freeze({
+			kind: "cancel",
+			operationId,
+			offerId
+		}));
+	}
+	async submit(intent) {
+		if (this.disposed || this.busy || this.access !== "live" || this.outcome?.state === "unknown") throw new Error("Invitation controls are unavailable.");
+		this.secret = void 0;
+		this.intent = intent;
+		this.outcome = void 0;
+		this.busy = true;
+		const turn = ++this.generation;
+		try {
+			const result = intent.kind === "create" ? await this.client.create({ operationId: intent.operationId }) : await this.client.cancel({
+				operationId: intent.operationId,
+				offerId: intent.offerId
+			});
+			if (!this.current(turn)) return;
+			const creation = intent.kind === "create" ? result : void 0;
+			const createdSecret = creation?.state === "committed" ? creation.secret : void 0;
+			if (!this.matches(result, intent)) {
+				this.outcome = this.unknown(intent.operationId);
+				return;
+			}
+			if (intent.kind === "create" && result.state === "committed") {
+				this.outcome = {
+					operationId: result.operationId,
+					state: result.state,
+					sessionEnded: result.sessionEnded,
+					result: result.result
+				};
+				if (createdSecret) this.secret = Object.freeze({ ...createdSecret });
+			} else this.outcome = result;
+		} catch {
+			if (this.current(turn)) this.outcome = this.unknown(intent.operationId);
+		} finally {
+			if (this.current(turn)) this.busy = false;
+		}
+	}
+	/** Recovery reads the original metadata only; it never sends a new effect or recovers a secret. */
+	async recover() {
+		if (!this.canRecover) return;
+		const intent = this.intent;
+		this.secret = void 0;
+		this.busy = true;
+		const turn = ++this.generation;
+		try {
+			const client = await this.reopen();
+			if (!this.current(turn)) return;
+			this.client = client;
+			const result = await client.operation(intent.operationId);
+			if (!this.current(turn)) return;
+			this.outcome = this.matches(result, intent) ? result : this.unknown(intent.operationId);
+		} catch {
+			if (this.current(turn)) this.access = "unconfirmed";
+		} finally {
+			if (this.current(turn)) this.busy = false;
+		}
+	}
+	/** The create result is shown only until its dialog is closed. */
+	clearSecret() {
+		this.secret = void 0;
+	}
+	dispose() {
+		this.disposed = true;
+		this.generation++;
+		this.busy = false;
+		this.clearSecret();
+		this.history = void 0;
+	}
+	current(turn) {
+		return !this.disposed && this.generation === turn;
+	}
+	unknown(operationId) {
+		return {
+			operationId,
+			state: "unknown",
+			reason: "effect_outcome_unconfirmed"
+		};
+	}
+	matches(result, intent) {
+		if (result.operationId !== intent.operationId) return false;
+		if (result.state !== "committed") return true;
+		const invitation = result.result.invitation;
+		return intent.kind === "create" ? invitation.state === "created" : (invitation.state === "cancelled" || invitation.state === "not-active") && invitation.offerId === intent.offerId;
+	}
+};
+//#endregion
+//#region src/invites-page.ts
+var STATES = {
+	open: {
+		label: "Open",
+		tone: "working"
+	},
+	"awaiting-owner": {
+		label: "Awaiting you",
+		tone: "waiting"
+	},
+	confirmed: { label: "Confirmed" },
+	refused: { label: "Refused" },
+	cancelled: { label: "Cancelled" },
+	expired: {
+		label: "Expired",
+		tone: "blocked"
+	},
+	interrupted: {
+		label: "Interrupted · needs action",
+		tone: "waiting"
+	},
+	unconfirmed: {
+		label: "Unconfirmed · needs action",
+		tone: "waiting"
+	}
+};
+var ACTIVE = ["open", "awaiting-owner"];
+/** Bounded copy for the contract's create and cancel refusal reasons. */
+var REFUSALS = {
+	REMOTE_INVITATION_BUSY: "Another invitation request is in progress on this machine. Try again when it finishes.",
+	REMOTE_INVITATION_CAPACITY: "This Remote has too many open invitations. Cancel one first.",
+	REMOTE_INVITATION_STOPPED: "The invitation request stopped before it finished. Nothing was created. Try again.",
+	REMOTE_INVITATION_UNAVAILABLE: "Invitations are unavailable right now. Check this Remote on this machine.",
+	REMOTE_MANAGEMENT_READ_ONLY: "This browser is read-only for this Remote.",
+	REMOTE_INTENT_CONFLICT: "This request conflicts with an earlier one. Refresh, then try again."
+};
+/** The short label names an invitation; the full offer ID stays in its title and copy action. */
+function invitationLabel(offerId) {
+	return `inv-${offerId.slice(0, 4)}`;
+}
+function ago(at, now) {
+	const minutes = Math.max(0, Math.floor((now - at) / 6e4));
+	if (minutes < 1) return "Just now";
+	if (minutes < 60) return `${minutes} min ago`;
+	if (minutes < 1440) return `${Math.floor(minutes / 60)} h ago`;
+	return minutes < 2880 ? "Yesterday" : `${Math.floor(minutes / 1440)} days ago`;
+}
+/** Mount Invites around the retained issued-invitations model. The created code lives only in
+* the open dialog and the model's memory; closing the dialog clears both. */
+function mountInvitesPage(root, page, signal, options) {
+	const now = options.now ?? Date.now;
+	const node = (tag, text = "") => {
+		const value = document.createElement(tag);
+		value.textContent = text;
+		return value;
+	};
+	const button = (text) => {
+		const value = node("button", text);
+		value.type = "button";
+		value.className = browserUiClasses.action;
+		return value;
+	};
+	const status = node("p", "Checking invitations…");
+	status.setAttribute("role", "status");
+	const facts = node("p");
+	const table = createListTable([
+		{
+			id: "icon",
+			label: "",
+			hideBelow: "phone"
+		},
+		{
+			id: "invitation",
+			label: "Invitation"
+		},
+		{
+			id: "status",
+			label: "Status"
+		},
+		{
+			id: "issued",
+			label: "Issued",
+			hideBelow: "phone"
+		},
+		{
+			id: "expires",
+			label: "Expires"
+		},
+		{
+			id: "actions",
+			label: ""
+		}
+	], "Invitations", "remote-invites-table remote-phone-rows");
+	const footer = node("p");
+	footer.className = "invites-list-footer";
+	const first = button("First invitations");
+	const more = button("Next invitations");
+	const original = node("p");
+	const recover = button("Check original outcome");
+	root.replaceChildren(status, facts, table.root, footer, first, more, original, recover);
+	let menus = [];
+	let localNotice = "";
+	let dialog;
+	function heldBy() {
+		if (page.busy) return "An invitation request is in progress. Wait for its outcome.";
+		if (page.outcome?.state === "unknown") return "An invitation change is unconfirmed. Check its original outcome first.";
+		return "";
+	}
+	function available() {
+		return page.access === "live" && !page.busy && !options.otherBusy() && page.outcome?.state !== "unknown";
+	}
+	async function run(action) {
+		const pending = action();
+		render();
+		options.changed();
+		try {
+			await pending;
+		} catch {
+			localNotice = "This action could not start. Review current access and try again.";
+		}
+		if (!signal.aborted) {
+			render();
+			options.changed();
+		}
+	}
+	async function refresh(cursor) {
+		if (page.busy || options.otherBusy()) return;
+		localNotice = "";
+		await run(() => page.refresh(cursor));
+	}
+	async function invite() {
+		if (!available()) return;
+		localNotice = "";
+		await run(() => page.create(crypto.randomUUID()));
+		if (page.secret) showSecret(page.secret);
+		if (page.outcome?.state === "committed") await refresh(null);
+	}
+	async function cancel(offerId) {
+		if (!available()) return;
+		localNotice = "";
+		await run(() => page.cancel(crypto.randomUUID(), offerId));
+		if (page.outcome?.state === "committed") await refresh(null);
+	}
+	function copyRow(text, label) {
+		const row = node("div");
+		row.className = "invite-secret-row";
+		const value = node("code", text);
+		value.className = "invite-secret";
+		value.title = text;
+		const copy = button(label);
+		const feedback = node("span");
+		feedback.setAttribute("role", "status");
+		copy.addEventListener("click", async () => {
+			try {
+				await navigator.clipboard.writeText(text);
+				feedback.textContent = "Copied.";
+			} catch {
+				feedback.textContent = "Copy failed. Select the text and copy it manually.";
+			}
+		});
+		row.append(value, copy, feedback);
+		return row;
+	}
+	function showSecret(secret) {
+		dialog?.close();
+		const box = node("dialog");
+		box.className = `${browserUiClasses.dialog} invite-dialog`;
+		const header = node("header");
+		header.className = browserUiClasses.dialogHeader;
+		const heading = node("h2", "Invitation created");
+		heading.id = "invite-dialog-heading";
+		box.setAttribute("aria-labelledby", heading.id);
+		const close = node("button");
+		close.type = "button";
+		close.className = "tmt-ui-icon-action";
+		close.setAttribute("aria-label", "Close");
+		close.append(createIcon("x"));
+		header.append(heading, close);
+		const body = node("div");
+		body.className = browserUiClasses.dialogBody;
+		const expiry = page.outcome?.state === "committed" && "expiresAtMs" in page.outcome.result.invitation ? Math.max(1, Math.round((page.outcome.result.invitation.expiresAtMs - now()) / 6e4)) : void 0;
+		body.append(node("p", `Give this code or link to one person. It works once${expiry ? ` and expires in ${expiry} min` : ""}.`), copyRow(secret.code, "Copy code"), ...secret.link ? [copyRow(secret.link, "Copy link")] : [], Object.assign(node("p", "This code is shown only now. After you close this, it can't be shown again."), { className: "invite-secret-note" }));
+		const actions = node("footer");
+		actions.className = browserUiClasses.dialogActions;
+		const done = button("Done");
+		done.dataset.variant = "primary";
+		actions.append(done);
+		box.append(header, body, actions);
+		for (const end of [close, done]) end.addEventListener("click", () => box.close());
+		box.addEventListener("close", () => {
+			box.remove();
+			page.clearSecret();
+			if (dialog === box) dialog = void 0;
+			render();
+		}, { once: true });
+		dialog = box;
+		document.body.append(box);
+		box.showModal();
+	}
+	signal.addEventListener("abort", () => dialog?.close(), { once: true });
+	recover.addEventListener("click", () => void run(() => page.recover()), { signal });
+	first.addEventListener("click", () => void refresh(null), { signal });
+	more.addEventListener("click", () => void refresh(page.history?.nextCursor ?? null), { signal });
+	function outcomeText() {
+		const outcome = page.outcome;
+		if (!outcome || !page.intent) return "";
+		if (outcome.state === "unknown") return page.intent.kind === "create" ? "Creating this invitation is unconfirmed. Check its original outcome before inviting again." : "Cancelling this invitation is unconfirmed. Check its original outcome first.";
+		if (outcome.state === "refused") return REFUSALS[outcome.reason] ?? "The request was refused. Review current access or use tmt remote invite on this machine.";
+		const invitation = outcome.result.invitation;
+		if (invitation.state === "created") return page.secret ? "Invitation created." : "Invitation created. Its code is no longer shown; invite again for a new one.";
+		if (invitation.state === "not-active") return "That invitation was no longer open. Nothing changed.";
+		if (invitation.state === "cancelled") return "Invitation cancelled. Anyone who already joined keeps access.";
+		return "";
+	}
+	function render() {
+		if (signal.aborted) return;
+		const view = page.history;
+		status.textContent = localNotice || outcomeText() || (page.access === "live" ? "" : page.access === "checking" ? "Checking invitations…" : "Invitations could not be confirmed. Use tmt remote invite on this machine.");
+		status.hidden = !status.textContent;
+		facts.textContent = view && !view.invitations.length ? "No invitations in the last 7 days." : "";
+		facts.hidden = !facts.textContent;
+		table.root.hidden = !view?.invitations.length;
+		original.textContent = page.outcome?.state === "unknown" && page.intent ? `Original change ${page.intent.operationId}` : "";
+		original.hidden = !original.textContent;
+		recover.hidden = page.outcome?.state !== "unknown";
+		recover.disabled = !page.canRecover || options.otherBusy();
+		first.hidden = page.onFirstPage;
+		more.hidden = !view?.nextCursor;
+		first.disabled = more.disabled = !available();
+		footer.replaceChildren(node("span", view ? `${view.invitations.length} ${view.invitations.length === 1 ? "invitation" : "invitations"} · newest first` : ""), node("span", "Cancel an open invitation in the row menu"));
+		footer.hidden = !view?.invitations.length;
+		menus.forEach((menu) => menu.dispose());
+		menus = [];
+		table.body.replaceChildren(...(view?.invitations ?? []).map((invitation) => {
+			const leading = node("span");
+			leading.className = browserUiClasses.listLeading;
+			leading.append(createIcon("link"));
+			const title = node("div");
+			title.className = browserUiClasses.listTitle;
+			title.dataset.phone = "name";
+			const label = node("span", invitationLabel(invitation.offerId));
+			label.className = `${browserUiClasses.listLabel} invite-id`;
+			label.title = invitation.offerId;
+			title.append(label);
+			if (invitation.state === "awaiting-owner") {
+				const hint = node("span", "Someone used this code · confirm or refuse in the row menu");
+				hint.className = browserUiClasses.listDescription;
+				title.append(hint);
+			}
+			const state = STATES[invitation.state];
+			const chip = node("span");
+			chip.className = `${browserUiClasses.chip} remote-stage`;
+			if (state.tone) chip.dataset.tone = state.tone;
+			const mark = node("span");
+			mark.className = browserUiClasses.stateMark;
+			mark.dataset.shape = "dot";
+			mark.setAttribute("aria-hidden", "true");
+			const text = node("span", state.label);
+			text.className = browserUiClasses.chipLabel;
+			chip.append(mark, text);
+			const active = ACTIVE.includes(invitation.state) && invitation.expiresAtMs > now();
+			const expires = node("span", active ? `in ${Math.max(1, Math.ceil((invitation.expiresAtMs - now()) / 6e4))} min` : "—");
+			const actions = node("div");
+			actions.className = browserUiClasses.listActions;
+			actions.dataset.phone = "menu";
+			menus.push(mountBrowserMenu(actions, {
+				label: `Actions for ${label.textContent}`,
+				items: [
+					...invitation.state === "awaiting-owner" ? [{
+						key: "confirm",
+						label: "Confirm or refuse…"
+					}] : [],
+					{
+						key: "copy",
+						label: "Copy invitation ID"
+					},
+					...ACTIVE.includes(invitation.state) ? [{
+						key: "cancel",
+						label: "Cancel invitation",
+						disabled: !available(),
+						separated: true
+					}] : []
+				],
+				onSelect(key) {
+					if (key === "confirm") options.confirm();
+					else if (key === "cancel") cancel(invitation.offerId);
+					else navigator.clipboard.writeText(invitation.offerId).catch(() => {});
+				}
+			}));
+			const row = table.row([
+				leading,
+				title,
+				chip,
+				node("span", ago(invitation.issuedAtMs, now())),
+				expires,
+				actions
+			]);
+			row.dataset.offer = invitation.offerId;
+			return row;
+		}));
+	}
+	render();
+	return {
+		render,
+		refresh: () => refresh(null),
+		invite,
 		heldBy
 	};
 }
@@ -3790,6 +4629,13 @@ async function settingsPage(shell, registry, initial) {
 	let people;
 	let peopleView;
 	let invitationAttached = false;
+	let invites;
+	let invitesView;
+	let invitesUnread = false;
+	const inviteButton = shell ? document.getElementById("remote-invite") : null;
+	if (inviteButton && !inviteButton.querySelector(":scope > svg")) inviteButton.prepend(createIcon("link"));
+	/** Only the connected owner browser reads or changes issued invitations. */
+	const mayInvite = () => !!page && page.access === "live" && people?.roster?.administrator === true;
 	let invitationSession;
 	const registryState = registry ?? remoteRegistryPage(void 0, shell);
 	const invitationRoot = shell && document.getElementById("owner-invitation");
@@ -3798,7 +4644,7 @@ async function settingsPage(shell, registry, initial) {
 		render();
 		if (remoteItem(location.pathname)?.id === "members" && page.access === "live" && peopleView && !people?.roster && !people?.busy && !ownerInvitations?.heldBy()) peopleView.refresh();
 	}) : void 0;
-	const otherHold = () => ownerInvitations?.heldBy() || (people?.busy ? "A People request is in progress." : people?.outcome?.state === "unknown" ? "A People change is unconfirmed. Check its original outcome first." : "");
+	const otherHold = () => ownerInvitations?.heldBy() || invitesView?.heldBy() || (people?.busy ? "A People request is in progress." : people?.outcome?.state === "unknown" ? "A People change is unconfirmed. Check its original outcome first." : "");
 	const guideTarget = shell && document.getElementById("remote-create");
 	const guide = shell && guideTarget ? createPage(guideTarget, {
 		signal: shell.signal,
@@ -3815,7 +4661,7 @@ async function settingsPage(shell, registry, initial) {
 		if (!page) return "";
 		if (page.busy) return "A request is in progress. Wait for its outcome.";
 		if (page.outcome?.state === "unknown") return "Another change is still unconfirmed. Check the saved value first.";
-		const peopleReason = peopleView?.heldBy() || ownerInvitations?.heldBy();
+		const peopleReason = peopleView?.heldBy() || ownerInvitations?.heldBy() || invitesView?.heldBy();
 		if (peopleReason) return peopleReason;
 		for (const device of page.devices?.devices ?? []) {
 			const name = rows.get(device.clientId)?.querySelector("input");
@@ -3939,20 +4785,28 @@ async function settingsPage(shell, registry, initial) {
 	function render() {
 		if (people && page.access === "lost" && people.access !== "lost") people.invalidateAccess(true);
 		else if (people && page.access !== "live" && ["checking", "live"].includes(people.access)) people.invalidateAccess();
-		const mayInvite = page.access === "live" && people?.roster?.administrator === true;
-		if (!mayInvite && invitationAttached) {
+		const owner = mayInvite();
+		if (!owner && invitationAttached) {
 			invitationAttached = false;
 			ownerInvitations?.();
-		} else if (mayInvite && !invitationAttached && invitationSession) {
+		} else if (owner && !invitationAttached && invitationSession) {
 			invitationAttached = true;
 			ownerInvitations?.(invitationSession);
 		}
-		if (!mayInvite && invitationRoot && !ownerInvitations?.heldBy()) {
+		if (!owner && invitationRoot && !ownerInvitations?.heldBy()) {
 			const status = invitationRoot.querySelector("#invitation-status");
 			if (status) status.textContent = page.access === "live" && people?.access === "live" && people.roster?.administrator === false ? "To confirm an invitation in a browser, use the owner browser set up on this machine. Use tmt remote members on this machine." : "Invitation access is unconfirmed. Use tmt remote members on this machine.";
 		}
 		ownerInvitations?.update();
 		peopleView?.render();
+		invitesView?.render();
+		readInvites();
+		const invitesContent = document.getElementById("invites-content");
+		if (invitesContent) invitesContent.hidden = people?.roster?.administrator === false;
+		if (inviteButton) {
+			inviteButton.hidden = !owner;
+			fence(inviteButton, !owner || !!invites?.busy || !!otherHold());
+		}
 		registryState(page.access === "live" ? "Connected" : page.access === "lost" ? "Access ended" : page.access === "checking" ? "Checking" : "Unconfirmed", void 0, managementRole(page.access, page.settings?.capabilities.settingsWrite) ?? null);
 		if (confirmation) {
 			const target = page.devices?.devices.find((device) => device.clientId === confirmation.clientId);
@@ -4045,7 +4899,7 @@ async function settingsPage(shell, registry, initial) {
 				let row = rows.get(device.clientId);
 				if (!row) {
 					row = document.createElement("div");
-					row.className = "device";
+					row.className = "device tmt-ui-list-row";
 					const summary = document.createElement("p");
 					summary.className = "device-summary";
 					const form = document.createElement("form");
@@ -4361,7 +5215,30 @@ async function settingsPage(shell, registry, initial) {
 		if (!page) return;
 		render();
 		if (remoteItem(location.pathname)?.id === "members" && page.access === "live" && peopleView && !people?.roster && !people?.busy && !ownerInvitations?.heldBy()) peopleView.refresh();
+		enterInvites();
 	}, { signal: shell?.signal });
+	/** Invites reads once per entry or explicit refresh, after People confirms this browser is the
+	* owner. An entry that meets another request in flight reads when that request settles. */
+	async function enterInvites() {
+		invitesUnread = remoteItem(location.pathname)?.id === "invites";
+		await readInvites();
+	}
+	async function readInvites() {
+		if (!invitesUnread || remoteItem(location.pathname)?.id !== "invites") return;
+		if (!page || page.access !== "live") return;
+		if (!people?.roster && !people?.busy && !otherHold()) await peopleView?.refresh();
+		if (!mayInvite() || !invites || invites.busy || otherHold()) return;
+		invitesUnread = false;
+		await invitesView?.refresh();
+	}
+	inviteButton?.addEventListener("click", () => {
+		if (!invitesView || !mayInvite()) return;
+		if (remoteItem(location.pathname)?.id !== "invites") {
+			shell?.navigate(new URL("/remote/invites", location.href).href);
+			if (remoteItem(location.pathname)?.id !== "invites") return;
+		}
+		invitesView.invite();
+	});
 	async function initialize(session) {
 		if (page) return;
 		shell?.observedSession?.(session);
@@ -4386,10 +5263,27 @@ async function settingsPage(shell, registry, initial) {
 			peopleView = mountMembersPage(peopleRoot, people, shell.signal, () => page.access !== "live" || page.busy || page.outcome?.state === "unknown" || !!ownerInvitations?.heldBy(), () => {
 				if (page) render();
 			}, document.getElementById("people-observation"));
+			const invitesRoot = document.getElementById("invites-content");
+			if (invitesRoot) {
+				invites = new IssuedInvitationsPage(invitations(session), async () => invitations(await reopen()));
+				invitesView = mountInvitesPage(invitesRoot, invites, shell.signal, {
+					otherBusy: () => !mayInvite() || page.busy || page.outcome?.state === "unknown" || !!people?.busy || people?.outcome?.state === "unknown" || !!ownerInvitations?.heldBy(),
+					changed: () => {
+						if (page) render();
+					},
+					confirm: () => {
+						if (remoteItem(location.pathname)?.id !== "members") shell?.navigate(new URL("/remote/members", location.href).href);
+						const section = document.getElementById("owner-invitation");
+						section?.scrollIntoView({ block: "start" });
+						(section?.querySelector("#invitation-candidate:not([hidden]) input") ?? section?.querySelector("#invitation-refresh"))?.focus();
+					}
+				});
+			}
 		}
 		await run(() => refreshView());
 		if (page.access === "live") {
 			if (remoteItem(location.pathname)?.id === "members") await peopleView?.refresh();
+			await enterInvites();
 		}
 	}
 	function unavailable(error, report = true) {

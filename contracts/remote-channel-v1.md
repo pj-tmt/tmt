@@ -107,7 +107,7 @@ register root entries. Colab owns short-ID resolution and the browser's eventual
 
 Browser assets live at the door root, disjoint from the route prefix, under the same Host, path and
 framing rules. The door serves one TMT web app: GET/HEAD of exactly `/`, `/settings`, `/settings/`,
-`/remote`, `/remote/`, `/remote/create`, `/remote/join`, `/remote/overview`, `/remote/members`, `/remote/my-devices`, `/remote/settings`, `/remote/service`,
+`/remote`, `/remote/`, `/remote/create`, `/remote/join`, `/remote/overview`, `/remote/members`, `/remote/invites`, `/remote/my-devices`, `/remote/settings`, `/remote/service`,
 `/ops`, `/ops/`, `/digest`, `/digest/`, `/colab`, `/colab/` and `/colab/<segments>` (each segment `[A-Za-z0-9_-]+`, at most 160 bytes after
 `/colab/`) answers the same static `shell.html`, whose only script is `/sdk/shell.js`. The list is
 explicit, never a catch-all; `/sdk/*`, `/x/`, `/read/`, `/pair` and `/r/` keep their own handling,
@@ -140,7 +140,7 @@ browser-local. It adds no native read, endpoint, provider call or automatic comp
 terminal owns comparison, confirmation and enrollment; the page does not check availability,
 reuse or completion. The current interaction clears its private code on expiry, departure or
 pagehide and never persists it or sends it to a provider.
-The current door's persistent tabs are `/remote/overview`, `/remote/members`,
+The current door's persistent tabs are `/remote/overview`, `/remote/members`, `/remote/invites`,
 `/remote/my-devices`, `/remote/settings` and `/remote/service`; no Remote ID appears in a path.
 `remote-routes.ts` owns their browser route/menu declaration; native page admission mirrors the explicit
 set. Reload, Back and Forward select the same tab without replacing its retained form/draft models.
@@ -151,9 +151,9 @@ and the composed shell's reported Needs-you count when available. Missing eviden
 A designated readable browser is Admin; a readable non-designated pairing is Member. Labels add no
 admission. Invites and Service & upgrade remain visible locked tabs for Members, with the reason,
 the person to ask and copyable request text. Unconfirmed access does not assert a known role.
-Copy never runs a command, and a denied copy leaves selectable text. Until the dedicated Members,
-Invites and My devices flows replace them, their tabs reuse existing paired-device and connection
-guidance with their actual scope stated. One state-aware guidance owner serves Overview and Invites;
+Copy never runs a command, and a denied copy leaves selectable text. Until the dedicated Members
+and My devices flows replace them, their tabs reuse existing paired-device and connection
+guidance with their actual scope stated. Invites presents the owner invitation reads and effects below;
 unreadable storage or transport uncertainty never authorizes re-pairing.
 Pairing is not an app route: `/remote/pair` stays its own document with its own policy (below),
 so its fragment-erasing bootstrap runs before any other script. It shows the same rail, with no

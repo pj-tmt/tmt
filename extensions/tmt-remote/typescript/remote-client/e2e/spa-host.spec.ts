@@ -90,6 +90,7 @@ const APP_ROUTES = [
   '/remote/join',
   '/remote/overview',
   '/remote/members',
+  '/remote/invites',
   '/remote/my-devices',
   '/remote/service',
   '/remote/settings',
@@ -106,7 +107,6 @@ const APP_ROUTES = [
 const NOT_APP_ROUTES = [
   '/nope',
   '/remote/other',
-  '/remote/invites',
   '/ops/x',
   '/digest/x',
   '/settings/x',
@@ -368,6 +368,9 @@ test.describe('route identities in the shared top bar', () => {
             await expect(page.locator('.tmt-ui-shell-main h1,.root-title-row'), path).toHaveCount(
               0,
             );
+            const main = page.locator('.tmt-ui-shell-main');
+            if (path.startsWith('/remote')) await expect(main).toHaveAttribute('data-remote-view');
+            else await expect(main).not.toHaveAttribute('data-remote-view');
             const prefix = title.locator('.tmt-ui-topbar-title-prefix');
             if (await prefix.count()) {
               if (width <= 900) await expect(prefix, path).toBeHidden();
@@ -389,12 +392,12 @@ test.describe('route identities in the shared top bar', () => {
               await expect(page.locator('#remote-head .remote-head-actions')).toBeVisible();
               const actions = page.locator('#remote-head .remote-head-actions');
               await expect(actions.locator(':scope > *').first()).toHaveAttribute(
-                'id',
-                'remote-join',
-              );
-              await expect(actions.locator(':scope > *').last()).toHaveAttribute(
                 'data-variant',
                 'primary',
+              );
+              await expect(actions.locator(':scope > *').last()).toHaveAttribute(
+                'id',
+                'remote-join',
               );
               await expect(
                 page

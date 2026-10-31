@@ -13,6 +13,8 @@ import {
   BrowserIconAction,
   BrowserList,
   BrowserListRow,
+  BrowserListTable,
+  BrowserPageSubheader,
   BrowserMenu,
   BrowserNotice,
   type BrowserNoticeProps,
@@ -694,6 +696,40 @@ export function TabsSection() {
 export function ListSection() {
   return (
     <Section id="list">
+      <Pair title="Page subheader and list table">
+        {() => (
+          <>
+            <BrowserPageSubheader
+              title="People"
+              count={2}
+              subtitle="People in this Remote"
+              actions={
+                <BrowserAction type="button" variant="primary" label="Invite" onActivate={noop} />
+              }
+            />
+            <BrowserListTable
+              label="People"
+              className="gallery-people-table"
+              columns={[
+                { id: 'name', label: 'Name' },
+                { id: 'role', label: 'Role', hideBelow: 'phone' },
+              ]}
+              rows={[
+                {
+                  id: 'ben',
+                  cells: [
+                    <a key="ben" href="#list">
+                      Ben
+                    </a>,
+                    'Owner',
+                  ],
+                },
+                { id: 'mei', cells: ['Mei', 'Member'] },
+              ]}
+            />
+          </>
+        )}
+      </Pair>
       <Pair title="BrowserList and BrowserListRow">
         {() => (
           <BrowserList label="Pages">

@@ -78,19 +78,14 @@ test('Remote routes separate the global list and current-door tabs without obsol
       '/remote/join',
       '/remote/overview',
       '/remote/members',
+      '/remote/invites',
       '/remote/my-devices',
-      '/remote/settings',
       '/remote/service',
+      '/remote/settings',
     ],
   );
   assert.equal(remoteItem('/remote')?.id, 'remotes');
-  for (const old of [
-    '/remote/machine',
-    '/remote/devices',
-    '/remote/connect',
-    '/remote/invites',
-    '/remote/unknown',
-  ])
+  for (const old of ['/remote/machine', '/remote/devices', '/remote/connect', '/remote/unknown'])
     assert.equal(remoteItem(old), undefined);
   assert.equal(new Set(REMOTE_PATHS).size, REMOTE_PATHS.length);
   assert.equal(REMOTE_PATHS.at(-1), '/remote/');
@@ -104,6 +99,10 @@ test('Remote routes separate the global list and current-door tabs without obsol
       assert.match(remoteTabAccess(item, undefined).reason, /not confirmed/);
     } else assert.equal(remoteTabAccess(item, 'user').locked, false);
   }
+  assert.match(
+    remoteTabAccess(remoteItem('/remote/invites')!, 'user').reason,
+    /Only an admin can invite people/,
+  );
 });
 
 test('one pairing guidance owner preserves uncertainty and verified-refusal boundaries', async () => {

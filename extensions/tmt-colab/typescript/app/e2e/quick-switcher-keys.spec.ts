@@ -8,7 +8,7 @@ async function mount(page: Page) {
     }),
   );
   await page.goto('/');
-  await expect(page.locator('.pages > li')).toHaveCount(3);
+  await expect(page.locator('.pages [data-page-id]')).toHaveCount(3);
   await page.getByRole('button', { name: 'Search TMT', exact: true }).click();
 }
 const dialog = (page: Page) => page.getByRole('dialog', { name: 'Search pages', exact: true });

@@ -70,6 +70,8 @@ export const covered = {
   BrowserTabs: 'tabs',
   BrowserList: 'list',
   BrowserListRow: 'list',
+  BrowserListTable: 'list',
+  BrowserPageSubheader: 'list',
   BrowserSection: 'section',
   BrowserTable: 'table',
   BrowserDisclosure: 'disclosure',

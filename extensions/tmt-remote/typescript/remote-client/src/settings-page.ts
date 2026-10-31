@@ -5,6 +5,7 @@ import { remoteRegistryPage, type RemoteRegistryPage } from './remote-registry-p
 import type { RemoteShell } from './remote-shell.js';
 import {
   invitationPage,
+  invitations,
   management,
   members,
   reopenSession,
@@ -15,6 +16,9 @@ import { renderFirestore } from './firestore-page.js';
 import { createPage } from './create-page.js';
 import { accessRefused, ManagementPage, type PageIntent } from './management-page.js';
 import { MembersPage, mountMembersPage } from './members-page.js';
+import { IssuedInvitationsPage } from './issued-invitations-page.js';
+import { mountInvitesPage } from './invites-page.js';
+import { createIcon } from '@tmt/browser-ui/glyph';
 import { browserUiClasses, createActionMark } from '@tmt/browser-ui/static';
 import { createBusyMarkGate } from '@tmt/browser-ui/busy-mark';
 
@@ -88,6 +92,16 @@ export async function settingsPage(
   let people: MembersPage | undefined;
   let peopleView: ReturnType<typeof mountMembersPage> | undefined;
   let invitationAttached = false;
+  let invites: IssuedInvitationsPage | undefined;
+  let invitesView: ReturnType<typeof mountInvitesPage> | undefined;
+  let invitesUnread = false;
+  const inviteButton = shell ? document.getElementById('remote-invite') : null;
+  // The page can mount again in the same shell; the button keeps one leading icon.
+  if (inviteButton && !inviteButton.querySelector(':scope > svg'))
+    inviteButton.prepend(createIcon('link'));
+  /** Only the connected owner browser reads or changes issued invitations. */
+  const mayInvite = (): boolean =>
+    !!page && page.access === 'live' && people?.roster?.administrator === true;
   let invitationSession: Session | undefined;
   const registryState = registry ?? remoteRegistryPage(undefined, shell);
   const invitationRoot = shell && document.getElementById('owner-invitation');
@@ -121,6 +135,7 @@ export async function settingsPage(
     : undefined;
   const otherHold = (): string =>
     ownerInvitations?.heldBy() ||
+    invitesView?.heldBy() ||
     (people?.busy
       ? 'A People request is in progress.'
       : people?.outcome?.state === 'unknown'
@@ -146,7 +161,8 @@ export async function settingsPage(
     if (page.busy) return 'A request is in progress. Wait for its outcome.';
     if (page.outcome?.state === 'unknown')
       return 'Another change is still unconfirmed. Check the saved value first.';
-    const peopleReason = peopleView?.heldBy() || ownerInvitations?.heldBy();
+    const peopleReason =
+      peopleView?.heldBy() || ownerInvitations?.heldBy() || invitesView?.heldBy();
     if (peopleReason) return peopleReason;
     for (const device of page.devices?.devices ?? []) {
       const name = rows.get(device.clientId)?.querySelector<HTMLInputElement>('input');
@@ -316,15 +332,15 @@ export async function settingsPage(
     if (people && page.access === 'lost' && people.access !== 'lost') people.invalidateAccess(true);
     else if (people && page.access !== 'live' && ['checking', 'live'].includes(people.access))
       people.invalidateAccess();
-    const mayInvite = page.access === 'live' && people?.roster?.administrator === true;
-    if (!mayInvite && invitationAttached) {
+    const owner = mayInvite();
+    if (!owner && invitationAttached) {
       invitationAttached = false;
       ownerInvitations?.();
-    } else if (mayInvite && !invitationAttached && invitationSession) {
+    } else if (owner && !invitationAttached && invitationSession) {
       invitationAttached = true;
       ownerInvitations?.(invitationSession);
     }
-    if (!mayInvite && invitationRoot && !ownerInvitations?.heldBy()) {
+    if (!owner && invitationRoot && !ownerInvitations?.heldBy()) {
       const status = invitationRoot.querySelector<HTMLElement>('#invitation-status');
       if (status)
         status.textContent =
@@ -336,6 +352,14 @@ export async function settingsPage(
     }
     ownerInvitations?.update();
     peopleView?.render();
+    invitesView?.render();
+    void readInvites();
+    const invitesContent = document.getElementById('invites-content');
+    if (invitesContent) invitesContent.hidden = people?.roster?.administrator === false;
+    if (inviteButton) {
+      inviteButton.hidden = !owner;
+      fence(inviteButton as HTMLButtonElement, !owner || !!invites?.busy || !!otherHold());
+    }
     registryState(
       page.access === 'live'
         ? 'Connected'
@@ -495,7 +519,7 @@ export async function settingsPage(
         let row = rows.get(device.clientId);
         if (!row) {
           row = document.createElement('div');
-          row.className = 'device';
+          row.className = 'device tmt-ui-list-row';
           const summary = document.createElement('p');
           summary.className = 'device-summary';
           const form = document.createElement('form');
@@ -871,9 +895,33 @@ export async function settingsPage(
           !ownerInvitations?.heldBy()
         )
           void peopleView.refresh();
+        void enterInvites();
       },
       { signal: shell?.signal },
     );
+  /** Invites reads once per entry or explicit refresh, after People confirms this browser is the
+   * owner. An entry that meets another request in flight reads when that request settles. */
+  async function enterInvites(): Promise<void> {
+    invitesUnread = remoteItem(location.pathname)?.id === 'invites';
+    await readInvites();
+  }
+  async function readInvites(): Promise<void> {
+    if (!invitesUnread || remoteItem(location.pathname)?.id !== 'invites') return;
+    if (!page || page.access !== 'live') return;
+    if (!people?.roster && !people?.busy && !otherHold()) await peopleView?.refresh();
+    if (!mayInvite() || !invites || invites.busy || otherHold()) return;
+    invitesUnread = false;
+    await invitesView?.refresh();
+  }
+  inviteButton?.addEventListener('click', () => {
+    if (!invitesView || !mayInvite()) return;
+    if (remoteItem(location.pathname)?.id !== 'invites') {
+      shell?.navigate(new URL('/remote/invites', location.href).href);
+      // A retained draft can refuse the navigation; never create from the page it protects.
+      if (remoteItem(location.pathname)?.id !== 'invites') return;
+    }
+    void invitesView.invite();
+  });
   async function initialize(session: Session): Promise<void> {
     if (page) return;
     shell?.observedSession?.(session);
@@ -915,10 +963,40 @@ export async function settingsPage(
         },
         document.getElementById('people-observation'),
       );
+      const invitesRoot = document.getElementById('invites-content');
+      if (invitesRoot) {
+        invites = new IssuedInvitationsPage(invitations(session), async () =>
+          invitations(await reopen()),
+        );
+        invitesView = mountInvitesPage(invitesRoot, invites, shell.signal, {
+          otherBusy: () =>
+            !mayInvite() ||
+            page.busy ||
+            page.outcome?.state === 'unknown' ||
+            !!people?.busy ||
+            people?.outcome?.state === 'unknown' ||
+            !!ownerInvitations?.heldBy(),
+          changed: () => {
+            if (page) render();
+          },
+          confirm: () => {
+            // Mock D's Invites tab is only the list: confirming happens where People keeps it.
+            if (remoteItem(location.pathname)?.id !== 'members')
+              shell?.navigate(new URL('/remote/members', location.href).href);
+            const section = document.getElementById('owner-invitation');
+            section?.scrollIntoView({ block: 'start' });
+            (
+              section?.querySelector<HTMLElement>('#invitation-candidate:not([hidden]) input') ??
+              section?.querySelector<HTMLElement>('#invitation-refresh')
+            )?.focus();
+          },
+        });
+      }
     }
     await run(() => refreshView());
     if (page.access === 'live') {
       if (remoteItem(location.pathname)?.id === 'members') await peopleView?.refresh();
+      await enterInvites();
     }
   }
   function unavailable(error: unknown, report = true): void {
