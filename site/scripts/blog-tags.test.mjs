@@ -8,6 +8,7 @@ import { metadata, artifactHash, sha256, stableJson } from "../src/blog/content.
 import { postTags } from "../src/blog/tags.mjs";
 import { indexBody, postBody, rss, locationConfig } from "../src/blog/site.mjs";
 import { generate, blogBuild } from "../src/blog/build.mjs";
+import { prunePages } from "../src/blog/pages.mjs";
 import { verifyDist } from "../src/blog/verify-dist.mjs";
 
 const meta = {
@@ -181,7 +182,13 @@ test("used tags produce filtered static indexes and sitemap entries at every sit
 test("built tag pages verify CSP, canonical and assets; unknown tags fail before building", async () =>
   taggedWorld(async (root) => {
     const origin = "https://example.com";
-    const blog = await blogBuild({ root, base: "/tmt/", origin, development: false });
+    const blog = await blogBuild({
+      root,
+      base: "/tmt/",
+      origin,
+      repository: "build-owner/project",
+      development: false,
+    });
     await build({
       configFile: false,
       root,
@@ -192,6 +199,9 @@ test("built tag pages verify CSP, canonical and assets; unknown tags fail before
     });
     const dist = join(root, "dist");
     await verifyDist(dist, { origin });
+    const pages = join(root, "dist-pages");
+    await prunePages(dist, pages, { origin, repository: "build-owner/project" });
+    await verifyDist(pages, { origin, repository: "build-owner/project", pages: true });
     const tagPage = join(dist, "blog/tags/design/index.html");
     const html = await readFile(tagPage, "utf8");
     await writeFile(
@@ -217,7 +227,13 @@ test("built tag pages verify CSP, canonical and assets; unknown tags fail before
     const saved = JSON.parse(await readFile(metaPath, "utf8"));
     await writeFile(metaPath, JSON.stringify({ ...saved, tags: ["unknown"] }));
     await assert.rejects(
-      blogBuild({ root, base: "/tmt/", origin, development: false }),
+      blogBuild({
+        root,
+        base: "/tmt/",
+        origin,
+        repository: "build-owner/project",
+        development: false,
+      }),
       /Unknown post tag/,
     );
   }));

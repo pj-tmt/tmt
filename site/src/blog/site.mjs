@@ -24,11 +24,33 @@ export function assertSiteOrigin(origin) {
     throw new Error("SITE_ORIGIN must be an HTTPS origin without a trailing slash or path");
 }
 
-export function locationConfig({ base, origin = localOrigin } = {}) {
+export function repositoryUrl(
+  repository = process.env.SITE_REPOSITORY || process.env.GITHUB_REPOSITORY,
+) {
+  if (
+    !/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(repository ?? "") ||
+    repository.split("/").some((part) => part === "." || part === "..")
+  )
+    throw new Error("SITE_REPOSITORY or GITHUB_REPOSITORY must name owner/repository");
+  return `https://github.com/${repository}`;
+}
+
+export function locationConfig({ base, origin = localOrigin, repository } = {}) {
   if (!/^\/(?:[A-Za-z0-9_-]+\/)*$/.test(base))
     throw new Error("SITE_BASE must be an absolute directory path ending in /");
   assertSiteOrigin(origin);
-  return { siteBase: base, base: base + "blog/", origin, url: origin + base + "blog/" };
+  return {
+    siteBase: base,
+    base: base + "blog/",
+    origin,
+    url: origin + base + "blog/",
+    repository: repositoryUrl(
+      repository ||
+        process.env.SITE_REPOSITORY ||
+        process.env.GITHUB_REPOSITORY ||
+        "example/repository",
+    ),
+  };
 }
 
 export async function filesBelow(root, prefix = "") {
@@ -140,11 +162,11 @@ ${demo ? '<meta name="robots" content="noindex,nofollow">' : `${fallback ? '<met
 <link rel="stylesheet" href="/src/blog/blog.css">
 </head><body>
 <a class="skip-link" lang="en" href="#main">Skip to content</a>
-<header class="site-header" lang="en"><a class="brand" href="${e(languageIndex)}"><img vite-ignore src="${e(location.base)}mark.svg" width="30" height="30" alt=""><span>tmt</span><span class="brand-divider"></span><span>journal</span></a><nav aria-label="Main"><a href="${e(languageIndex)}">Articles</a><a href="${e(languageIndex)}feed.xml">RSS ↗</a><a href="${e(location.siteBase)}">Explore TMT ↗</a></nav></header>
+<header class="site-header" lang="en"><a class="brand" href="${e(languageIndex)}"><img vite-ignore src="${e(location.base)}mark.svg" width="30" height="30" alt=""><span>tmt</span><span class="brand-divider"></span><span>journal</span></a><nav aria-label="Main"><a href="${e(languageIndex)}">Articles</a><a href="${e(languageIndex)}feed.xml">RSS ↗</a><a href="${e(location.repository)}">Explore TMT ↗</a></nav></header>
 <nav class="language-switcher" aria-label="${slug ? "Article" : tag ? "Topic" : "Index"} language" lang="en">${switcher}</nav>
 ${demo ? '<div class="preview-notice">◇ Template preview · Example content, not a published post</div>' : ""}
 <main id="main">${body}</main>
-<footer class="site-footer" lang="en"><span>TMT Journal</span><span>Tools for people and agents.</span><a href="${e(location.siteBase)}">TMT ↗</a></footer>
+<footer class="site-footer" lang="en"><span>TMT Journal</span><span>Tools for people and agents.</span><a href="${e(location.repository)}">TMT ↗</a></footer>
 </body></html>\n`;
 }
 

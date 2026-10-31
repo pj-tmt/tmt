@@ -126,6 +126,7 @@ test("a production build needs SITE_ORIGIN and its artifact names that origin, n
         base: "/tmt/",
         demo: false,
         development: false,
+        repository: "build-owner/project",
         ...options,
       });
       return build({
@@ -138,6 +139,7 @@ test("a production build needs SITE_ORIGIN and its artifact names that origin, n
       });
     };
     await assert.rejects(bundle(), /SITE_ORIGIN is required/);
+    await assert.rejects(bundle({ origin, repository: "" }), /must name owner\/repository/);
     await assert.rejects(bundle({ origin: "" }), /SITE_ORIGIN is required/);
     // A development server and a demo build need none.
     await blogBuild({ root, base: "/tmt/", demo: false, development: true });
