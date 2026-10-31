@@ -1,12 +1,12 @@
-import { PageStateMenu } from './page-state-menu.js';
 import { text } from './strings.js';
 import {
   BrowserAction,
   BrowserCountChip,
   BrowserDialog,
   BrowserField,
+  BrowserIconAction,
 } from '@tmt/browser-ui/react';
-import { Funnel, Menu, Plus } from 'lucide-react';
+import { ChevronLeft, Funnel, GripVertical, Plus } from 'lucide-react';
 import { useId, useRef, useState } from 'react';
 import { listPages, type HomeSearch } from './page-list-filter.js';
 import type { PageSummary } from './transport.js';
@@ -42,8 +42,10 @@ export function ShortcutDialog(props: ShortcutDialogProps) {
   );
   const [error, setError] = useState<string>();
   const [drag, setDrag] = useState<string>();
+  const [mobileView, setMobileView] = useState<'list' | 'editor'>('list');
   const id = useId();
   const input = useRef<HTMLInputElement>(null);
+  const list = useRef<HTMLElement>(null);
   const manage = mode === 'manage';
   const title = manage ? t.manage : mode === 'edit' ? t.edit : t.saveAs;
   const failure = () => setError(t.saveFailed);
@@ -83,6 +85,7 @@ export function ShortcutDialog(props: ShortcutDialogProps) {
       size={manage ? 'wide' : 'regular'}
       className="shortcut-dialog"
       data-mode={mode}
+      data-mobile-view={mobileView}
       onDismiss={onClose}
       initialFocus={() => input.current}
       focusFallback={props.focusFallback}
@@ -122,7 +125,7 @@ export function ShortcutDialog(props: ShortcutDialogProps) {
     >
       <div className="shortcut-columns" data-manage={manage || undefined}>
         {manage && (
-          <nav aria-label={t.savedList}>
+          <nav ref={list} aria-label={t.savedList}>
             <ul className="shortcut-list">
               {items.map((item) => (
                 <li
@@ -143,14 +146,18 @@ export function ShortcutDialog(props: ShortcutDialogProps) {
                   }}
                 >
                   <span role="img" aria-label={t.drag} title={t.drag}>
-                    <Menu aria-hidden size={16} />
+                    <GripVertical aria-hidden size={16} />
                   </span>
                   <button
                     type="button"
                     aria-current={selected === item.id ? 'true' : undefined}
                     title={item.name}
                     aria-keyshortcuts="Alt+ArrowUp Alt+ArrowDown"
-                    onClick={() => choose(item)}
+                    onClick={() => {
+                      choose(item);
+                      setMobileView('editor');
+                      requestAnimationFrame(() => input.current?.focus());
+                    }}
                     onKeyDown={(event) => {
                       if (
                         event.isTrusted &&
@@ -178,12 +185,31 @@ export function ShortcutDialog(props: ShortcutDialogProps) {
               leadingIcon={<Plus />}
               onActivate={() => {
                 choose();
-                input.current?.focus();
+                setMobileView('editor');
+                requestAnimationFrame(() => input.current?.focus());
               }}
             />
           </nav>
         )}
         <div className="shortcut-editor">
+          {manage && (
+            <div className="shortcut-mobile-back">
+              <BrowserIconAction
+                type="button"
+                variant="text"
+                label={t.backToList}
+                icon={<ChevronLeft />}
+                onActivate={() => {
+                  setMobileView('list');
+                  requestAnimationFrame(() =>
+                    list.current
+                      ?.querySelector<HTMLButtonElement>('button[aria-current], button')
+                      ?.focus(),
+                  );
+                }}
+              />
+            </div>
+          )}
           <BrowserField
             controlId={`${id}-name`}
             label={t.name}
@@ -229,7 +255,28 @@ export function ShortcutDialog(props: ShortcutDialogProps) {
                 label={t.pageState}
                 renderControl={(field) => (
                   <div {...field} role="group" className="shortcut-state">
-                    <PageStateMenu state={search.state} onChange={(state) => patch({ state })} />
+                    {(['todo', 'in-progress', 'done'] as const).map((state) => {
+                      const states = search.state
+                        ? Array.isArray(search.state)
+                          ? search.state
+                          : [search.state]
+                        : [];
+                      const pressed = states.includes(state);
+                      return (
+                        <BrowserCountChip
+                          key={state}
+                          label={text.workBand.taskState[state]}
+                          pressed={pressed}
+                          tone={pressed ? 'attention' : 'neutral'}
+                          onActivate={() => {
+                            const next = pressed
+                              ? states.filter((item) => item !== state)
+                              : [...states, state];
+                            patch({ state: next.length ? next : undefined });
+                          }}
+                        />
+                      );
+                    })}
                   </div>
                 )}
               />

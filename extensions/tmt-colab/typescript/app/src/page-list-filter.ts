@@ -17,7 +17,7 @@ export interface HomeSearch {
   archived?: true;
   /** Only the pages with an item waiting on the viewer. */
   needs?: true;
-  state?: PageState;
+  state?: PageState | PageState[];
   includeArchived?: true;
   shortcut?: string;
 }
@@ -71,8 +71,15 @@ export function validateHomeSearch(search: Record<string, unknown>): HomeSearch 
   if (stage && stage !== DEFAULT_VIEW) out.stage = stage;
   if (search.archived === true || search.archived === 'true') out.archived = true;
   if (search.needs === true || search.needs === 'true') out.needs = true;
-  if (['todo', 'in-progress', 'done'].includes(search.state as string))
-    out.state = search.state as PageState;
+  const states = Array.isArray(search.state) ? search.state : [search.state];
+  const selected = [
+    ...new Set(
+      states.filter((state): state is PageState =>
+        ['todo', 'in-progress', 'done'].includes(state as string),
+      ),
+    ),
+  ];
+  if (selected.length) out.state = selected;
   if (search.includeArchived === true || search.includeArchived === 'true')
     out.includeArchived = true;
   if (

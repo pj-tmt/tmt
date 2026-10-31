@@ -766,7 +766,8 @@ page lacks a summary the visible list also reads every 2 s, at most 15 times (`h
 `page-layers.ts` composes the existing question/review/reading owners for the page; the action
 owners report lifetime separately from stale-outcome presentation fences.
 
-Manual `state` is independent of task-derived `stage`; missing state does not match. Include
+Manual `state` is independent of task-derived `stage`; selected states are a union and missing
+state does not match. A legacy single-state saved filter is read as one selection. Include
 archived is a union, while the Archived tab remains archived-only. `shortcuts.ts` validates saved
 filters and names; `shortcut-store.ts` persists one versioned browser-local record per space,
 rereading before each synchronous mutation. `use-shortcuts.ts` observes same-page events and
@@ -775,10 +776,11 @@ its space is defined. Home calls `ShortcutStore.migrate` once for explicit proje
 automatic suggestions are excluded, records and marker persist together, and owner pins are
 unchanged. Corrupt/newer data and failed writes are reported and retained.
 `shortcut-dialogs.tsx` owns Save and the Edit/Manage filter editor, matching previews and
-ordering. Its fields use `BrowserField`, project and additional-condition toggles use
-`BrowserCountChip`, and `page-state-menu.tsx` shares the manual state menu with Home.
-The page-list hero offers Save/Edit; the sidebar Shortcuts group opens Manage. These
-preferences are not synced or shared.
+ordering. Its fields use `BrowserField`; project, multi-select state and additional-condition toggles
+use `BrowserCountChip`. Home shows applied conditions as removable search chips and adds conditions
+through its Filter menu. The action row offers Save/Edit; the sidebar Shortcuts group opens Manage.
+On phones Manage opens its full-screen list, then an editor with a back action. These preferences
+are not synced or shared.
 
 `home.tsx` renders the list from the same pages;
 `manage-page.tsx` holds the shared management dialog host. The React-free filter owner is

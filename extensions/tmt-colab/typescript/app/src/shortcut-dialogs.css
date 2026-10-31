@@ -26,9 +26,6 @@
 .shortcut-list > li:has([aria-current]) {
   background: var(--tmt-ui-surface-hover);
 }
-.shortcut-list > li:has([aria-current]) {
-  box-shadow: inset 2px 0 var(--tmt-ui-color-accent);
-}
 .shortcut-list > li > button:not(.tmt-ui-icon-action) {
   flex: 1;
   min-width: 0;
@@ -46,7 +43,7 @@
 .shortcut-editor {
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 16px;
   min-width: 0;
 }
 .shortcut-editor label,
@@ -152,6 +149,43 @@
   }
   .shortcut-columns[data-manage] > .shortcut-editor {
     padding: 16px;
-    gap: 14px;
+    gap: 16px;
   }
+}
+
+.shortcut-state {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.shortcut-mobile-back {
+  display: none;
+}
+@media (max-width: 650px) {
+  .tmt-ui-dialog.shortcut-dialog[data-mode='manage'] {
+    inset: 0;
+    width: 100vw;
+    height: 100dvh;
+    max-height: 100dvh;
+    margin: 0;
+    border: 0;
+    border-radius: 0;
+  }
+  .shortcut-dialog[data-mode='manage'] .tmt-ui-dialog-body {
+    flex: 1;
+  }
+  .shortcut-dialog[data-mode='manage'][data-mobile-view='list'] .shortcut-editor,
+  .shortcut-dialog[data-mode='manage'][data-mobile-view='editor'] .shortcut-columns > nav {
+    display: none;
+  }
+  .shortcut-dialog[data-mode='manage'] .shortcut-columns > nav {
+    max-height: none;
+  }
+  .shortcut-dialog[data-mode='manage'] .shortcut-mobile-back {
+    display: block;
+  }
+}
+.shortcut-editor .tmt-ui-field-description {
+  color: var(--tmt-ui-color-secondary);
+  font-size: var(--tmt-ui-page-subtitle-compact-size);
 }

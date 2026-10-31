@@ -151,20 +151,23 @@ test('in a long thread a reader at the bottom stays pinned and the composer hold
 
 test('in a long thread a reader scrolled up is held and the composer holds', async ({ page }) => {
   const thread = await history(page);
-  const messages = thread.locator('.thread-messages');
+  const scroller = thread.locator(
+    'xpath=ancestor::div[contains(concat(" ", normalize-space(@class), " "), " tmt-ui-drawer-body " )]',
+  );
   const composer = thread.locator('.conversation-composer');
-  await messages.evaluate((node) => {
+  await scroller.evaluate((node) => {
     node.scrollTop = 150;
   });
-  await messages.evaluate(
+  await scroller.evaluate(
     () => new Promise<void>((resolve) => requestAnimationFrame(() => resolve())),
   );
-  const top = await messages.evaluate((node) => node.scrollTop);
+  const top = await scroller.evaluate((node) => node.scrollTop);
+  expect(top).toBe(150);
   const before = await place(composer);
   const beforeBox = (await composer.boundingBox())!;
   await run(page, 'scrollArrival');
   await expect(thread.getByTestId('comment-entry')).toHaveCount(41);
-  await expect.poll(() => messages.evaluate((node) => node.scrollTop)).toBe(top);
+  await expect.poll(() => scroller.evaluate((node) => node.scrollTop)).toBe(top);
   expect(await place(composer)).toEqual(before);
   expect(Math.abs((await composer.boundingBox())!.y - beforeBox.y)).toBeLessThanOrEqual(0.01);
 });
@@ -178,6 +181,13 @@ test('a draft with an attachment stays fixed when a thread receives a message', 
   await input.fill('A retained draft');
   await attach(page, [{ name: 'notes.txt', mimeType: 'text/plain', buffer: Buffer.from('Notes') }]);
   await expect(thread.getByTestId('attachment-chip')).toHaveCount(1);
+  const scroller = thread.locator(
+    'xpath=ancestor::div[contains(concat(" ", normalize-space(@class), " "), " tmt-ui-drawer-body " )]',
+  );
+  await scroller.evaluate((node) => {
+    node.scrollTop = 150;
+  });
+  await expect.poll(() => scroller.evaluate((node) => node.scrollTop)).toBe(150);
   const before = (await composer.boundingBox())!;
   await run(page, 'scrollArrival');
   await expect(thread.getByTestId('comment-entry')).toHaveCount(41);

@@ -32,15 +32,18 @@ test('Save current filters, edit the shortcut, retain drafts on failed storage a
   page,
 }) => {
   await mount(page);
-  await page.getByRole('checkbox', { name: 'Include archived', exact: true }).check();
+  await page.getByRole('button', { name: 'Filter', exact: true }).click();
+  await page.getByRole('menuitemcheckbox', { name: 'Include archived', exact: true }).click();
   await page.getByRole('button', { name: 'Save as shortcut', exact: true }).click();
   const dialog = page.getByRole('dialog', { name: 'Save as shortcut', exact: true });
   await dialog.getByRole('textbox', { name: 'Name', exact: true }).fill('My work');
   await dialog.getByRole('button', { name: 'Save', exact: true }).click();
   await expect(dialog).not.toBeVisible();
   const hero = page.locator('.page-list-hero:visible');
-  await expect(hero.getByRole('heading', { name: 'My work', exact: true })).toBeVisible();
-  await expect(hero).toContainText('Shortcut · Include archived');
+  await expect(page.locator('#list-fixture header').first()).toContainText('My work');
+  await expect(page.locator('#list-fixture .page-list-search-box')).toContainText(
+    'Include archived',
+  );
   await expect(
     hero.getByRole('button', { name: 'Edit shortcut', exact: true }).locator('svg.lucide-pencil'),
   ).toBeVisible();
@@ -155,6 +158,8 @@ for (const width of [390, 1440])
       if (width === 390) await page.getByRole('button', { name: 'Open navigation' }).click();
       await manageShortcuts(page).click();
       const manage = page.getByRole('dialog', { name: 'Manage shortcuts', exact: true });
+      if (width === 390)
+        await manage.getByRole('button', { name: 'Design reviews', exact: true }).click();
       await expect(manage.getByRole('textbox', { name: 'Name', exact: true })).toHaveValue(
         'Design reviews',
       );
@@ -175,14 +180,13 @@ for (const width of [390, 1440])
 
 test('Clear filters also clears manual state and include archived', async ({ page }) => {
   await mount(page);
-  await page.getByRole('button', { name: 'Page state: Any', exact: true }).click();
-  await page.getByRole('menuitemradio', { name: 'To do', exact: true }).click();
-  await page.getByRole('checkbox', { name: 'Include archived', exact: true }).check();
+  await page.getByRole('button', { name: 'Filter', exact: true }).click();
+  await page.getByRole('menuitemcheckbox', { name: 'To do', exact: true }).click();
+  await page.getByRole('button', { name: 'Filter', exact: true }).click();
+  await page.getByRole('menuitemcheckbox', { name: 'Include archived', exact: true }).click();
   await page.getByRole('button', { name: 'Clear filters', exact: true }).click();
-  await expect(page.getByRole('button', { name: 'Page state: Any', exact: true })).toBeVisible();
-  await expect(
-    page.getByRole('checkbox', { name: 'Include archived', exact: true }),
-  ).not.toBeChecked();
+  await expect(page.getByRole('button', { name: 'Remove To do' })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Remove Include archived' })).toHaveCount(0);
 });
 
 test('another tab receives storage updates; a separate browser profile has no saved shortcut', async ({
@@ -369,9 +373,7 @@ test('no shortcut record is read or written before the space is defined', async 
   await expect(page.getByRole('button', { name: 'Save as shortcut', exact: true })).toBeDisabled();
 });
 
-test('Manage uses shared field labels and the same page-state menu as the list', async ({
-  page,
-}) => {
+test('Manage uses shared field labels and multi-select page-state chips', async ({ page }) => {
   await mount(page);
   await manageShortcuts(page).click();
   const dialog = page.getByRole('dialog', { name: 'Manage shortcuts', exact: true });
@@ -382,9 +384,23 @@ test('Manage uses shared field labels and the same page-state menu as the list',
   );
   expect(new Set(positions).size).toBe(1);
   await expect(dialog.locator('select')).toHaveCount(0);
-  await dialog.getByRole('button', { name: /^Page state:/ }).click();
-  await page.getByRole('menuitemradio', { name: 'Done', exact: true }).click();
-  await expect(dialog.getByRole('button', { name: 'Page state: Done', exact: true })).toBeVisible();
+  await expect(dialog.getByText('None selected means every project.')).toHaveCSS(
+    'font-size',
+    '12px',
+  );
+  await dialog.getByRole('button', { name: 'Done', exact: true }).click();
+  await expect(dialog.getByRole('button', { name: 'Done', exact: true })).toHaveAttribute(
+    'aria-pressed',
+    'true',
+  );
+  await dialog.getByRole('button', { name: 'To do', exact: true }).click();
+  await expect(dialog.getByRole('button', { name: 'To do', exact: true })).toHaveAttribute(
+    'aria-pressed',
+    'true',
+  );
+  await dialog.getByRole('textbox', { name: 'Name' }).fill('Two states');
+  await dialog.getByRole('button', { name: 'Save', exact: true }).click();
+  expect((await record(page)).items[0].search.state).toEqual(['done', 'todo']);
 });
 
 test('the side menu lists the shortcuts, selects exactly one row and opens the list dialogs', async ({
@@ -483,7 +499,10 @@ test('sidebar edit, delete and keyboard reorder keep shortcut identity and focus
   await row('Third').getByRole('button', { name: 'Edit Third' }).click();
   const edit = page.getByRole('dialog', { name: 'Edit shortcut', exact: true });
   await expect(edit.getByRole('textbox', { name: 'Name' })).toHaveValue('Third');
-  await expect(edit.getByRole('checkbox', { name: 'blog', exact: true })).toBeChecked();
+  await expect(edit.getByRole('button', { name: 'blog', exact: true })).toHaveAttribute(
+    'aria-pressed',
+    'true',
+  );
   await edit.getByRole('button', { name: 'Cancel', exact: true }).click();
   await railShortcuts(page).filter({ hasText: 'First' }).click();
   await row('First').hover();
@@ -637,7 +656,7 @@ test('shortcut save action and preview follow the page-list mock', async ({ page
   await mount(page);
   const hero = page.locator('.page-list-hero:visible');
   const save = hero.getByRole('button', { name: 'Save as shortcut', exact: true });
-  await expect(hero.getByRole('heading', { name: 'All pages', exact: true })).toBeVisible();
+  await expect(hero.getByRole('heading')).toHaveCount(0);
   await expect(save.locator('svg.lucide-bookmark')).toBeVisible();
   await expect(hero.getByRole('button', { name: 'Manage shortcuts', exact: true })).toHaveCount(0);
   await expect(
@@ -673,7 +692,7 @@ test('Manage shortcut rows, project and Also chips, and preview follow the mock'
   );
   const selectedRow = dialog.locator('.shortcut-list > li').first();
   await expect(selectedRow.getByRole('img', { name: 'Drag to reorder' })).toBeVisible();
-  await expect(selectedRow.locator('svg.lucide-menu')).toBeVisible();
+  await expect(selectedRow.locator('svg.lucide-grip-vertical')).toBeVisible();
   await expect(selectedRow).toContainText('My filter');
   await expect(selectedRow.getByRole('button', { name: 'My filter' })).toHaveAttribute(
     'aria-current',
@@ -702,3 +721,129 @@ test('Manage shortcut rows, project and Also chips, and preview follow the mock'
   await expect(dialog.getByRole('button', { name: 'My filter', exact: true })).toHaveCount(0);
   expect((await record(page)).items).toHaveLength(0);
 });
+
+for (const width of [390, 1440])
+  for (const theme of ['light', 'dark'] as const)
+    test(`approved page list actions and filter chips ${width} ${theme}`, async ({
+      page,
+    }, info) => {
+      await page.setViewportSize({ width, height: 900 });
+      await page.emulateMedia({ colorScheme: theme });
+      await mount(page);
+      const hero = page.locator('.page-list-hero:visible');
+      await expect(hero.getByRole('heading')).toHaveCount(0);
+      await expect(hero).not.toContainText('Pages, decisions and conversations');
+      await expect(
+        hero.getByRole('button', { name: 'Save as shortcut', exact: true }),
+      ).toBeVisible();
+      await expect(hero.getByRole('button', { name: /New page/i })).toBeVisible();
+      const filter = page.getByRole('button', { name: 'Filter', exact: true });
+      if (width === 390) {
+        await expect(page.locator('#list-fixture .tmt-ui-tab-list')).toHaveCSS(
+          'flex-wrap',
+          'nowrap',
+        );
+        const box = (await filter.boundingBox())!;
+        expect(box.x + box.width).toBeLessThanOrEqual(width);
+        expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(
+          width,
+        );
+      }
+      await filter.click();
+      await page.getByRole('menuitemcheckbox', { name: 'To do', exact: true }).click();
+      await filter.click();
+      await page.getByRole('menuitemcheckbox', { name: 'Done', exact: true }).click();
+      await expect(page.locator('#list-fixture .page-list-search-box')).toContainText(
+        'state: To do',
+      );
+      await expect(page.locator('#list-fixture .page-list-search-box')).toContainText(
+        'state: Done',
+      );
+      const chipBoxes = await page
+        .locator('#list-fixture .page-list-condition-chips')
+        .evaluate((host) => {
+          const boundary = host.getBoundingClientRect();
+          return [...host.querySelectorAll<HTMLElement>('.tmt-ui-chip')].map((chip) => {
+            const box = chip.getBoundingClientRect();
+            return { left: box.left - boundary.left, right: boundary.right - box.right };
+          });
+        });
+      expect(chipBoxes.every((box) => box.left >= 0 && box.right >= 0)).toBe(true);
+      await expect(
+        page
+          .locator('#list-fixture .page-list-condition-chips .tmt-ui-icon-action-control')
+          .first(),
+      ).toHaveCSS('border-left-color', 'rgba(0, 0, 0, 0)');
+      if (width === 1440)
+        expect(
+          (await page.locator('#list-fixture .page-list-search-box').boundingBox())!.width,
+        ).toBeGreaterThan(500);
+      await page.screenshot({ path: info.outputPath('list-filter.png') });
+      await page.getByRole('button', { name: 'Remove To do' }).click();
+      await expect(page.locator('#list-fixture .page-list-search-box')).not.toContainText(
+        'state: To do',
+      );
+      await expect(page.locator('#list-fixture .page-list-search-box')).toContainText(
+        'state: Done',
+      );
+    });
+
+for (const theme of ['light', 'dark'] as const)
+  test(`phone Manage opens the list, then an editor with a back action and fixed footer ${theme}`, async ({
+    page,
+  }, info) => {
+    await page.setViewportSize({ width: 390, height: 900 });
+    await page.emulateMedia({ colorScheme: theme });
+    await mount(page);
+    await page.getByRole('button', { name: 'Save as shortcut', exact: true }).click();
+    const save = page.getByRole('dialog', { name: 'Save as shortcut' });
+    await save.getByRole('textbox', { name: 'Name' }).fill('My shortcut');
+    await save.getByRole('button', { name: 'Save', exact: true }).click();
+    await page.getByRole('button', { name: 'Open navigation' }).click();
+    await manageShortcuts(page).click();
+    const dialog = page.getByRole('dialog', { name: 'Manage shortcuts' });
+    await expect(dialog.getByRole('button', { name: 'My shortcut', exact: true })).toBeVisible();
+    await expect(dialog.getByRole('textbox', { name: 'Name' })).toBeHidden();
+    await page.screenshot({ path: info.outputPath('manage-list.png') });
+    await dialog.getByRole('button', { name: 'My shortcut', exact: true }).click();
+    await expect(dialog.getByRole('textbox', { name: 'Name' })).toBeVisible();
+    await expect(dialog.getByRole('button', { name: 'Save', exact: true })).toBeVisible();
+    await page.screenshot({ path: info.outputPath('manage-editor.png') });
+    await dialog.getByRole('button', { name: 'Back to shortcuts' }).click();
+    await expect(dialog.getByRole('button', { name: 'My shortcut', exact: true })).toBeVisible();
+    await expect(dialog.getByRole('button', { name: 'My shortcut', exact: true })).toBeFocused();
+  });
+
+for (const width of [390, 1440])
+  for (const theme of ['light', 'dark'] as const)
+    test(`shortcut filter, empty and storage-error review states ${width} ${theme}`, async ({
+      page,
+    }, info) => {
+      await page.setViewportSize({ width, height: 900 });
+      await page.emulateMedia({ colorScheme: theme });
+      await mount(page);
+      await page.getByRole('button', { name: 'Filter', exact: true }).click();
+      await expect(
+        page.getByRole('menuitemcheckbox', { name: 'To do', exact: true }),
+      ).toBeVisible();
+      await page.screenshot({ path: info.outputPath('filter-open.png') });
+      await page.keyboard.press('Escape');
+      if (width === 390) await page.getByRole('button', { name: 'Open navigation' }).click();
+      await manageShortcuts(page).click();
+      const manage = page.getByRole('dialog', { name: 'Manage shortcuts', exact: true });
+      await expect(manage.getByText('No shortcuts yet.')).toBeVisible();
+      await page.screenshot({ path: info.outputPath('manage-empty.png') });
+      await manage.getByRole('button', { name: 'Cancel', exact: true }).click();
+      await page.getByRole('button', { name: 'Save as shortcut', exact: true }).click();
+      const save = page.getByRole('dialog', { name: 'Save as shortcut', exact: true });
+      await save.getByRole('textbox', { name: 'Name' }).fill('Retained draft');
+      await page.evaluate(() => {
+        Storage.prototype.setItem = () => {
+          throw new Error('quota');
+        };
+      });
+      await save.getByRole('button', { name: 'Save', exact: true }).click();
+      await expect(save.getByRole('alert')).toContainText('could not');
+      await expect(save.getByRole('textbox', { name: 'Name' })).toHaveValue('Retained draft');
+      await page.screenshot({ path: info.outputPath('save-error.png') });
+    });

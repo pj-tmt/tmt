@@ -103,7 +103,9 @@ export function shortcutConditions(search: HomeSearch): string[] {
   const t = text.shortcuts;
   return [
     ...(search.project ?? []).map((name) => t.project(name)),
-    search.state && t.summaryState(text.workBand.taskState[search.state]),
+    ...(search.state ? (Array.isArray(search.state) ? search.state : [search.state]) : []).map(
+      (state) => t.summaryState(text.workBand.taskState[state]),
+    ),
     search.needs && t.needsMe,
     search.includeArchived && t.includeArchived,
     search.q && t.search(search.q),
