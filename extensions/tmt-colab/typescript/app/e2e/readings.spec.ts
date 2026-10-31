@@ -237,3 +237,40 @@ test('Why stays a plain text action and its reason preserves the passage gap', a
   await why.press('Enter');
   await expect(why).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)');
 });
+
+test('a read stays read when nearby text changes and returns when its own heading changes (#5841)', async ({
+  page,
+}) => {
+  await mount(page);
+  // The second reading: its stored quote context is the end of Decision 1's passage and the start
+  // of its own passage.
+  const band = page.locator('[data-inline-reading]').nth(1);
+  await band.getByRole('button', { name: 'Mark read', exact: true }).click();
+  await expect(band).toHaveAttribute('data-reading-state', 'read');
+  const source: string = await run(page, 'currentSource');
+  const edits = [
+    [
+      'Content of reading 1. The page remains readable after marking it read.',
+      'Reading 1 now ends differently.',
+    ],
+    ['Content of reading 2.', 'Reading 2 starts with new words.'],
+  ];
+  let edited = source;
+  for (const [from, to] of edits) {
+    expect(edited).toContain(from);
+    edited = edited.replace(from, to);
+    await run(page, 'change', edited);
+    const moved = page.locator('[data-inline-reading]').nth(1);
+    await expect(page.frameLocator('#ask-page-fixture iframe').getByText(to)).toBeVisible();
+    await expect(moved).toHaveAttribute('data-reading-state', 'read');
+    await expect(moved.getByRole('button', { name: 'Mark read', exact: true })).toHaveCount(0);
+  }
+  await run(
+    page,
+    'change',
+    edited.replace('<h2 data-title>Decision 2</h2>', '<h2 data-title>Decision 2 revised</h2>'),
+  );
+  const revised = page.locator('[data-inline-reading]').nth(1);
+  await expect(revised).toHaveAttribute('aria-label', 'Reading: Decision 2 revised');
+  await expect(revised).toHaveAttribute('data-reading-state', 'unread');
+});

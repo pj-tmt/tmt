@@ -127,6 +127,8 @@ fn project_until(
             continue;
         };
         let mut selected = Vec::new();
+        // Every occurrence of the quote alone, for a reading whose stored context drifted.
+        let mut everywhere = Vec::new();
         let mut candidates = 0;
         let mut offset = 0;
         while let Some(found) = text[offset..].find(&selector.exact) {
@@ -137,13 +139,15 @@ fn project_until(
                 return Err("summary quote budget");
             }
             let end = start + selector.exact.len();
-            if text[..start].ends_with(&selector.prefix)
-                && text[end..].starts_with(&selector.suffix)
-            {
-                let first = text[..start].chars().count();
-                let last = first + selector.exact.chars().count();
-                if first < last && last <= points.len() {
-                    selected.push((points[first].1, points[last - 1].1));
+            let first = text[..start].chars().count();
+            let last = first + selector.exact.chars().count();
+            if first < last && last <= points.len() {
+                let span = (points[first].1, points[last - 1].1);
+                everywhere.push(span);
+                if text[..start].ends_with(&selector.prefix)
+                    && text[end..].starts_with(&selector.suffix)
+                {
+                    selected.push(span);
                 }
             }
             let Some(next) = text[start..].chars().next() else {
@@ -155,7 +159,9 @@ fn project_until(
             }
         }
         if selected.len() == 1 {
-            matches.push((thread, selected[0]));
+            matches.push((thread, selected[0], false));
+        } else if selected.is_empty() && everywhere.len() == 1 {
+            matches.push((thread, everywhere[0], true));
         }
     }
     let mut anchors = SummaryAnchors::default();
@@ -223,13 +229,16 @@ fn project_until(
         }
         let associated = matches
             .iter()
-            .filter(|(thread, (a, b))| {
+            .filter(|(thread, (a, b), drifted)| {
                 let target = if tag == "tmt-question" {
                     element
                 } else {
                     heading
                 };
-                contains(tree, target, *a)
+                // Only a reading follows its heading after nearby text changed its stored context
+                // (#5841); its fixed comment, not the context, names the reading.
+                (!drifted || tag == "tmt-read")
+                    && contains(tree, target, *a)
                     && contains(tree, target, *b)
                     && (tag == "tmt-question"
                         || thread
@@ -237,7 +246,7 @@ fn project_until(
                             .as_ref()
                             .is_some_and(|quote| quote.exact == *title))
             })
-            .map(|(thread, _)| format!("{}:{}", thread.writer, thread.id))
+            .map(|(thread, _, _)| format!("{}:{}", thread.writer, thread.id))
             .collect();
         anchors.entries.insert(id.clone(), associated);
     }

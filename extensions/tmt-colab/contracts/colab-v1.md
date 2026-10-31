@@ -3632,6 +3632,12 @@ each on its own line. Only that exact device-comment form associates the reading
 scrolling, agent replies and agent Resolve cannot mark it read. The effective person Resolve
 carries the same publisher-assertion limitation as review closes, not a new authentication claim.
 The canonical thread prefers an admitted reading comment, then the existing stable thread order.
+The heading thread is located by its stored quote and context, exactly once, on the heading. When
+nearby text changed and the stored context matches nowhere, the quote alone locates it if it occurs
+exactly once on the page and lies on the heading, so editing a neighbouring passage keeps the read;
+an ambiguous quote associates nothing. Changing the heading changes the title, so the fixed comment
+no longer matches and the reading is unread again. The browser frame and the native summary apply
+the same rule (#5841).
 The existing review-close notification guarantee applies: at most one attempt per committed
 person Resolve, with frozen operation IDs and only the named agent as recipient; a later
 opposite action may supersede an attempt that has not started. Other mentions in the
