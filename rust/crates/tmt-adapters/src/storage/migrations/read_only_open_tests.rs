@@ -50,6 +50,9 @@ fn opening_a_current_database_does_not_wait_for_a_writer() {
 #[test]
 fn a_database_behind_is_still_migrated_when_opened() {
     let directory = TestDirectory::new();
+    // Migration 84 admits the hook queue directory beside the database, which must be
+    // owner-only; a database two migrations behind now replays it.
+    owner_only(&directory.path);
     let path = directory.path.join("behind.db");
     let mut old = Connection::open(&path).unwrap();
     apply_through(&mut old, MIGRATIONS.len() - 2).unwrap();
@@ -66,6 +69,9 @@ fn a_database_behind_is_still_migrated_when_opened() {
 #[test]
 fn racing_openers_of_a_database_behind_apply_each_migration_once() {
     let directory = TestDirectory::new();
+    // Migration 84 admits the hook queue directory beside the database, which must be
+    // owner-only; a database two migrations behind now replays it.
+    owner_only(&directory.path);
     let path = directory.path.join("behind.db");
     let mut old = Connection::open(&path).unwrap();
     old.pragma_update(None, "journal_mode", "WAL").unwrap();
@@ -133,4 +139,9 @@ fn a_foreign_migration_table_is_still_refused() {
         .unwrap();
     let error = apply(&mut foreign).unwrap_err();
     assert_eq!(error.code, StorageErrorCode::IncompatibleSchema);
+}
+
+fn owner_only(path: &std::path::Path) {
+    use std::os::unix::fs::PermissionsExt;
+    std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o700)).unwrap();
 }
