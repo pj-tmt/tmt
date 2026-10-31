@@ -8,6 +8,21 @@ use crate::{
     },
 };
 
+// History lists and job evidence read the same metadata-only state. Neither
+// projection loads response bodies or creates a second outcome lifecycle.
+fn summary_item<E>(
+    records: &mut dyn RequestRecords<Error = E>,
+    record: AttentionRecord,
+    now: u64,
+) -> Result<HistoryItem, RequestError<E>> {
+    let request_id = &record.attempt.request_id;
+    let policy = records.delivery_policy(request_id)?;
+    let final_state = attention::final_state(&record, now, Some(()), policy.mode)?;
+    let capture = capture(records, request_id, policy.mode, now)?;
+    let view = delivery::delivery_view(&records.delivery_facts(&record.attempt, now)?, now);
+    Ok(item(record, final_state, policy, capture, view))
+}
+
 fn valid_cursor(timestamp: u64, request_id: &str) -> bool {
     timestamp > 0
         && timestamp <= MAX_JS_SAFE_INTEGER
@@ -124,32 +139,9 @@ impl<R: RequestRepository, C: Fn() -> u64> RequestService<'_, R, C> {
             let items = rows
                 .into_iter()
                 .map(|row| {
-                    let delivery_policy =
-                        records.delivery_policy(&row.attention.attempt.request_id)?;
-                    let final_state = attention::final_state(
-                        &row.attention,
-                        now,
-                        Some(()),
-                        delivery_policy.mode,
-                    )?;
-                    let capture = capture(
-                        records,
-                        &row.attention.attempt.request_id,
-                        delivery_policy.mode,
-                        now,
-                    )?;
-                    let delivery_view = delivery::delivery_view(
-                        &records.delivery_facts(&row.attention.attempt, now)?,
-                        now,
-                    );
+                    let item = summary_item(records, row.attention, now)?;
                     Ok(HistorySummary {
-                        item: item(
-                            row.attention,
-                            final_state,
-                            delivery_policy,
-                            capture,
-                            delivery_view,
-                        ),
+                        item,
                         preview: row.preview,
                         response_preview: row.response_preview,
                     })
@@ -194,6 +186,24 @@ impl<R: RequestRepository, C: Fn() -> u64> RequestService<'_, R, C> {
                 }
             });
             Ok(AnswersPage { items, next_before })
+        })
+    }
+
+    /// Read one canonical outcome without loading prompt/final bodies or
+    /// changing attention. Missing retention remains unavailable, never success.
+    pub fn request_summary(
+        &mut self,
+        request_id: &str,
+    ) -> Result<HistoryItem, RequestError<R::Error>> {
+        nonempty(request_id)?;
+        let clock = &self.clock;
+        self.repository.with_request_observation(|records| {
+            let now = positive(clock())?;
+            let record = records
+                .find_request_history(request_id)?
+                .filter(|record| now < record.attempt.retention_expires_at_ms)
+                .ok_or(RequestError::NotFound)?;
+            summary_item(records, record, now)
         })
     }
 

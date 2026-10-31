@@ -1,4 +1,7 @@
-//! Job wire/calendar conversion. Stateless previews share the neutral leaf.
+//! Job wire/calendar conversion and public projection.
+mod read;
+pub(crate) use read::read;
+
 use serde::{Deserialize, Serialize};
 use tmt_core::orchestration::jobs::{JobError, JobSchedule};
 
@@ -81,4 +84,35 @@ pub(crate) fn calendar(schedule: &JobSchedule) -> Result<tmt_job_calendar::Sched
         return Err(JobError::Limit);
     }
     tmt_job_calendar::Schedule::from_document(&value).map_err(|_| JobError::Invalid)
+}
+
+pub(crate) fn error_code(error: &crate::storage::JobStoreError) -> &'static str {
+    use crate::storage::JobStoreError;
+    match error {
+        JobStoreError::Job(JobError::NotFound) => "ORCH_JOB_NOT_FOUND",
+        JobStoreError::Job(JobError::Conflict) => "ORCH_CONFLICT",
+        JobStoreError::Job(JobError::NoOwner) => "ORCH_JOB_NO_OWNER",
+        JobStoreError::Job(JobError::NotAllowed) => "ORCH_JOB_NOT_PERMITTED",
+        JobStoreError::Job(JobError::Limit) => "ORCH_LIMIT",
+        JobStoreError::Job(JobError::Invalid) => "ORCH_INPUT_INVALID",
+        JobStoreError::Dispatch(error) => error.code(),
+        JobStoreError::Storage(_) => "ORCH_STORAGE_UNAVAILABLE",
+    }
+}
+pub(crate) fn error_message(error: &crate::storage::JobStoreError) -> &'static str {
+    use crate::storage::JobStoreError;
+    match error {
+        JobStoreError::Job(JobError::NotFound) => "Job was not found.",
+        JobStoreError::Job(JobError::Conflict) => {
+            "Job or policy changed. Preview again before saving."
+        }
+        JobStoreError::Job(JobError::NoOwner) => "Job has no current owner.",
+        JobStoreError::Job(JobError::NotAllowed) => "This job operation is not permitted.",
+        JobStoreError::Job(JobError::Limit) => "Job operation exceeds its bounded expansion.",
+        JobStoreError::Job(JobError::Invalid) => "Invalid job input, calendar or page selection.",
+        JobStoreError::Dispatch(_) => {
+            "Job acceptance could not be confirmed. Recover its canonical dispatch receipt before retrying."
+        }
+        JobStoreError::Storage(_) => "Could not read or change job storage.",
+    }
 }

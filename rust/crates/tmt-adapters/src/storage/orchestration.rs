@@ -132,6 +132,14 @@ fn read_snapshot(
     member_query: Option<&str>,
     identity_id: Option<&str>,
 ) -> Result<OrchStoredState, StorageError> {
+    read_snapshot_selected(tx, member_query, identity_id, None)
+}
+fn read_snapshot_selected(
+    tx: &Connection,
+    member_query: Option<&str>,
+    identity_id: Option<&str>,
+    identity_ids_json: Option<&str>,
+) -> Result<OrchStoredState, StorageError> {
     let normalized = member_query.map(tmt_core::names::normalize_name);
     let member_query = normalized.as_deref();
     let (revision, time_zone): (i64, Option<String>) = tx
@@ -147,9 +155,9 @@ fn read_snapshot(
         revision: unsigned(revision)?,
         ..Default::default()
     };
-    let mut q=tx.prepare("SELECT id,name FROM identities WHERE retired_at_ms IS NULL AND (?1 IS NULL OR instr(canonical_name,?1)>0) AND (?2 IS NULL OR id=?2) ORDER BY CASE WHEN ?1 IS NOT NULL AND substr(canonical_name,1,length(?1))=?1 THEN 0 ELSE 1 END,canonical_name COLLATE BINARY LIMIT 257").map_err(|e|classify(e,"Select orchestration identities"))?;
+    let mut q=tx.prepare("SELECT id,name FROM identities WHERE retired_at_ms IS NULL AND (?1 IS NULL OR instr(canonical_name,?1)>0) AND (?2 IS NULL OR id=?2) AND (?3 IS NULL OR id IN (SELECT value FROM json_each(?3))) ORDER BY CASE WHEN ?1 IS NOT NULL AND substr(canonical_name,1,length(?1))=?1 THEN 0 ELSE 1 END,canonical_name COLLATE BINARY LIMIT 257").map_err(|e|classify(e,"Select orchestration identities"))?;
     snapshot.identities = q
-        .query_map(params![member_query, identity_id], |r| {
+        .query_map(params![member_query, identity_id, identity_ids_json], |r| {
             Ok(OrchIdentity {
                 id: r.get(0)?,
                 name: r.get(1)?,
@@ -208,9 +216,9 @@ fn read_snapshot(
         };
         snapshot.plans.push(plan.to_core().map_err(|_| corrupt())?);
     }
-    let mut q=tx.prepare("SELECT f.identity_id,f.revision,f.start_ms,f.end_ms FROM orchestration_focus f JOIN identities i ON i.id=f.identity_id WHERE i.retired_at_ms IS NULL AND (?1 IS NULL OR instr(i.canonical_name,?1)>0) AND (?2 IS NULL OR f.identity_id=?2) ORDER BY f.identity_id LIMIT 257").map_err(|e|classify(e,"Select personal focus"))?;
+    let mut q=tx.prepare("SELECT f.identity_id,f.revision,f.start_ms,f.end_ms FROM orchestration_focus f JOIN identities i ON i.id=f.identity_id WHERE i.retired_at_ms IS NULL AND (?1 IS NULL OR instr(i.canonical_name,?1)>0) AND (?2 IS NULL OR f.identity_id=?2) AND (?3 IS NULL OR f.identity_id IN (SELECT value FROM json_each(?3))) ORDER BY f.identity_id LIMIT 257").map_err(|e|classify(e,"Select personal focus"))?;
     let rows = q
-        .query_map(params![member_query, identity_id], |r| {
+        .query_map(params![member_query, identity_id, identity_ids_json], |r| {
             Ok((
                 r.get::<_, String>(0)?,
                 r.get::<_, i64>(1)?,

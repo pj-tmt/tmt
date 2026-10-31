@@ -138,6 +138,20 @@ impl OrchSubjectDocument {
 #[derive(Debug, Clone, Deserialize)]
 #[serde(tag = "view", rename_all = "camelCase", deny_unknown_fields)]
 pub enum OrchReadQuery {
+    Jobs {
+        #[serde(rename = "squadRoomId")]
+        squad_room_id: Option<String>,
+        #[serde(rename = "ownerIdentityId")]
+        owner_identity_id: Option<String>,
+        #[serde(rename = "jobId")]
+        job_id: Option<String>,
+        limit: Option<u16>,
+        cursor: Option<String>,
+    },
+    Job {
+        #[serde(rename = "jobId")]
+        job_id: String,
+    },
     Overview {
         #[serde(rename = "rangeDays")]
         range_days: Option<u8>,
@@ -176,6 +190,28 @@ pub fn decode_orch_query(bytes: &[u8]) -> Result<OrchReadQuery, OrchError> {
 }
 pub(crate) fn validate_query(query: &OrchReadQuery) -> Result<(), OrchError> {
     match &query {
+        OrchReadQuery::Jobs {
+            squad_room_id,
+            owner_identity_id,
+            job_id,
+            limit,
+            cursor,
+        } => {
+            if [squad_room_id, owner_identity_id, job_id]
+                .into_iter()
+                .flatten()
+                .any(|id| !canonical_id(id))
+                || limit.is_some_and(|limit| !(1..=128).contains(&limit))
+                || cursor.as_ref().is_some_and(|cursor| cursor.len() > 512)
+            {
+                return Err(OrchError::Invalid);
+            }
+        }
+        OrchReadQuery::Job { job_id } => {
+            if !canonical_id(job_id) {
+                return Err(OrchError::Invalid);
+            }
+        }
         OrchReadQuery::Overview {
             range_days,
             at_ms,

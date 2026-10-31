@@ -1,5 +1,7 @@
 //! Canonical job definitions. Transport is never performed while this writer is held.
 mod import;
+mod read;
+pub use read::{JobReadPage, JobRunEvidence};
 mod run;
 pub use import::{JobImportReceipt, JobImportReference, preview_job_import};
 pub use run::{JobRunInput, JobRunResult};
@@ -185,6 +187,7 @@ pub struct JobListRow {
     pub pending: Option<HeldJobSlot>,
     pub legacy: Option<LegacyJob>,
     pub owner_retired: bool,
+    pub owner_available: bool,
 }
 #[derive(Default)]
 pub struct JobListQuery<'a> {
@@ -319,77 +322,91 @@ impl Storage {
         &self,
         query: JobListQuery<'_>,
     ) -> Result<JobListPage, JobStoreError> {
-        if !(1..=128).contains(&query.limit)
-            || query.after_number > MAX_JS_SAFE_INTEGER
-            || [query.room_id, query.owner_id, query.job_id]
-                .into_iter()
-                .flatten()
-                .any(|id| !canonical_id(id))
-        {
-            return Err(JobError::Invalid.into());
-        }
-        // Filtering precedes LIMIT. NULL room rows are included only without a
-        // room filter; they never acquire association from present membership.
-        let sql = format!(
-            "SELECT {},i.name,i.retired_at_ms FROM orchestration_jobs j LEFT JOIN orchestration_job_legacy l ON l.job_id=j.id LEFT JOIN identities i ON i.id=j.owner_id WHERE j.removed=0 AND (?1 IS NULL OR j.room_id=?1) AND (?2 IS NULL OR j.owner_id=?2) AND (?3 IS NULL OR j.id=?3) AND j.number>?4 ORDER BY j.number LIMIT ?5",
-            COLUMNS.replace("j.message,", "substr(j.message,1,256),")
-        );
-        let mut statement = self
-            .connection()?
-            .prepare(&sql)
-            .map_err(|error| classify(error, "Prepare job page"))?;
-        let rows = statement
-            .query_map(
-                params![
-                    query.room_id,
-                    query.owner_id,
-                    query.job_id,
-                    query.after_number as i64,
-                    i64::from(query.limit) + 1
-                ],
-                |row| {
-                    Ok((
-                        decode_row(row, false)?,
-                        row.get::<_, Option<String>>(14)?,
-                        row.get::<_, Option<i64>>(15)?,
-                    ))
-                },
-            )
-            .map_err(|error| classify(error, "Read job page"))?;
-        let mut items = Vec::new();
-        for row in rows {
-            let (job, name, retired) = row.map_err(|error| classify(error, "Decode job page"))?;
-            let job = job?;
-            let mut preview = job.message;
-            let mut end = preview.len().min(256);
-            while !preview.is_char_boundary(end) {
-                end -= 1;
-            }
-            preview.truncate(end);
-            items.push(JobListRow {
-                id: job.id,
-                number: job.number,
-                revision: job.revision,
-                owner_id: job.owner_id,
-                owner_name: if retired.is_some() { None } else { name },
-                room_id: job.room_id,
-                title: job.title,
-                message_preview: preview,
-                schedule: job.schedule,
-                pause: job.pause,
-                pending: job.pending,
-                legacy: job.legacy,
-                owner_retired: retired.is_some(),
-            });
-        }
-        let next_after = if items.len() > usize::from(query.limit) {
-            items.pop();
-            items.last().map(|job| job.number)
-        } else {
-            None
-        };
-        Ok(JobListPage { items, next_after })
+        list_jobs(self.connection()?, query)
     }
+}
+
+fn list_jobs(db: &Connection, query: JobListQuery<'_>) -> Result<JobListPage, JobStoreError> {
+    if !(1..=128).contains(&query.limit)
+        || query.after_number > MAX_JS_SAFE_INTEGER
+        || [query.room_id, query.owner_id, query.job_id]
+            .into_iter()
+            .flatten()
+            .any(|id| !canonical_id(id))
+    {
+        return Err(JobError::Invalid.into());
+    }
+    // Filtering precedes LIMIT. NULL room rows are included only without a
+    // room filter; they never acquire association from present membership.
+    let sql = format!(
+        "SELECT {},i.name,i.retired_at_ms FROM orchestration_jobs j LEFT JOIN orchestration_job_legacy l ON l.job_id=j.id LEFT JOIN identities i ON i.id=j.owner_id WHERE j.removed=0 AND (?1 IS NULL OR j.room_id=?1) AND (?2 IS NULL OR j.owner_id=?2) AND (?3 IS NULL OR j.id=?3) AND j.number>?4 ORDER BY j.number LIMIT ?5",
+        COLUMNS.replace("j.message,", "substr(j.message,1,256),")
+    );
+    let mut statement = db
+        .prepare(&sql)
+        .map_err(|error| classify(error, "Prepare job page"))?;
+    let rows = statement
+        .query_map(
+            params![
+                query.room_id,
+                query.owner_id,
+                query.job_id,
+                query.after_number as i64,
+                i64::from(query.limit) + 1
+            ],
+            |row| {
+                Ok((
+                    decode_row(row, false)?,
+                    row.get::<_, Option<String>>(14)?,
+                    row.get::<_, Option<i64>>(15)?,
+                ))
+            },
+        )
+        .map_err(|error| classify(error, "Read job page"))?;
+    let mut items = Vec::new();
+    for row in rows {
+        let (job, name, retired) = row.map_err(|error| classify(error, "Decode job page"))?;
+        let job = job?;
+        let mut preview = job.message;
+        let mut end = preview.len().min(256);
+        while !preview.is_char_boundary(end) {
+            end -= 1;
+        }
+        preview.truncate(end);
+        let owner_available = job
+            .owner_id
+            .as_deref()
+            .is_some_and(|_| name.is_some() && retired.is_none())
+            && match (&job.room_id, job.owner_id.as_deref()) {
+                (Some(room), Some(owner)) => crate::storage::room::read_room(db, room)?
+                    .is_some_and(|room| room.member_ids.iter().any(|id| id == owner)),
+                (None, Some(_)) => true,
+                _ => false,
+            };
+        items.push(JobListRow {
+            id: job.id,
+            number: job.number,
+            revision: job.revision,
+            owner_id: job.owner_id,
+            owner_name: if retired.is_some() { None } else { name },
+            room_id: job.room_id,
+            title: job.title,
+            message_preview: preview,
+            schedule: job.schedule,
+            pause: job.pause,
+            pending: job.pending,
+            legacy: job.legacy,
+            owner_retired: retired.is_some(),
+            owner_available,
+        });
+    }
+    let next_after = if items.len() > usize::from(query.limit) {
+        items.pop();
+        items.last().map(|job| job.number)
+    } else {
+        None
+    };
+    Ok(JobListPage { items, next_after })
 }
 
 #[cfg(test)]

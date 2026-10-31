@@ -10,6 +10,7 @@ use tmt_core::orchestration::*;
 pub enum OrchReadFailure {
     Policy(OrchError),
     Storage(StorageError),
+    Job(crate::storage::JobStoreError),
 }
 impl From<OrchError> for OrchReadFailure {
     fn from(e: OrchError) -> Self {
@@ -21,23 +22,41 @@ impl From<StorageError> for OrchReadFailure {
         Self::Storage(e)
     }
 }
+impl From<tmt_core::orchestration::jobs::JobError> for OrchReadFailure {
+    fn from(error: tmt_core::orchestration::jobs::JobError) -> Self {
+        Self::Job(error.into())
+    }
+}
+impl From<crate::storage::JobStoreError> for OrchReadFailure {
+    fn from(error: crate::storage::JobStoreError) -> Self {
+        Self::Job(error)
+    }
+}
 impl OrchReadFailure {
     pub fn code(&self) -> &'static str {
         match self {
             Self::Policy(e) => orch_error_code(*e),
             Self::Storage(_) => "ORCH_STORAGE_UNAVAILABLE",
+            Self::Job(error) => super::jobs::error_code(error),
         }
     }
     pub fn message(&self) -> &'static str {
         match self {
             Self::Policy(e) => orch_error_message(*e),
             Self::Storage(_) => "Could not read orchestration storage.",
+            Self::Job(error) => super::jobs::error_message(error),
         }
     }
     pub fn exit(&self) -> u8 {
         match self {
             Self::Policy(OrchError::NotFound | OrchError::MemberNotFound) => 3,
             Self::Policy(OrchError::Conflict) => 5,
+            Self::Job(crate::storage::JobStoreError::Job(
+                tmt_core::orchestration::jobs::JobError::NotFound,
+            )) => 3,
+            Self::Job(crate::storage::JobStoreError::Job(
+                tmt_core::orchestration::jobs::JobError::Conflict,
+            )) => 5,
             _ => 1,
         }
     }
@@ -51,6 +70,7 @@ impl std::error::Error for OrchReadFailure {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
             Self::Storage(e) => Some(e),
+            Self::Job(e) => Some(e),
             _ => None,
         }
     }
@@ -159,6 +179,9 @@ pub fn orchestration_read_with_time(
         return Err(OrchError::Invalid.into());
     }
     let value = match query {
+        query @ (OrchReadQuery::Jobs { .. } | OrchReadQuery::Job { .. }) => {
+            super::jobs::read(storage, query, observed)?
+        }
         OrchReadQuery::Why {
             subject,
             before,

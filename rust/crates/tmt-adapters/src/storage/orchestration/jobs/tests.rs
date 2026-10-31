@@ -1,3 +1,4 @@
+mod public_read;
 use super::*;
 use crate::test_support::TestDirectory;
 use tmt_core::identity::{Lifetime, create_or_resolve};

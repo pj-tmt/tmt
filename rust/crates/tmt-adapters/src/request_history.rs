@@ -194,7 +194,10 @@ pub fn message_state(view: &tmt_core::request::delivery::DeliveryView) -> Value 
         "latestMs":view.latest_ms,"remainingMs":view.remaining_ms,"canSendNow":view.can_send_now})
 }
 
-fn item_document<T>(item: &HistoryItem<T>, content: impl FnOnce(&T) -> Option<Value>) -> Value {
+pub(crate) fn item_document<T>(
+    item: &HistoryItem<T>,
+    content: impl FnOnce(&T) -> Option<Value>,
+) -> Value {
     let final_state = match &item.final_state {
         FinalState::Withdrawn(withdrawal) => {
             json!({"status":"withdrawn", "reason":withdrawal.reason, "withdrawnAtMs":withdrawal.withdrawn_at_ms})
