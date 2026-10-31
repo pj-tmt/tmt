@@ -217,6 +217,22 @@ export function useAnnotations({
     if (key !== annotationRef.current?.key && !unsent.current.has(key))
       setAnnotations((all) => all.filter((item) => item.key !== key));
   }
+  /** Discarding a kept draft also releases the hidden window of that quote whose first comment
+   * was not sent: its failed row, alert row and draft go together. A send still running stays. */
+  function discardDraft(key: string) {
+    keepDraft(key, null);
+    const held = annotationsRef.current.find(
+      (value) =>
+        !value.thread &&
+        value.key !== annotationRef.current?.key &&
+        unsent.current.has(value.key) &&
+        annotationKey(value) === key,
+    );
+    if (!held) return;
+    unsent.current.delete(held.key);
+    setUnsentVersion((n) => n + 1);
+    setAnnotations((all) => all.filter((value) => value.key !== held.key));
+  }
   /** Shows a hidden annotation whose send failed before a record: its failed row, draft and Retry. */
   function openUnsent(key: string) {
     if (statusBusy.current || !unsent.current.has(key)) return;
@@ -298,6 +314,7 @@ export function useAnnotations({
       (value) => value.key !== visibleKey && unsent.current.has(value.key),
     ),
     openUnsent,
+    discardDraft,
     annotationRef,
     popover,
     drafts,

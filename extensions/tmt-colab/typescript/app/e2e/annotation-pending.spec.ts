@@ -1,5 +1,8 @@
 import { expect, test, type Page } from '@playwright/test';
 import { capturePath } from './captures.js';
+import { text } from '../src/strings.js';
+import { commentsClose } from '../test/comments-region.js';
+import { pageAction } from '../test/page-actions.js';
 
 // #5816: an annotation's send belongs to that annotation, so its window closes while the send
 // runs, another annotation opens beside it, and a failure after closing is never lost.
@@ -131,4 +134,33 @@ test('a send that fails after its window closed is said on the page; Open brings
   await page.keyboard.press('Escape');
   await annotate(page, SECOND);
   await expect(input(page)).toHaveText('Draft of another quote.', { useInnerText: true });
+});
+
+test('discarding the kept draft of a send that failed after closing releases its window and alert row', async ({
+  page,
+}) => {
+  await page.goto('/');
+  await run(page, 'mount');
+  await annotate(page, FIRST, 'Discard this one.');
+  await run(page, 'holdReply');
+  await run(page, 'failNextReply');
+  await send(page).click();
+  await page.keyboard.press('Escape');
+  await run(page, 'releaseReply');
+  await expect(page.locator('.page-unsent').getByRole('listitem')).toHaveCount(1);
+  // The failed comment's draft is listed with the page's kept drafts; Discard there drops it all.
+  await (await pageAction(page.locator('#ask-page-fixture'), 'Comments')).click();
+  const saved = page.getByTestId('saved-draft');
+  await expect(saved).toHaveCount(1);
+  await expect(saved.locator('.saved-draft-text')).toHaveText('Discard this one.');
+  await saved.getByRole('button', { name: text.savedDraftDiscard }).click();
+  await expect(saved).toHaveCount(0);
+  await expect(page.locator('.page-unsent')).toHaveCount(0);
+  await commentsClose(page, 'empty').click();
+  // The same quote opens a fresh composer: no failed row, no draft, nothing recorded.
+  await annotate(page, FIRST);
+  await expect(dialog(page).getByTestId('comment-echo')).toHaveCount(0);
+  await expect(input(page)).toBeEnabled();
+  await expect(input(page)).toHaveText('', { useInnerText: true });
+  expect(await run(page, 'discussionProof')).toHaveLength(0);
 });

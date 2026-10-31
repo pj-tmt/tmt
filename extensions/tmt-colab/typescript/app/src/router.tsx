@@ -1528,6 +1528,7 @@ function OpenPage({
     annotations,
     unsentAnnotations,
     openUnsent,
+    discardDraft,
     annotationRef,
     popover,
     drafts,
@@ -2358,7 +2359,7 @@ function OpenPage({
           <SavedDrafts
             archived={archived}
             drafts={discussionPending ? [] : savedDrafts(drafts.current, view.threads)}
-            discard={(key) => keepDraft(key, null)}
+            discard={discardDraft}
           />
           {draftsUnsaved && (
             <p role="status" className="annotation-hint saved-drafts-notice">
