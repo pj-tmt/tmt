@@ -9,6 +9,7 @@ import { describe, expect, it, vi } from 'vite-plus/test';
 import { expectJsonResult } from './cli-assertions.js';
 import { publishDigestStep } from './claude-digest-step.js';
 import { sessionLearning } from './identity-state-oracle.js';
+import { digestStopDiagnostics } from './digest-stop-diagnostics.js';
 import {
   readCompleteJsonLines,
   withE2EFixture as withFixture,
@@ -997,6 +998,11 @@ describe('Claude channel delivery', { concurrent: false }, () => {
           }
           await digestStep('boundary-stop');
           await waitForEvent(fixture, worker, 'recursive-stop', () => ({
+            ...digestStopDiagnostics(
+              { provider: 'claude', channel, setup, resume, legacy, step: 'boundary-stop' },
+              sessionLearning(fixture),
+              events(worker)
+            ),
             checklists: oracle((db) =>
               db
                 .prepare(

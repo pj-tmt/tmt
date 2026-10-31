@@ -5,6 +5,7 @@ use std::{
     env, fs,
     io::{BufRead, Write},
     net::{TcpListener, TcpStream},
+    os::unix::process::ExitStatusExt,
     process::{Command, Stdio},
     sync::{Arc, Mutex},
     thread,
@@ -467,7 +468,7 @@ fn digest_steps(args: &[String], session: impl Fn() -> Option<String>) {
                         let text = String::from_utf8(output.stdout).unwrap();
                         let parsed = serde_json::from_str::<Value>(&text).ok();
                         log(
-                            json!({"event":"digest-handler","step":step["name"],"command":command,"ok":output.status.success(),"stdout":text,"stderr":String::from_utf8_lossy(&output.stderr)}),
+                            json!({"event":"digest-handler","step":step["name"],"command":command,"ok":output.status.success(),"exitCode":output.status.code(),"signal":output.status.signal(),"stdout":text,"stderr":String::from_utf8_lossy(&output.stderr)}),
                         );
                         if parsed.as_ref().is_some_and(|v| v["decision"] == "block") {
                             let reason = parsed.unwrap()["reason"].as_str().unwrap().to_owned();

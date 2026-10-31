@@ -628,7 +628,11 @@ and exit behavior for pre-rename Claude and Codex launches.
 A Digest Stop never vetoes a stop. When a check refuses, it still prints no
 continuation and names that check as a `digest_stop:` detail on its admitted launch's
 [session-learning row](../../../../contracts/identity-status-v1.md); its worker reports
-its own refusal to the supervisor by name on stderr.
+its own refusal to the supervisor by name on stderr. Worker command outcomes and
+storage operations, initial caller observation and awaiting-session continuation
+retain distinct bounded details; backend messages never enter the row. The linked
+contract owns their vocabulary; diagnostic classification changes no admission,
+publication, cleanup or deadline decision.
 
 `RuntimeLifecycle::prepare_launch_hooks` is an optional driver-owned launch boundary.
 Claude composes one inline `--settings` object before channel enrollment for fresh

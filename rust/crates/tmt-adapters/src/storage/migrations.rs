@@ -418,6 +418,10 @@ const MIGRATIONS: &[Migration] = &[
         "schema/083.sql"
     ),
     migration!("receipt durable hook capture ingestion", "schema/084.sql"),
+    migration!(
+        "name bounded Digest worker and caller failure stages",
+        "schema/085.sql"
+    ),
 ];
 
 pub(super) fn apply(connection: &mut Connection) -> Result<(), StorageError> {

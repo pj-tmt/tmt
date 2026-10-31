@@ -852,7 +852,7 @@ fn hooks_do_not_create_a_missing_queue_and_core_provisions_before_publishing_sch
     assert!(HookQueue::open(&main, Duration::ZERO).is_err());
     assert!(!HookQueue::path(&main).exists());
     let storage = Storage::open(&main).unwrap();
-    assert_eq!(storage.health().unwrap().schema_version, 84);
+    assert_eq!(storage.health().unwrap().schema_version, 85);
     let queue = HookQueue::open(&main, Duration::ZERO).unwrap();
     let mode: String = queue
         .connection

@@ -206,6 +206,16 @@ async function emitInstalledHooks(
             partial ? ['-c', partialDigestHandoff, command] : ['-c', effectiveCommand],
             { env: process.env },
             (error, stdout, stderr) => {
+              // Record process facts even if hookResult rejects. Never add command or body text.
+              log({
+                event: 'hook-outcome',
+                hookEvent: payload.hook_event_name,
+                ok: !error,
+                exitCode: typeof error?.code === 'number' ? error.code : error ? undefined : 0,
+                signal: error?.signal,
+                stdoutBytes: Buffer.byteLength(stdout),
+                stderrBytes: Buffer.byteLength(stderr),
+              });
               try {
                 const result = hookResult(error, stdout, stderr);
                 if (result.diagnostic)

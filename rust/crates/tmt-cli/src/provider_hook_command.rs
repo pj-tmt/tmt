@@ -632,6 +632,15 @@ pub(super) struct BoundCaller {
     pub(super) process: ProcessIncarnation,
 }
 
+#[derive(Debug, Clone, Copy)]
+pub(super) enum CallerProbeFailure {
+    Config,
+    Host,
+    Pane,
+    Storage(StorageErrorCode),
+    Process,
+}
+
 pub(super) fn verified_lifecycle_caller<R: CommandRunner + Clone>(
     provider: &str,
     lifecycle: &dyn RuntimeLifecycle,
@@ -640,7 +649,7 @@ pub(super) fn verified_lifecycle_caller<R: CommandRunner + Clone>(
     verified_binding: Option<&str>,
     deadline: Instant,
     runner: R,
-) -> Result<Caller, ()> {
+) -> Result<Caller, CallerProbeFailure> {
     verified_caller(
         CallerRequest {
             provider,
@@ -670,7 +679,7 @@ fn verified_caller<R: CommandRunner + Clone>(
     request: CallerRequest<'_>,
     deadline: Instant,
     runner: R,
-) -> Result<Caller, ()> {
+) -> Result<Caller, CallerProbeFailure> {
     let CallerRequest {
         provider,
         lifecycle,
@@ -680,7 +689,7 @@ fn verified_caller<R: CommandRunner + Clone>(
         start,
         learning,
     } = request;
-    let paths = ConfigPaths::discover().map_err(|_| ())?;
+    let paths = ConfigPaths::discover().map_err(|_| CallerProbeFailure::Config)?;
     let now = tmt_adapters::request_runtime::wall_time_ms();
     let shared = host.shared();
     let (stored, snapshot, process) = if shared {
@@ -693,7 +702,7 @@ fn verified_caller<R: CommandRunner + Clone>(
                 now,
             ),
         }
-        .map_err(|_| ())?
+        .map_err(|error| CallerProbeFailure::Storage(error.code))?
         else {
             if let Some(event) = start
                 && let Some(observed) =
@@ -727,7 +736,11 @@ fn verified_caller<R: CommandRunner + Clone>(
             }
             return Ok(Caller::Unobserved);
         };
-        let binding = stored.entry.binding.as_ref().ok_or(())?;
+        let binding = stored
+            .entry
+            .binding
+            .as_ref()
+            .ok_or(CallerProbeFailure::Storage(StorageErrorCode::Unknown))?;
         let pane = &binding.pane_id;
         let EndpointProbe::Live(snapshot) = Host::for_server_with(&binding.server, runner.clone())
             .with_drivers(tmt_adapters::host::external::approved())
@@ -738,15 +751,16 @@ fn verified_caller<R: CommandRunner + Clone>(
                     pane_ids: Some(std::slice::from_ref(pane)),
                 },
             )
-            .map_err(|_| ())?
+            .map_err(|_| CallerProbeFailure::Pane)?
         else {
-            return Err(());
+            return Err(CallerProbeFailure::Pane);
         };
-        let pid = u64::from(host.runtime_pid().ok_or(())?);
+        let pid = u64::from(host.runtime_pid().ok_or(CallerProbeFailure::Process)?);
         let tmt_adapters::process::runtime::ProcessObservation::Live(process) =
-            observe_runtime_process(&runner, pid, deadline).map_err(|_| ())?
+            observe_runtime_process(&runner, pid, deadline)
+                .map_err(|_| CallerProbeFailure::Process)?
         else {
-            return Err(());
+            return Err(CallerProbeFailure::Process);
         };
         (stored, snapshot, process)
     } else {
@@ -778,6 +792,7 @@ fn verified_caller<R: CommandRunner + Clone>(
                         deadline,
                     );
                 }
+                CallerProbeFailure::Process
             })?;
         if host
             .runtime_pid()
@@ -796,7 +811,7 @@ fn verified_caller<R: CommandRunner + Clone>(
                     deadline,
                 );
             }
-            return Err(());
+            return Err(CallerProbeFailure::Process);
         }
         let (stored, snapshot) = match stored {
             Some(stored) => (stored, snapshot),
@@ -881,7 +896,7 @@ fn observed_hook_pane<R: CommandRunner + Clone>(
     deadline: Instant,
     runner: R,
     learning: Option<&Learning>,
-) -> Result<Option<HookPane<R>>, ()> {
+) -> Result<Option<HookPane<R>>, CallerProbeFailure> {
     if let Some(learning) = learning {
         let _ = learning.stage(Step::HostDiscovery, deadline);
     }
@@ -892,12 +907,15 @@ fn observed_hook_pane<R: CommandRunner + Clone>(
         tmt_adapters::host::external::approved(),
         &mut tmt_adapters::storage::RecordedHostServers::new(&paths.database),
     )
-    .map_err(|_| ())?;
-    let Some(pane) = panes.caller_pane(&environment).map_err(|_| ())? else {
+    .map_err(|_| CallerProbeFailure::Host)?;
+    let Some(pane) = panes
+        .caller_pane(&environment)
+        .map_err(|_| CallerProbeFailure::Pane)?
+    else {
         return if Instant::now() < deadline {
             Ok(None)
         } else {
-            Err(())
+            Err(CallerProbeFailure::Pane)
         };
     };
     if let Some(learning) = learning {
@@ -908,19 +926,19 @@ fn observed_hook_pane<R: CommandRunner + Clone>(
             deadline: Some(deadline),
             pane_ids: Some(std::slice::from_ref(&pane)),
         })
-        .map_err(|_| ())?;
+        .map_err(|_| CallerProbeFailure::Pane)?;
     let observed_pane = snapshot
         .panes
         .iter()
         .find(|item| item.id == pane)
-        .ok_or(())?;
+        .ok_or(CallerProbeFailure::Pane)?;
     // A nested caller's host was chosen from one pinned ancestry; the
     // pane it reports now must be the pane shell that ancestry held.
     if panes
         .pinned_caller_pane()
         .is_some_and(|pid| pid != observed_pane.pane_pid)
     {
-        return Err(());
+        return Err(CallerProbeFailure::Pane);
     }
     if let Some(learning) = learning {
         let _ = learning.stage(Step::Storage, deadline);
@@ -932,7 +950,7 @@ fn observed_hook_pane<R: CommandRunner + Clone>(
         &snapshot.server.server_id,
         tmt_adapters::request_runtime::wall_time_ms(),
     )
-    .map_err(|_| ())?;
+    .map_err(|error| CallerProbeFailure::Storage(error.code))?;
     let pid = observed_pane.pane_pid;
     let marked = observed_pane.marker.is_some();
     Ok(Some(HookPane {
@@ -1025,7 +1043,7 @@ pub(crate) fn verified_digest_launch<R: CommandRunner + Clone>(
         },
         deadline,
     )
-    .map_err(|()| probe_failure(DigestStop::LaunchCallerProbe, deadline))?
+    .map_err(|error| continuation_failure(error, deadline))?
     {
         bound.stored = stored;
     }
@@ -1085,13 +1103,25 @@ fn probe_failure(probe: DigestStop, deadline: Instant) -> DigestStop {
 }
 
 fn caller_check(
-    caller: Result<Caller, ()>,
+    caller: Result<Caller, CallerProbeFailure>,
     deadline: Instant,
 ) -> Result<Box<BoundCaller>, DigestStop> {
     match caller {
         Ok(Caller::Bound(bound)) => Ok(bound),
         Ok(_) => Err(DigestStop::LaunchCaller),
-        Err(()) => Err(probe_failure(DigestStop::LaunchCallerProbe, deadline)),
+        Err(error) => Err(probe_failure(
+            match error {
+                CallerProbeFailure::Config => DigestStop::LaunchCallerConfig,
+                CallerProbeFailure::Host => DigestStop::LaunchCallerHost,
+                CallerProbeFailure::Pane => DigestStop::LaunchCallerPane,
+                CallerProbeFailure::Storage(StorageErrorCode::Busy) => {
+                    DigestStop::LaunchCallerStorageBusy
+                }
+                CallerProbeFailure::Storage(_) => DigestStop::LaunchCallerStorage,
+                CallerProbeFailure::Process => DigestStop::LaunchCallerProcess,
+            },
+            deadline,
+        )),
     }
 }
 
@@ -1282,7 +1312,9 @@ fn observe_lifecycle_event(
         },
         deadline,
         SupervisedProbeRunner,
-    )? {
+    )
+    .map_err(|_| ())?
+    {
         Caller::Unobserved => return Ok(Observation::default()),
         // With no stored identity, only emit the fixed naming hint. The
         // command-derived suggested_name (for example "claude") is not a
@@ -1699,7 +1731,7 @@ pub(super) struct SessionCommit<'a> {
 fn continue_awaiting_session(
     continuation: Continuation<'_>,
     deadline: Instant,
-) -> Result<Option<IdentityContextSnapshot>, ()> {
+) -> Result<Option<IdentityContextSnapshot>, ContinuationFailure> {
     let Continuation {
         paths,
         stored,
@@ -1710,7 +1742,11 @@ fn continue_awaiting_session(
         launch,
         session,
     } = continuation;
-    let binding = stored.entry.binding.as_ref().ok_or(())?;
+    let binding = stored
+        .entry
+        .binding
+        .as_ref()
+        .ok_or(ContinuationFailure::Binding)?;
     let (Some(launch), Some(mode)) = (launch, mode) else {
         return Ok(None);
     };
@@ -1732,9 +1768,13 @@ fn continue_awaiting_session(
     else {
         return Ok(None);
     };
-    let owner = binding.session.launch_owner.as_ref().ok_or(())?;
+    let owner = binding
+        .session
+        .launch_owner
+        .as_ref()
+        .ok_or(ContinuationFailure::Binding)?;
     if !matches!(
-        observe_runtime_process(&SupervisedProbeRunner, owner.pid(), deadline).map_err(|_| ())?,
+        observe_runtime_process(&SupervisedProbeRunner, owner.pid(), deadline).map_err(|_| ContinuationFailure::OwnerProbe)?,
         tmt_adapters::process::runtime::ProcessObservation::Live(current) if current == *owner
     ) || !matches!(
         evaluate_binding(&stored.entry, &EndpointProbe::Live(snapshot.clone())),
@@ -1742,7 +1782,8 @@ fn continue_awaiting_session(
     ) {
         return Ok(None);
     }
-    let mut storage = Storage::open_hook(&paths.database, deadline).map_err(|_| ())?;
+    let mut storage = Storage::open_hook(&paths.database, deadline)
+        .map_err(|error| ContinuationFailure::Open(error.code))?;
     let committed = storage
         .with_binding_transaction::<_, StorageError>(|records| {
             if records
@@ -1759,8 +1800,10 @@ fn continue_awaiting_session(
             preferences.remember(harness.clone(), mode, session.clone());
             records.set_session_preferences(&binding.identity_id, &preferences)
         })
-        .map_err(|_| ());
-    let closed = storage.close().map_err(|_| ());
+        .map_err(|error| ContinuationFailure::Write(error.code));
+    let closed = storage
+        .close()
+        .map_err(|error| ContinuationFailure::Close(error.code));
     if !committed? {
         return Ok(None);
     }
@@ -1770,7 +1813,37 @@ fn continue_awaiting_session(
         &binding.identity_id,
         tmt_adapters::request_runtime::wall_time_ms(),
     )
-    .map_err(|_| ())
+    .map_err(|error| ContinuationFailure::Read(error.code))
+}
+
+#[derive(Debug, Clone, Copy)]
+enum ContinuationFailure {
+    Binding,
+    OwnerProbe,
+    Open(StorageErrorCode),
+    Write(StorageErrorCode),
+    Close(StorageErrorCode),
+    Read(StorageErrorCode),
+}
+
+fn continuation_failure(error: ContinuationFailure, deadline: Instant) -> DigestStop {
+    let stop = match error {
+        ContinuationFailure::Binding => DigestStop::LaunchBinding,
+        ContinuationFailure::OwnerProbe => DigestStop::LaunchContinuationOwnerProbe,
+        ContinuationFailure::Open(StorageErrorCode::Busy) => DigestStop::LaunchContinuationOpenBusy,
+        ContinuationFailure::Open(_) => DigestStop::LaunchContinuationOpen,
+        ContinuationFailure::Write(StorageErrorCode::Busy) => {
+            DigestStop::LaunchContinuationWriteBusy
+        }
+        ContinuationFailure::Write(_) => DigestStop::LaunchContinuationWrite,
+        ContinuationFailure::Close(StorageErrorCode::Busy) => {
+            DigestStop::LaunchContinuationCloseBusy
+        }
+        ContinuationFailure::Close(_) => DigestStop::LaunchContinuationClose,
+        ContinuationFailure::Read(StorageErrorCode::Busy) => DigestStop::LaunchContinuationReadBusy,
+        ContinuationFailure::Read(_) => DigestStop::LaunchContinuationRead,
+    };
+    probe_failure(stop, deadline)
 }
 
 struct Continuation<'a> {
@@ -1919,7 +1992,8 @@ fn observe_main_event(
         },
         deadline,
         SupervisedProbeRunner,
-    )?
+    )
+    .map_err(|_| ())?
     else {
         run.stopped(Stop::UnboundSession);
         return Ok(Observation::default());
@@ -1950,7 +2024,8 @@ fn observe_main_event(
             session,
         },
         deadline,
-    )?
+    )
+    .map_err(|_| ())?
     .unwrap_or(stored);
     let binding = stored.entry.binding.as_ref().ok_or(())?;
     if binding.session.state != tmt_core::binding::session::RuntimeState::Running
@@ -2194,6 +2269,79 @@ mod digest_launch_tests {
     use tmt_adapters::process::runtime::ProcessObservation as Observed;
 
     #[test]
+    fn caller_and_continuation_faults_have_distinct_bounded_details() {
+        let later = Instant::now() + Duration::from_secs(5);
+        let passed = Instant::now();
+        for (failure, expected) in [
+            (CallerProbeFailure::Config, DigestStop::LaunchCallerConfig),
+            (CallerProbeFailure::Host, DigestStop::LaunchCallerHost),
+            (CallerProbeFailure::Pane, DigestStop::LaunchCallerPane),
+            (
+                CallerProbeFailure::Storage(StorageErrorCode::Busy),
+                DigestStop::LaunchCallerStorageBusy,
+            ),
+            (
+                CallerProbeFailure::Storage(StorageErrorCode::Unknown),
+                DigestStop::LaunchCallerStorage,
+            ),
+            (CallerProbeFailure::Process, DigestStop::LaunchCallerProcess),
+        ] {
+            assert_eq!(caller_check(Err(failure), later).err(), Some(expected));
+            assert_eq!(
+                caller_check(Err(failure), passed).err(),
+                Some(DigestStop::LaunchDeadline)
+            );
+        }
+        for (failure, expected) in [
+            (
+                ContinuationFailure::OwnerProbe,
+                DigestStop::LaunchContinuationOwnerProbe,
+            ),
+            (
+                ContinuationFailure::Open(StorageErrorCode::Busy),
+                DigestStop::LaunchContinuationOpenBusy,
+            ),
+            (
+                ContinuationFailure::Open(StorageErrorCode::Unknown),
+                DigestStop::LaunchContinuationOpen,
+            ),
+            (
+                ContinuationFailure::Write(StorageErrorCode::Busy),
+                DigestStop::LaunchContinuationWriteBusy,
+            ),
+            (
+                ContinuationFailure::Write(StorageErrorCode::Unknown),
+                DigestStop::LaunchContinuationWrite,
+            ),
+            (
+                ContinuationFailure::Close(StorageErrorCode::Busy),
+                DigestStop::LaunchContinuationCloseBusy,
+            ),
+            (
+                ContinuationFailure::Close(StorageErrorCode::Unknown),
+                DigestStop::LaunchContinuationClose,
+            ),
+            (
+                ContinuationFailure::Read(StorageErrorCode::Busy),
+                DigestStop::LaunchContinuationReadBusy,
+            ),
+            (
+                ContinuationFailure::Read(StorageErrorCode::Unknown),
+                DigestStop::LaunchContinuationRead,
+            ),
+        ] {
+            assert_eq!(continuation_failure(failure, later), expected);
+            assert_eq!(
+                continuation_failure(failure, passed),
+                DigestStop::LaunchDeadline
+            );
+            assert_eq!(DigestStop::from_worker(expected.name()), Some(expected));
+        }
+        // The existing clean-owner control below and the ordinary hook paths use the
+        // same verification: diagnostics add no success or fallback authority.
+    }
+
+    #[test]
     fn each_owner_and_caller_outcome_has_its_own_name() {
         let owner = ProcessIncarnation::new(7, "ps-v1:Sat Oct 24 11:40:50 2026").unwrap();
         let other = ProcessIncarnation::new(7, "ps-v1:Sat Oct 24 11:40:51 2026").unwrap();
@@ -2228,11 +2376,11 @@ mod digest_launch_tests {
             Some(DigestStop::LaunchCaller)
         );
         assert_eq!(
-            caller_check(Err(()), later).err(),
-            Some(DigestStop::LaunchCallerProbe)
+            caller_check(Err(CallerProbeFailure::Process), later).err(),
+            Some(DigestStop::LaunchCallerProcess)
         );
         assert_eq!(
-            caller_check(Err(()), passed).err(),
+            caller_check(Err(CallerProbeFailure::Process), passed).err(),
             Some(DigestStop::LaunchDeadline)
         );
     }

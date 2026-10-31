@@ -285,16 +285,31 @@ session or process is not the one the payload names), `host_unsupported` when th
 driver found no provider process among the hook's ancestors, or `digest_stop:<reason>`
 when a Digest Stop hook on an admitted launch ended with no output because a check
 refused (#4871). Its `<reason>` is one of `worker_spawn`, `worker_timeout`,
-`worker_error`, `worker_stderr`, `capture_failed` (step `storage`), `launch:argument`,
-`launch:host`, `launch:caller` (the caller is not a verified bound pane),
-`launch:caller_probe` (its verification gave no answer), `launch:binding`,
+`worker_error` (legacy or unclassified), `worker_stderr`, `capture_failed`,
+`launch:argument`, `launch:host`, `launch:caller` (the caller is not a verified bound pane),
+`launch:caller_probe` (legacy unclassified caller verification), `launch:binding`,
 `launch:process`, `launch:session`, `launch:remembered`, `launch:endpoint`,
 `launch:owner` (the owner is live with a start identity other than the recorded one),
-`launch:owner_probe` (the owner's process probe gave no answer), `launch:owner_not_live`
-or `launch:deadline` (the hook deadline passed, including during a probe) (the launch
-check that refused; step `provider_verification`), `notice_unavailable` (the restart
-notice's private directory is unusable), `handoff_invalid` or `checklist_changed`; other
-reasons use step `context`. Its `reason` is `spawn_failed` for `worker_spawn`,
+`launch:owner_probe` (the owner's process probe gave no answer), `launch:owner_not_live`,
+`launch:deadline` (the hook deadline passed, including during a probe),
+`notice_unavailable` (the restart notice's private directory is unusable),
+`handoff_invalid` or `checklist_changed`. The bounded operation details additionally distinguish:
+
+- `worker_exit` (an unlabelled failed exit), `worker_signal`, `worker_io`,
+  `worker_output_limit`, `worker:config`, `worker:serialize` and `worker:output`.
+- `worker:<operation>:<cause>`, where operation is `open | ingest | fitting | claim | render | close`
+  and cause is `busy | error`. Busy names the storage error class; error is another returned
+  storage/request failure, never its backend message.
+- `launch:caller:config`, `launch:caller:host`, `launch:caller:pane`,
+  `launch:caller:storage`, `launch:caller:storage_busy` and `launch:caller:process`
+  for the initial caller observation's failed boundary.
+- `launch:continuation:owner_probe` or `launch:continuation:<operation>:<cause>`,
+  where operation is `open | write | close | read` and cause is `busy | error`,
+  for the separate awaiting-session continuation.
+
+These labels change no hook budget or admission decision. Every `launch:*` detail uses
+step `provider_verification`, `capture_failed` uses `storage`, and other names use `context`.
+Its `reason` is `spawn_failed` for `worker_spawn`,
 `budget_timeout` for `worker_timeout` and `launch:deadline`, `conflict` for
 `notice_unavailable` and `checklist_changed`, and `worker_error` otherwise. A Stop with no
 Digest due, a claim that finds nothing, or a restart notice an earlier Stop already
