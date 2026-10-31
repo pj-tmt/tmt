@@ -122,7 +122,7 @@ test('a device revoked while its Chat drawer is open shows the ended notice in t
     const page = await openPage(door, browser, created);
     await expect(page.locator('.status.live .status-label')).toHaveText('Live');
     await openChat(page);
-    const drawer = page.locator('.tmt-ui-drawer[data-panel=chat]');
+    const drawer = page.locator('.tmt-ui-panel[data-panel=chat]');
     await expect(drawer).toBeVisible();
     await expect(drawer.locator('.drawer-recovery')).toHaveCount(0);
 

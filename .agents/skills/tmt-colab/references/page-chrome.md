@@ -78,7 +78,8 @@ rest and Plus at both widths; empty rows show Plus alone. The group opens the ex
 The row's ⋯ → Projects… and `l`, and the header's More → Projects…, use that same open request.
 Each group is one visible focus target, exposes every membership in its accessible name/title,
 and restores focus on close without taking focus away from a new dialog. Writer row pills open
-the picker; project scope and search retain filtering. Viewer row tags retain read-only filtering.
+the picker; a project is a search-bar condition chip selected through Filter. Its Project group
+ends with Manage projects… for writers. Viewer row tags retain read-only filtering.
 Opening observes the catalog; choosing a project or creating one is the write. Long project and
 Access text uses an ellipsis with the full text available on hover. The chips come from the list the space home last loaded, so arriving
 from the list reads nothing extra. A page opened by a link has no list yet: it reads `spaceHome(signal)`
@@ -97,15 +98,15 @@ corner (one border, radius and the design system's overlay shadow, a hairline be
 that order. Each button's hover and keyboard tooltip is centered above the whole capsule,
 with at least the shared tooltip's `--tmt-ui-toggle-gap` spacing outside the painted label;
 `BrowserIconAction.tooltipPlacement` owns that geometry without changing names or activation.
-Chat opens the retained drawer in one press, out of the dock and back into it on close
-(`dock-motion.ts`: the dialog clipped to the dock's rectangle, no animation under reduced motion), and
-Comments and Chat hide during selection mode or an annotation. The dock sits unseen under the drawer while
-Chat is open. Comments shows the open-thread count (`.dock-count`, its slot held while the threads are
-verified), in the needs-you colour with a bullet while a thread has news, and presses open the
-Comments panel out of the dock with the same motion: a column leaves the dock in place with Comments
-pressed (the panel opens with the motion and leaves the grid at once on close; one already open when
-the page mounts is there at once, without it), a card or a sheet hides it
-in its place and the clip runs back into it. It has no shortcut. The three-action capsule fits at 320 px.
+Chat and Discussion open in the same retained non-modal floating frame above the measured dock.
+At wide widths it is 360 × 470 px; narrow screens use 12 px side gutters and a maximum
+470 px height. The dock remains visible and highlights the open action; the page remains
+interactive. Chat keeps its existing messages, composer, audience and mode. Comments shows
+the open-thread count (`.dock-count`, held while threads verify), as plain text; unseen status
+stays in the action's accessible name. The dock motion clips the window to the dock and is
+suppressed under reduced motion; a panel already open on mount has no opening motion.
+Comments and Chat controls hide during selection mode or an annotation. The capsule fits at
+320 px; Comments has no keyboard shortcut.
 Its mark plus `Unread` (also on the Chat menu entry) is device-local reply attention,
 not the unresolved/Unseen count. Only visible Chat history at its end clears it;
 toast dismissal/expiry, closing and reload do not. Close/Escape restores the opener.
@@ -171,14 +172,14 @@ shared-link reader keeps its existing Info surface: creator attribution and the 
 rows, with no metadata write callback or owner-store CLI guidance. Native and hosted readers derive
 those rows from their already-admitted own records; no extra read, pairing or Ask is introduced.
 
-Home keeps one vertical list viewport. After its full controls boundary passes the top,
-a 58px sticky row retains project scopes, the same mounted search editor and New page;
-through 650px it keeps only search and New page, below the unchanged phone module strip.
-The heading, pins, stage tabs and sort scroll away and return at the top. A list-root
-IntersectionObserver derives this presentation without a stored preference; resize and instant
-scroll jumps sample the same boundary geometry. Observers and listeners disconnect on unmount. Search drafts, route filters, row selection and command owners survive the
-transition; reduced motion disables its animation. A viewer's project list is absent when
-it has no items, while a writer retains the picker entry.
+Home keeps one vertical list viewport. Its hero contains only a right-aligned action row;
+pins and stage tabs follow it. After the full controls boundary passes the top, the sticky
+compact row retains condition chips, the same mounted search editor, Filter and New page.
+On phones Sort is an icon action on the search row; at wider widths it scrolls away.
+A list-root IntersectionObserver derives this presentation without a stored preference;
+resize and instant scroll jumps sample the same boundary geometry. Observers and listeners
+disconnect on unmount. Search drafts, route filters, row selection and command owners survive
+the transition; reduced motion disables its animation.
 
 Header search results and page-list titles are real links with router-generated URLs.
 Plain click/Enter keep the existing same-tab navigation and focus behavior. Modified clicks
@@ -349,7 +350,7 @@ whose choices edit the mention tokens through the editor, and its last row is th
 preference (`Start new messages with @creator`), shared by this page/viewer device's Chat,
 annotations and replies. The accessory stays presentation-only and separate from recipient
 ownership.
-`BrowserDrawer` owns the shared title, audience caption and Close action; Chat
+`BrowserPanel` owns the shared title, audience caption and Close action; Chat
 keeps its mounted `ConversationWindow` history/composer with its inner header hidden.
 Close uses `BrowserIconAction`; its tooltip and focus presentation belong to the leaf.
 Escape dismisses the tooltip and reaches the containing drawer or dialog in the same activation. Annotation surfaces and drawers are shadow-free.
@@ -393,18 +394,17 @@ the reader's message-history position. This changes no renderer messages,
 subscription, publication admission or reply association. Comments remains the
 explicit full-history/details view.
 
-`BrowserDrawer` renders in place and native modality promotes it above the header/frame. Desktop panels float on
-the right on an opaque square surface with a 1 px border on every edge. Chat,
+`BrowserDrawer` renders in place and native modality promotes it above the header/frame. Desktop drawers float on
+the right on an opaque square surface with a 1 px border on every edge.
 Source, Agents, Files and Export leave 8 px below the header and at the
 right and bottom edges (4 px through 480 px), plus top/right/bottom safe-area insets. All widths use native modal containment;
 menus use a transparent catching backdrop and consume Escape before their drawer. Neither changes renderer
 width or content layout; the header and page edge remain visible.
-Panel bodies scroll independently except
-Chat: its bounded flex body keeps the shared header and non-shrinking composer
-visible, with only message history scrolling in the remaining height.
+Panel bodies scroll independently. Chat’s bounded floating body keeps its header and
+non-shrinking composer visible, with only message history scrolling.
 All widths use native modal containment without body scroll locking; resizing preserves the mounted draft and editing selection. The body contains overscroll. A header or iframe backdrop press dismisses only, never clicks through.
 Close/Escape restores focus, and media listeners/dialogs clean up on close or
-unmount. Chat initializes on first opening; closed Source and Chat drawers retain drafts and admitted history, and the
+unmount. Chat initializes on first opening; closed Source and Chat surfaces retain drafts and admitted history, and the
 Comments panel stays mounted and hidden while closed, retaining its conversation state; page-owned drafts also survive a remount;
 closing never dispatches, abandons or retries. Source places its existing Save action before Close in the shared header. The owner and editor link share stateless editor presentation while retaining their separate draft and save/request owners. The paper editor scrolls long lines within its bordered field and resizes vertically; its lower metadata (the page's 11px sans in the secondary colour, the waiting tone while the draft differs) reports draft/base equality, never persistence, and names the format (HTML); the editor is 10px under 760px. Export closes its preparation and
 revokes download Blob URLs. Manage opens after its menu closes and initially
@@ -415,19 +415,12 @@ Close/Escape restores the trigger's focus. Safety details
 remain available from About this page, reader Page information and blocked views; visibility never
 substitutes for writer admission.
 
-The Comments region (one selected Discussion or an empty filter) is a non-modal `BrowserPanel`, not a
-drawer: no scrim, focus trap or page inertness, so the page stays readable and keyboard-reachable
-beside or under it, and it shares the single panel slot with the drawers. `src/panel-mode.ts` picks
-its mode from one width pair (column from 1180 px, card from 761 px, sheet below; `e2e/panel-mode.spec.ts`
-holds the mode on both sides of each). A column is a track of the page grid:
-the page narrows by the panel width (286 px, 310 px from 1600 px), the gap (23 px, 28 px) and a 24 px
-right margin, and the panel sticks 20 px under the header with its own scroll. The page's own edge is
-the one edge between them: the column draws no rule, and its content starts one gap from that edge.
-A thread's composer sits on the column's surface (the page's paper; the sheet's in a card or sheet)
-with no rule above it, and the last turn ends the thread without one. A
-card (330 px, 12 px from the right and bottom, top at the header plus 13 px) and a sheet (7 px insets, up to
-75dvh) float over the page and cover the dock, which hides in its place for the panel to open out of and
-close back into (a column leaves it, pressed). The dock opens a single Discussion,
+The Comments region (one selected Discussion or an empty filter) and Chat use non-modal
+`BrowserPanel` windows: no scrim, focus trap or page inertness. Both float above the dock,
+share one position and size, and remain mutually exclusive with the other panel surfaces.
+The page does not reflow. At wide widths the window is 360 × 470 px; narrow screens have
+12 px side gutters, at most 470 px height, and the window stays above the measured dock.
+The dock opens a single Discussion,
 initially the first Needs-you thread or the first matching thread by number.
 `comments-listing.ts` owns the Open / Needs you / All sequence from the verified
 threads and existing attention metadata; proposals share that sequence. Deleted
@@ -438,9 +431,8 @@ the dock count remains the canonical pending count. A selected thread stays in
 its sequence through resolution or acknowledgement until explicit navigation.
 Resolve/Reopen never collapse or advance the Discussion. The same mounted window
 retains its draft, input node and Not-notified warning. A reserved status line
-keeps the quote, messages and composer still through a status change. The existing
-page-comment action sits above the selected conversation, leaving the reply
-composer last and pinned. An empty filter retains page-comment creation.
+keeps the quote, messages and composer still through a status change. The reply composer stays last and pinned. Page-level comments are sent from Chat;
+Discussion does not offer a separate creation action, including in an empty filter.
 Escape closes the panel from inside it; on the page it still falls through to the
 annotation window and selection mode. `Show in the page` scrolls to the passage
 and leaves the panel open. Opening the dock or changing its filter keeps the page offset; arrows and explicit
@@ -514,7 +506,7 @@ verified them. Until then `PageView.discussionPending` is set and those three fi
 never empty, so nothing unverified reads as verified: the router shows no comment count (the
 dock's Comments action carries no number), no `Needs you` entry (not `✓ Nothing waits`),
 no inline question, review, reading or proposal layer, and no thread highlights. The Comments panel and the
-Chat drawer show one quiet `Loading comments…` status instead of a list or composer. The document
+Chat window show one quiet `Loading comments…` status instead of a list or composer. The document
 frame does not move when verification arrives; the layers and the count then appear. `ThreadStore`
 reports unavailable until verified, so no write can start from a pending view. `e2e/progressive-open.spec.ts`
 holds the verification back through the fixture's `discussionPending` option.
@@ -526,7 +518,7 @@ the binding's first current view after loading, including a cached snapshot;
 initial and unavailable reads never replay history. The shared leaf owns FIFO budgets,
 hover/focus pause, hidden-document suspension and once-only polite display.
 ConversationWindow reports visible/following state and reveals stable record keys.
-Chat activation opens its existing Drawer, while Thread activation reuses the
+Chat activation opens its existing window, while Thread activation reuses the
 canonical quote/anchored-window path. Visible-at-end destinations suppress arrivals.
 PageMenu and native Manage/attachment owners report actual visibility to the page.
 An open anchored Thread window also holds the queue so toasts cannot cover its

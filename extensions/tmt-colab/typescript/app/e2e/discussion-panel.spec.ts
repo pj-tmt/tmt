@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
-import { commentsRegion } from '../test/comments-region.js';
+import { commentsClose, commentsRegion } from '../test/comments-region.js';
 import { commentsAction, pageAction, chooseThreadFilter } from '../test/page-actions.js';
 
 const fixture = '/test/ask-page-browser.tsx';
@@ -29,25 +29,61 @@ for (const width of [1440, 390])
     }) => {
       await page.emulateMedia({ colorScheme: theme });
       const { panel } = await openFirst(page, width);
-      for (const name of ['Previous thread', 'Next thread']) {
+      for (const name of ['Previous', 'Next']) {
         const button = panel.getByRole('button', { name, exact: true });
         await expect(button).toBeVisible();
-        await expect(button).toHaveCSS('width', '24px');
-        await expect(button).toHaveCSS('height', '24px');
+        await expect(button).toHaveCSS('width', '26px');
+        await expect(button).toHaveCSS('height', '26px');
         const icon = await button.locator('svg').boundingBox();
         expect(icon).not.toBeNull();
-        expect(icon!.width).toBe(14);
-        expect(icon!.height).toBe(14);
+        expect(icon!.width).toBe(16);
+        expect(icon!.height).toBe(16);
       }
-      await expect(
-        panel.getByRole('button', { name: 'Previous thread', exact: true }),
-      ).toBeDisabled();
-      await panel.getByRole('button', { name: 'Next thread', exact: true }).click();
-      await expect(
-        panel.getByRole('button', { name: 'Previous thread', exact: true }),
-      ).toBeEnabled();
+      await expect(panel.getByRole('button', { name: 'Previous', exact: true })).toBeDisabled();
+      await panel.getByRole('button', { name: 'Next', exact: true }).click();
+      await expect(panel.getByRole('button', { name: 'Previous', exact: true })).toBeEnabled();
       await page.screenshot({ path: test.info().outputPath(`discussion-${width}-${theme}.png`) });
     });
+
+test('Discussion never offers page-level comment creation', async ({ page }) => {
+  const { panel } = await openFirst(page);
+  await expect(panel.getByRole('button', { name: '+ Comment on page' })).toHaveCount(0);
+  await chooseThreadFilter(page, 'Needs you');
+  await expect(panel.getByRole('button', { name: '+ Comment on page' })).toHaveCount(0);
+});
+
+test('Discussion uses twelve-pixel phone gutters above the dock', async ({ page }) => {
+  const { panel } = await openFirst(page, 390);
+  const frame = (await panel.boundingBox())!;
+  const dock = (await page.locator('#ask-page-fixture .page-floating-actions').boundingBox())!;
+  expect(frame.x).toBeCloseTo(12, 0);
+  expect(frame.x + frame.width).toBeCloseTo(378, 0);
+  expect(frame.height).toBeLessThanOrEqual(470);
+  expect(frame.y + frame.height).toBeLessThanOrEqual(dock.y);
+});
+
+test('Chat shares the non-modal Discussion frame and keeps the page interactive', async ({
+  page,
+}) => {
+  const { frame, panel } = await openFirst(page, 1440);
+  const discussion = (await panel.boundingBox())!;
+  await page
+    .locator('#ask-page-fixture .page-floating-actions')
+    .getByRole('button', { name: 'Chat', exact: true })
+    .click();
+  const chat = page.locator('#ask-page-fixture .tmt-ui-panel[data-panel="chat"]:visible');
+  await expect(chat).toBeVisible();
+  const chatBox = (await chat.boundingBox())!;
+  expect(chatBox).toEqual(discussion);
+  await expect(
+    page.locator('#ask-page-fixture .tmt-ui-drawer[data-panel="chat"][open]'),
+  ).toHaveCount(0);
+  await frame.getByText('Keep the preview focused.', { exact: true }).click();
+  await expect(chat).toBeVisible();
+  await frame.locator('[data-colab-thread]').filter({ hasText: /^1$/ }).click();
+  await expect(chat).toBeHidden();
+  await expect(commentsRegion(page).getByRole('heading', { level: 2 })).toHaveText('Discussion');
+});
 
 const highlights = (frame: ReturnType<Page['frameLocator']>) =>
   frame.locator('html').evaluate(() => ({
@@ -63,8 +99,8 @@ for (const width of [1440, 390])
     // All includes the resolved fifth thread.
     await chooseThreadFilter(page, 'All');
     const position = panel.locator('.discussion-position');
-    const previous = panel.getByRole('button', { name: 'Previous thread', exact: true });
-    const next = panel.getByRole('button', { name: 'Next thread', exact: true });
+    const previous = panel.getByRole('button', { name: 'Previous', exact: true });
+    const next = panel.getByRole('button', { name: 'Next', exact: true });
     const title = panel.locator('.discussion-quote q');
     const quotes = [
       'Check the mobile layout before release.',
@@ -101,13 +137,13 @@ test('an open thread draws the selected look on its passage and a resolved one o
   await chooseThreadFilter(page, 'All');
   await expect.poll(() => highlights(frame)).toEqual({ quiet: false, selected: true });
   // Walking to the resolved thread: its passage keeps only the dashed mark, no selected look.
-  const next = panel.getByRole('button', { name: 'Next thread', exact: true });
+  const next = panel.getByRole('button', { name: 'Next', exact: true });
   for (let index = 0; index < 4; index++) await next.click();
   await expect(panel.locator('.discussion-position')).toHaveText('5 / 5');
   await expect(panel.getByTestId('discussion-state')).toContainText('Resolved');
   await expect.poll(() => highlights(frame)).toEqual({ quiet: true, selected: false });
   // And back to an open thread: the dashed mark goes, the selected look returns.
-  await panel.getByRole('button', { name: 'Previous thread', exact: true }).click();
+  await panel.getByRole('button', { name: 'Previous', exact: true }).click();
   await expect.poll(() => highlights(frame)).toEqual({ quiet: false, selected: true });
 });
 
@@ -134,10 +170,10 @@ for (const width of [1440, 800, 390])
     await expect(resolve).toBeVisible();
     await expect(resolve).toHaveText('');
     await expect(resolve).toHaveClass(/tmt-ui-icon-action-control/);
-    // The title is 15px bold.
+    // The title follows the compact mock typography.
     const title = panel.getByRole('heading', { level: 2 });
-    await expect(title).toHaveCSS('font-size', '15px');
-    await expect(title).toHaveCSS('font-weight', '700');
+    await expect(title).toHaveCSS('font-size', '13px');
+    await expect(title).toHaveCSS('font-weight', '620');
     // Nothing is cut or covered: every control sits inside the header and none overlaps another.
     const row = async () =>
       header.evaluate((node) => {
@@ -207,11 +243,10 @@ for (const width of [1440, 390])
     page,
   }) => {
     const { panel } = await openFirst(page, width);
-    const mode = width === 1440 ? 'column' : 'sheet';
+    const mode = width === 1440 ? 'card' : 'sheet';
     await expect(panel).toHaveAttribute('data-mode', mode);
-    // The edge between the page and a column is the page's own: the column draws no rule, so no
-    // second vertical line stands inside the panel. A sheet draws the leaf's edge once, all round.
-    const edge = width === 1440 ? '0px' : '1px';
+    // Both the floating card and the sheet draw a single edge on all sides.
+    const edge = '1px';
     for (const side of ['top', 'right', 'bottom', 'left'])
       await expect(panel).toHaveCSS(`border-${side}-width`, edge);
     // One horizontal separator between the header and the thread: the header's own. The last turn
@@ -223,8 +258,7 @@ for (const width of [1440, 390])
       '0px',
     );
     await expect(composer).toHaveCSS('border-top-width', '0px');
-    // The composer is on its panel's surface: the page's paper behind a column, the sheet in a
-    // sheet; never a band of another colour.
+    // The composer is on the panel's sheet surface, never a band of another colour.
     const surface = await page.evaluate(
       ({ mode }) =>
         getComputedStyle(
@@ -254,7 +288,7 @@ for (const width of [1440, 390])
     await chooseThreadFilter(page, 'All');
     await expect(position).toHaveText('1 / 5');
     for (let index = 0; index < 4; index++)
-      await panel.getByRole('button', { name: 'Next thread', exact: true }).click();
+      await panel.getByRole('button', { name: 'Next', exact: true }).click();
     await expect(panel.locator('.discussion-quote q')).toHaveText('old decision text');
     await expect(panel.getByTestId('discussion-state')).toContainText('Resolved');
     await chooseThreadFilter(page, 'Open');
@@ -296,7 +330,7 @@ test('resolving the final thread stays expanded until explicit filter navigation
     await expect(panel.getByRole('button', { name: 'Reopen', exact: true })).toBeEnabled();
     await expect(commentsAction(page)).toHaveAccessibleName(`Comments (${left - 1})`);
     await expect(panel.getByTestId('comment-entry').first()).toBeVisible();
-    if (left > 1) await panel.getByRole('button', { name: 'Next thread', exact: true }).click();
+    if (left > 1) await panel.getByRole('button', { name: 'Next', exact: true }).click();
   }
   await expect(panel.getByTestId('comments-empty')).toHaveCount(0);
   await chooseThreadFilter(page, 'Open');
@@ -304,3 +338,133 @@ test('resolving the final thread stays expanded until explicit filter navigation
   await chooseThreadFilter(page, 'All');
   await expect(panel.locator('.discussion-position')).toHaveText('1 / 5');
 });
+
+test('closing Discussion clears its selected passage by button and Escape from the page', async ({
+  page,
+}) => {
+  const { frame } = await openFirst(page);
+  const selected = () => highlights(frame);
+  await expect.poll(selected).toMatchObject({ selected: true });
+  await commentsClose(page, 'discussion').click();
+  await expect(commentsRegion(page)).toHaveCount(0);
+  await expect.poll(selected).toMatchObject({ selected: false });
+
+  await frame.locator('[data-colab-thread]').filter({ hasText: /^1$/ }).click();
+  await expect.poll(selected).toMatchObject({ selected: true });
+  // Escape must work with focus back in the page, not only inside the panel.
+  await page.evaluate(() => {
+    document.body.tabIndex = -1;
+    document.body.focus();
+  });
+  await page.keyboard.press('Escape');
+  await expect(commentsRegion(page)).toHaveCount(0);
+  await expect.poll(selected).toMatchObject({ selected: false });
+});
+
+test('Discussion header follows Mock 1 order and 26px icon geometry', async ({ page }) => {
+  const { panel } = await openFirst(page, 1440);
+  await expect(panel).toHaveAccessibleName('Discussion');
+  const header = panel.locator('.tmt-ui-drawer-header');
+  const title = header.getByRole('heading', { name: 'Discussion' });
+  const position = header.locator('.discussion-position');
+  const filter = header.getByRole('button', { name: 'Thread filter' });
+  const previous = header.getByRole('button', { name: 'Previous', exact: true });
+  const next = header.getByRole('button', { name: 'Next', exact: true });
+  const resolve = header.getByRole('button', { name: 'Resolve', exact: true });
+  const all = header.getByRole('button', { name: /Resolve all open/ });
+  const close = header.getByRole('button', { name: 'Close (Esc)', exact: true });
+  const items = [title, position, filter, previous, next, resolve, all, close];
+  const boxes = await Promise.all(items.map((item) => item.boundingBox()));
+  for (const box of boxes) expect(box).not.toBeNull();
+  for (let i = 1; i < boxes.length; i++) {
+    expect(boxes[i]!.x).toBeGreaterThanOrEqual(boxes[i - 1]!.x + boxes[i - 1]!.width - 1);
+    expect(
+      Math.abs(boxes[i]!.y + boxes[i]!.height / 2 - (boxes[0]!.y + boxes[0]!.height / 2)),
+    ).toBeLessThanOrEqual(1);
+  }
+  await expect(title).toHaveCSS('font-size', '13px');
+  await expect(title).toHaveCSS('font-weight', '620');
+  await expect(position).toHaveCSS('font-size', '11px');
+  await expect(filter).toHaveCSS('border-top-width', '1px');
+  for (const action of [previous, next, resolve, all, close]) {
+    await expect(action).toHaveCSS('width', '26px');
+    await expect(action).toHaveCSS('height', '26px');
+    await expect(action.locator('svg')).toHaveCSS('width', '16px');
+    await expect(action.locator('svg')).toHaveCSS('stroke-linecap', 'round');
+  }
+  await expect(header.locator('.discussion-separator')).toHaveCount(2);
+  await page.screenshot({ path: test.info().outputPath('discussion-mock1-1440-light.png') });
+});
+
+test('wide Discussion floats 16px above the dock without reflowing the page', async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.goto('/');
+  await run(page, 'mount', { creator: true });
+  await run(page, 'annotationLook');
+  const frame = page.frameLocator('#ask-page-fixture iframe');
+  const pageFrame = page.locator('#ask-page-fixture iframe');
+  const before = (await pageFrame.boundingBox())!;
+  await frame.locator('[data-colab-thread]').filter({ hasText: /^1$/ }).click();
+  const panel = commentsRegion(page);
+  const dock = page.locator('#ask-page-fixture .page-floating-actions');
+  await expect(panel).toBeVisible();
+  await expect(dock).toBeVisible();
+  const windowBox = (await panel.boundingBox())!;
+  const dockBox = (await dock.boundingBox())!;
+  const after = (await pageFrame.boundingBox())!;
+  expect(windowBox.width).toBe(360);
+  expect(windowBox.height).toBe(470);
+  expect(Math.abs(windowBox.x + windowBox.width - dockBox.x - dockBox.width)).toBeLessThanOrEqual(
+    1,
+  );
+  expect(Math.abs(dockBox.y - (windowBox.y + windowBox.height) - 16)).toBeLessThanOrEqual(1);
+  expect(after.width).toBe(before.width);
+  expect(after.x).toBe(before.x);
+});
+
+test('Escape returns focus to the marker that opened Discussion', async ({ page }) => {
+  const { frame } = await openFirst(page);
+  const marker = frame.locator('[data-colab-thread]').filter({ hasText: /^1$/ });
+  await page.keyboard.press('Escape');
+  await expect(commentsRegion(page)).toHaveCount(0);
+  await expect(marker).toBeFocused();
+  await marker.click();
+  await expect(commentsRegion(page)).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(commentsRegion(page)).toHaveCount(0);
+  await expect(marker).toBeFocused();
+});
+
+test('Escape returns focus to the grouped marker that opened Discussion', async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.goto('/');
+  await run(page, 'mount', { creator: true });
+  await run(page, 'annotationLook');
+  const group = page.frameLocator('#ask-page-fixture iframe').locator('[data-colab-group]');
+  await group.click();
+  await expect(commentsRegion(page)).toBeVisible();
+  await expect(commentsRegion(page).getByTestId('comment-thread')).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(commentsRegion(page)).toHaveCount(0);
+  await expect(group).toBeFocused();
+});
+
+for (const theme of ['light', 'dark'] as const) {
+  test(`Resolve-all tooltip is below the Discussion header in ${theme}`, async ({ page }, info) => {
+    await page.emulateMedia({ colorScheme: theme });
+    const { panel } = await openFirst(page, 1440);
+    const action = panel.getByRole('button', { name: 'Resolve all open (4)', exact: true });
+    await action.hover();
+    const tooltip = panel.locator('.tmt-ui-icon-action-tooltip:popover-open');
+    await expect(tooltip).toBeVisible();
+    await expect(tooltip).toHaveText('Resolve all open (4)');
+    await expect(tooltip.locator('.tmt-ui-icon-action-tooltip-label')).toHaveCSS(
+      'background-color',
+      'rgb(38, 57, 63)',
+    );
+    const buttonBox = (await action.boundingBox())!;
+    const tooltipBox = (await tooltip.boundingBox())!;
+    expect(tooltipBox.y).toBeGreaterThanOrEqual(buttonBox.y + buttonBox.height);
+    await page.screenshot({ path: info.outputPath(`mock1-tooltip-1440-${theme}.png`) });
+  });
+}

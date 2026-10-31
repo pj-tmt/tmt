@@ -58,10 +58,11 @@ test('concept17 shows real pins in owner order, wraps after three and shares the
     .evaluateAll((nodes) => nodes.map((node) => node.getBoundingClientRect().top));
   expect(bounds[0]).toBe(bounds[2]);
   expect(bounds[3]).toBeGreaterThan(bounds[0]);
-  await app(page).getByRole('button', { name: 'Scope to blog', exact: true }).click();
+  await app(page).getByRole('button', { name: 'Filter', exact: true }).click();
+  await page.getByRole('menuitemcheckbox', { name: 'blog', exact: true }).click();
   await expect(
-    app(page).getByRole('button', { name: 'Scope to blog', exact: true }),
-  ).toHaveAttribute('aria-pressed', 'true');
+    app(page).getByRole('button', { name: 'Remove project: blog', exact: true }),
+  ).toBeVisible();
   await expect(pins.getByRole('link')).toHaveText(['Review 2']);
   await expect(app(page).locator('.tmt-ui-topbar-title-current')).toHaveText('blog');
   await expect(app(page).locator('h1:visible')).toHaveCount(1);

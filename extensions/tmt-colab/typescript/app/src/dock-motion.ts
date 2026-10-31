@@ -1,9 +1,8 @@
 import { useLayoutEffect, useRef } from 'react';
-import type { PanelMode } from './panel-mode.js';
 
 /** The panels that open out of the dock, and the element each one is. */
 const PANELS = {
-  chat: '.tmt-ui-drawer[data-panel="chat"]',
+  chat: '.tmt-ui-panel[data-panel="chat"]',
   comments: '.tmt-ui-panel[data-panel="comments"]',
 } as const;
 export type DockPanel = keyof typeof PANELS;
@@ -34,23 +33,21 @@ function clip(inset: [number, number, number, number], radius: number) {
  * length and easing are the leaf's motion tokens, which are 0ms under reduced motion: then there is no
  * animation at all.
  *
- * A Comments column is a track of the page grid and leaves it the moment it closes, so it only opens
- * with the motion. The leaf owns the panel and its focus; this only paints, and a page with no dock or
+ * The leaf owns the panel and its focus; this only paints, and a page with no dock or
  * no animation support opens and closes as before.
  */
-export function useDockMotion(open: DockPanel | null, mode: PanelMode) {
+export function useDockMotion(open: DockPanel | null) {
   const previous = useRef<DockPanel | null>(open);
   useLayoutEffect(() => {
     const was = previous.current;
     previous.current = open;
     if (was === open) return;
-    if (was) run(was, false, mode);
-    if (open) run(open, true, mode);
-  }, [open, mode]);
+    if (was) run(was, false);
+    if (open) run(open, true);
+  }, [open]);
 }
 
-function run(panel: DockPanel, open: boolean, mode: PanelMode) {
-  if (!open && panel === 'comments' && mode === 'column') return;
+function run(panel: DockPanel, open: boolean) {
   const element = document.querySelector<HTMLElement>(PANELS[panel]);
   const dock = document.querySelector<HTMLElement>(DOCK);
   if (!element || !dock || typeof element.animate !== 'function') return;

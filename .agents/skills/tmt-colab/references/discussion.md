@@ -248,7 +248,12 @@ device.` once per failure and keeps the in-tab draft. Resolve/Reopen is the pare
   agent status. A resolved thread leaves the renderer's anchor set, hiding its
   marker until Reopen. Comments retains the expanded selected discussion and its
   Not-notified warning even in Open; only explicit navigation changes selection.
-  The dock retains the canonical pending count and unseen New mark.
+  The dock retains the canonical pending count as plain text; its accessible name carries
+  unseen New. Resolve all snapshots the current filter, confirms once and re-admits each
+  status write. The coordinator deduplicates recipients across successful commits and the
+  existing Discussion state line reports partial failures. Marker-opener focus is restored
+  through the current renderer request; marker redraw retains focus without taking it from
+  another surface.
   It extends the same `components/listbox.tsx` used by Manage and the agent list;
   input options portal into its dialog ancestor (otherwise the body) and use the
   browser popover layer with viewport bounds, so mobile modal sheets retain visible,
@@ -328,3 +333,5 @@ still disable retries. The shared overlap helper and presence projection serve
 both refusal and own-lock cleanup. No browser or server-wide write guard is added.
 Native CLI cases cover people, unrelated/no-op patches, holder release, lifecycle
 observations and a real lock acquired between snapshot and preparation.
+
+Chat and Discussion use the same non-modal floating window above the dock. Chat retains its existing message, composer, mode and draft owners; page-level comments are sent from Chat.

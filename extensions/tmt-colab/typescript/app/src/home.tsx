@@ -1,5 +1,5 @@
-import { PageStateMenu } from './page-state-menu.js';
 import { useShortcuts } from './use-shortcuts.js';
+import { useMedia } from './use-media.js';
 import { ShortcutDialog } from './shortcut-dialogs.js';
 import type { Shortcut } from './shortcuts.js';
 import { rereadInPlace, useSummaryFill } from './home-fill.js';
@@ -11,10 +11,21 @@ import {
   BrowserMenu,
   BrowserTabs,
   BrowserCheckbox,
+  BrowserChip,
   type BrowserTab,
 } from '@tmt/browser-ui/react';
 import { getRouteApi, useRouter } from '@tanstack/react-router';
-import { Archive, ArchiveRestore, ExternalLink, Pin, Plus, Search, Settings } from 'lucide-react';
+import {
+  Archive,
+  ArchiveRestore,
+  ArrowDownUp,
+  Bookmark,
+  ExternalLink,
+  Funnel,
+  Pencil,
+  Pin,
+  Plus,
+} from 'lucide-react';
 import { useContext, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import {
   ProjectWriting,
@@ -236,6 +247,7 @@ function StageEmpty({
 }
 
 export function Home() {
+  const phone = useMedia('(max-width: 650px)');
   const space = homeRoute.useLoaderData();
   const { transport, space: spaceId } = rootRoute.useRouteContext();
   const shortcutRequest = useContext(ShortcutMenuRequestSlot);
@@ -247,6 +259,7 @@ export function Home() {
   const shortcuts = useShortcuts(spaceId);
   const [shortcutDialog, setShortcutDialog] = useState<'save' | 'edit' | 'manage'>();
   const [shortcutTarget, setShortcutTarget] = useState<string>();
+  const shortcutFromMenu = useRef(false);
   const currentShortcut = shortcuts.items.find((item) => item.id === search.shortcut);
   function savedShortcut(item: Shortcut) {
     setShortcutDialog(undefined);
@@ -336,15 +349,6 @@ export function Home() {
     const root = section.current;
     const boundary = controlsBoundary.current;
     if (!root || !boundary) return;
-    const phone = matchMedia('(max-width: 650px)');
-    const scopeControl = (target: EventTarget | null) =>
-      target instanceof HTMLElement &&
-      root.contains(target) &&
-      target.closest('.page-scope-filters')
-        ? target
-        : undefined;
-    // A scope change restarts this observer while its same button can retain focus.
-    let focusedScope = scopeControl(document.activeElement);
     // Observe normal flow, never the sticky row: its changing height must not move the trigger.
     const measure = () => {
       const next = boundary.getBoundingClientRect().bottom <= root.getBoundingClientRect().top;
@@ -354,11 +358,7 @@ export function Home() {
           compactFocus.current = '.page-list-compact-create button';
         else if (!next && active.closest('.page-list-compact-create'))
           compactFocus.current = '.page-list-hero-create button';
-        else if (
-          next &&
-          (active.closest('.page-list-sort') ||
-            (phone.matches && active.closest('.page-scope-filters')))
-        )
+        else if (next && active.closest('.page-list-sort'))
           compactFocus.current = '.page-list-search [contenteditable]';
       }
       setCompact(next);
@@ -372,40 +372,10 @@ export function Home() {
     for (const node of root.querySelectorAll('.page-list-hero, .page-pins, .tmt-ui-tabs-header'))
       resize.observe(node);
     observer.observe(boundary);
-    // Some browsers clear focus as the media rule hides a project button, before the
-    // change event. Keep that handoff through layout reflow; focus entering another control clears it.
-    const remember = (event: FocusEvent) => {
-      focusedScope = scopeControl(event.target);
-    };
-    const leave = (event: FocusEvent) => {
-      if (!phone.matches || event.relatedTarget !== null) focusedScope = undefined;
-    };
-    const fit = () => {
-      const active = document.activeElement;
-      const scope =
-        active instanceof HTMLElement && active.closest('.page-scope-filters')
-          ? active
-          : active === document.body
-            ? focusedScope
-            : undefined;
-      // CSS can hide the focused scope before the media-query change runs.
-      if (phone.matches && scope?.isConnected && !scope.getClientRects().length) {
-        root
-          .querySelector<HTMLElement>('.page-list-search [contenteditable]')
-          ?.focus({ preventScroll: true });
-        focusedScope = undefined;
-      } else if (!phone.matches) focusedScope = undefined;
-    };
-    root.addEventListener('focusin', remember);
-    root.addEventListener('focusout', leave);
-    phone.addEventListener('change', fit);
     return () => {
       observer.disconnect();
       resize.disconnect();
       root.removeEventListener('scroll', measure);
-      root.removeEventListener('focusin', remember);
-      root.removeEventListener('focusout', leave);
-      phone.removeEventListener('change', fit);
     };
   }, [view, scope, space.pages]);
   const drawn = useShownRows(
@@ -451,6 +421,7 @@ export function Home() {
       return;
     }
     shortcutRequest.done(held.id);
+    shortcutFromMenu.current = true;
     setShortcutTarget(held.shortcut);
     setShortcutDialog(held.kind);
   }, [shortcutRequest, port, shortcuts.store, shortcuts.items]);
@@ -660,71 +631,171 @@ export function Home() {
     <>
       <div className="page-list-controls-boundary" ref={controlsBoundary} aria-hidden="true" />
       <div className="page-list-controls">
-        <div className="page-scope-filters" aria-label={t.projectScopes}>
-          {[undefined, ...projectNames].map((name) => (
-            <button
-              key={name === undefined ? 'all-projects' : `project:${name}`}
-              type="button"
-              className="project-filter-button"
-              aria-label={name === undefined ? t.allProjects : t.scopeTo(name)}
-              aria-pressed={scope === name}
-              onClick={(event) => {
-                if (!event.isTrusted) return;
-                writeScope(spaceId, name);
-                setSearch({ scope: name });
-              }}
-            >
-              <span className="page-scope-name">{name ?? t.allProjects}</span>
-              <span className="project-count">
-                {
-                  inScope(
-                    homePages.filter((page) => !page.archived),
-                    name,
-                  ).length
-                }
-              </span>
-            </button>
-          ))}
-          {port && (
-            <BrowserMenu
-              label={t.projectActions}
-              items={[
-                { key: 'manage', label: t.allProjectsItem },
-                { key: 'new', label: `${t.newProject}…` },
-              ]}
-              onSelect={(key) =>
-                setDialog(key === 'new' ? { kind: 'new', initial: [] } : { kind: 'manage' })
-              }
-            />
-          )}
-        </div>
         <div className="page-list-search">
-          <Search className="page-list-search-mark" size={14} aria-hidden="true" />
-          <PageListSearch
-            edit={edit}
-            onChange={setEdit}
-            resetKey={resetKey}
-            projects={counts}
-            authors={authors}
-            stages={HOME_STAGES.map((name) => ({
-              name,
-              count: name === 'all' ? activeInScope.length : stages[name],
-            }))}
-            onStage={(stage) => chooseView(stage as HomeStage)}
-            onApply={apply}
-            onClear={() => {
-              if (!filtered && edit.value === '' && edit.tokens.length === 0) {
-                (document.activeElement as HTMLElement | null)?.blur();
-                return;
-              }
-              clearFilters();
-            }}
-          />
+          <div className="page-list-search-box">
+            <div className="page-list-condition-chips">
+              {scope && (
+                <BrowserChip
+                  label={text.shortcuts.project(scope)}
+                  removeLabel={text.shortcuts.removeCondition(text.shortcuts.project(scope))}
+                  onRemove={() => {
+                    writeScope(spaceId, undefined);
+                    setSearch({ scope: undefined });
+                  }}
+                />
+              )}
+              {(search.state
+                ? Array.isArray(search.state)
+                  ? search.state
+                  : [search.state]
+                : []
+              ).map((state) => (
+                <BrowserChip
+                  key={state}
+                  label={text.shortcuts.filterState(text.workBand.taskState[state])}
+                  removeLabel={text.shortcuts.removeCondition(text.workBand.taskState[state])}
+                  onRemove={() => {
+                    const remaining = (
+                      Array.isArray(search.state) ? search.state : [search.state]
+                    ).filter(
+                      (item): item is NonNullable<typeof item> =>
+                        item !== undefined && item !== state,
+                    );
+                    setSearch({ state: remaining.length ? remaining : undefined });
+                  }}
+                />
+              ))}
+              {search.needs && (
+                <BrowserChip
+                  label={text.shortcuts.needsMe}
+                  removeLabel={text.shortcuts.removeCondition(text.shortcuts.needsMe)}
+                  onRemove={() => setSearch({ needs: undefined })}
+                />
+              )}
+              {search.includeArchived && (
+                <BrowserChip
+                  label={text.shortcuts.includeArchived}
+                  removeLabel={text.shortcuts.removeCondition(text.shortcuts.includeArchived)}
+                  onRemove={() => setSearch({ includeArchived: undefined })}
+                />
+              )}
+              {search.archived && (
+                <BrowserChip
+                  label={text.shortcuts.archivedOnly}
+                  removeLabel={text.shortcuts.removeCondition(text.archived)}
+                  onRemove={() => chooseView('all')}
+                />
+              )}
+              {search.stage && (
+                <BrowserChip
+                  label={text.shortcuts.stage(search.stage)}
+                  removeLabel={text.shortcuts.removeCondition(search.stage)}
+                  onRemove={() => setSearch({ stage: undefined })}
+                />
+              )}
+            </div>
+            <PageListSearch
+              edit={edit}
+              onChange={setEdit}
+              resetKey={resetKey}
+              projects={counts}
+              authors={authors}
+              stages={HOME_STAGES.map((name) => ({
+                name,
+                count: name === 'all' ? activeInScope.length : stages[name],
+              }))}
+              onStage={(stage) => chooseView(stage as HomeStage)}
+              onApply={apply}
+              onClear={() => {
+                if (!filtered && edit.value === '' && edit.tokens.length === 0) {
+                  (document.activeElement as HTMLElement | null)?.blur();
+                  return;
+                }
+                clearFilters();
+              }}
+            />
+          </div>
+          <span className="page-list-filter-menu">
+            <Funnel aria-hidden="true" />
+            <BrowserMenu
+              label={text.shortcuts.filter}
+              triggerText={phone ? undefined : text.shortcuts.filter}
+              icon={<Funnel />}
+              popupLayout="grouped"
+              items={[
+                ...(['todo', 'in-progress', 'done'] as const).map((state, index) => ({
+                  key: `state:${state}`,
+                  heading: index === 0 ? text.shortcuts.pageState : undefined,
+                  label: text.workBand.taskState[state],
+                  role: 'menuitemcheckbox' as const,
+                  checked: (Array.isArray(search.state) ? search.state : [search.state]).includes(
+                    state,
+                  ),
+                })),
+                ...projectNames.map((project, index) => ({
+                  key: `project:${project}`,
+                  label: project,
+                  heading: index === 0 ? text.shortcuts.projectGroup : undefined,
+                  role: 'menuitemcheckbox' as const,
+                  checked: scope === project,
+                  separated: index === 0,
+                })),
+                ...(port
+                  ? [
+                      {
+                        key: 'manage-projects',
+                        label: `${t.manageProjects}…`,
+                        heading: projectNames.length ? undefined : text.shortcuts.projectGroup,
+                        separated: projectNames.length === 0,
+                      },
+                    ]
+                  : []),
+                {
+                  key: 'needs',
+                  label: text.shortcuts.needsMe,
+                  heading: text.shortcuts.also,
+                  role: 'menuitemcheckbox' as const,
+                  checked: !!search.needs,
+                  separated: true,
+                },
+                {
+                  key: 'archived',
+                  label: text.shortcuts.includeArchived,
+                  role: 'menuitemcheckbox' as const,
+                  checked: !!search.includeArchived,
+                },
+              ]}
+              onSelect={(key) => {
+                if (key === 'manage-projects') setDialog({ kind: 'manage' });
+                else if (key === 'needs') setSearch({ needs: search.needs ? undefined : true });
+                else if (key === 'archived')
+                  setSearch({ includeArchived: search.includeArchived ? undefined : true });
+                else if (key.startsWith('project:')) {
+                  const project = key.slice(8);
+                  const next = scope === project ? undefined : project;
+                  writeScope(spaceId, next);
+                  setSearch({ scope: next });
+                } else if (key.startsWith('state:')) {
+                  const value = key.slice(6) as 'todo' | 'in-progress' | 'done';
+                  const states = search.state
+                    ? Array.isArray(search.state)
+                      ? search.state
+                      : [search.state]
+                    : [];
+                  const next = states.includes(value)
+                    ? states.filter((state) => state !== value)
+                    : [...states, value];
+                  setSearch({ state: next.length ? next : undefined });
+                }
+              }}
+            />
+          </span>
         </div>
         <span className="page-list-sort">
           <BrowserMenu
             label={`${t.sort}: ${sortLabel}`}
-            triggerText={sortLabel}
+            triggerText={phone ? undefined : sortLabel}
+            icon={<ArrowDownUp />}
             items={(['updated', 'title'] as const).map((key) => ({
               key,
               label: t.sortOptions[key],
@@ -752,26 +823,13 @@ export function Home() {
       type="button"
       variant="primary"
       label={t.newPage}
+      visibleLabel={phone ? t.newShort : undefined}
       leadingIcon={<Plus size={14} />}
       onActivate={() => setNewPage(true)}
     />
   );
   const content = (
     <>
-      {port && (
-        <div className="page-list-state-filters">
-          <PageStateMenu state={search.state} onChange={(state) => setSearch({ state })} />
-          <label>
-            <BrowserCheckbox
-              checked={!!search.includeArchived}
-              onChange={(event) =>
-                setSearch({ includeArchived: event.target.checked ? true : undefined })
-              }
-            />
-            {text.shortcuts.includeArchived}
-          </label>
-        </div>
-      )}
       {controls}
       {chosen.length > 0 ? (
         <BulkBar
@@ -981,37 +1039,43 @@ export function Home() {
         remote={{ deviceName: transport.backendName }}
       />
       <header className="page-list-hero">
-        <div className="page-list-hero-text">
-          <p>{t.heroBody}</p>
-          {port && (
-            <div className="page-list-shortcuts">
+        {port && (
+          <>
+            <span className="page-list-shortcut-wide">
               <BrowserAction
                 type="button"
-                variant="ghost"
-                presentation="compact"
+                variant="secondary"
                 label={currentShortcut ? text.shortcuts.edit : text.shortcuts.saveAs}
+                leadingIcon={currentShortcut ? <Pencil /> : <Bookmark />}
                 disabled={!shortcuts.store}
                 onActivate={() => {
+                  shortcutFromMenu.current = false;
                   setShortcutTarget(undefined);
                   setShortcutDialog(currentShortcut ? 'edit' : 'save');
                 }}
               />
+            </span>
+            <span className="page-list-shortcut-phone">
               <BrowserIconAction
                 type="button"
-                variant="text"
-                icon={<Settings />}
-                label={text.shortcuts.manage}
+                variant="secondary"
+                label={currentShortcut ? text.shortcuts.edit : text.shortcuts.saveAs}
+                icon={currentShortcut ? <Pencil /> : <Bookmark />}
                 disabled={!shortcuts.store}
-                onActivate={() => setShortcutDialog('manage')}
+                onActivate={() => {
+                  shortcutFromMenu.current = false;
+                  setShortcutTarget(undefined);
+                  setShortcutDialog(currentShortcut ? 'edit' : 'save');
+                }}
               />
-            </div>
-          )}
-          {shortcuts.error && <p role="alert">{shortcuts.error}</p>}
-        </div>
+            </span>
+          </>
+        )}
         <span className="page-list-hero-create" inert={compact}>
           {newPageAction}
         </span>
       </header>
+      {shortcuts.error && <p role="alert">{shortcuts.error}</p>}
       {shortcutDialog && shortcuts.store && (
         <ShortcutDialog
           key={`${spaceId}:${shortcutDialog}`}
@@ -1037,7 +1101,18 @@ export function Home() {
           pages={homePages}
           projects={projectNames}
           error={shortcuts.error}
-          onClose={() => setShortcutDialog(undefined)}
+          onClose={() => {
+            setShortcutDialog(undefined);
+            if (shortcutFromMenu.current) {
+              requestAnimationFrame(() => {
+                const opener = [
+                  ...document.querySelectorAll<HTMLElement>('.tmt-ui-shell-open'),
+                ].find((node) => node.getClientRects().length > 0);
+                opener?.focus({ preventScroll: true });
+              });
+            }
+          }}
+          focusFallback={() => document.querySelector<HTMLElement>('.tmt-ui-shell-open')}
           onSaved={savedShortcut}
         />
       )}
@@ -1067,7 +1142,6 @@ export function Home() {
           <BrowserTabs
             label={t.views}
             variant="flat"
-            wrap
             tabs={viewTabs}
             selected={view}
             onSelect={(id) => chooseView(id as HomeView)}

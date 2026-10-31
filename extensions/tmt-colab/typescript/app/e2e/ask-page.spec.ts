@@ -175,6 +175,9 @@ test('verified refusal reasons use actionable copy without exposing a resend', a
     await expect(mark).toHaveText('✗');
     await expect(page.getByRole('button', { name: 'Abandon tracking' })).toHaveCount(0);
     await expect(page.getByRole('button', { name: 'Check again' })).toHaveCount(0);
+    await expect(
+      page.getByTestId('ask-entry').first().locator('.conversation-status-actions'),
+    ).toHaveCount(0);
   }
   expect((await run(page, 'proof')).sends).toEqual([]);
   await page.screenshot({
@@ -196,6 +199,8 @@ test('read refusals show ephemeral copy without changing the admitted operation 
     await run(page, 'refuseRead', code);
     await page.getByRole('button', { name: 'Check again' }).click();
     await expect(page.locator('.ask-panel [role=alert]')).toContainText(copy);
+    await page.getByTestId('chat-panel').getByRole('combobox', { name: 'Message' }).fill('Draft');
+    await expect(page.locator('.ask-panel [role=alert]')).toContainText(copy);
     await expect(page.getByTestId('ask-state').first()).toHaveAttribute('data-state', 'uncertain');
     expect((await run(page, 'proof')).sends).toEqual([]);
   }
@@ -205,16 +210,16 @@ test('read refusals show ephemeral copy without changing the admitted operation 
   });
 });
 
-test('mobile modal Chat keeps the shared autocomplete visible and clickable in its top layer', async ({
+test('mobile floating Chat keeps the shared autocomplete visible and clickable', async ({
   page,
 }) => {
   await page.setViewportSize({ width: 390, height: 900 });
   await mount(page);
-  const drawer = page.locator('.tmt-ui-drawer[data-panel=chat][open]');
-  expect(await drawer.evaluate((node) => node.matches(':modal'))).toBe(true);
+  const drawer = page.locator('.tmt-ui-panel[data-panel=chat]:not([hidden])');
+  expect(await drawer.evaluate((node) => node.matches(':modal'))).toBe(false);
   const input = drawer.getByRole('combobox', { name: 'Message' });
   await input.fill('@');
-  const option = drawer.getByRole('option').first();
+  const option = page.getByRole('listbox', { name: 'Message' }).getByRole('option').first();
   await expect(option).toBeInViewport();
   await expect
     .poll(() =>
@@ -237,19 +242,19 @@ test('mobile Chat preserves an open autocomplete inside its dialog across keyboa
 }) => {
   await page.setViewportSize({ width: 390, height: 900 });
   await mount(page);
-  const drawer = page.locator('.tmt-ui-drawer[data-panel=chat][open]');
+  const drawer = page.locator('.tmt-ui-panel[data-panel=chat]:not([hidden])');
   const input = drawer.getByRole('combobox', { name: 'Message' });
   await input.fill('@');
-  await expect(drawer.getByRole('option')).toHaveCount(5);
+  await expect(page.getByRole('listbox', { name: 'Message' }).getByRole('option')).toHaveCount(5);
   const close = drawer.getByRole('button', { name: 'Close Chat' });
   await close.focus();
   await close.press('Enter');
-  await expect(page.locator('.tmt-ui-drawer[data-panel=chat][open]')).toHaveCount(0);
+  await expect(page.locator('.tmt-ui-panel[data-panel=chat]:not([hidden])')).toHaveCount(0);
   const toggle = await pageAction(page.locator('#ask-page-fixture'), 'Chat');
   await toggle.focus();
   await toggle.press('Enter');
   await expect(input).toHaveText('@', { useInnerText: true });
-  const option = drawer.getByRole('option').first();
+  const option = page.getByRole('listbox', { name: 'Message' }).getByRole('option').first();
   await expect(option).toBeInViewport();
   await expect
     .poll(() =>
@@ -272,7 +277,7 @@ for (const selected of [false, true]) {
   }) => {
     await page.setViewportSize({ width: 390, height: 900 });
     await mount(page);
-    const drawer = page.locator('.tmt-ui-drawer[data-panel=chat][open]');
+    const drawer = page.locator('.tmt-ui-panel[data-panel=chat]:not([hidden])');
     const input = drawer.getByRole('combobox', { name: 'Message', exact: true });
     const draft = 'Before draft after';
     await input.fill(draft);
@@ -313,8 +318,8 @@ for (const selected of [false, true]) {
       await page.evaluate((width) => {
         document.documentElement.dataset.theme = width === 390 ? 'dark' : 'light';
       }, width);
-      // The same modal owner stays mounted across the geometry change.
-      await expect.poll(() => drawer.evaluate((node) => node.matches(':modal'))).toBe(true);
+      // The same panel stays mounted across the geometry change.
+      await expect.poll(() => drawer.evaluate((node) => node.matches(':modal'))).toBe(false);
       await expect(input).toBeFocused();
       await expect(input).toHaveAttribute('id', editorId!);
       await expect(input).toHaveText(draft, { useInnerText: true });
@@ -335,7 +340,7 @@ for (const selected of [false, true]) {
       selection.addRange(range);
     });
     await input.pressSequentially(' @');
-    await drawer.getByRole('option').first().click();
+    await page.getByRole('listbox', { name: 'Message' }).getByRole('option').first().click();
     await input.press('Enter');
     await expect.poll(async () => (await run(page, 'proof')).sends.length).toBe(1);
     expect((await run(page, 'proof')).sends[0].message).toContain(
@@ -992,6 +997,12 @@ for (const [width, height, theme] of [
     await expect(window).toBeVisible();
     await page.screenshot({ path: capturePath(`2719-thread-${width}-${height}-${theme}.png`) });
     if (height <= 500) {
+      if (width === 1440) {
+        const box = (await window.boundingBox())!;
+        const header = (await page.locator('.tmt-ui-shell-bar').boundingBox())!;
+        expect(box.y).toBeGreaterThanOrEqual(header.y + header.height);
+        expect(box.y + box.height).toBeLessThanOrEqual(height);
+      }
       const send = window.getByRole('button', { name: /^Send(?: · to .+)?$/, exact: true });
       await send.scrollIntoViewIfNeeded();
       await expect
@@ -1208,13 +1219,24 @@ for (const [width, theme] of [
     ]) {
       // Comments is a non-modal panel now: layout.spec.ts holds its geometry by mode.
       await (await pageAction(page, action!)).click();
-      const drawer = page.locator(`.tmt-ui-drawer[data-panel=${panel}][open]`);
+      const drawer = page.locator(
+        panel === 'chat'
+          ? '.tmt-ui-panel[data-panel=chat]:visible'
+          : `.tmt-ui-drawer[data-panel=${panel}][open]`,
+      );
       await expect(drawer).toBeVisible();
       const box = (await drawer.boundingBox())!;
-      const gap = width <= 480 ? 4 : 8;
-      expect(box.x + box.width).toBe(width - gap);
-      expect(box.y).toBe(headerHeight(width) + gap);
-      expect(box.y + box.height).toBe(900 - gap);
+      if (panel === 'chat') {
+        const dock = (await page.locator('.page-floating-actions:visible').boundingBox())!;
+        expect(box.width).toBe(width === 390 ? width - 24 : 360);
+        expect(box.height).toBeLessThanOrEqual(470);
+        expect(Math.abs(dock.y - box.y - box.height - 16)).toBeLessThanOrEqual(1);
+      } else {
+        const gap = width <= 480 ? 4 : 8;
+        expect(box.x + box.width).toBe(width - gap);
+        expect(box.y).toBe(headerHeight(width) + gap);
+        expect(box.y + box.height).toBe(900 - gap);
+      }
       await expect(drawer).toHaveCSS('border-right-width', '1px');
       expect((await frame.boundingBox())?.width).toBe(before?.width);
       await page.screenshot({ path: capturePath(`2722-gutter-${panel}-${width}-${theme}.png`) });

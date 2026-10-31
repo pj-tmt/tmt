@@ -25,9 +25,8 @@ async function open(page: Page, name: string) {
   await (await pageAction(page.locator('#ask-page-fixture'), name)).click();
 }
 async function close(page: Page, name: string) {
-  // Comments reads Discussion while one thread is open in it.
-  const label = name === 'Comments' ? /^Close (Comments|Discussion)$/ : `Close ${name}`;
-  await page.getByRole('button', { name: label, exact: typeof label === 'string' }).click();
+  if (name === 'Comments') await commentsClose(page, 'discussion').click();
+  else await page.getByRole('button', { name: `Close ${name}`, exact: true }).click();
 }
 async function revealVisible(history: Locator, record: Locator) {
   const bounds = await history.boundingBox();

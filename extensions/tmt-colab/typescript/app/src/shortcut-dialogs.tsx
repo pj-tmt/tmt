@@ -1,18 +1,22 @@
-import { PageStateMenu } from './page-state-menu.js';
 import { text } from './strings.js';
 import {
   BrowserAction,
-  BrowserCheckbox,
+  BrowserCountChip,
   BrowserDialog,
   BrowserField,
   BrowserIconAction,
 } from '@tmt/browser-ui/react';
-import { ArrowDown, ArrowUp, GripVertical, Plus } from 'lucide-react';
+import { ChevronLeft, Funnel, GripVertical, Plus } from 'lucide-react';
 import { useId, useRef, useState } from 'react';
 import { listPages, type HomeSearch } from './page-list-filter.js';
 import type { PageSummary } from './transport.js';
 import { ShortcutStore } from './shortcut-store.js';
-import { shortcutNameError, shortcutSearch, type Shortcut } from './shortcuts.js';
+import {
+  shortcutConditions,
+  shortcutNameError,
+  shortcutSearch,
+  type Shortcut,
+} from './shortcuts.js';
 import './shortcut-dialogs.css';
 const t = text.shortcuts;
 
@@ -26,6 +30,7 @@ export interface ShortcutDialogProps {
   projects: readonly string[];
   error?: string;
   onClose(): void;
+  focusFallback?(): HTMLElement | null;
   onSaved(item: Shortcut): void;
 }
 export function ShortcutDialog(props: ShortcutDialogProps) {
@@ -37,8 +42,10 @@ export function ShortcutDialog(props: ShortcutDialogProps) {
   );
   const [error, setError] = useState<string>();
   const [drag, setDrag] = useState<string>();
+  const [mobileView, setMobileView] = useState<'list' | 'editor'>('list');
   const id = useId();
   const input = useRef<HTMLInputElement>(null);
+  const list = useRef<HTMLElement>(null);
   const manage = mode === 'manage';
   const title = manage ? t.manage : mode === 'edit' ? t.edit : t.saveAs;
   const failure = () => setError(t.saveFailed);
@@ -68,13 +75,6 @@ export function ShortcutDialog(props: ShortcutDialogProps) {
         choose(item);
       } else onSaved(item);
     });
-  const extra = [
-    search.q && t.search(search.q),
-    search.by?.length && t.creators(search.by.join(', ')),
-    search.sort && t.sort(text.pageList.sortOptions.title),
-    search.stage && t.stage(search.stage),
-    search.archived && t.archivedOnly,
-  ].filter(Boolean);
   const filterError = (search.project?.length ?? 0) > 8 ? t.projectLimit : undefined;
   const matching = listPages(pages, search);
   const patch = (next: Partial<HomeSearch>) => setSearch((previous) => ({ ...previous, ...next }));
@@ -85,23 +85,27 @@ export function ShortcutDialog(props: ShortcutDialogProps) {
       size={manage ? 'wide' : 'regular'}
       className="shortcut-dialog"
       data-mode={mode}
+      data-mobile-view={mobileView}
       onDismiss={onClose}
       initialFocus={() => input.current}
+      focusFallback={props.focusFallback}
       actions={
         <>
           {selected && (
-            <BrowserAction
-              type="button"
-              variant="destructive"
-              label={text.pageList.remove}
-              onActivate={() =>
-                run(() => {
-                  store.delete(selected);
-                  if (manage) choose();
-                  else onClose();
-                })
-              }
-            />
+            <span className="shortcut-delete">
+              <BrowserAction
+                type="button"
+                variant="ghost"
+                label={text.pageList.remove}
+                onActivate={() =>
+                  run(() => {
+                    store.delete(selected);
+                    if (manage) choose();
+                    else onClose();
+                  })
+                }
+              />
+            </span>
           )}
           <BrowserAction
             type="button"
@@ -119,12 +123,11 @@ export function ShortcutDialog(props: ShortcutDialogProps) {
         </>
       }
     >
-      <p className="shortcut-local">{t.localOnly}</p>
       <div className="shortcut-columns" data-manage={manage || undefined}>
         {manage && (
-          <nav aria-label={t.savedList}>
+          <nav ref={list} aria-label={t.savedList}>
             <ul className="shortcut-list">
-              {items.map((item, index) => (
+              {items.map((item) => (
                 <li
                   key={item.id}
                   draggable
@@ -142,30 +145,35 @@ export function ShortcutDialog(props: ShortcutDialogProps) {
                     setDrag(undefined);
                   }}
                 >
-                  <GripVertical aria-hidden size={14} />
+                  <span role="img" aria-label={t.drag} title={t.drag}>
+                    <GripVertical aria-hidden size={16} />
+                  </span>
                   <button
                     type="button"
                     aria-current={selected === item.id ? 'true' : undefined}
-                    onClick={() => choose(item)}
+                    title={item.name}
+                    aria-keyshortcuts="Alt+ArrowUp Alt+ArrowDown"
+                    onClick={() => {
+                      choose(item);
+                      setMobileView('editor');
+                      requestAnimationFrame(() => input.current?.focus());
+                    }}
+                    onKeyDown={(event) => {
+                      if (
+                        event.isTrusted &&
+                        event.altKey &&
+                        (event.key === 'ArrowUp' || event.key === 'ArrowDown')
+                      ) {
+                        event.preventDefault();
+                        run(() => store.move(item.id, event.key === 'ArrowUp' ? -1 : 1));
+                      }
+                    }}
                   >
                     {item.name}
                   </button>
-                  <BrowserIconAction
-                    type="button"
-                    variant="text"
-                    label={t.moveUp(item.name)}
-                    icon={<ArrowUp />}
-                    disabled={index === 0}
-                    onActivate={() => run(() => store.move(item.id, -1))}
-                  />
-                  <BrowserIconAction
-                    type="button"
-                    variant="text"
-                    label={t.moveDown(item.name)}
-                    icon={<ArrowDown />}
-                    disabled={index === items.length - 1}
-                    onActivate={() => run(() => store.move(item.id, 1))}
-                  />
+                  <span className="shortcut-count" data-match-count>
+                    {listPages(pages, item.search).length}
+                  </span>
                 </li>
               ))}
             </ul>
@@ -177,12 +185,31 @@ export function ShortcutDialog(props: ShortcutDialogProps) {
               leadingIcon={<Plus />}
               onActivate={() => {
                 choose();
-                input.current?.focus();
+                setMobileView('editor');
+                requestAnimationFrame(() => input.current?.focus());
               }}
             />
           </nav>
         )}
         <div className="shortcut-editor">
+          {manage && (
+            <div className="shortcut-mobile-back">
+              <BrowserIconAction
+                type="button"
+                variant="text"
+                label={t.backToList}
+                icon={<ChevronLeft />}
+                onActivate={() => {
+                  setMobileView('list');
+                  requestAnimationFrame(() =>
+                    list.current
+                      ?.querySelector<HTMLButtonElement>('button[aria-current], button')
+                      ?.focus(),
+                  );
+                }}
+              />
+            </div>
+          )}
           <BrowserField
             controlId={`${id}-name`}
             label={t.name}
@@ -206,19 +233,19 @@ export function ShortcutDialog(props: ShortcutDialogProps) {
                 renderControl={(field) => (
                   <div {...field} role="group" className="shortcut-projects">
                     {[...new Set([...projects, ...(search.project ?? [])])].map((project) => (
-                      <label key={project}>
-                        <BrowserCheckbox
-                          checked={search.project?.includes(project) ?? false}
-                          onChange={(event) =>
-                            patch({
-                              project: event.target.checked
-                                ? [...(search.project ?? []), project]
-                                : (search.project ?? []).filter((name) => name !== project),
-                            })
-                          }
-                        />
-                        {project}
-                      </label>
+                      <BrowserCountChip
+                        key={project}
+                        label={project}
+                        pressed={search.project?.includes(project) ?? false}
+                        tone={search.project?.includes(project) ? 'attention' : 'neutral'}
+                        onActivate={() =>
+                          patch({
+                            project: search.project?.includes(project)
+                              ? (search.project ?? []).filter((name) => name !== project)
+                              : [...(search.project ?? []), project],
+                          })
+                        }
+                      />
                     ))}
                   </div>
                 )}
@@ -228,53 +255,72 @@ export function ShortcutDialog(props: ShortcutDialogProps) {
                 label={t.pageState}
                 renderControl={(field) => (
                   <div {...field} role="group" className="shortcut-state">
-                    <PageStateMenu state={search.state} onChange={(state) => patch({ state })} />
+                    {(['todo', 'in-progress', 'done'] as const).map((state) => {
+                      const states = search.state
+                        ? Array.isArray(search.state)
+                          ? search.state
+                          : [search.state]
+                        : [];
+                      const pressed = states.includes(state);
+                      return (
+                        <BrowserCountChip
+                          key={state}
+                          label={text.workBand.taskState[state]}
+                          pressed={pressed}
+                          tone={pressed ? 'attention' : 'neutral'}
+                          onActivate={() => {
+                            const next = pressed
+                              ? states.filter((item) => item !== state)
+                              : [...states, state];
+                            patch({ state: next.length ? next : undefined });
+                          }}
+                        />
+                      );
+                    })}
                   </div>
                 )}
               />
-              <label>
-                <BrowserCheckbox
-                  checked={!!search.needs}
-                  onChange={(event) => patch({ needs: event.target.checked ? true : undefined })}
-                />
-                {t.needsMe}
-              </label>
-              <label>
-                <BrowserCheckbox
-                  checked={!!search.includeArchived}
-                  onChange={(event) =>
-                    patch({ includeArchived: event.target.checked ? true : undefined })
-                  }
-                />
-                {t.includeArchived}
-              </label>
-              {extra.length > 0 && (
-                <p className="shortcut-extra">{t.alsoRetained(extra.join(' · '))}</p>
-              )}
+              <div className="shortcut-also">
+                <div className="tmt-ui-field-label">{t.also}</div>
+                <div className="shortcut-chips">
+                  <BrowserCountChip
+                    label={t.needsMe}
+                    pressed={!!search.needs}
+                    tone={search.needs ? 'attention' : 'neutral'}
+                    onActivate={() => patch({ needs: search.needs ? undefined : true })}
+                  />
+                  <BrowserCountChip
+                    label={t.includeArchived}
+                    pressed={!!search.includeArchived}
+                    tone={search.includeArchived ? 'attention' : 'neutral'}
+                    onActivate={() =>
+                      patch({ includeArchived: search.includeArchived ? undefined : true })
+                    }
+                  />
+                </div>
+              </div>
             </>
           )}
           {mode === 'save' && (
-            <p className="shortcut-extra">
-              {[
-                ...(search.project ?? []).map((name) => t.project(name)),
-                search.state && t.state(text.workBand.taskState[search.state]),
-                search.needs && t.needsMe,
-                search.includeArchived && t.includeArchived,
-                ...extra,
-              ]
-                .filter(Boolean)
-                .join(' · ') || t.allActive}
-            </p>
-          )}
-          <p role="status">{t.matchingPages(matching.length)}</p>
-          {mode !== 'save' && (
             <>
-              <ul className="shortcut-preview" aria-label={t.matchingLabel}>
-                {matching.slice(0, 5).map((page) => (
-                  <li key={page.id}>{page.title}</li>
-                ))}
-              </ul>
+              <p className="shortcut-summary" role="status">
+                <Funnel aria-hidden size={16} />
+                <span>
+                  {[...shortcutConditions(search), t.pageCount(matching.length)].join(' · ')}
+                </span>
+              </p>
+              <p className="shortcut-extra">{t.saveNote}</p>
             </>
+          )}
+          {mode !== 'save' && (
+            <p
+              className="shortcut-summary"
+              role="status"
+              title={t.matchesPreview(matching.map((page) => page.title))}
+            >
+              <Funnel aria-hidden size={16} />
+              <span>{t.matchesPreview(matching.map((page) => page.title))}</span>
+            </p>
           )}
         </div>
       </div>

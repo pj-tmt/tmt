@@ -188,7 +188,7 @@ export async function mountRenderer(
     onKey?(key: 'Escape' | '@' | SwitcherKeyRequest): void;
     onOpenThread?(id: string): void;
     /** A `+n` marker for threads too close for one marker each: trusted chrome opens the thread list. */
-    onOpenList?(): void;
+    onOpenList?(id: string): void;
     /** Checked is true only for an admitted resolution response, false while pending. */
     onAnchors?(resolved: string[], checked?: boolean): void;
     /** Trusted chrome's fixed header inset; absent for standalone renderer probes. */
@@ -228,6 +228,8 @@ export async function mountRenderer(
     readings?: ReadingRenderBlock[],
   ): void;
   scrollAnchor(id: string): void;
+  /** Restore focus to a currently admitted marker, without granting page authority. */
+  focusThread(id: string): void;
   /** Mark the passage of the thread whose window is open (null: none), which the page draws in its
    * selected look. An id the current highlight request does not hold (a resolved thread) selects
    * nothing and clears the selection left behind; the selection outlives a new request, which
@@ -886,12 +888,15 @@ export async function mountRenderer(
       value &&
       typeof value === 'object' &&
       !Array.isArray(value) &&
-      Object.keys(value).length === 3 &&
+      Object.keys(value).length === 4 &&
       value.type === 'colab.render.open-list' &&
       value.renderId === snapshot.renderId &&
-      value.requestId === requestId
+      value.requestId === requestId &&
+      typeof value.id === 'string' &&
+      value.id !== '' &&
+      anchors.some((anchor) => anchor.id === value.id)
     ) {
-      options.onOpenList?.();
+      options.onOpenList?.(value.id);
       return;
     }
     if (
@@ -1310,6 +1315,15 @@ export async function mountRenderer(
       behavior: 'instant',
     });
   };
+  const focusThread = (id: string) => {
+    if (stopped || !ready || !requestId || !anchors.some((anchor) => anchor.id === id)) return;
+    channel.port1.postMessage({
+      type: 'colab.render.focus-thread',
+      renderId: snapshot.renderId,
+      requestId,
+      id,
+    });
+  };
   const anchorRectangle = (id: string): SelectionRect | undefined => {
     const position = positions.get(id);
     if (stopped || !position) return;
@@ -1366,6 +1380,7 @@ export async function mountRenderer(
     slots,
     questions,
     scrollAnchor,
+    focusThread,
     select,
     scrollReading: (id: string) => {
       if (stopped || !ready || !readingBlocks.some((reading) => reading.id === id)) return;

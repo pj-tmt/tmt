@@ -381,10 +381,11 @@ in flight. `ended` replaces
 the page with one card: the failure sentence and the one action that fits (`Pair again` with the
 command only for verified revoked, expired or missing pairing; a way back to the space for a
 page that is gone; `Reload` for ended sessions, access refusals, identity mismatches and a device
-at its Remote session limit, and generic reconnect failures; none for an oversized change). A modal drawer makes that card inert, so a live Chat
-composer owns its ended sentence/action once; an archived Chat and every other drawer keep
-the same sentence/action in the `notice` row under the header. An ended annotation keeps its
-action scroll- and keyboard-reachable within the existing composer overflow. `Live` stays
+at its Remote session limit, and generic reconnect failures; none for an oversized change). A live
+Chat composer owns its ended sentence/action once; archived Chat uses the non-modal BrowserPanel
+`panel-notice`, and other drawers keep the same sentence/action in the `notice` row under the header.
+An ended annotation keeps its action scroll- and keyboard-reachable within the existing composer
+overflow. `Live` stays
 the transport owner: it keeps its bounded resync
 and publishes failures, and no longer decides terminal or recoverable for the page.
 One table, `connection-state.ts`, classifies every token the live path can fail with (sync frame
@@ -770,19 +771,21 @@ page lacks a summary the visible list also reads every 2 s, at most 15 times (`h
 `page-layers.ts` composes the existing question/review/reading owners for the page; the action
 owners report lifetime separately from stale-outcome presentation fences.
 
-Manual `state` is independent of task-derived `stage`; missing state does not match. Include
+Manual `state` is independent of task-derived `stage`; selected states are a union and missing
+state does not match. A legacy single-state saved filter is read as one selection. Include
 archived is a union, while the Archived tab remains archived-only. `shortcuts.ts` validates saved
 filters and names; `shortcut-store.ts` persists one versioned browser-local record per space,
 rereading before each synchronous mutation. `use-shortcuts.ts` observes same-page events and
 browser storage events without polling. No store, record access or event subscription exists until
-its space is defined. The pinned-project sidebar and Pin controls remain active, so the hook does
-not trigger migration. `ShortcutStore.migrate` and its tests retain the once-only explicit-pin
-migration for the sidebar swap: automatic suggestions are excluded, records and marker persist
-together, and owner pins are unchanged. Corrupt/newer data and failed writes are reported and retained.
-`shortcut-dialogs.tsx` owns the name-only Save dialog and the Edit/Manage filter editor, matching
-preview and ordering controls. Its labels use `BrowserField`; `page-state-menu.tsx` shares the manual
-state menu with Home, using the existing task-state labels and the central string catalog. Home exposes Save/Edit and Manage; these preferences are not
-synced or shared. The existing sidebar and Pin controls remain until their shared-menu integration.
+its space is defined. Home calls `ShortcutStore.migrate` once for explicit project pins;
+automatic suggestions are excluded, records and marker persist together, and owner pins are
+unchanged. Corrupt/newer data and failed writes are reported and retained.
+`shortcut-dialogs.tsx` owns Save and the Edit/Manage filter editor, matching previews and
+ordering. Its fields use `BrowserField`; project, multi-select state and additional-condition toggles
+use `BrowserCountChip`. Home shows applied conditions as removable search chips and adds conditions
+through its Filter menu. The action row offers Save/Edit; the sidebar Shortcuts group opens Manage.
+On phones Manage opens its full-screen list, then an editor with a back action. These preferences
+are not synced or shared.
 
 `home.tsx` renders the list from the same pages;
 `manage-page.tsx` holds the shared management dialog host. The React-free filter owner is

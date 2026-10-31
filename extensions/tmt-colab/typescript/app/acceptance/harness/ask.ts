@@ -281,7 +281,7 @@ export interface ComposedChat {
   delivered(): string;
 }
 export async function openChat(page: Page) {
-  if (await page.locator('.tmt-ui-drawer[data-panel=chat][open]').isVisible()) return;
+  if (await page.locator('.tmt-ui-panel[data-panel=chat]:not([hidden])').isVisible()) return;
   const toggle = await pageAction(page, 'Chat');
   await expect(toggle).toBeAttached();
   await toggle.click();

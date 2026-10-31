@@ -39,28 +39,33 @@ const requests = (page: Page) => page.evaluate(() => window.__projectRequests);
 /** The shell's module menu: All pages, Shortcuts, then Colab settings, nested under Colab in the
  * rail (and in the phone drawer). */
 const moduleMenu = (page: Page) => app(page).locator('.tmt-ui-rail-sub:visible');
-/** The list's project filter: All projects, then each project with its count. */
-const scopeRows = (page: Page) => app(page).locator('.page-scope-filters .project-filter-button');
-const scopeName = (name: string) => (name === 'All pages' ? 'All projects' : name);
-/** The pressed project filter, named by its value. */
+/** Project scope is a condition in Filter; its chip clears the remembered scope. */
 const scopeTrigger = (page: Page, value = 'All pages') =>
-  scopeRows(page)
-    .and(page.locator('[aria-pressed="true"]'))
-    .filter({
-      has: page.locator('.page-scope-name', { hasText: new RegExp(`^${scopeName(value)}$`) }),
-    });
-/** A command from the ⋯ beside the project filter. */
-async function fromScopeMenu(page: Page, name: string) {
-  await app(page).getByRole('button', { name: 'Project actions', exact: true }).click();
-  await page.getByRole('menuitem', { name, exact: true }).click();
+  value === 'All pages'
+    ? app(page).getByRole('button', { name: 'Filter', exact: true })
+    : app(page).getByRole('button', { name: `Remove project: ${value}`, exact: true });
+async function openFilter(page: Page) {
+  await app(page).getByRole('button', { name: 'Filter', exact: true }).click();
 }
-/** Scope the list to a project (or All pages) from the project filter. */
+async function fromScopeMenu(page: Page, name: string) {
+  await openFilter(page);
+  await page.getByRole('menuitem', { name: 'Manage projects…', exact: true }).click();
+  if (name === 'New project…')
+    await app(page)
+      .getByRole('dialog', { name: 'Manage projects' })
+      .getByRole('button', { name: 'New project', exact: true })
+      .click();
+}
 async function scopeTo(page: Page, name: string) {
-  await scopeRows(page)
-    .filter({
-      has: page.locator('.page-scope-name', { hasText: new RegExp(`^${scopeName(name)}$`) }),
-    })
-    .click();
+  if (name === 'All pages') {
+    const chip = app(page)
+      .locator('.page-list-condition-chips')
+      .getByRole('button', { name: /^Remove project: / });
+    if (await chip.count()) await chip.first().click();
+  } else {
+    await openFilter(page);
+    await page.getByRole('menuitemcheckbox', { name, exact: true }).click();
+  }
 }
 /**
  * Filter by a project the way the list offers it: a `project:` token picked from the search's
@@ -76,11 +81,9 @@ async function filterProject(page: Page, name: string) {
   await page.keyboard.press('Enter');
   await expect(app(page).locator(`[data-project-filter="${name}"]`)).toBeVisible();
 }
-/** A project's filter button, with its count of active pages. */
+/** A project option in the open Filter menu. */
 const menuProject = (page: Page, name: string) =>
-  scopeRows(page).filter({
-    has: page.locator('.page-scope-name', { hasText: new RegExp(`^${name}$`) }),
-  });
+  page.getByRole('menuitemcheckbox', { name, exact: true });
 const manageRequests = (page: Page) => page.evaluate(() => window.__projectManage);
 /** A page's project crumb links to the scoped list, which opens on All like any bare link. */
 const showAll = (page: Page) =>
@@ -888,7 +891,11 @@ test('a reader gets search, filters and the scope, but no project writes or arch
   await expect(app(page).getByRole('button', { name: /^Projects for/ })).toHaveCount(0);
   await filterProject(page, 'ops');
   await expect(titles(page)).toHaveText(['Delta ops']);
-  await expect(scopeRows(page)).toHaveCount(4);
+  await openFilter(page);
+  await expect(
+    page.getByRole('group', { name: 'Project', exact: true }).getByRole('menuitemcheckbox'),
+  ).toHaveCount(3);
+  await page.keyboard.press('Escape');
   await expect(app(page).getByRole('button', { name: 'Project actions' })).toHaveCount(0);
 });
 
@@ -1205,7 +1212,8 @@ test('a new project needs only a name; ticked pages land in it in one request', 
     { pageId: 'c0000003-1111-4111-8111-000000000001', projects: ['fresh start'] },
   ]);
   expect(await manageRequests(page)).toEqual([]);
-  await expect(menuProject(page, 'fresh start')).toHaveText(/^fresh start\s*2$/);
+  await scopeTo(page, 'fresh start');
+  await expect(titles(page)).toHaveCount(2);
 });
 
 test('a project with no page is one request, is listed everywhere, and takes pages later', async ({
@@ -1233,12 +1241,15 @@ test('a project with no page is one request, is listed everywhere, and takes pag
   await page.keyboard.type('project:back');
   await expect(page.getByRole('option')).toHaveCount(0);
   await page.keyboard.press('Escape');
-  // The project filter counts an empty project as zero.
-  await expect(menuProject(page, 'backlog')).toHaveText(/^backlog\s*0$/);
+  // The empty project remains selectable and contains no pages.
+  await scopeTo(page, 'backlog');
+  await expect(titles(page)).toHaveCount(0);
+  await scopeTo(page, 'All pages');
   const gamma = app(page).locator('[data-page-id="c0000003-1111-4111-8111-000000000001"]');
   await gamma.locator('.page-project-group').click();
   await page.getByRole('menuitemcheckbox', { name: 'backlog' }).click();
-  await expect(menuProject(page, 'backlog')).toHaveText(/^backlog\s*1$/);
+  await scopeTo(page, 'backlog');
+  await expect(titles(page)).toHaveCount(1);
   expect((await requests(page)).at(-1)!.changes).toEqual([
     { pageId: 'c0000003-1111-4111-8111-000000000001', projects: ['backlog'] },
   ]);
@@ -1299,7 +1310,10 @@ test('rename is one request for every page in the project, archived included, an
   expect(await requests(page)).toEqual([]);
   await dialog.getByRole('button', { name: 'Close Manage projects' }).click();
   // The renamed project keeps every page in the project filter.
-  await expect(menuProject(page, 'current')).toHaveText(/^current\s*130$/);
+  await scopeTo(page, 'current');
+  await expect(app(page).locator('[data-page-list-count] span').first()).toHaveText(
+    'Showing 50 of 130',
+  );
 });
 
 test('renaming onto an existing project says it merges', async ({ page }) => {
@@ -1317,8 +1331,11 @@ test('renaming onto an existing project says it merges', async ({ page }) => {
   await expect(dialog.getByRole('status')).toHaveText('Project updated.');
   expect(await manageRequests(page)).toEqual([{ action: 'rename', name: 'ops', to: 'design' }]);
   await dialog.getByRole('button', { name: 'Close Manage projects' }).click();
-  await expect(menuProject(page, 'design')).toHaveText(/^design\s*3/);
+  await scopeTo(page, 'design');
+  await expect(titles(page)).toHaveCount(3);
+  await openFilter(page);
   await expect(menuProject(page, 'ops')).toHaveCount(0);
+  await page.keyboard.press('Escape');
 });
 
 test('delete removes the project in one request and keeps the pages', async ({ page }) => {
@@ -1597,7 +1614,7 @@ for (const width of [1440, 390, 320])
         page.evaluate(() => {
           const viewport = document.documentElement.clientWidth;
           const current = document.querySelector(
-            '#list-fixture .page-scope-filters [aria-pressed="true"]',
+            '#list-fixture .page-list-condition-chips .tmt-ui-chip',
           )!;
           const crumb = current.getBoundingClientRect();
           const rail = current.closest<HTMLElement>('.tmt-ui-rail');
@@ -1611,6 +1628,7 @@ for (const width of [1440, 390, 320])
           };
         });
       for (const long of ['W'.repeat(32), '漢'.repeat(32)]) {
+        await openFilter(page);
         const row = menuProject(page, long);
         await expect(row).toBeVisible();
         if (long.startsWith('W'))
@@ -1825,6 +1843,7 @@ for (const width of [1440, 390, 320])
         await page.evaluate((theme) => {
           document.documentElement.dataset.theme = theme;
         }, theme);
+        await openFilter(page);
         const entry = menuProject(page, name);
         await entry.scrollIntoViewIfNeeded();
         await entry.click();

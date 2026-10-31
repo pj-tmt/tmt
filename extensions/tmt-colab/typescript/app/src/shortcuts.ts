@@ -1,6 +1,7 @@
 import { canonical } from './closed.js';
 import { listPages, validateHomeSearch, type HomeSearch } from './page-list-filter.js';
 import type { PageSummary } from './transport.js';
+import { text } from './strings.js';
 
 export interface Shortcut {
   id: string;
@@ -95,4 +96,22 @@ export function shortcutCounts(
   return matches.some((page) => !page.summary)
     ? { total }
     : { total, attention: matches.filter((page) => page.summary?.waiting).length };
+}
+
+/** The visible summary preserves every condition a saved list can carry. */
+export function shortcutConditions(search: HomeSearch): string[] {
+  const t = text.shortcuts;
+  return [
+    ...(search.project ?? []).map((name) => t.project(name)),
+    ...(search.state ? (Array.isArray(search.state) ? search.state : [search.state]) : []).map(
+      (state) => t.summaryState(text.workBand.taskState[state]),
+    ),
+    search.needs && t.needsMe,
+    search.includeArchived && t.includeArchived,
+    search.q && t.search(search.q),
+    search.by?.length && t.creators(search.by.join(', ')),
+    search.sort && t.sort(text.pageList.sortOptions[search.sort]),
+    search.stage && t.stage(search.stage),
+    search.archived && t.archivedOnly,
+  ].filter((value): value is string => typeof value === 'string');
 }

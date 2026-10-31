@@ -56,3 +56,36 @@ it('keeps the default header and forwards host actions before Close without nati
   expect(html).not.toContain('headerActions=');
   expect(html).not.toMatch(/<dialog|aria-modal|inert=/);
 });
+
+it('allows a host to supply Close text while preserving the existing defaults', () => {
+  const base = { open: true, title: 'Discussion', mode: 'card' as const, onDismiss() {} };
+  const normal = renderToStaticMarkup(<BrowserPanel {...base}>Draft</BrowserPanel>);
+  const explicitDefaults = renderToStaticMarkup(
+    <BrowserPanel {...base} closeLabel={undefined} closeTooltipLabel={undefined}>
+      Draft
+    </BrowserPanel>,
+  );
+  expect(explicitDefaults).toBe(normal);
+  expect(normal).toContain('aria-label="Close Discussion"');
+  expect(normal).toContain('Close Discussion · Esc');
+  const custom = renderToStaticMarkup(
+    <BrowserPanel {...base} closeLabel="Close (Esc)" closeTooltipLabel="Close (Esc)">
+      Draft
+    </BrowserPanel>,
+  );
+  expect(custom).toContain('aria-label="Close (Esc)"');
+  expect(custom).toContain('>Close (Esc)</span>');
+  expect(custom).not.toContain('closeLabel=');
+  expect(custom).not.toContain('closeTooltipLabel=');
+});
+
+it('renders a host overlay inside the panel after the body', () => {
+  const html = renderToStaticMarkup(
+    <BrowserPanel open title="Chat" mode="card" onDismiss={() => {}} overlay={<p>Drop here</p>}>
+      Draft
+    </BrowserPanel>,
+  );
+  expect(html.indexOf('Drop here')).toBeGreaterThan(html.indexOf('Draft'));
+  expect(html.indexOf('Drop here')).toBeLessThan(html.indexOf('</aside>'));
+  expect(html).not.toContain('overlay=');
+});

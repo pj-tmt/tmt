@@ -14,10 +14,10 @@ async function mount(page: Page, width = 1586, theme: 'light' | 'dark' = 'light'
   }, theme);
   await openManager(page);
 }
-/** All projects… from the ⋯ beside the list's project filter. */
+/** Open project management from the list Filter menu. */
 async function openManager(page: Page) {
-  await app(page).getByRole('button', { name: 'Project actions', exact: true }).click();
-  await page.getByRole('menuitem', { name: 'All projects…', exact: true }).click();
+  await app(page).getByRole('button', { name: 'Filter', exact: true }).click();
+  await page.getByRole('menuitem', { name: 'Manage projects…', exact: true }).click();
 }
 
 test('website manager opens a new project through the existing write owner', async ({ page }) => {

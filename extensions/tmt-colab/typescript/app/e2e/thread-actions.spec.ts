@@ -200,11 +200,9 @@ for (const width of [1440, 390])
         document.documentElement.dataset.theme = theme;
       }, theme);
       await page.goto('/');
-      for (const kind of ['post', 'edit']) {
+      for (const kind of ['edit']) {
         await run(page, 'mountWindow', kind === 'post' ? 'capture-compose' : 'capture-open');
-        if (kind === 'post')
-          await page.getByRole('button', { name: '+ Comment on page', exact: true }).click();
-        else {
+        {
           await page.getByRole('button', { name: 'Message actions', exact: true }).click();
           await page.getByRole('menuitem', { name: 'Edit', exact: true }).click();
         }

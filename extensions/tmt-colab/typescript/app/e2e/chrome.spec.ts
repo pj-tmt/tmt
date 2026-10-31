@@ -304,8 +304,15 @@ for (const width of [1440, 390, 320])
             ).toHaveText('Untitled page');
           }
           for (const icon of await page.locator('svg.lucide:visible').all()) {
-            await expect(icon).toHaveCSS('stroke-linecap', 'square');
-            await expect(icon).toHaveCSS('stroke-linejoin', 'miter');
+            const round = await icon.evaluate((node) =>
+              Boolean(
+                node.closest(
+                  '.selection-mode, .tmt-ui-panel[data-panel=comments] .tmt-ui-drawer-header',
+                ),
+              ),
+            );
+            await expect(icon).toHaveCSS('stroke-linecap', round ? 'round' : 'square');
+            await expect(icon).toHaveCSS('stroke-linejoin', round ? 'round' : 'miter');
             await expect(icon).toHaveCSS('stroke-width', `${tokens.header['icon-stroke']}px`);
           }
           await page.screenshot({
@@ -364,7 +371,11 @@ test('the Archived tab filters archived pages with a tab, not a native checkbox'
   const rows = root.locator('ul.pages > li');
   await expect(root.getByRole('checkbox', { name: 'Select all matching pages' })).toBeVisible();
   await expect(rows.getByRole('checkbox')).toHaveCount(await rows.count());
-  await expect(root.getByRole('checkbox', { name: 'Include archived', exact: true })).toBeVisible();
+  await root.getByRole('button', { name: 'Filter', exact: true }).click();
+  await expect(
+    page.getByRole('menuitemcheckbox', { name: 'Include archived', exact: true }),
+  ).toBeVisible();
+  await page.keyboard.press('Escape');
   await expect(root.getByRole('checkbox', { name: 'Archived', exact: true })).toHaveCount(0);
   await expect(rows.first()).toContainText('Release notes');
   const all = page.locator('#chrome-fixture').getByRole('tab', { name: /^All, \d+\+?$/ });

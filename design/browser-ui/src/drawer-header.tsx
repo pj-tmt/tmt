@@ -10,6 +10,8 @@ export function DrawerHeader({
   label,
   headingRef,
   focusHeading,
+  closeLabel,
+  closeTooltipLabel,
   onClose,
 }: {
   title: string;
@@ -18,6 +20,8 @@ export function DrawerHeader({
   label: string;
   headingRef?: Ref<HTMLHeadingElement>;
   focusHeading?: boolean;
+  closeLabel?: string;
+  closeTooltipLabel?: string;
   onClose(event: MouseEvent<HTMLButtonElement>): void;
 }) {
   return (
@@ -34,8 +38,8 @@ export function DrawerHeader({
       <BrowserIconAction
         type="button"
         variant="text"
-        label={`Close ${title}`}
-        tooltipLabel={`Close ${title} · Esc`}
+        label={closeLabel ?? `Close ${title}`}
+        tooltipLabel={closeTooltipLabel ?? `Close ${title} · Esc`}
         ariaKeyShortcuts="Escape"
         icon={<X />}
         onActivate={(event) => {

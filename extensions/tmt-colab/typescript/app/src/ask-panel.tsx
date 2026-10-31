@@ -278,41 +278,48 @@ export function AskPanel({
             retryOf={record.operationId}
           />
         )}
-        {!readOnly && canSendNow && (
-          <BrowserAction
-            type="button"
-            variant="text"
-            label={progress?.phase === 'outcome' ? text.sendNowTryAgain : text.sendNow}
-            disabled={disabled || progress?.phase === 'sending'}
-            onActivate={(event) => {
-              if (event.isTrusted && record.canTrack) void action(record, 'sendNow');
-            }}
-          />
-        )}
-        {!readOnly && canRecheck && (
-          <>
-            <BrowserIconAction
-              type="button"
-              variant="text"
-              label={text.askRecheck}
-              icon={<RotateCw />}
-              disabled={disabled}
-              onActivate={(event) => {
-                if (event.isTrusted && record.canTrack) void action(record, 'recheck');
-              }}
-            />
-            {record.state === 'uncertain' && (
-              <button
-                className="ask-status-action"
-                disabled={disabled}
-                onClick={(event) => {
-                  if (event.isTrusted) void action(record, 'abandon');
+        {!readOnly && (canSendNow || canRecheck) && (
+          <span
+            className="conversation-status-actions"
+            data-paired={(canSendNow && canRecheck) || undefined}
+          >
+            {canSendNow && (
+              <BrowserAction
+                type="button"
+                variant="text"
+                label={progress?.phase === 'outcome' ? text.sendNowTryAgain : text.sendNow}
+                disabled={disabled || progress?.phase === 'sending'}
+                onActivate={(event) => {
+                  if (event.isTrusted && record.canTrack) void action(record, 'sendNow');
                 }}
-              >
-                {text.askAbandon}
-              </button>
+              />
             )}
-          </>
+            {canRecheck && (
+              <>
+                <BrowserIconAction
+                  type="button"
+                  variant="text"
+                  label={text.askRecheck}
+                  icon={<RotateCw />}
+                  disabled={disabled}
+                  onActivate={(event) => {
+                    if (event.isTrusted && record.canTrack) void action(record, 'recheck');
+                  }}
+                />
+                {record.state === 'uncertain' && (
+                  <button
+                    className="ask-status-action"
+                    disabled={disabled}
+                    onClick={(event) => {
+                      if (event.isTrusted) void action(record, 'abandon');
+                    }}
+                  >
+                    {text.askAbandon}
+                  </button>
+                )}
+              </>
+            )}
+          </span>
         )}
       </span>
     );

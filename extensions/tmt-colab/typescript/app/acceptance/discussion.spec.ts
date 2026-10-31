@@ -463,11 +463,11 @@ test('paired writers retain anchored annotation conversations, direct exact send
     await commentsClose(first, 'discussion').click();
     await marker.click();
     await expect(t1).toBeVisible();
-    // The current Discussion opens in the non-modal workspace column, not a floating window.
+    // Wide Discussion floats without narrowing the authored page.
     await expect(commentsRegion(first)).toBeVisible();
     await expect(first.locator('.tmt-ui-drawer[open]')).toHaveCount(0);
     const frameWidth = (await first.locator('iframe').boundingBox())!.width;
-    expect(frameWidth).toBeLessThan(beforeCommentsWidth);
+    expect(frameWidth).toBe(beforeCommentsWidth);
     await first
       .frameLocator('iframe')
       .locator('body')
@@ -522,7 +522,7 @@ test('paired writers retain anchored annotation conversations, direct exact send
       await first.evaluate(() => {
         document.documentElement.dataset.theme = 'light';
       });
-      await first.getByRole('button', { name: /^Close (Comments|Discussion)$/ }).click();
+      await commentsClose(first, 'discussion').click();
       await marker.click();
     }
     await first.setViewportSize({ width: 1440, height: 900 });
@@ -561,11 +561,16 @@ test('paired writers retain anchored annotation conversations, direct exact send
     await expect(t1.getByRole('button', { name: 'Delete thread', exact: true })).toHaveCount(0);
     await expect(t2.getByRole('button', { name: 'Delete thread', exact: true })).toHaveCount(0);
     await expect(t2.getByRole('combobox')).toBeVisible();
-    await first.getByRole('button', { name: '+ Comment on page', exact: true }).click();
-    await first
-      .getByRole('combobox', { name: 'Post comment', exact: true })
-      .fill('Page-wide discussion.');
-    await first.getByRole('button', { name: 'Post comment', exact: true }).click();
+    await commentsClose(first, 'discussion').click();
+    await selectInRenderer(first, '#quote');
+    await first.getByTestId('selection-ask').click();
+    const secondCompose = first.getByRole('dialog', { name: 'Annotate selection' });
+    const secondInput = await inputFor(secondCompose, agent.name);
+    await secondInput.fill('A second discussion.');
+    await secondCompose.getByRole('button', { name: /^Send(?: · to .+)?$/, exact: true }).click();
+    await expect(secondCompose.getByTestId('comment-thread')).toContainText('A second discussion.');
+    await secondCompose.getByRole('button', { name: 'Collapse thread', exact: true }).click();
+    await comments(first);
     await expect(commentsRegion(first).locator('.discussion-position')).toContainText('/ 2');
     await first.reload();
     await comments(first);

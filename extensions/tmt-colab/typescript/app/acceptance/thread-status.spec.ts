@@ -16,8 +16,8 @@ const threadAction = (page: Page, name: string) =>
   commentsRegion(page).getByRole('button', { name, exact: true });
 const markers = (page: Page) => page.frameLocator('iframe').locator('[data-colab-thread]');
 const state = (page: Page) => page.getByTestId('discussion-state');
-async function annotate(page: Page, body: string) {
-  await selectInRenderer(page, '#quote');
+async function annotate(page: Page, body: string, selector = '#quote') {
+  await selectInRenderer(page, selector);
   await page.getByTestId('selection-ask').click();
   const compose = page.getByRole('dialog', { name: 'Annotate selection' });
   const input = compose.getByRole('combobox', { name: 'Message', exact: true });
@@ -32,7 +32,7 @@ async function annotate(page: Page, body: string) {
   return id;
 }
 async function reopenSelected(page: Page) {
-  await threadAction(page, 'Close Discussion').click();
+  await threadAction(page, 'Close (Esc)').click();
   await commentsAction(page).click();
 }
 
@@ -128,7 +128,7 @@ test('status states captured for the UX look', async () => {
     const created = createPage(
       world,
       'Status captures',
-      '<p id="quote">Quoted passage for status.</p>',
+      '<p id="quote">Quoted passage for status.</p><p id="quote2">Second status passage.</p>',
       agent.pane,
     );
     const colab = (args: string[]) => run(world, world.binaries.colab, args, undefined, agent.pane);
@@ -178,17 +178,14 @@ test('status states captured for the UX look', async () => {
     await shoot(first, 'person-resolved-not-notified');
     await shoot(second, 'person-resolved');
     await threadAction(first, text.threadReopen).click();
-    await first.getByRole('button', { name: '+ Comment on page', exact: true }).click();
-    await first
-      .getByRole('combobox', { name: 'Post comment', exact: true })
-      .fill('A second, open discussion.');
-    await first.getByRole('button', { name: 'Post comment', exact: true }).click();
+    await threadAction(first, 'Close (Esc)').click();
+    await annotate(first, 'A second, open discussion.', '#quote2');
     await expect(commentsAction(second)).toHaveAccessibleName('Comments (2)');
     JSON.parse(colab(['threads', 'resolve', created.pageId, threadId, '--json']));
     await expect(state(second)).toContainText(text.threadResolvedBy(agent.name));
     await expect(commentsAction(second)).toHaveAccessibleName('Comments (1) · New');
     await shoot(second, 'agent-unseen');
-    await threadAction(second, 'Close Discussion').click();
+    await threadAction(second, 'Close (Esc)').click();
     await shoot(second, 'agent-unseen-dock');
     await commentsAction(second).click();
     await expect(commentsAction(second)).toHaveAccessibleName('Comments (1)');
@@ -200,5 +197,56 @@ test('status states captured for the UX look', async () => {
         path: `${captureDir}/focus-${name === text.threadReopen ? 'reopen' : 'next'}.png`,
       });
     }
+  });
+});
+
+test('Resolve all commits two native statuses and notifies each agent once in the retained window', async () => {
+  await withWorld(async (world) => {
+    const door = await startDoor(world, await freePort());
+    const alpha = await world.startAgent('batch-alpha');
+    const beta = await world.startAgent('batch-beta');
+    const author = await pairBrowser(world, 'batch-author', { talk: true });
+    const created = createPage(
+      world,
+      'Batch status acceptance',
+      '<p id="quote">First batch passage.</p><p id="quote2">Second batch passage.</p>',
+    );
+    const page = await openPage(door, author, created);
+    await annotate(page, '@batch-alpha @batch-beta First batch comment.');
+    await annotate(page, '@batch-alpha @ghost-agent Second batch comment.', '#quote2');
+    // These comments dispatch ordinary Asks; count batch notifications separately.
+    await expect.poll(() => alpha.received().length).toBe(2);
+    await expect.poll(() => beta.received().length).toBe(1);
+    const notices = (agent: typeof alpha) =>
+      agent
+        .received()
+        .filter((value) => String(value.message).includes('Thread resolved by batch-author.'));
+    await comments(page);
+    const panel = commentsRegion(page);
+    const action = panel.getByRole('button', { name: 'Resolve all open (2)', exact: true });
+    await action.click();
+    const confirmation = page.getByRole('dialog', { name: 'Resolve 2 open comments?' });
+    await expect(confirmation.getByRole('button', { name: 'Cancel', exact: true })).toBeFocused();
+    await confirmation.getByRole('button', { name: 'Cancel', exact: true }).click();
+    await expect(action).toBeEnabled();
+    expect(notices(alpha)).toEqual([]);
+    expect(notices(beta)).toEqual([]);
+    await action.click();
+    await confirmation.getByRole('button', { name: 'Resolve all', exact: true }).click();
+    await expect.poll(() => notices(alpha).length).toBe(1);
+    await expect.poll(() => notices(beta).length).toBe(1);
+    for (const agent of [alpha, beta]) {
+      expect(notices(agent)[0].message).toContain('Thread resolved by batch-author.');
+      expect(notices(agent)[0].message).toContain('First batch comment.');
+    }
+    const listing = () =>
+      JSON.parse(run(world, world.binaries.colab, ['threads', created.pageId, '--json'])) as {
+        threads: { resolved: boolean }[];
+      };
+    expect(listing().threads).toHaveLength(2);
+    expect(listing().threads.every((thread) => thread.resolved)).toBe(true);
+    await expect(panel.getByRole('status').filter({ hasText: 'Not notified' })).toContainText(
+      'ghost-agent',
+    );
   });
 });

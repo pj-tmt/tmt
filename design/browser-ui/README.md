@@ -551,13 +551,16 @@ remain host-owned.
 Drawer's heading, optional position caption and Close control. Optional `headerActions`
 passes host-owned controls to that shared header immediately before Close in DOM
 and keyboard order, with shared spacing. Omitted, it adds no element or layout
-change. Actions retain their labels, admission, state and effects; the panel
+change. Optional `closeLabel` and `closeTooltipLabel` override the Close control’s
+accessible name and tooltip independently; omitted values keep the shared defaults. Actions retain their labels, admission, state and effects; the panel
 retains its existing dismissal and focus ownership. The host selects
 `mode="column" | "card" | "sheet"`; the panel does not infer a product breakpoint.
 Column mode leaves grid, reflow, dividers and sticky positioning to the host.
 The floating card is 330px wide, 12px from the right and bottom, and starts at the
 header token plus 13px. The sheet has 7px side/bottom insets and a 75dvh maximum
-height. Floating modes use the radius scale and single overlay shadow.
+height. Floating modes use the radius scale and single overlay shadow. An optional
+`overlay` slot lets the host render a full-surface presentation after the body;
+DOM drag and keyboard capture handlers remain host-owned.
 
 Opening focuses the heading. This region creates no scrim, focus trap, top-layer
 modal or page inertness; keyboard and pointer navigation outside remain available.

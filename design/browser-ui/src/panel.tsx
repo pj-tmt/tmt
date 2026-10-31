@@ -21,9 +21,14 @@ export interface BrowserPanelProps extends Omit<
   caption?: ReactNode;
   /** Host-owned header actions, in DOM and keyboard order immediately before Close. */
   headerActions?: ReactNode;
+  /** Optional host-specific accessible name and tooltip for the Close control. */
+  closeLabel?: string;
+  closeTooltipLabel?: string;
   /** The host chooses the layout; column geometry and reflow belong to its page grid. */
   mode: 'column' | 'card' | 'sheet';
   children: ReactNode;
+  /** Host presentation over the complete surface, including the header. */
+  overlay?: ReactNode;
   onDismiss(reason: BrowserPanelDismissReason, event: SyntheticEvent): void;
   focusFallback?(): HTMLElement | null;
 }
@@ -35,8 +40,11 @@ export function BrowserPanel({
   title,
   caption,
   headerActions,
+  closeLabel,
+  closeTooltipLabel,
   mode,
   children,
+  overlay,
   onDismiss,
   focusFallback,
   className = '',
@@ -88,12 +96,15 @@ export function BrowserPanel({
         title={title}
         caption={caption}
         headerActions={headerActions}
+        closeLabel={closeLabel}
+        closeTooltipLabel={closeTooltipLabel}
         label={label}
         headingRef={heading}
         focusHeading
         onClose={(event) => onDismiss('close', event)}
       />
       <div className="tmt-ui-drawer-body">{children}</div>
+      {overlay}
     </aside>
   );
 }

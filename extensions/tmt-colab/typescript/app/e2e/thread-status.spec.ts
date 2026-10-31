@@ -47,7 +47,7 @@ test('resolving hides the margin marker, Reopen restores it, and each click writ
   ).toBeEnabled();
   await expect(markers).toHaveCount(0);
   await expect(thread).toHaveAttribute('data-anchor', 'resolved');
-  await expect(state).toHaveText('Resolved by You');
+  await expect(state).toHaveText('Resolved by You · just now');
   await expect(thread.getByText('Detached')).toBeHidden();
   expect(await statusActions(page)).toEqual(['status:resolve']);
   await headerActions(page).getByRole('button', { name: 'Reopen', exact: true }).click();
@@ -66,9 +66,9 @@ test('an agent resolution stays unseen until the person reopens the selected dis
   await expect(markers).toHaveCount(0);
   await expect(toggle).toHaveAccessibleName(/New/);
   expect(await run(page, 'seenProof')).toBe(1);
-  await page.getByRole('button', { name: 'Close Discussion', exact: true }).click();
+  await page.getByRole('button', { name: 'Close (Esc)', exact: true }).click();
   await toggle.click();
-  await expect(state).toHaveText('Resolved by Atlas');
+  await expect(state).toHaveText('Resolved by Atlas · just now');
   await expect(toggle).not.toHaveAccessibleName(/New/);
   expect(await run(page, 'seenProof')).toBe(2);
   await expect(page.getByTestId('comment-thread')).toHaveAttribute('data-anchor', 'resolved');
@@ -140,7 +140,7 @@ test('Resolve shows the resolved thread in the click frame, and the record takes
   await run(page, 'releaseStatus');
   await expect(thread).toHaveAttribute('data-anchor', 'resolved');
   await expect(thread.locator('.resolved-summary')).toHaveCount(0);
-  await expect(state).toHaveText('Resolved by You');
+  await expect(state).toHaveText('Resolved by You · just now');
   // Focus stays on the control, which now offers Reopen.
   await expect(
     headerActions(page).getByRole('button', { name: 'Reopen', exact: true }),
@@ -196,7 +196,7 @@ test('Reopen stays busy until confirmation and restores the resolved thread on f
     async (fixture) => (await import(fixture)).releaseStatus({ fail: true }),
     fixture,
   );
-  await expect(state).toHaveText('Resolved by Atlas');
+  await expect(state).toHaveText('Resolved by Atlas · just now');
   await expect(page.getByTestId('comment-thread').getByRole('alert')).toBeVisible();
   await expect(
     headerActions(page).getByRole('button', { name: 'Reopen', exact: true }),

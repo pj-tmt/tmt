@@ -26,6 +26,12 @@
  * list's name is the bar's title. */
 .page-list-hero-text {
   min-width: 0;
+  flex: 1;
+}
+
+.page-list-hero h2 {
+  margin: 0 0 4px;
+  font-size: 22px;
 }
 
 .home .page-list-hero p {
@@ -142,7 +148,7 @@
   flex-wrap: wrap;
   align-items: center;
   gap: 12px;
-  margin: 17px 0 16px;
+  margin: 0 0 16px;
   flex: none;
 }
 
@@ -569,17 +575,6 @@
 .home .page-list-search-field.rich-input-field::before {
   font-size: 11px;
   max-width: calc(100% - 46px);
-}
-
-.page-list-search-mark {
-  position: absolute;
-  top: 9px;
-  left: 12px;
-  width: 14px;
-  height: 14px;
-  z-index: 2;
-  color: var(--tmt-ui-color-secondary);
-  pointer-events: none;
 }
 
 .page-list-status:not([data-tone='error']) {
@@ -1019,4 +1014,138 @@
   .home[data-page-list] .page-list-controls {
     animation: none;
   }
+}
+
+/* The action row is independent of the navigation title. */
+.page-list-hero {
+  justify-content: flex-end;
+  gap: 8px;
+}
+.page-list-shortcut-phone {
+  display: none;
+}
+.page-list-condition-chips {
+  display: flex;
+  align-items: center;
+  gap: var(--tmt-ui-space-xs);
+}
+.page-list-search {
+  display: flex;
+  align-items: center;
+  gap: var(--tmt-ui-space-xs);
+  flex: 1 1 300px;
+}
+.page-list-search > .tmt-listbox {
+  min-width: 0;
+  flex: 1;
+}
+@media (max-width: 650px) {
+  .page-list-shortcut-wide {
+    display: none;
+  }
+  .page-list-shortcut-phone {
+    display: inline-flex;
+  }
+}
+.page-list-search-box {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: var(--tmt-ui-space-xs);
+  flex: 1;
+  min-width: 0;
+  padding-inline: var(--tmt-ui-space-xs);
+  border: 1px solid var(--tmt-ui-surface-rule);
+  border-radius: var(--tmt-ui-radius);
+  background: var(--tmt-ui-surface-sheet);
+}
+.page-list-search-box > .tmt-listbox {
+  flex: 1;
+  min-width: 0;
+}
+.home .page-list-search-box .page-list-search-field.rich-input-field {
+  padding-inline: 4px;
+  font-size: var(--tmt-ui-command-size);
+  background: transparent;
+  border: 0;
+}
+.home .page-list-search-box .page-list-search-field.rich-input-field::before {
+  font-size: var(--tmt-ui-command-size);
+}
+.page-list-condition-chips {
+  flex: none;
+  max-width: 65%;
+  overflow-x: auto;
+}
+.page-list-condition-chips:empty {
+  display: none;
+}
+.page-list-filter-menu {
+  position: relative;
+  display: inline-flex;
+  flex: none;
+}
+.page-list-filter-menu > svg {
+  position: absolute;
+  z-index: 1;
+  left: 10px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 16px;
+  height: 16px;
+  pointer-events: none;
+}
+.page-list-filter-menu .tmt-ui-menu-trigger {
+  padding-inline-start: 32px;
+}
+@media (max-width: 650px) {
+  .page-list-filter-menu > svg {
+    display: none;
+  }
+  .page-list-filter-menu .tmt-ui-menu-trigger {
+    width: 36px;
+    min-height: 34px;
+    padding: 0;
+  }
+  .page-list-controls .page-list-search {
+    flex: 1 1 0;
+  }
+  .page-list-sort {
+    display: inline-flex;
+  }
+  .home[data-compact] .page-list-sort {
+    display: inline-flex;
+  }
+  .page-stage-tabs .tmt-ui-tab-list {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+  }
+}
+@media (max-width: 650px) {
+  :is(.page-list-filter-menu, .page-list-sort) .tmt-ui-icon-action-control[data-variant='text'] {
+    border: 1px solid var(--tmt-ui-surface-rule);
+    background: var(--tmt-ui-surface-sheet);
+    border-radius: var(--tmt-ui-radius);
+    width: 36px;
+    min-height: 34px;
+    padding: 0;
+  }
+}
+
+.page-list-condition-chips .tmt-ui-chip {
+  flex: 0 0 auto;
+  border-color: transparent;
+  background: var(--tmt-ui-surface-waiting-soft);
+  color: var(--tmt-ui-color-waiting);
+}
+/* Search uses the available row; condition remove icons sit inline with their labels. */
+.page-list-condition-chips {
+  flex: 0 1 auto;
+  max-width: calc(100% - 8px);
+}
+.page-list-condition-chips .tmt-ui-chip {
+  --tmt-ui-host-icon-action-size: 18px;
+}
+.page-list-condition-chips .tmt-ui-chip .tmt-ui-icon-action-control {
+  border-left-color: transparent;
 }

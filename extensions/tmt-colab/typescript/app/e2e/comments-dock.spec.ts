@@ -3,10 +3,8 @@ import { capturePath } from './captures.js';
 import { commentsAction } from '../test/page-actions.js';
 import { commentsClose, commentsRegion } from '../test/comments-region.js';
 
-// #5192/#5519: Comments follows Annotate and Chat in the dock, with the open-thread count and
-// the needs-you colour and bullet. It opens the Comments panel out of the dock's rectangle as Chat does
-// (dock-motion.ts): the panel is clipped to the dock's rectangle at one end of the motion. A column
-// leaves the dock in place, pressed; a card or a sheet covers it, so the dock hides.
+// #5519: Comments follows Annotate and Chat with a plain open-thread count. The dock stays
+// visible when Discussion is open, with the open action highlighted.
 const fixture = '/test/reply-notifications-browser.ts';
 const run = (page: Page, method: string, argument?: unknown) =>
   page.evaluate(
@@ -28,6 +26,8 @@ const record = () => {
         fill: timing.fill,
         hidden: (this as HTMLElement).hidden,
         rendered: this.getBoundingClientRect().width > 0,
+        rect: this.getBoundingClientRect().toJSON(),
+        dock: document.querySelector('.page-floating-actions')!.getBoundingClientRect().toJSON(),
       });
     }
     return original.call(this, frames, options);
@@ -39,6 +39,8 @@ interface Started {
   fill: string;
   hidden: boolean;
   rendered: boolean;
+  rect: { x: number; y: number; width: number; height: number };
+  dock: { x: number; y: number; width: number; height: number };
 }
 const started = (page: Page) =>
   page.evaluate(() => (window as unknown as { dockMotions: Started[] }).dockMotions);
@@ -62,7 +64,7 @@ const settled = (page: Page) =>
   });
 
 const modes = [
-  { mode: 'column', width: 1440 },
+  { mode: 'card', width: 1440 },
   { mode: 'card', width: 1000 },
   { mode: 'sheet', width: 390 },
 ] as const;
@@ -100,35 +102,39 @@ for (const { mode, width } of modes)
         expect(rect.x + rect.width - right).toBeCloseTo(box.x + box.width, 0);
         expect(rect.y + rect.height - bottom).toBeCloseTo(box.y + box.height, 0);
         await settled(page);
-        // A column leaves the dock in place and reachable, its Comments action pressed; a card or a
-        // sheet covers the page's corner, so the dock hides in its place for the panel to close back into.
-        await expect(page.locator('.selection-mode')).toHaveCSS(
-          'opacity',
-          mode === 'column' ? '1' : '0',
-        );
-        await expect(page.locator('.selection-mode')).toHaveCSS(
-          'pointer-events',
-          mode === 'column' ? 'auto' : 'none',
-        );
+        await expect(page.locator('.selection-mode')).toHaveCSS('opacity', '1');
+        await expect(page.locator('.selection-mode')).toHaveCSS('pointer-events', 'auto');
         expect(await page.evaluate(() => !!document.activeElement?.closest('.tmt-ui-panel'))).toBe(
           true,
         );
-        await page.screenshot({ path: capturePath(`comments-dock-open-${mode}-${theme}.png`) });
-        // Escape from inside the panel closes it. A card and a sheet run the clip back on a panel that
-        // is hidden but still rendered; a column leaves the grid at once and has no closing motion.
+        await page.screenshot({
+          path: capturePath(`comments-dock-open-${mode}-${width}-${theme}.png`),
+        });
+        // Escape closes the panel; the retained surface clips back to the dock.
         await page.keyboard.press('Escape');
         await expect(panel).toHaveCount(0);
         await expect(action).toBeFocused();
         await expect(action).toHaveAttribute('aria-expanded', 'false');
-        if (mode === 'column') expect(await started(page)).toHaveLength(1);
-        else {
-          await expect.poll(async () => (await started(page)).length).toBe(2);
-          const closing = (await started(page))[1];
-          expect(closing).toMatchObject({ panel: 'comments', fill: 'forwards', hidden: true });
-          expect(closing.rendered).toBe(true);
-          expect(closing.clip).toEqual([opening.clip[1], opening.clip[0]]);
-          await settled(page);
-        }
+        await expect.poll(async () => (await started(page)).length).toBe(2);
+        const closing = (await started(page))[1];
+        expect(closing).toMatchObject({ panel: 'comments', fill: 'forwards', hidden: true });
+        expect(closing.rendered).toBe(true);
+        expect(closing.clip[0]).toEqual(opening.clip[1]);
+        const [closeTop, closeRight, closeBottom, closeLeft] = closing.clip[1]
+          .match(/inset\((.+?) round/)![1]
+          .split(' ')
+          .map(parseFloat);
+        expect(closing.rect.x + closeLeft).toBeCloseTo(closing.dock.x, 0);
+        expect(closing.rect.y + closeTop).toBeCloseTo(closing.dock.y, 0);
+        expect(closing.rect.x + closing.rect.width - closeRight).toBeCloseTo(
+          closing.dock.x + closing.dock.width,
+          0,
+        );
+        expect(closing.rect.y + closing.rect.height - closeBottom).toBeCloseTo(
+          closing.dock.y + closing.dock.height,
+          0,
+        );
+        await settled(page);
         await expect(page.locator('.selection-mode')).toHaveCSS('opacity', '1');
         // The close button does the same, and the dock's action opens it again.
         await action.click();
@@ -168,34 +174,26 @@ test('a panel that is already open when the page mounts does not play the dock m
   expect(await call('recorded')).toEqual(['chat', 'chat']);
 });
 
-test('the count is the open threads and a thread with news turns it to the needs-you colour', async ({
-  page,
-}) => {
-  await mount(page);
-  const action = commentsAction(page);
-  const count = page.locator('.dock-count').first();
-  await run(page, 'secondThread');
-  await expect(action).toHaveAccessibleName('Comments (2)');
-  await expect(count).toHaveText('2');
-  await expect(count).not.toHaveAttribute('data-unseen', /.*/);
-  const quiet = await count.evaluate((node) => getComputedStyle(node).color);
-  await run(page, 'agentResolves');
-  // One thread is open now and the resolution is news the viewer has not seen.
-  await expect(action).toHaveAccessibleName('Comments (1) · New');
-  await expect(count).toContainText('1');
-  await expect(count).toContainText('•');
-  await expect(count).toHaveAttribute('data-unseen', 'true');
-  const waiting = await page.evaluate(() => {
-    const probe = document.createElement('span');
-    probe.style.color = 'var(--c-waiting)';
-    document.body.append(probe);
-    const color = getComputedStyle(probe).color;
-    probe.remove();
-    return color;
-  });
-  await expect(count).toHaveCSS('color', waiting);
-  expect(waiting).not.toBe(quiet);
-});
+for (const width of [390, 1440])
+  for (const theme of ['light', 'dark'] as const)
+    test(`the count marks unseen thread news at ${width} ${theme}`, async ({ page }) => {
+      await page.setViewportSize({ width, height: 900 });
+      await page.emulateMedia({ colorScheme: theme });
+      await mount(page);
+      const action = commentsAction(page);
+      const count = page.locator('.dock-count').first();
+      await run(page, 'secondThread');
+      await expect(action).toHaveAccessibleName('Comments (2)');
+      await expect(count).toHaveText('2');
+      await expect(count).not.toHaveAttribute('data-unseen', /.*/);
+      const quiet = await count.evaluate((node) => getComputedStyle(node).color);
+      await run(page, 'agentResolves');
+      await expect(action).toHaveAccessibleName('Comments (1) · New');
+      await expect(count).toHaveText('1•');
+      await expect(count).toHaveAttribute('data-unseen', 'true');
+      await expect(count).toHaveCSS('color', quiet);
+      await page.screenshot({ path: capturePath(`comments-dock-unseen-${width}-${theme}.png`) });
+    });
 
 for (const width of [320, 390, 1440])
   test(`the three-action capsule fits at ${width}px without wrapping`, async ({ page }) => {
@@ -225,3 +223,24 @@ for (const width of [320, 390, 1440])
       clip: { x: Math.max(0, width - 360), y: 560, width: Math.min(360, width), height: 140 },
     });
   });
+
+test('dock keeps the mock-sized round icons and highlights its open Discussion action', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await mount(page);
+  const actions = dock(page).getByRole('button');
+  await expect(actions).toHaveCount(3);
+  for (const icon of await dock(page).locator('button svg').all()) {
+    await expect(icon).toHaveCSS('width', '16px');
+    await expect(icon).toHaveCSS('height', '16px');
+    await expect(icon).toHaveCSS('stroke-width', '1.75px');
+    await expect(icon).toHaveCSS('stroke-linecap', 'round');
+    await expect(icon).toHaveCSS('stroke-linejoin', 'round');
+  }
+  const comments = commentsAction(page);
+  await comments.click();
+  await expect(dock(page)).toBeVisible();
+  await expect(comments).toHaveAttribute('aria-expanded', 'true');
+  await expect(comments).toHaveCSS('background-color', 'rgb(211, 235, 221)');
+});

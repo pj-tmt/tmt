@@ -94,9 +94,16 @@ import { useReplyNotifications } from './use-reply-notifications.js';
 import { ReplyNotificationObserver } from './reply-notifications.js';
 import { ReplyNotificationContext } from './reply-notification-context.js';
 import { ThreadPanel, ThreadWindow } from './thread-panel.js';
+import { ResolveAllThreads } from './resolve-all-threads.js';
 import { presentationOf } from './thread-status-presentation.js';
 import { isStatusThread, openThreadCount } from './thread-status-view.js';
-import { firstThread, listedThreads, threadKey, type ThreadFilter } from './comments-listing.js';
+import {
+  firstThread,
+  listedThreads,
+  threadKey,
+  threadNeedsYou,
+  type ThreadFilter,
+} from './comments-listing.js';
 import { useThreadFilter } from './use-thread-filter.js';
 import type { QuoteSelector } from './thread-records.js';
 import { Home, validateHomeSearch, type HomeSearch } from './home.js';
@@ -131,7 +138,7 @@ import { PageSizeSection, usePageSize } from './page-size.js';
 import { SourceDraft } from './use-page-editor.js';
 import { PageSource } from './page-source.js';
 import { usePagePanels } from './use-page-panels.js';
-import { usePanelMode, type PanelMode } from './panel-mode.js';
+import { usePanelMode } from './panel-mode.js';
 import './panel-layout.css';
 import { useAnnotations } from './use-annotations.js';
 import { usePageRenderer } from './use-page-renderer.js';
@@ -156,7 +163,7 @@ function PageFloatingActions({
   unseen,
   commentsButton,
   toggleComments,
-  panelMode,
+  onPlacement,
   canSelect,
   selectPending,
   slots,
@@ -176,7 +183,7 @@ function PageFloatingActions({
   unseen: boolean;
   commentsButton: Ref<HTMLButtonElement>;
   toggleComments(): void;
-  panelMode: PanelMode;
+  onPlacement(value: { right: number; bottom: number; height: number }): void;
   canSelect: boolean;
   /** The button's place while the threads are unverified: fenced, not greyed. */
   selectPending: boolean;
@@ -196,8 +203,7 @@ function PageFloatingActions({
     const workspace = host?.closest('.workspace');
     const place = () => {
       const box = host?.getBoundingClientRect();
-      // An open panel the dock hides for keeps the place it opens out of and closes back into.
-      if (!box || element.current?.hasAttribute('data-panel-open')) return;
+      if (!box) return;
       const margin = innerWidth <= 640 ? 16 : 24;
       // These parent-owned overlays sit outside the renderer host's layout box.
       // Their actual bounds keep the control clear without altering author geometry.
@@ -212,7 +218,7 @@ function PageFloatingActions({
       // A card sits over the page's right edge and a sheet over its bottom; a column is a grid
       // track beside the page, so the host's own box already ends before it.
       const floating = document.querySelector<HTMLElement>(
-        '.tmt-ui-panel:not([hidden])[data-mode="card"], .tmt-ui-panel:not([hidden])[data-mode="sheet"]',
+        '.tmt-ui-panel:not([hidden]):not([data-floating-discussion])[data-mode="card"], .tmt-ui-panel:not([hidden]):not([data-floating-discussion])[data-mode="sheet"]',
       );
       const over = floating?.getBoundingClientRect();
       const right = Math.min(
@@ -256,11 +262,14 @@ function PageFloatingActions({
         }
         if (!moved) break;
       }
-      setPlacement({
+      const next = {
         right: Math.max(margin, innerWidth - right + margin),
         bottom: innerHeight - bottom + margin,
-        visibility: bottom - margin - (fab?.height ?? 0) >= 8 ? 'visible' : 'hidden',
-      });
+        visibility:
+          bottom - margin - (fab?.height ?? 0) >= 8 ? ('visible' as const) : ('hidden' as const),
+      };
+      setPlacement(next);
+      onPlacement({ right: next.right, bottom: next.bottom, height: fab?.height ?? 0 });
     };
     place();
     const observer = new ResizeObserver(place);
@@ -283,16 +292,9 @@ function PageFloatingActions({
       window.removeEventListener('resize', place);
       window.removeEventListener('scroll', place);
     };
-  }, [host, enabled, panel, discussionOpen, slots]);
+  }, [host, enabled, panel, discussionOpen, slots, onPlacement]);
   return (
-    <div
-      ref={element}
-      className="selection-mode"
-      style={placement}
-      data-panel-open={
-        panel === 'chat' || (panel === 'comments' && panelMode !== 'column') ? '' : undefined
-      }
-    >
+    <div ref={element} className="selection-mode" style={placement}>
       {enabled && !discussionOpen && (
         <p className="selection-mode-hint">{text.selectionModeHint}</p>
       )}
@@ -329,7 +331,6 @@ function PageFloatingActions({
             tooltipPlacement={tooltipPlacement}
             label={chatUnread ? `${text.chat} · ${text.chatUnread}` : text.chat}
             buttonRef={chatButton}
-            hasPopup="dialog"
             expanded={panel === 'chat'}
             icon={
               <>
@@ -1316,13 +1317,46 @@ function OpenPage({
     setActiveThread,
   } = panels;
   const floatingChat = useRef<HTMLButtonElement>(null);
+  const chatOpener = useRef<HTMLElement | null>(null);
+  useEffect(() => {
+    if (panel !== 'chat') chatOpener.current = null;
+  }, [panel]);
   const floatingComments = useRef<HTMLButtonElement>(null);
-  const closeComments = () => {
-    // Return before the closing clip keeps the old composer temporarily focusable.
-    floatingComments.current?.focus({ preventScroll: true });
+  const discussionMarkerOpener = useRef<string | null>(null);
+  useEffect(() => {
+    if (panel !== 'comments') discussionMarkerOpener.current = null;
+  }, [panel]);
+  const [dockPlacement, setDockPlacement] = useState({ right: 24, bottom: 24, height: 44 });
+  const updateDockPlacement = useCallback(
+    (next: { right: number; bottom: number; height: number }) => {
+      setDockPlacement((previous) =>
+        previous.right === next.right &&
+        previous.bottom === next.bottom &&
+        previous.height === next.height
+          ? previous
+          : next,
+      );
+    },
+    [],
+  );
+  const closeChat = () => {
+    const opener = chatOpener.current;
+    (opener?.isConnected ? opener : floatingChat.current)?.focus({ preventScroll: true });
+    chatOpener.current = null;
     close();
   };
-  useDockMotion(dockPanel(panel), panelMode);
+  const closeComments = () => {
+    const marker = discussionMarkerOpener.current;
+    const currentRenderer = renderer.current;
+    discussionMarkerOpener.current = null;
+    floatingComments.current?.focus({ preventScroll: true });
+    close();
+    if (marker)
+      requestAnimationFrame(() => {
+        if (panelsRef.current.panel === null) currentRenderer?.focusThread(marker);
+      });
+  };
+  useDockMotion(dockPanel(panel));
   const activateChat = useRef<() => boolean>(() => false);
 
   // The page's own projects: the picker opens from its chips and from Projects… in the More menu.
@@ -1453,7 +1487,7 @@ function OpenPage({
     if (panel === 'about' || panel === 'source') void refreshSize();
   }, [panel, refreshSize]);
   const toggleSelectionMode = useRef<() => void>(() => {});
-  const escapeAnnotation = useRef<(fromPanel?: boolean) => void>(() => {});
+  const escapeAnnotation = useRef<() => void>(() => {});
   const chatBusy = useRef(false);
   const binding = useRef(snapshot.binding);
   const renderer = useRef<Awaited<ReturnType<typeof mountRenderer>> | null>(null);
@@ -1520,7 +1554,16 @@ function OpenPage({
   // The Discussion header's arrows walk the threads in the order of their numbers, the order of the
   // position it shows.
   const [resolveSlot, setResolveSlot] = useState<HTMLElement | null>(null);
+  const [resolveAllSlot, setResolveAllSlot] = useState<HTMLElement | null>(null);
+  const [batchStatus, setBatchStatus] = useState<{ generation: number; content: ReactNode } | null>(
+    null,
+  );
+  const [batchGeneration, setBatchGeneration] = useState(0);
   const [threadFilter, setThreadFilter] = useThreadFilter();
+  useEffect(() => {
+    setBatchStatus(null);
+    setBatchGeneration((generation) => generation + 1);
+  }, [panel, activeThread, threadFilter]);
   const listed = useMemo(
     () =>
       listedThreads(
@@ -1598,6 +1641,11 @@ function OpenPage({
     if (archived || (panel !== null && panel !== 'chat') || environment.overlayOpen('chat'))
       return false;
     const insertMention = panel !== 'chat';
+    if (insertMention)
+      chatOpener.current =
+        document.activeElement instanceof HTMLElement && document.activeElement !== document.body
+          ? document.activeElement
+          : null;
     openChat(
       !discussionBlocked && !recoveryRequired && !chatBusy.current
         ? { id: crypto.randomUUID(), insertMention }
@@ -1605,14 +1653,11 @@ function OpenPage({
     );
     return true;
   };
-  escapeAnnotation.current = (fromPanel = false) => {
+  escapeAnnotation.current = () => {
     if (panel === 'chat') {
-      if (!chatBusy.current) close();
-    } else if (panel === 'comments' && fromPanel) {
-      // Escape inside the non-modal panel closes it; on the page it falls through to the rungs
-      // below and leaves the panel open. A send or status change in flight holds the open
-      // Discussion, as Chat holds its busy send.
-      if (!discussedThread || !statusBusy.current) closeComments();
+      if (!chatBusy.current) closeChat();
+    } else if (panel === 'comments') {
+      if (!annotationBusy.current && !statusBusy.current) closeComments();
     } else if (annotationRef.current) closeRef.current(true);
     else if (canSelect) setSelectionMode(false);
   };
@@ -1641,13 +1686,20 @@ function OpenPage({
         event.ctrlKey ||
         event.metaKey ||
         (event.shiftKey && event.key !== '@') ||
-        (event.key !== '@' && !canSelect)
+        (event.code === 'KeyC' && !canSelect)
       )
         return;
       if (event.key === '@') {
         if (activateChat.current()) event.preventDefault();
         return;
       }
+      if (
+        event.key === 'Escape' &&
+        !panelsRef.current.panel &&
+        !annotationRef.current &&
+        !selectionMode
+      )
+        return;
       event.preventDefault();
       if (event.key === 'Escape') escapeAnnotation.current();
       else if (!selectionMode && currentSelector.current && currentRectangle.current) annotate();
@@ -1655,7 +1707,7 @@ function OpenPage({
     };
     document.addEventListener('keydown', key);
     return () => document.removeEventListener('keydown', key);
-  }, [canSelect, selectionMode, annotate, currentSelector, currentRectangle]);
+  }, [canSelect, selectionMode, annotate, annotationRef, currentSelector, currentRectangle]);
   const { read: readingHint, anchor, task } = search;
   const {
     readings,
@@ -1737,9 +1789,13 @@ function OpenPage({
         const thread = latest.current.threads?.find(
           (value) => `${value.ref.writer}:${value.threadId}` === id && !value.deleted,
         );
-        if (thread) openThread(thread.ref);
+        if (thread) {
+          if (panelsRef.current.panel !== 'comments') discussionMarkerOpener.current = id;
+          openThread(thread.ref);
+        }
       },
-      onOpenList: () => {
+      onOpenList: (id) => {
+        if (panelsRef.current.panel !== 'comments') discussionMarkerOpener.current = id;
         if (annotationRef.current) closeRef.current(false);
         panelsRef.current.show('comments');
       },
@@ -1876,8 +1932,6 @@ function OpenPage({
     <BrowserMenu
       label={text.commentsFilter}
       triggerText={filterLabels[threadFilter]}
-      variant="crumb"
-      presentation="compact"
       disabled={changingStatus}
       items={(['open', 'needs', 'all'] as const).map((key) => ({
         key,
@@ -2103,10 +2157,7 @@ function OpenPage({
           <p>{text.warning}</p>
         </section>
       </BrowserDrawer>
-      <div
-        className="workspace"
-        data-panel-column={panel === 'comments' && panelMode === 'column' ? '' : undefined}
-      >
+      <div className="workspace">
         {pageLinkBar}
         <PageWorkBand
           onSize={setWorkBandSize}
@@ -2171,13 +2222,25 @@ function OpenPage({
           focusFallback={environment.focusFallback}
           open={panel === 'comments'}
           mode={panelMode}
-          title={discussedThread ? text.discussion : text.comments}
+          data-floating-discussion=""
+          style={
+            {
+              '--discussion-right': `${dockPlacement.right}px`,
+              '--discussion-bottom': `${dockPlacement.bottom + dockPlacement.height + 16}px`,
+            } as React.CSSProperties
+          }
+          closeLabel={text.discussionClose}
+          closeTooltipLabel={text.discussionClose}
+          title={text.discussion}
           caption={
-            discussedThread && position >= 0 ? (
-              <span className="discussion-position">
-                {text.discussionPosition(position + 1, listed.length)}
-              </span>
-            ) : undefined
+            <>
+              {discussedThread && position >= 0 && (
+                <span className="discussion-position">
+                  {text.discussionPosition(position + 1, listed.length)}
+                </span>
+              )}
+              {threadFilterMenu}
+            </>
           }
           headerActions={
             discussedThread && numbers.get(activeThread!) !== undefined ? (
@@ -2202,18 +2265,18 @@ function OpenPage({
                     if (event.isTrusted) openNeighbour(1);
                   }}
                 />
-                {threadFilterMenu}
+                <span className="discussion-separator" aria-hidden="true" />
                 <span className="discussion-header-slot" ref={setResolveSlot} />
+                <span className="discussion-header-slot" ref={setResolveAllSlot} />
+                <span className="discussion-separator" aria-hidden="true" />
               </>
-            ) : (
-              threadFilterMenu
-            )
+            ) : undefined
           }
           data-panel="comments"
           data-discussion={discussedThread || undefined}
           onDismiss={(reason) => {
             if (reason === 'close') closeComments();
-            else escapeAnnotation.current(true);
+            else escapeAnnotation.current();
           }}
         >
           {endedNotice && <div className="panel-notice">{endedNotice}</div>}
@@ -2233,47 +2296,70 @@ function OpenPage({
             </p>
           )}
           {!discussionPending && (
-            <ThreadPanel
-              connectionPresentation={connectionPresentation}
-              archived={archived}
-              proposalStatusPending={proposalLayer.proposalStatusPending}
-              creationRecipient={creatorTarget(view)}
-              hideHeader
-              numbers={numbers}
-              renderProposal={proposalLayer.renderProposal}
-              key={`discussion:${snapshot.id}:${draftsReady}`}
-              threads={(view.threads ?? []).filter((thread) => !isChatThread(thread))}
-              resolved={resolved}
-              anchorsChecked={anchorsChecked}
-              selection={selector}
-              binding={
-                liveError?.message === managementChanged ? undefined : snapshot.binding?.discussion
-              }
-              ask={liveError?.message === managementChanged ? undefined : snapshot.binding?.ask}
-              title={view.title || snapshot.title}
-              asks={view.asks ?? []}
-              active={activeThread}
-              select={openThread}
-              close={closeComments}
-              headerSlot={resolveSlot}
-              showInPage={(ref) => {
-                // The panel stays: it is beside or over the page, not a modal that hides it.
-                renderer.current?.scrollAnchor(`${ref.writer}:${ref.id}`);
-              }}
-              presentations={view.threadPresentations}
-              onStatusChange={
-                statusCoordinator
-                  ? (thread, resolved) => statusCoordinator.change(thread, resolved)
-                  : undefined
-              }
-              onBusy={(busy) => {
-                statusBusy.current = busy;
-                setChangingStatus(busy);
-              }}
-              draft={(ref) => drafts.current.get(`${ref.writer}:${ref.id}`)}
-              onDraft={(ref, edit) => keepDraft(`${ref.writer}:${ref.id}`, edit)}
-              blocked={discussionBlocked}
-            />
+            <>
+              <ThreadPanel
+                connectionPresentation={connectionPresentation}
+                archived={archived}
+                proposalStatusPending={proposalLayer.proposalStatusPending}
+                creationRecipient={creatorTarget(view)}
+                hideHeader
+                numbers={numbers}
+                renderProposal={proposalLayer.renderProposal}
+                key={`discussion:${snapshot.id}:${draftsReady}`}
+                threads={(view.threads ?? []).filter((thread) => !isChatThread(thread))}
+                resolved={resolved}
+                anchorsChecked={anchorsChecked}
+                selection={selector}
+                binding={
+                  liveError?.message === managementChanged
+                    ? undefined
+                    : snapshot.binding?.discussion
+                }
+                ask={liveError?.message === managementChanged ? undefined : snapshot.binding?.ask}
+                title={view.title || snapshot.title}
+                asks={view.asks ?? []}
+                active={activeThread}
+                close={closeComments}
+                headerSlot={resolveSlot}
+                batchStatus={
+                  batchStatus?.generation === batchGeneration ? batchStatus.content : null
+                }
+                showInPage={(ref) => {
+                  // The panel stays: it is beside or over the page, not a modal that hides it.
+                  renderer.current?.scrollAnchor(`${ref.writer}:${ref.id}`);
+                }}
+                presentations={view.threadPresentations}
+                onStatusChange={
+                  statusCoordinator
+                    ? (thread, resolved) => statusCoordinator.change(thread, resolved)
+                    : undefined
+                }
+                onBusy={(busy) => {
+                  statusBusy.current = busy;
+                  setChangingStatus(busy);
+                }}
+                draft={(ref) => drafts.current.get(`${ref.writer}:${ref.id}`)}
+                onDraft={(ref, edit) => keepDraft(`${ref.writer}:${ref.id}`, edit)}
+                blocked={discussionBlocked}
+              />
+              <ResolveAllThreads
+                headerSlot={resolveAllSlot}
+                threads={listed.filter(
+                  (thread) =>
+                    !thread.resolved &&
+                    (threadFilter !== 'needs' || threadNeedsYou(thread, view.threadPresentations)),
+                )}
+                coordinator={
+                  (view.threadPresentations ?? []).some((value) => value.status.controllable)
+                    ? statusCoordinator
+                    : undefined
+                }
+                blocked={discussionBlocked || changingStatus}
+                onReport={(content) =>
+                  setBatchStatus(content === null ? null : { generation: batchGeneration, content })
+                }
+              />
+            </>
           )}
         </BrowserPanel>
       </div>
@@ -2287,11 +2373,15 @@ function OpenPage({
           toggle={() => toggleSelectionMode.current()}
           chatUnread={notifications.chatUnread}
           chatButton={floatingChat}
-          toggleChat={() => toggle('chat')}
+          toggleChat={() => {
+            if (panel !== 'chat') chatOpener.current = floatingChat.current;
+            toggle('chat');
+          }}
           comments={openThreads}
           unseen={unseenThreads}
           commentsButton={floatingComments}
           toggleComments={() => {
+            discussionMarkerOpener.current = null;
             const selected = (view.threads ?? []).find(
               (thread) =>
                 !thread.deleted && !isChatThread(thread) && threadKey(thread) === activeThread,
@@ -2300,7 +2390,7 @@ function OpenPage({
             if (panel !== 'comments' && target) openThread(target.ref, { revealInPage: false });
             else toggle('comments');
           }}
-          panelMode={panelMode}
+          onPlacement={updateDockPlacement}
           canSelect={canSelect}
           selectPending={selectPending}
         />
@@ -2479,18 +2569,27 @@ function OpenPage({
         />
       </BrowserDrawer>
       <AttachmentDropPanel key={`chat-drop:${snapshot.id}`} target="chat" active={panel === 'chat'}>
-        <BrowserDrawer
-          notice={archived ? endedNotice : undefined}
+        <BrowserPanel
+          keepMounted
           focusFallback={() => floatingChat.current ?? environment.focusFallback()}
           open={panel === 'chat'}
+          mode={panelMode}
+          data-floating-discussion=""
+          data-panel="chat"
+          style={
+            {
+              '--discussion-right': `${dockPlacement.right}px`,
+              '--discussion-bottom': `${dockPlacement.bottom + dockPlacement.height + 16}px`,
+            } as React.CSSProperties
+          }
           title="Chat"
-          panel="chat"
           caption={text.chatVisible}
           onDismiss={(reason) => {
-            if (reason === 'close') close();
+            if (reason === 'close') closeChat();
             else escapeAnnotation.current();
           }}
         >
+          {archived && endedNotice && <div className="panel-notice">{endedNotice}</div>}
           {chatOpened && discussionPending && !liveError && (
             <p role="status" className="discussion-pending">
               {text.discussionPending}
@@ -2530,11 +2629,11 @@ function OpenPage({
               title={view.title || snapshot.title}
               blocked={discussionBlocked}
               recoveryRequired={recoveryRequired}
-              close={() => close()}
+              close={closeChat}
               escape={() => escapeAnnotation.current()}
             />
           )}
-        </BrowserDrawer>
+        </BrowserPanel>
       </AttachmentDropPanel>
     </section>
   );

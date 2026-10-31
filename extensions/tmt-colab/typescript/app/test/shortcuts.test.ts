@@ -1,6 +1,6 @@
 import { expect, it } from 'vite-plus/test';
 import { validateHomeSearch, listPages } from '../src/page-list-filter.js';
-import { shortcutCounts, shortcutSearch } from '../src/shortcuts.js';
+import { shortcutConditions, shortcutCounts, shortcutSearch } from '../src/shortcuts.js';
 import type { PageSummary } from '../src/transport.js';
 const pages = [
   {
@@ -52,7 +52,7 @@ it('saved filters retain other clauses and normalize project scope', () => {
     sort: 'title',
     stage: 'done',
     project: ['design', 'review'],
-    state: 'done',
+    state: ['done'],
     includeArchived: true,
   });
 });
@@ -90,4 +90,38 @@ it('shortcut counts remain unknown until the data needed by each filter is avail
   );
   expect(shortcutCounts(complete, { project: ['design'] })).toEqual({ total: 2, attention: 1 });
   expect(shortcutCounts(complete, { needs: true })).toEqual({ total: 1, attention: 1 });
+});
+
+it('shortcut summaries show saved conditions and retain their actual sort label', () => {
+  expect(
+    shortcutConditions({
+      project: ['design'],
+      state: 'in-progress',
+      needs: true,
+      includeArchived: true,
+      q: 'Plan',
+      by: ['Ana'],
+      sort: 'title',
+    }),
+  ).toEqual([
+    'project: design',
+    'stage: In progress',
+    'Needs me',
+    'Include archived',
+    'Search: Plan',
+    'Creators: Ana',
+    'Sort: Title',
+  ]);
+});
+
+it('validates and applies multiple page states, with no selection meaning every state', () => {
+  const search = validateHomeSearch({ state: ['todo', 'done', 'todo', 'invalid'] });
+  expect(search.state).toEqual(['todo', 'done']);
+  const available = pages.map((page) => ({ ...page, archived: false }));
+  expect(new Set(listPages(available, search).map((page) => page.id))).toEqual(
+    new Set(['active', 'archived']),
+  );
+  expect(validateHomeSearch({ state: [] }).state).toBeUndefined();
+  expect(listPages(pages, validateHomeSearch({ state: [] }))).toHaveLength(2);
+  expect(validateHomeSearch({ state: 'todo' }).state).toEqual(['todo']);
 });

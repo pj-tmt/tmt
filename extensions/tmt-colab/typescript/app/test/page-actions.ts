@@ -12,9 +12,9 @@ export function chatAction(host: Page | Locator) {
   return host.locator('.page-floating-actions').getByRole('button', { name: CHAT_NAME });
 }
 
-/** Exercise the retained legacy preference: it selects All when no v2 filter is stored. */
+/** Start the browser fixture with the current All filter selected. */
 export async function showResolvedOn(page: Page) {
-  await page.addInitScript(() => localStorage.setItem('colab.comments.showResolved', '1'));
+  await page.addInitScript(() => localStorage.setItem('colab.comments.filter', 'all'));
 }
 
 /** The visible bar's buttons: the shared top bar where Colab is the shell's root, the module header
@@ -33,10 +33,16 @@ export async function pageAction(host: Page | Locator, name: string): Promise<Lo
   // the non-modal Comments panel (which leaves the header live) through its own Close.
   const drawer = page.locator('.tmt-ui-drawer[open]');
   const comments = commentsRegion(page);
+  const chat = page.locator('.tmt-ui-panel[data-panel=chat]:not([hidden])');
   const dismissDrawer = async () => {
     if (await comments.isVisible()) {
-      await comments.getByRole('button', { name: /^Close (Comments|Discussion)$/ }).click();
+      await comments.getByRole('button', { name: 'Close (Esc)' }).click();
       await comments.waitFor({ state: 'hidden' });
+      return;
+    }
+    if (await chat.isVisible()) {
+      await chat.getByRole('button', { name: 'Close Chat' }).click();
+      await chat.waitFor({ state: 'hidden' });
       return;
     }
     // The first covered-header press dismisses only; the action needs a second press.
@@ -45,7 +51,8 @@ export async function pageAction(host: Page | Locator, name: string): Promise<Lo
     await page.mouse.click(button.x + button.width / 2, button.y + button.height / 2);
     await drawer.waitFor({ state: 'hidden' });
   };
-  const anythingOpen = async () => (await drawer.isVisible()) || (await comments.isVisible());
+  const anythingOpen = async () =>
+    (await drawer.isVisible()) || (await comments.isVisible()) || (await chat.isVisible());
   if (await anythingOpen()) await dismissDrawer();
   if (name.startsWith('Theme:')) {
     // Theme is the shared top bar's menu, not a page action.
@@ -126,12 +133,12 @@ async function walkDiscussion(page: Page, matches: () => Promise<boolean>) {
   await expect(position).toBeVisible();
   const count = Number((await position.innerText()).split('/')[1].trim());
   if (!Number.isSafeInteger(count) || count < 1) throw new Error('Missing thread count');
-  const previous = panel.getByRole('button', { name: 'Previous thread', exact: true });
+  const previous = panel.getByRole('button', { name: 'Previous', exact: true });
   for (let index = 0; index < count && !(await previous.isDisabled()); index++)
     await previous.click();
   for (let index = 0; index < count; index++) {
     if (await matches()) return;
-    const next = panel.getByRole('button', { name: 'Next thread', exact: true });
+    const next = panel.getByRole('button', { name: 'Next', exact: true });
     if (await next.isDisabled()) break;
     await next.click();
   }

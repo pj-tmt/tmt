@@ -486,6 +486,7 @@
           const anchorRanges = new Map();
           // The thread ids each lane marker stands for, so the open thread's marker can wear its ring.
           const markerThreads = new WeakMap();
+          let focusRestoredId = null;
           const readingRanges = new Map();
           const sheet = document.createElement('style');
           // BEGIN GENERATED ANNOTATION TOKENS
@@ -761,6 +762,7 @@
             if (hit) {
               event.preventDefault();
               event.stopImmediatePropagation();
+              focusRestoredId = null;
               port.postMessage({
                 type: 'colab.render.open-thread',
                 renderId,
@@ -1580,6 +1582,10 @@
             resolveQuestions();
             resolveLocks();
             if (stopped || !requestId) return;
+            // Rebuilding markers must not drop an opener that currently owns keyboard focus.
+            const focusedMarkerIds = document.hasFocus()
+              ? markerThreads.get(document.activeElement)
+              : undefined;
             clear();
             const resolved = [],
               ranges = [],
@@ -1740,12 +1746,14 @@
                   }
                   marker.style.cssText = `position:absolute;top:${top - origin.top}px;pointer-events:auto;cursor:pointer`;
                   marker.addEventListener('click', (event) => {
-                    if (event.isTrusted)
+                    if (event.isTrusted) {
+                      focusRestoredId = null;
                       port.postMessage(
                         items.length === 1
                           ? { type: 'colab.render.open-thread', renderId, requestId, id: only.id }
-                          : { type: 'colab.render.open-list', renderId, requestId },
+                          : { type: 'colab.render.open-list', renderId, requestId, id: only.id },
                       );
+                    }
                   });
                   markers.append(marker);
                   markerThreads.set(
@@ -1757,6 +1765,16 @@
                 }
               }
               paintSelected();
+              if (focusedMarkerIds) {
+                const replacement = [...(markers?.children ?? [])].find((node) => {
+                  const ids = markerThreads.get(node) ?? [];
+                  return (
+                    ids.length === focusedMarkerIds.length &&
+                    ids.every((id) => focusedMarkerIds.includes(id))
+                  );
+                });
+                replacement?.focus({ preventScroll: true });
+              }
             } catch {
               positions.length = 0;
               resolved.length = 0;
@@ -2171,6 +2189,28 @@
             ) {
               selectedId = v.id;
               paintSelected();
+              return;
+            }
+            if (
+              v &&
+              typeof v === 'object' &&
+              !Array.isArray(v) &&
+              Object.keys(v).length === 4 &&
+              v.type === 'colab.render.focus-thread' &&
+              v.renderId === renderId &&
+              v.requestId === requestId &&
+              typeof v.id === 'string' &&
+              v.id !== '' &&
+              v.id !== focusRestoredId &&
+              batch.some((item) => item.id === v.id)
+            ) {
+              const marker = [...(markers?.children ?? [])].find((node) =>
+                markerThreads.get(node)?.includes(v.id),
+              );
+              if (marker) {
+                focusRestoredId = v.id;
+                marker.focus({ preventScroll: true });
+              }
               return;
             }
             if (

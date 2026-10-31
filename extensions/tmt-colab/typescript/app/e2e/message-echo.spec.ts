@@ -1,5 +1,5 @@
 import { pageAction } from '../test/page-actions.js';
-import { commentsRegion } from '../test/comments-region.js';
+import { commentsClose, commentsRegion } from '../test/comments-region.js';
 import { expect, test, type Page } from '@playwright/test';
 import { text } from '../src/strings.js';
 import { destination } from '../test/ask-fixtures.js';
@@ -522,7 +522,7 @@ test('comments: a reply that fails after Comments closed mid-send still holds it
   await input.press('Enter');
   await expect(echo(page)).toHaveAttribute('data-echo', 'pending');
   // Closing the thread itself waits for the send; closing Comments hides it mid-send.
-  await page.getByRole('button', { name: /^Close (Comments|Discussion)$/ }).click();
+  await commentsClose(page, 'discussion').click();
   await expect(panel).toHaveCount(0);
   await page_('releaseReply');
   await (await pageAction(fixtureRoot, 'Comments')).click();

@@ -97,11 +97,11 @@ function MessageField(props: MessageComposerProps) {
       if (!root) return;
       if (frame !== undefined) cancelAnimationFrame(frame);
       frame = requestAnimationFrame(() => {
-        // Wait for the existing drawer's native open and focus steps.
+        // Wait until the containing drawer or floating panel is open and ready for focus.
         const admitted = () =>
           !cancelled &&
           root.isConnected &&
-          !!root.closest('dialog[open]') &&
+          !!root.closest('dialog[open], .tmt-ui-panel:not([hidden])') &&
           !current.current.disabled &&
           current.current.activation?.id === activationId;
         if (!admitted()) return;

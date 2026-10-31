@@ -2560,6 +2560,92 @@ const ringedMarkers = (page: Page, id: string) =>
     .locator('.annotation-number[data-colab-selected]')
     .evaluateAll((nodes) => nodes.map((node) => node.textContent));
 
+test('focus restoration admits only a current rendered thread marker', async ({ page }) => {
+  await page.goto('/');
+  const id = 'focus-thread';
+  const renderId = await bindPort(
+    page,
+    id,
+    '<p>First focus passage.</p><p>Second focus passage.</p>',
+  );
+  const anchors = [
+    { id: 'first', ordinal: 1, selector: { exact: 'First focus passage', prefix: '', suffix: '' } },
+    {
+      id: 'second',
+      ordinal: 2,
+      selector: { exact: 'Second focus passage', prefix: '', suffix: '' },
+    },
+  ];
+  const request = '00000000-0000-4000-8000-0000000000a1';
+  const barrier = '00000000-0000-4000-8000-0000000000a2';
+  await requestHighlight(page, id, renderId, request, anchors);
+  const frame = page.frameLocator(`#${id}`);
+  await page.evaluate((id) => {
+    const bound = (window as unknown as PortWindow)[`port_${id}`]!;
+    const receive = bound.port.onmessage!;
+    const opened: string[] = [];
+    Reflect.set(window, '__scriptOpens', opened);
+    bound.port.onmessage = (event) => {
+      if (
+        event.data?.type === 'colab.render.open-thread' ||
+        event.data?.type === 'colab.render.open-list'
+      )
+        opened.push(event.data.type);
+      receive.call(bound.port, event);
+    };
+  }, id);
+  await frame.locator('html').evaluate(() => {
+    const events: string[] = [];
+    const messages: string[] = [];
+    Reflect.set(window, '__focusThreads', events);
+    Reflect.set(window, '__focusMessages', messages);
+    window.addEventListener('message', (event) => messages.push(String(event.data?.type)));
+    document.addEventListener('focusin', (event) => {
+      const target = event.target as HTMLElement;
+      if (target.dataset.colabThread) events.push(target.dataset.colabThread);
+    });
+  });
+  await frame.locator('[data-colab-thread="second"]').evaluate((node: HTMLElement) => node.click());
+  await sendToFrame(page, id, {
+    type: 'colab.render.focus-thread',
+    renderId,
+    requestId: request,
+    id: 'first',
+  });
+  await expect(frame.locator('[data-colab-thread="first"]')).toBeFocused();
+  await frame.locator('[data-colab-thread="second"]').focus();
+  await sendToFrame(page, id, {
+    type: 'colab.render.focus-thread',
+    renderId,
+    requestId: request,
+    id: 'first',
+  });
+  for (const message of [
+    { type: 'colab.render.focus-thread', renderId, requestId: barrier, id: 'second' },
+    { type: 'colab.render.focus-thread', renderId: 'other', requestId: request, id: 'second' },
+    { type: 'colab.render.focus-thread', renderId, requestId: request, id: 'second', extra: true },
+    { type: 'colab.render.focus-thread', renderId, requestId: request, id: 'unknown' },
+    { type: 'colab.render.focus-thread', renderId, requestId: request, id: null },
+    { type: 'colab.render.focus-thread', renderId, requestId: request, id: 2 },
+  ])
+    await sendToFrame(page, id, message);
+  await requestHighlight(page, id, renderId, barrier, anchors);
+  expect(await page.evaluate(() => Reflect.get(window, '__scriptOpens'))).toEqual([]);
+  expect(
+    await frame.locator('html').evaluate(() => Reflect.get(window, '__focusMessages')),
+  ).toEqual([]);
+  expect(await frame.locator('html').evaluate(() => Reflect.get(window, '__focusThreads'))).toEqual(
+    ['first', 'second', 'second'],
+  );
+  await expect(frame.locator('[data-colab-thread="second"]')).toBeFocused();
+  await page.evaluate(() => {
+    document.body.tabIndex = -1;
+    document.body.focus();
+  });
+  await requestHighlight(page, id, renderId, '00000000-0000-4000-8000-0000000000a3', anchors);
+  await expect(page.locator('body')).toBeFocused();
+});
+
 test('a selection paints one passage in the selected look, and anything that is not a selection of the current request is refused', async ({
   page,
 }) => {

@@ -21,7 +21,7 @@ export interface PageFilter {
   /** Only the pages with an item waiting on the viewer (the owner's `waiting`, `needsYou > 0`). */
   needsYou?: boolean;
   /** Manual page state, independent of task-derived stage. */
-  state?: PageState;
+  state?: PageState | readonly PageState[];
 }
 export interface ProjectChange {
   pageId: string;
@@ -114,7 +114,10 @@ export function filterPages(
 ): PageSummary[] {
   const words = filter.text.toLocaleLowerCase().split(/\s+/).filter(Boolean);
   const kept = pages.filter((page) => {
-    if (filter.state && page.state !== filter.state) return false;
+    if (filter.state) {
+      const states = Array.isArray(filter.state) ? filter.state : [filter.state];
+      if (!page.state || !states.includes(page.state)) return false;
+    }
     if (filter.needsYou && !page.summary?.waiting) return false;
     if (filter.stage && pageStage(page) !== filter.stage) return false;
     const projects = page.projects ?? [];

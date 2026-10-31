@@ -1651,7 +1651,8 @@ for (const width of [1440, 390])
         const heading = page.frameLocator('iframe').getByRole('heading', { name: 'Live fixture' });
         await expect(heading).toBeVisible();
         async function openChat() {
-          if (await page.locator('.tmt-ui-drawer[data-panel=chat][open]').isVisible()) return;
+          if (await page.locator('.tmt-ui-panel[data-panel=chat]:not([hidden])').isVisible())
+            return;
           const toggle = await pageAction(page, 'Chat');
           await toggle.click();
         }
@@ -1999,7 +2000,9 @@ for (const surface of ['Chat', 'annotation'] as const)
           await focusStatus();
           await status.press('End');
         }
-        await expectUncovered(status.getByRole('button', { name: copy.reload, exact: true }));
+        const reload = status.getByRole('button', { name: copy.reload, exact: true });
+        if (surface === 'Chat') await reload.scrollIntoViewIfNeeded();
+        await expectUncovered(reload);
       }).toPass({ timeout: 10_000 });
       if (name) await shot(surface === 'annotation' ? `${name}-end` : name);
     };
@@ -2087,7 +2090,7 @@ test('an upgraded server shows the update row in the shell bar without covering 
     expect(mainBox.y).toBeGreaterThanOrEqual(rowBox.y + rowBox.height - 1);
     // Chat open: the composer's actions stay reachable, not under the row.
     const toggle = await pageAction(page, 'Chat');
-    if (!(await page.locator('.tmt-ui-drawer[data-panel=chat][open]').isVisible())) {
+    if (!(await page.locator('.tmt-ui-panel[data-panel=chat]:not([hidden])').isVisible())) {
       await toggle.click();
     }
     const panel = page.getByTestId('chat-panel');

@@ -1,7 +1,7 @@
 import { ConversationPresentation } from '../src/components/conversation-presentation.js';
 /** Component-only send/keyboard double; durable writer and Remote proof lives in acceptance. */
 import { createRoot, type Root } from 'react-dom/client';
-import { ThreadPanel, ThreadWindow } from '../src/thread-panel.js';
+import { ThreadWindow } from '../src/thread-panel.js';
 import { ChatPanel } from '../src/chat-panel.js';
 import { MessageComposer } from '../src/components/message-composer.js';
 import type { ThreadView } from '../src/thread-records.js';
@@ -582,22 +582,6 @@ export function mountWindow(mode = 'ready') {
   function WindowFixture() {
     const [current, setCurrent] = useState(thread);
     const [edit, setEdit] = useState({ value: 'Unsent draft' });
-    if (mode === 'capture-compose')
-      return (
-        <ThreadPanel
-          threads={[]}
-          resolved={[]}
-          anchorsChecked
-          selection={null}
-          binding={binding}
-          asks={[]}
-          title="Annotated page"
-          blocked={false}
-          active={null}
-          select={() => {}}
-          close={() => {}}
-        />
-      );
     return (
       <ThreadWindow
         thread={current}

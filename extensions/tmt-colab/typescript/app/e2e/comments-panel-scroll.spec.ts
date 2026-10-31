@@ -203,8 +203,8 @@ test('the on-screen keyboard shrinks the Comments message area and the reply fie
   const line = await lineHeight(field);
   expect(Math.abs(resting - bar!.height - (44 - (line + 14)))).toBeLessThanOrEqual(1);
   // The composer is fully on screen and messages keep room above it.
-  expect(box!.height - bar!.height).toBeGreaterThan(100);
-  // The last message stays reachable above the composer. The sheet is 75dvh high, so at the end of
+  expect(box!.height - bar!.height).toBeGreaterThan(line * 2);
+  // The last message stays reachable above the composer. The window is bounded above the dock, so at the end of
   // the scroll (the composer resting above the Resolve footer) it can leave less room than the
   // message is tall: the message then fills that room and ends on the composer.
   await scroller.evaluate((node) => {

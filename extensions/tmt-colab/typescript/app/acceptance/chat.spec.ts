@@ -5,6 +5,7 @@ import path from 'node:path';
 import { expect, test } from '@playwright/test';
 import { pairBrowser, restartColab, startDoor } from './harness/browser.js';
 import {
+  annotationInput,
   composeChat,
   composerTrace,
   composerAssets,
@@ -116,7 +117,7 @@ test('page-visible device Chat threads send exact bytes once, preserve drafts, k
     await expect(input).toHaveText(`@${agent.name} `, { useInnerText: true });
     await expect(panel.locator('.annotation-compose details')).toHaveCount(0);
     await expect(
-      first.locator('.tmt-ui-drawer[data-panel=chat][open] .tmt-ui-drawer-caption'),
+      first.locator('.tmt-ui-panel[data-panel=chat]:not([hidden]) .tmt-ui-drawer-caption'),
     ).toHaveText('○ Everyone with access');
     await expect(panel.getByRole('button', { name: 'Delete thread', exact: true })).toHaveCount(0);
     expect(await first.locator('iframe').boundingBox()).toEqual(before);
@@ -225,10 +226,10 @@ test('page-visible device Chat threads send exact bytes once, preserve drafts, k
     await expect
       .poll(() =>
         first
-          .locator('.tmt-ui-drawer[data-panel=chat][open]')
+          .locator('.tmt-ui-panel[data-panel=chat]:not([hidden])')
           .evaluate((node) => node.matches(':modal')),
       )
-      .toBe(true);
+      .toBe(false);
     await expect(input).toBeFocused();
     expect(await input.evaluate((node, retained) => node === retained, retainedComposer)).toBe(
       true,
@@ -269,21 +270,25 @@ test('page-visible device Chat threads send exact bytes once, preserve drafts, k
     await (await pageAction(first, 'Comments')).click();
     await expect(first.getByTestId('annotation-row')).toHaveCount(0);
     await expect(first.getByRole('button', { name: 'Delete thread', exact: true })).toHaveCount(0);
-    await first.getByRole('button', { name: '+ Comment on page', exact: true }).click();
-    await first
-      .getByRole('combobox', { name: 'Post comment', exact: true })
-      .fill('Ordinary page comment');
-    await first.getByRole('button', { name: 'Post comment', exact: true }).click();
-    await expect(first.getByTestId('comment-thread')).toContainText('Ordinary page comment');
-    await expect(first.locator('.discussion-position')).toHaveText('1 / 1');
+    await openChat(first);
+    const pageComment = await annotationInput(first.getByTestId('chat-panel'));
+    await pageComment.fill('Ordinary page comment');
+    await pageComment.press('Enter');
+    await expect(first.getByTestId('chat-panel')).toContainText('Ordinary page comment');
+    // The immediate echo is pending; reload only after the owner record has landed.
+    await expect(
+      first.getByTestId('comment-entry').filter({ hasText: 'Ordinary page comment' }),
+    ).toBeVisible();
     await first.reload();
     await openChat(first);
     await expect(first.getByTestId('chat-thread')).toHaveCount(2);
+    await expect(first.getByTestId('chat-panel')).toContainText('Ordinary page comment');
     await expect(askEntry(first, sent.operationId).getByTestId('ask-reply')).toHaveText(reply);
     await restartColab(world, door);
     await first.reload();
     await openChat(first);
     await expect(first.getByTestId('chat-thread')).toHaveCount(2);
+    await expect(first.getByTestId('chat-panel')).toContainText('Ordinary page comment');
     await expect(askEntry(first, sent.operationId).getByTestId('ask-reply')).toHaveText(reply);
     expect(agent.received()).toHaveLength(3);
     expect(world.coreCalls().filter((call) => call.operation === 'dispatch.create')).toHaveLength(
