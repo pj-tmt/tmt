@@ -268,9 +268,9 @@
   display: grid;
   gap: 12px;
 }
-.work-attach-fields select {
-  width: 100%;
-  font: inherit;
+.work-attach-fields [data-slot='command-list'] {
+  max-height: 40dvh;
+  overflow-y: auto;
 }
 
 /* The summary stays visible while the expanded details scroll beneath it. */

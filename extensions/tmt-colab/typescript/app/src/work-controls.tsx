@@ -1,16 +1,27 @@
 import { Plus } from 'lucide-react';
 import { BrowserAction, BrowserDialog, BrowserField, BrowserMenu } from '@tmt/browser-ui/react';
 import {
+  Command,
+  CommandEmpty,
+  CommandInput,
+  CommandItem,
+  CommandList,
+  UiTheme,
+} from '@tmt/browser-ui/ui';
+import '@tmt/browser-ui/ui.css';
+import {
   useCallback,
   useEffect,
   useId,
   useRef,
   useState,
+  useSyncExternalStore,
   type FormEvent,
   type ReactNode,
 } from 'react';
 import { SaveNotApplied, SaveRefused, saveMessage, type WorkAction } from './save.js';
 import { text } from './strings.js';
+import { getTheme, subscribeTheme } from './theme.js';
 import type { PageBinding, PageSummary, WorkOutcome } from './transport.js';
 import { TASK_STATES, keptByEdit, type Task, type TaskState } from './work.js';
 import { waitsForSignoff } from './work-people.js';
@@ -514,11 +525,10 @@ export function AttachSubpage({
   work: import('./work.js').Work;
   run: WorkRun;
 }) {
-  const fieldId = useId();
   const [open, setOpen] = useState(false);
   const [selectedPage, setSelectedPage] = useState('');
-  const [selectedTask, setSelectedTask] = useState('new');
-  const [title, setTitle] = useState('');
+  const [query, setQuery] = useState('');
+  const theme = useSyncExternalStore(subscribeTheme, getTheme);
   const [retained, setRetained] = useState<{ task: string; page: string }>();
   const [failure, setFailure] = useState<string>();
   const [unsettled, setUnsettled] = useState(false);
@@ -547,24 +557,20 @@ export function AttachSubpage({
     setUnsettled(false);
     setRetained(undefined);
     setSelectedPage('');
-    setSelectedTask('new');
-    setTitle('');
+    setQuery('');
     setFailure(undefined);
     setOpen(false);
   }, [retained, selectedPage, work]);
-  const eligible = work.order.filter((id) => {
-    const task = work.tasks[id];
-    return task && task.child === undefined && task.externalId === undefined;
-  });
-  const commit = async () => {
-    if (run.busy || attaching.current || unsettled || !selectedPage) return;
+  const commit = async (target: string) => {
+    if (run.busy || attaching.current || unsettled || !target) return;
+    const selected = candidates.find((page) => page.id === target);
+    if (!selected && !retained) return;
     attaching.current = true;
     try {
       setFailure(undefined);
-      let task = retained?.task ?? (selectedTask === 'new' ? undefined : selectedTask);
+      let task = retained?.task;
       if (!task) {
-        if (!title.trim()) return;
-        const added = await run.runResult('task.add', { task: { title: title.trim() } }, false);
+        const added = await run.runResult('task.add', { task: { title: selected!.title } }, false);
         if (!mounted.current) return;
         if (!added.value?.taskId) {
           const unknown = !(
@@ -581,23 +587,18 @@ export function AttachSubpage({
           return;
         }
         task = added.value.taskId;
-        setRetained({ task, page: selectedPage });
+        setRetained({ task, page: target });
       }
-      const linked = await run.runResult(
-        'task.link',
-        { taskId: task, pageId: selectedPage },
-        false,
-      );
+      const linked = await run.runResult('task.link', { taskId: task, pageId: target }, false);
       if (!mounted.current) return;
       if (linked.value) {
         setRetained(undefined);
         setSelectedPage('');
-        setSelectedTask('new');
-        setTitle('');
+        setQuery('');
         setOpen(false);
         return;
       }
-      setRetained({ task, page: selectedPage });
+      setRetained({ task, page: target });
       const unknown = !(
         linked.error instanceof SaveRefused || linked.error instanceof SaveNotApplied
       );
@@ -641,75 +642,91 @@ export function AttachSubpage({
               disabled={run.busy}
               onActivate={() => setOpen(false)}
             />
-            <BrowserAction
-              type="button"
-              variant="primary"
-              label={retained ? label.retryLink : label.attach}
-              disabled={
-                run.busy ||
-                unsettled ||
-                !selectedPage ||
-                (!retained && selectedTask === 'new' && !title.trim())
-              }
-              onActivate={() => void commit()}
-            />
+            {retained && (
+              <BrowserAction
+                type="button"
+                variant="primary"
+                label={label.retryLink}
+                disabled={run.busy || unsettled || !selectedPage}
+                onActivate={() => void commit(selectedPage)}
+              />
+            )}
           </>
         }
       >
         <div className="work-attach-fields">
-          <BrowserField
-            controlId={`${fieldId}-page`}
-            label={label.attachPage}
-            renderControl={(field) => (
-              <select
-                {...field}
-                value={selectedPage}
+          <UiTheme theme={theme}>
+            <Command
+              label={label.attachPage}
+              shouldFilter={false}
+              onKeyDownCapture={(event) => {
+                if (
+                  event.key !== 'Enter' ||
+                  !event.nativeEvent.isTrusted ||
+                  event.nativeEvent.isComposing ||
+                  event.altKey ||
+                  event.ctrlKey ||
+                  event.metaKey ||
+                  event.shiftKey ||
+                  run.busy ||
+                  unsettled
+                )
+                  return;
+                const option = event.currentTarget.querySelector<HTMLElement>(
+                  '[cmdk-item][data-selected="true"]',
+                );
+                const selected = candidates.find((page) => page.id === option?.dataset.pageId);
+                if (!selected) return;
+                event.preventDefault();
+                event.stopPropagation();
+                setSelectedPage(selected.id);
+                setQuery(selected.title);
+                void commit(selected.id);
+              }}
+            >
+              <CommandInput
+                aria-label={label.attachPage}
+                placeholder={text.quickSwitcher.title}
+                value={query}
+                onValueChange={setQuery}
                 disabled={run.busy || unsettled}
-                onChange={(event) => {
-                  setSelectedPage(event.target.value);
-                  setFailure(undefined);
-                }}
-              >
-                <option value="">{label.choosePage}</option>
-                {candidates.map((page) => (
-                  <option key={page.id} value={page.id}>
-                    {page.title}
-                  </option>
-                ))}
-              </select>
-            )}
-          />
-          {!pages && <p>{label.pageListUnavailable}</p>}
-          {!retained && (
-            <BrowserField
-              controlId={`${fieldId}-task`}
-              label={label.attachTask}
-              renderControl={(field) => (
-                <select
-                  {...field}
-                  value={selectedTask}
-                  disabled={run.busy || unsettled}
-                  onChange={(event) => setSelectedTask(event.target.value)}
-                >
-                  <option value="new">{label.createTask}</option>
-                  {eligible.map((id) => (
-                    <option key={id} value={id}>
-                      {id} · {work.tasks[id].title}
-                    </option>
+                aria-busy={run.busy || undefined}
+              />
+              <CommandList aria-label={text.quickSwitcher.results}>
+                <CommandEmpty>{text.quickSwitcher.noMatch}</CommandEmpty>
+                {candidates
+                  .filter((page) =>
+                    page.title.toLocaleLowerCase().includes(query.toLocaleLowerCase()),
+                  )
+                  .map((page) => (
+                    <CommandItem
+                      key={page.id}
+                      value={page.id}
+                      data-page-id={page.id}
+                      disabled={run.busy || unsettled}
+                      onClickCapture={(event) => {
+                        if (
+                          !event.nativeEvent.isTrusted ||
+                          event.button !== 0 ||
+                          event.altKey ||
+                          event.ctrlKey ||
+                          event.metaKey ||
+                          run.busy ||
+                          unsettled
+                        )
+                          return;
+                        setSelectedPage(page.id);
+                        setQuery(page.title);
+                        void commit(page.id);
+                      }}
+                    >
+                      {page.title}
+                    </CommandItem>
                   ))}
-                </select>
-              )}
-            />
-          )}
-          {!retained && selectedTask === 'new' && (
-            <TextField
-              label={label.attachTitle}
-              maxLength={120}
-              value={title}
-              onChange={setTitle}
-              disabled={run.busy || unsettled}
-            />
-          )}
+              </CommandList>
+            </Command>
+          </UiTheme>
+          {!pages && <p>{label.pageListUnavailable}</p>}
           {retained && <p>{label.keptTask(retained.task)}</p>}
           {failure && <p role="alert">{failure}</p>}
         </div>

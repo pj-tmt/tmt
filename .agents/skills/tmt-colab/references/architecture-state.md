@@ -1168,8 +1168,8 @@ unlinked tasks, or one directly selectable task list when there are no sub-pages
 deep links, including a linked task's direct detail. A known parent remains a link to its task
 inside the expanded panel; unknown parents trigger no parent-page read. Owner pages with work
 capability offer Attach unless the observed list identifies the page as a child; unknown parentage
-is admitted or refused by the owner. The picker reuses the observed list, sends `task.add` followed
-by `task.link` for a new task (or links an existing unlinked task), and keeps the task and refusal
+is admitted or refused by the owner. The searchable picker reuses the observed list; choosing a page
+sends `task.add` with the page title followed by `task.link`, and keeps the task and refusal
 for a same-task retry. An unsettled result is not resent automatically: the user checks the task
 list before reopening the control; an admitted matching link closes it as success.
 

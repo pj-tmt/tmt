@@ -143,16 +143,16 @@ test('attach keeps a new task after owner refusal and links that same task on re
     await band.getByRole('button', { name: 'Attach a sub-page' }).click();
     const dialog = page.locator('dialog.tmt-ui-dialog[data-state="open"]');
     const choices = dialog.getByRole('combobox', { name: 'Page', exact: true });
-    await expect(choices.locator('option', { hasText: 'Existing child' })).toHaveCount(1);
-    await choices.selectOption({ label: 'Existing child' });
+    await choices.fill('Existing child');
+    const candidate = page.getByRole('option', { name: 'Existing child', exact: true });
+    await expect(candidate).toBeVisible();
     // Another owner can attach the selected page after the eligibility list was read.
     colab(['task', 'link', other.pageId, 'T-1', child.pageId]);
-    await dialog.getByLabel('Task title').fill('Follow existing child');
-    await dialog.getByRole('button', { name: 'Attach', exact: true }).click();
+    await candidate.click();
     await expect(dialog.getByRole('alert')).toBeVisible();
     await expect(dialog).toContainText('Task T-1 is kept');
     let tasks = colab(['task', 'ls', parent.pageId]).work.tasks;
-    expect(tasks['T-1'].title).toBe('Follow existing child');
+    expect(tasks['T-1'].title).toBe('Existing child');
     expect(tasks['T-1'].child).toBeUndefined();
     colab(['task', 'unlink', other.pageId, 'T-1']);
     await dialog.getByRole('button', { name: 'Retry link' }).click();

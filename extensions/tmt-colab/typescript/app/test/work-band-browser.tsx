@@ -86,7 +86,12 @@ const cases: Record<string, WorkBandProps> = {
     progress: { done: 3, inProgress: 1, todo: 1, unknown: 0, total: 5 },
     subpages: [
       { id: CHILD, title: 'Data and commands', state: 'done' },
-      { id: '20000000-0000-4000-8000-000000000003', title: 'Status panel', state: 'in-progress' },
+      {
+        id: '20000000-0000-4000-8000-000000000003',
+        title: 'Status panel',
+        state: 'in-progress',
+        creator: 'feat-1',
+      },
       { id: '20000000-0000-4000-8000-000000000004', title: 'Sidebar shortcuts', state: 'todo' },
     ],
   },

@@ -135,7 +135,11 @@ export function mountWorkPage(
             current = applyWorkAction(
               current,
               'task.link',
-              { taskId: 'T-2', pageId: FOLLOWED },
+              window.__workPage!.calls.filter((call) => call.action === 'task.link').at(-1)!
+                .body as {
+                taskId: string;
+                pageId: string;
+              },
               attribution,
             );
           publish(projection());
