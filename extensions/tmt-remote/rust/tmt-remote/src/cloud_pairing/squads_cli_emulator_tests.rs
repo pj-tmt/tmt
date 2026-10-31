@@ -190,6 +190,10 @@ fn native_cli_squad_change_heartbeat_restart_revoke_and_budget() {
     std::fs::remove_file(core.root.join("lost")).unwrap();
     owner.reconcile().unwrap();
     assert_eq!(core.sends(), 1);
+    // An adopted Core request is not delivery evidence. Without messageState the
+    // fixture correctly projects unknown (covered by the non-emulator regression).
+    // Supply authoritative Core evidence, rather than accepting a wider state set.
+    core.message_state(&json!({"state":"sent","reason":{"code":"fixture","text":"PRIVATE-REASON"},"latestMs":null,"remainingMs":null,"canSendNow":false}));
     let delivery = cli(
         &core,
         &sender,
@@ -197,10 +201,8 @@ fn native_cli_squad_change_heartbeat_restart_revoke_and_budget() {
         b"",
     );
     assert_eq!(delivery["operationId"], operation);
-    assert!(matches!(
-        delivery["state"].as_str(),
-        Some("queued" | "delivered" | "answered")
-    ));
+    assert_eq!(delivery["state"], "queued");
+    assert!(!delivery.to_string().contains("PRIVATE"));
     assert_eq!(core.sends(), 1, "observation cannot resend");
     let receipt: Value = serde_json::from_slice(
         &std::fs::read(core.root.join(format!("receipt-{operation}"))).unwrap(),
