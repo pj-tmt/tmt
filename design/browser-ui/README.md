@@ -49,8 +49,12 @@ is excluded from formatting; authored CSS remains formatted. Source-level policy
 the assembled source, byte checks inspect the distribution, and browser comparisons verify
 that compilation preserves computed paint and layout. The check compares expected bytes without writing. `test/byte-budget.test.ts` holds the gzip
 size (level 9) of `generated/static.css` plus `generated/ui.css` to the approved figure in that
-test, and `generated/editorial.css` to its own; the test's comment records each approval and its
-Linux CI measurement, with no headroom or change to the UI foundation budget.
+test, and `generated/editorial.css` to its own. The current shared cap is 22,826 bytes
+(22,657 + 169 for the shared rail, attention dot and metric roles), measured by
+[Linux CI](https://github.com/tmt-ninja/tmt/actions/runs/41221551102/job/124597067029).
+The test comment records the current owner-approved measurement without headroom;
+the editorial cap and UI foundation budget are unchanged. Overlapping changes rebase
+and re-measure rather than adding allowances.
 Class encapsulation is retained, and further increases return to the lead. Each pull request
 that changes these stylesheets reports their raw sizes. Consumers embed checked CSS;
 Cargo and installed products never run the generator. Select light/system-dark
