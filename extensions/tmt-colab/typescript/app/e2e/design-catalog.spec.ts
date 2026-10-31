@@ -56,11 +56,13 @@ for (const width of [1440, 390])
         );
         await page.goto('/');
         await page.evaluate(
-          async ({ fixture, theme }) => {
+          async ({ fixture, theme, surface }) => {
             document.documentElement.dataset.theme = theme;
-            await (await import(fixture)).mount();
+            await (
+              await import(fixture)
+            ).mount({ layout: surface === 'document' ? 'column' : undefined });
           },
-          { fixture, theme },
+          { fixture, theme, surface },
         );
         if (surface === 'document') {
           await page.evaluate(async (fixture) => {
@@ -69,9 +71,13 @@ for (const width of [1440, 390])
             await (await import(fixture)).change(designDocument, 'Shortcut dialog — proposal');
           }, fixture);
           const frame = page.frameLocator('#ask-page-fixture iframe');
-          await expect(
-            frame.getByRole('heading', { name: 'Shortcut dialog — proposal' }),
-          ).toBeVisible();
+          await expect(frame.locator('html')).toHaveAttribute('data-colab-layout', 'column');
+          const heading = frame.getByRole('heading', { name: 'Shortcut dialog — proposal' });
+          await expect(heading).toBeVisible();
+          const outer = await page.locator('#ask-page-fixture iframe').boundingBox();
+          const content = await heading.boundingBox();
+          expect(content!.x - outer!.x).toBeGreaterThanOrEqual(16);
+          expect(content!.y - outer!.y).toBeGreaterThanOrEqual(16);
           await expect(frame.getByRole('tablist', { name: 'Category' })).toBeVisible();
           await info.attach(`design-proposal-${width}-${theme}-closed`, {
             body: await page.screenshot(),

@@ -5,11 +5,13 @@ export const designDocument = `<style>
   h2, h3 { margin: 0 0 8px; font-weight: 660; line-height: 1.2; }
   h2 { font-size: 22px; }
   p { margin: 0 0 16px; }
+  .proposal-paper { padding-block: var(--tmt-ui-space-l); max-width: 760px; margin-inline: auto; display: flex; flex-direction: column; gap: 16px; }
   .proposal-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; padding: 16px; border: 1px dashed var(--tmt-ui-surface-rule); border-radius: var(--tmt-ui-radius); }
   .proposal-controls > tmt-ui-tabs { flex: 1 1 100%; }
   .proposal-note { color: var(--tmt-ui-color-secondary); font-size: 12px; }
 }
 </style>
+<section><div class="proposal-paper">
 <section><h2>Shortcut dialog — proposal</h2><p>The list keeps its header. On phones, sorting stays beside the category filters.</p></section>
 <section class="proposal-controls">
   <tmt-ui-menu label="Sort" value="recent"><span slot="item" data-value="recent">Recently updated</span><span slot="item" data-value="title">Title</span></tmt-ui-menu>
@@ -25,4 +27,5 @@ export const designDocument = `<style>
     <p slot="actions">Press Escape to close. Reopening keeps your draft; this proposal does not save changes.</p>
   </tmt-ui-dialog>
 </section>
-<section><p class="proposal-note">Try the prototype without changing your saved shortcuts.</p></section>`;
+<section><p class="proposal-note">Try the prototype without changing your saved shortcuts.</p></section>
+</div></section>`;
