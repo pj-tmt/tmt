@@ -7,7 +7,6 @@ fn open(title: &str, keys: &[(&str, &str)]) -> App {
     let mut app =
         board(json!([{"title": null, "rows": [row("auth-fix", "blocked", "rotate", json!({}))]}]));
     app.menu = Some(Menu {
-        row_send: None,
         link: None,
         prefill: String::new(),
         title: title.into(),

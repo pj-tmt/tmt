@@ -115,7 +115,7 @@ impl Picker {
             self.notice = None;
         }
         let previous = (self.scope.clone(), self.selected());
-        if matches!(event, Event::Key(key) if key.code == KeyCode::Tab) {
+        if matches!(event, Event::Key(key) if matches!(key.code, KeyCode::Left | KeyCode::Right)) {
             if let Some(name) = &self.squad {
                 self.scope = match self.scope {
                     ThemeScope::Board => ThemeScope::Squad(name.clone()),
@@ -168,9 +168,9 @@ pub(super) fn render(frame: &mut Frame, picker: &Picker, look: Look, body: Rect)
     }
     let query = if picker.squad.is_some() {
         if picker.scope == ThemeScope::Board {
-            "all boards · Tab: this squad"
+            "all boards · ←→ this squad"
         } else {
-            "this squad · Tab: all boards"
+            "this squad · ←→ all boards"
         }
     } else {
         "all boards"
@@ -185,7 +185,7 @@ pub(super) fn render(frame: &mut Frame, picker: &Picker, look: Look, body: Rect)
     let value = json!({
         "rows": Base::ALL.into_iter().map(|base| json!({"id":base.name(), "disabled":false,"name":base.name(),"cursor":if selected.as_deref() == Some(base.name()) {"›"} else {""},"description":base.description()})).collect::<Vec<_>>(),
         "query":query, "notes":notes, "status":picker.notice.as_deref().unwrap_or(""),
-        "footer":"Enter save · Esc cancel · Tab scope",
+        "footer":"Enter save · Esc cancel · ←→ scope",
     });
     picker.surface.borrow_mut().render(
         FILE,
@@ -321,11 +321,17 @@ mod tests {
         app.key(key(KeyCode::Tab));
         assert_eq!(
             app.theme_picker.as_ref().unwrap().scope,
+            ThemeScope::Board,
+            "Tab does nothing in the dialog"
+        );
+        app.key(key(KeyCode::Right));
+        assert_eq!(
+            app.theme_picker.as_ref().unwrap().scope,
             ThemeScope::Squad("product".into())
         );
         app.key(key(KeyCode::Up));
         assert_eq!(app.look().theme.base, Base::Terminal);
-        app.key(key(KeyCode::Tab));
+        app.key(key(KeyCode::Left));
         assert_eq!(
             app.look().theme.base,
             Base::Mono,
@@ -557,7 +563,7 @@ mod tests {
                 "all boards",
                 "this squad",
                 "Board only; CLI colors stay unchanged",
-                "Enter save · Esc cancel · Tab scope",
+                "Enter save · Esc cancel · ←→ scope",
                 "squad product keeps mono (its own setting)",
             ] {
                 assert!(content.contains(text), "missing {text}");

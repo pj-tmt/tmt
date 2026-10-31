@@ -209,7 +209,6 @@ impl App {
             choice: Choice::DigestCustom(Box::new(granted)),
         });
         self.menu = Some(Menu {
-            row_send: None,
             link: None,
             prefill: String::new(),
             title,

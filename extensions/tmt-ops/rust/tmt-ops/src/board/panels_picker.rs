@@ -119,9 +119,9 @@ fn rows<P: Panel>(policy: &Panels<P>) -> Vec<(String, String, String)> {
     for (id, name) in [
         ("up", "Move selected panel up"),
         ("down", "Move selected panel down"),
+        ("cancel", "Cancel"),
         ("reset", "Reset to default"),
         ("save", "Save"),
-        ("cancel", "Cancel"),
     ] {
         if !matches!(id, "up" | "down") {
             rows.push((id.into(), String::new(), name.into()));

@@ -138,7 +138,6 @@ impl App {
             return self.say("Not enough room beside this link; resize to open its actions.");
         }
         self.menu = Some(Menu {
-            row_send: None,
             link: None,
             prefill: String::new(),
             title: "Link".into(),
@@ -199,7 +198,6 @@ impl App {
             return self.say("Not enough room beside this file; resize to open its actions.");
         }
         self.menu = Some(Menu {
-            row_send: None,
             link: None,
             prefill: String::new(),
             title: "File".into(),
@@ -287,7 +285,6 @@ impl App {
             return self.say("Not enough room beside this link; copy it instead.");
         }
         self.menu = Some(Menu {
-            row_send: None,
             link: None,
             prefill: String::new(),
             title: title.into(),

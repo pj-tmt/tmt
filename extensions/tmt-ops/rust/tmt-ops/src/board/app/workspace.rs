@@ -241,7 +241,6 @@ impl App {
             })
             .collect();
         self.menu = Some(Menu {
-            row_send: None,
             link: None,
             prefill: String::new(),
             title: "Digest window".into(),
@@ -1575,7 +1574,6 @@ impl App {
                     });
                 }
                 self.menu = Some(Menu {
-                    row_send: None,
                     link: None,
                     prefill: String::new(),
                     title,
@@ -1687,7 +1685,6 @@ impl App {
             });
         }
         self.menu = Some(Menu {
-            row_send: None,
             link: None,
             prefill: String::new(),
             title: "Workspace settings · minimum usable size governs placement".into(),

@@ -305,22 +305,44 @@ mod controls {
     #[test]
     fn delete_asks_first_and_the_default_keeps_the_job() {
         let (mut app, key) = focused();
-        assert_eq!(press(&mut app, KeyCode::Char('d')), Effect::None);
-        let confirm = app.confirm.as_ref().expect("a confirmation");
-        assert!(confirm.title().contains("delete product c0"));
-        assert_eq!(
-            press(&mut app, KeyCode::Enter),
-            Effect::None,
-            "Enter on the starting Cancel keeps the job"
-        );
-        assert!(app.confirm.is_none());
-        open_timers(&mut app);
+        let row = app.cron_list.as_ref().unwrap().selected();
+        assert!(row.is_some());
+        for cancel in [KeyCode::Enter, KeyCode::Esc] {
+            assert_eq!(press(&mut app, KeyCode::Char('d')), Effect::None);
+            let confirm = app.confirm.as_ref().expect("a confirmation");
+            assert!(confirm.title().contains("delete product c0"));
+            assert!(
+                app.cron_list.is_some(),
+                "the confirm is a layer over the list"
+            );
+            assert_eq!(
+                press(&mut app, cancel),
+                Effect::None,
+                "Esc, or Enter on the starting Cancel, keeps the job"
+            );
+            assert!(app.confirm.is_none());
+            assert_eq!(
+                app.cron_list.as_ref().map(|list| list.selected()),
+                Some(row.clone()),
+                "{cancel:?} returns to the list on the same row"
+            );
+        }
         press(&mut app, KeyCode::Char('d'));
+        assert_eq!(
+            press(&mut app, KeyCode::Char('y')),
+            Effect::None,
+            "an unpainted Delete never deletes"
+        );
+        assert!(app.confirm.is_some());
         // `y` chooses the painted Delete button, like a click.
         crate::board::view::tests::draw(&app, 120, 40);
         assert_eq!(
             press(&mut app, KeyCode::Char('y')),
             existing(&key, Op::Remove)
+        );
+        assert!(
+            app.confirm.is_none() && app.cron_list.is_some(),
+            "the list stays to show the result"
         );
     }
 
@@ -522,6 +544,11 @@ mod controls {
             existing(&key, Op::Pause)
         );
         assert!(app.cron_list.is_some());
+        // The delete confirm opens over the list.
+        press(&mut app, KeyCode::Char('d'));
+        assert!(app.confirm.is_some() && app.cron_list.is_some());
+        press(&mut app, KeyCode::Esc);
+        assert!(app.confirm.is_none() && app.cron_list.is_some());
         // A form needs the input line, so it closes the list.
         press(&mut app, KeyCode::Char('E'));
         assert!(app.cron_list.is_none() && app.input.is_some());

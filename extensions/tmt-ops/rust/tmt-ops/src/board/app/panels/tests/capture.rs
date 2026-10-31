@@ -46,11 +46,9 @@ fn capture_panel_policy_packet() {
                             } else if scene == "reset" {
                                 app.panels_event(&key(KeyCode::End));
                                 app.panels_event(&key(KeyCode::Up));
-                                app.panels_event(&key(KeyCode::Up));
                                 app.panels_event(&key(KeyCode::Enter));
                             } else if matches!(scene, "saving" | "failed") {
                                 app.panels_event(&key(KeyCode::End));
-                                app.panels_event(&key(KeyCode::Up));
                                 assert!(matches!(
                                     app.panels_event(&key(KeyCode::Enter)),
                                     Some(Effect::Act(_))

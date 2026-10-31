@@ -99,9 +99,9 @@ fn overview_picker_only_exposes_live_fixed_sections_and_keeps_durable_policy() {
             "monitor",
             "side",
             "actions-divider",
+            "cancel",
             "reset",
-            "save",
-            "cancel"
+            "save"
         ]
     );
     for key in ["usage", "subscriptions", "monitor"] {
@@ -165,7 +165,7 @@ fn picker_has_one_title_and_one_noninteractive_divider_between_toggles_and_actio
                         .find(|row| row.id == "side")
                         .unwrap()
                         .visible;
-                    let first_action = "reset";
+                    let first_action = "cancel";
                     let action = list
                         .geometry
                         .iter()
@@ -212,7 +212,8 @@ fn picker_has_one_title_and_one_noninteractive_divider_between_toggles_and_actio
                 picker.input(&key(KeyCode::Down));
                 assert_eq!(
                     picker.surface.borrow().picker.list.selected(),
-                    Some("reset")
+                    Some("cancel"),
+                    "Cancel leads the actions"
                 );
             }
         }
