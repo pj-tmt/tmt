@@ -184,6 +184,9 @@ for (const kind of ['unpainted', 'painted'] as const)
           const target = document.createElement('iframe');
           target.id = 'frame';
           target.setAttribute('sandbox', 'allow-scripts');
+          // As wide as the exported copy's viewport, so the type ramp takes the same width step.
+          target.style.width = `${innerWidth}px`;
+          target.style.border = '0';
           target.src = '/renderer.html';
           await new Promise<void>((resolve) => {
             target.onload = () => resolve();
@@ -214,7 +217,11 @@ for (const kind of ['unpainted', 'painted'] as const)
       const inFrame = await page.frameLocator('#frame').locator('html').evaluate(read);
 
       // The exported file, opened from disk with no network.
-      const context = await browser.newContext({ colorScheme: scheme, offline: true });
+      const context = await browser.newContext({
+        colorScheme: scheme,
+        offline: true,
+        viewport: page.viewportSize(),
+      });
       const exported = await context.newPage();
       const problems: string[] = [];
       const requests: string[] = [];

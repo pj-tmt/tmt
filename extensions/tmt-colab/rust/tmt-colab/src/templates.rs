@@ -292,12 +292,13 @@ pub fn admits(name: &str, source: &str, creator: Option<&str>) -> bool {
     source == source_for_creator(pattern, creator)
 }
 
-/// The look every template starts from: the generated starter of the page-style reference, which
-/// owns the type scale and rhythm on top of the injected design system, without its `body` rule
+/// The look every template starts from: the generated starter of the page-style reference, the glue
+/// on top of the injected design system and its editorial layer (#5794), without its `body` rule
 /// (max-width, margin, padding). That rule frames `canvas` and `freeform` pages; on `column` and
 /// `full` Colab sets the width and the gaps, and a padding above the first block would add one.
 fn base_style() -> String {
-    const FRAME: &str = "    max-width: 1280px;\n    margin: 0 auto;\n    padding: 16px;\n";
+    const FRAME: &str =
+        "  body {\n    max-width: 1280px;\n    margin: 0 auto;\n    padding: 16px;\n  }\n";
     let reference = include_str!("../../../skills/tmt-colab/references/page-style.md");
     let starter = reference
         .split("<!-- BEGIN generated page style -->")

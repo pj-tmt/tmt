@@ -1,6 +1,7 @@
 // Dev-only design gallery; see README "Gallery". Imports the leaf exactly as products do.
 import '../generated/static.css';
 import '../generated/ui.css';
+import '../generated/editorial.css';
 import './gallery.css';
 import './gallery-page.css';
 import favicon from '../generated/favicon.svg?url';

@@ -1100,9 +1100,10 @@ mod tests {
                 "{} has the base look in the starter layer",
                 template.name
             );
+            // Type and rhythm are the frame's editorial layer (#5794); the starter adds its glue.
             assert!(
-                source.contains("var(--tmt-ui-font-body)"),
-                "{} has the base type",
+                source.contains(".muted { color: var(--tmt-ui-color-secondary); }"),
+                "{} has the starter's glue",
                 template.name
             );
             assert!(!source.contains("max-width: 1280px"), "{}", template.name);

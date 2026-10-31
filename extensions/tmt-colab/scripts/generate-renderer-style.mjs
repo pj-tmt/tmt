@@ -46,10 +46,10 @@ const frameStyle = (
   .trim();
 // The design system the frame injects into every page (#5057) and the icons it draws; page-ui.mjs builds
 // both, and the standalone export carries the same bytes.
-const { staticCss, pageUiStyle, iconNodes, pageIcons } = await buildPageUi();
+const { staticCss, editorialCss, pageUiStyle, iconNodes, pageIcons } = await buildPageUi();
 // `page check` reads the same two lists the frame draws from: a `tmt-ui-*` class it does not know and an
 // icon name it does not know are findings, not silent no-ops.
-const classes = [...new Set([...staticCss.matchAll(/\.(tmt-ui-[A-Za-z0-9_-]+)/g)].map((m) => m[1]))].sort();
+const classes = [...new Set([...(staticCss + editorialCss).matchAll(/\.(tmt-ui-[A-Za-z0-9_-]+)/g)].map((m) => m[1]))].sort();
 const names = new URL('../rust/tmt-colab/src/page_check/page_ui.json', import.meta.url);
 const namesText = `${JSON.stringify({ classes, icons: Object.keys(iconNodes).sort() }, null, 1)}\n`;
 const source = await readFile(file, 'utf8');

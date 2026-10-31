@@ -27,6 +27,7 @@ export const sections = [
   ['list', 'List'],
   ['section', 'Section'],
   ['table', 'Table'],
+  ['editorial', 'Editorial'],
   ['disclosure', 'Disclosure'],
   ['visually-hidden', 'Visually hidden'],
   ['command', 'Command'],

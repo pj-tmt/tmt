@@ -54,20 +54,15 @@ it('ships a compact starter that is only glue on the injected design system', ()
   expect(skill).toContain('colour with the `--tmt-ui-*`');
   expect(skill).toContain('CSS keyed only on prefers-color-scheme follows the OS.');
 
-  // The type scale and rhythm come from the design tokens, not from numbers of the starter's own.
+  // Type, rhythm, tables and code come from the injected editorial layer (#5794); the starter's own
+  // spacing comes from the design tokens, not from numbers of its own.
   for (const declaration of [
     `padding: ${metric['notice-heading-gap']};`,
-    `font: ${metric['page-body-size']}/1.5 var(--tmt-ui-font-body);`,
-    `font-weight: ${metric['card-title-weight']};`,
-    `line-height: ${metric['page-title-line-height']};`,
-    `font-size: ${metric['page-title-compact-size']};`,
-    `font-weight: ${metric['page-title-weight']};`,
-    `letter-spacing: ${metric['page-title-compact-tracking']};`,
-    `h3 { font-size: ${metric['card-title-size']}; }`,
-    `border-bottom: ${metric['rule-width']} solid var(--tmt-ui-surface-rule);`,
+    `section { margin: 0 0 ${metric['notice-heading-gap']}; }`,
   ]) {
     expect(style).toContain(declaration);
   }
+  expect(style).not.toMatch(/\bh[1-6]\b|\bpre\b|\btable\b|font/);
 
   // It sits in the starter layer between the frame's and the design system's, owns no palette and
   // reads only roles the injected design system defines.
@@ -79,23 +74,14 @@ it('ships a compact starter that is only glue on the injected design system', ()
   expect(style).not.toMatch(
     /#[0-9a-f]{3,8}\b|:root|@media|prefers-color-scheme|data-theme|url\s*\(|@import|https?:|\/\/|shadow|position\s*:|header|nav|chrome/i,
   );
-  // Only content elements and two text-colour utilities belong in the starter.
+  // Only the page column, section spacing and two text-colour utilities belong in the starter.
   const selectors = [...style.matchAll(/([^{}]+)\{/g)].map((m) => m[1].trim());
   expect(selectors).toEqual([
     '<style>\n@layer tmt-starter',
     '*',
     'body',
-    'h1, h2, h3',
-    'h1',
-    'h2',
-    'h3',
-    'p, ul, ol, pre, table',
     'section',
     'section > :last-child',
-    'ul, ol',
-    'table',
-    'th, td',
-    'pre',
     '.muted',
     '.waiting',
   ]);
@@ -113,7 +99,10 @@ it('fails non-writing checks for stale, missing, duplicate and changed-token reg
     const file = path.join(root, skillFile);
     const skill = read(skillFile);
     for (const invalid of [
-      skill.replace('font: 13px/1.5', 'font: 12px/1.5'),
+      skill.replace(
+        'section > :last-child { margin-bottom: 0; }',
+        'section > :last-child { margin-bottom: 1px; }',
+      ),
       skill.replace(begin, ''),
       skill.replace(end, ''),
       skill + begin,
@@ -125,7 +114,7 @@ it('fails non-writing checks for stale, missing, duplicate and changed-token reg
     }
     writeFileSync(file, skill);
     const tokens = JSON.parse(read(tokenFile));
-    tokens.browser.metric['page-title-compact-size'] = '31px';
+    tokens.browser.metric['notice-heading-gap'] = '18px';
     writeFileSync(path.join(root, tokenFile), JSON.stringify(tokens));
     expect(() => run(script)).toThrow();
     expect(readFileSync(file, 'utf8')).toBe(skill);
@@ -134,7 +123,7 @@ it('fails non-writing checks for stale, missing, duplicate and changed-token reg
     const updated = readFileSync(file, 'utf8');
     expect(updated.split(begin)[0]).toBe(skill.split(begin)[0]);
     expect(updated.split(end)[1]).toBe(skill.split(end)[1]);
-    expect(starterFrom(updated)).toContain('font-size: 31px;');
+    expect(starterFrom(updated)).toContain('padding: 18px;');
     expect(() => run(script, '--repair')).toThrow();
     expect(readFileSync(file, 'utf8')).toBe(updated);
     for (const oversized of ['x'.repeat(12_000) + updated, '\n'.repeat(500) + updated]) {
@@ -143,7 +132,7 @@ it('fails non-writing checks for stale, missing, duplicate and changed-token reg
       expect(readFileSync(file, 'utf8')).toBe(oversized);
     }
     writeFileSync(file, updated);
-    tokens.browser.metric['page-body-size'] += 'x'.repeat(3_000);
+    tokens.browser.metric['notice-heading-gap'] += 'x'.repeat(3_000);
     writeFileSync(path.join(root, tokenFile), JSON.stringify(tokens));
     expect(() => run(script, '--write')).toThrow();
     expect(readFileSync(file, 'utf8')).toBe(updated);

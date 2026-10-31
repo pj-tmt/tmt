@@ -1,3 +1,5 @@
+/* BEGIN editorial table */
+/* Up to the end marker, the editorial layer also ships these rules for a bare `table` in prose. */
 .tmt-ui-table {
   width: 100%;
   border-collapse: collapse;
@@ -34,6 +36,7 @@
 .tmt-ui-table[data-numeric] td {
   font-family: var(--tmt-ui-font-mono);
 }
+/* END editorial table */
 /* In a card the table runs edge to edge: roomy cells, scrolling inside its own region. */
 /* Positioned, so visually hidden text in a header cell is clipped here, not at the page. */
 .tmt-ui-table-scroll {

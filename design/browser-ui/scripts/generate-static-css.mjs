@@ -28,6 +28,20 @@ function motion(prefix, indent, reduced = false) {
     .map(([name, value]) => `${indent}${prefix}-${name}: ${reduced ? '0ms' : value};`)
     .join('\n');
 }
+/** The editorial ramp (#5794): a part naming a metric token reuses it; `compact-` parts apply through
+ * the compact width. */
+const typeValue = (value) =>
+  Object.hasOwn(tokens.browser.metric, value) ? `var(--tmt-ui-${value})` : value;
+const typeRoles = Object.entries(tokens.browser.type).filter(([role]) => !role.startsWith('$'));
+const typeParts = (indent, compact) =>
+  typeRoles.flatMap(([role, parts]) =>
+    Object.entries(parts)
+      .filter(([part]) => part.startsWith('compact-') === compact)
+      .map(
+        ([part, value]) =>
+          `${indent}--tmt-ui-type-${role}-${part.replace(/^compact-/, '')}: ${typeValue(value)};`,
+      ),
+  );
 const fixed = [
   ...Object.entries(tokens.font).map(
     ([name, value]) => `  --tmt-ui-font-${name}: ${value.stack.replaceAll('"', "'")};`,
@@ -35,6 +49,7 @@ const fixed = [
   ...Object.entries(tokens.header).map(([name, value]) => `  --tmt-ui-header-${name}: ${value};`),
   ...Object.entries(tokens.browser.metric).map(([name, value]) => `  --tmt-ui-${name}: ${value};`),
   motion('--tmt-ui-motion', '  '),
+  ...typeParts('  ', false),
 ].join('\n');
 /** A fragment as shipped: its comments explain the source, not the page, so they stay in `src/`. */
 const bare = (source) =>
@@ -98,13 +113,36 @@ const tokenCss = `/* Generated: generate-static-css */
   :root {
     --tmt-ui-header-height: var(--tmt-ui-header-compact-height);
     --tmt-ui-header-padding-inline: var(--tmt-ui-header-compact-padding-inline);
+${typeParts('    ', true).join('\n')}
   }
 }
 `;
-const componentCss = `${fragments.map((s) => bare(s.replaceAll('\r\n', '\n').replaceAll('__compact-max-width__', tokens.header['compact-max-width']))).join('\n')}\n`;
+const shipped = (source) =>
+  bare(
+    source
+      .replaceAll('\r\n', '\n')
+      .replaceAll('__compact-max-width__', tokens.header['compact-max-width']),
+  );
+const componentCss = `${fragments.map(shipped).join('\n')}\n`;
 export const authoredStaticCss = `${tokenCss}${componentCss}`;
+/** The editorial layer (#5794), its own entry: the prose rules, then the table look applied to a bare
+ * `table` in prose. The table rules are the marked region of table.css with the class rewritten, so
+ * prose tables and `.tmt-ui-table` cannot differ. */
+async function editorialSource() {
+  const [prose, table] = await Promise.all(
+    ['editorial', 'table'].map((name) => readFile(new URL(`src/${name}.css`, home), 'utf8')),
+  );
+  const begin = '/* BEGIN editorial table */';
+  const end = '/* END editorial table */';
+  const from = table.indexOf(begin);
+  const to = table.indexOf(end);
+  if (from < 0 || to <= from) throw new Error('Missing editorial table markers in table.css');
+  const rows = table.slice(from + begin.length, to).replace(/\.tmt-ui-table(?![\w-])/g, '& table');
+  return `${shipped(prose)}\n:where(.tmt-ui-prose) {\n${shipped(rows)}\n}\n`;
+}
+export const authoredEditorialCss = await editorialSource();
 /** Use the pinned production CSS compiler; authored fragments remain formatted and readable. */
-async function compileStaticCss() {
+async function compileCss(source) {
   const result = await build({
     configFile: false,
     publicDir: false,
@@ -116,7 +154,7 @@ async function compileStaticCss() {
           if (id === 'virtual:browser-leaf.css') return '\0browser-leaf.css';
         },
         load(id) {
-          if (id === '\0browser-leaf.css') return componentCss;
+          if (id === '\0browser-leaf.css') return source;
         },
       },
     ],
@@ -135,8 +173,11 @@ async function compileStaticCss() {
   );
   if (!asset || typeof asset.source !== 'string')
     throw new Error('Static CSS compiler produced no stylesheet');
-  return `${tokenCss}${asset.source}`;
+  return asset.source;
 }
+const compileStaticCss = async () => `${tokenCss}${await compileCss(componentCss)}`;
+const compileEditorialCss = async () =>
+  `/* Generated: generate-static-css */\n${await compileCss(authoredEditorialCss)}`;
 
 const isMain =
   process.argv[1] &&
@@ -148,9 +189,14 @@ if (isMain) {
   const mode = process.argv[2];
   if (process.argv.length !== 3 || !['--write', '--check'].includes(mode))
     throw new Error('Use --write or --check');
-  const css = await compileStaticCss();
-  const output = new URL('generated/static.css', home);
-  if (mode === '--write') await writeFile(output, css, 'utf8');
-  else if ((await readFile(output, 'utf8')) !== css)
-    throw new Error('Generated static.css is stale');
+  for (const [name, compile] of [
+    ['static', compileStaticCss],
+    ['editorial', compileEditorialCss],
+  ]) {
+    const css = await compile();
+    const output = new URL(`generated/${name}.css`, home);
+    if (mode === '--write') await writeFile(output, css, 'utf8');
+    else if ((await readFile(output, 'utf8').catch(() => '')) !== css)
+      throw new Error(`Generated ${name}.css is stale`);
+  }
 }

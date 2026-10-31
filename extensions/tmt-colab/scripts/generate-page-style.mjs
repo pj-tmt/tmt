@@ -8,13 +8,11 @@ const tokens = JSON.parse(
   await readFile(new URL('../../../design/tokens/tokens.json', import.meta.url), 'utf8')
 );
 const metric = tokens.browser.metric;
-// The h2 size sits between the page title (29px) and the card title (19px) tokens and exists only in the
-// starter, so it has no token of its own.
-const h2Size = '22px';
-// The design system (tokens, fonts, components) is injected by the page frame (#5057); the starter is
-// only the glue a page needs on top of it: type scale, rhythm, a block look for `pre` and a fallback
-// table. It lives in the `tmt-starter` layer, between the frame's own layer and the design system's, so
-// the design system's classes and an author's own CSS both win over it.
+// The design system (tokens, fonts, components) and the editorial layer (#5794: type ramp, prose rhythm,
+// tables, figures, code, tags) are injected by the page frame (#5057); the starter is only the glue a page
+// needs on top of them: the page column and section spacing. Its `tmt-starter` layer, which the frame's
+// editorial rules share, also marks the page as a design-system page, so they apply; the design system's
+// classes and an author's own CSS both win over it.
 const starter = `<style>
 @layer tmt-starter {
   * { box-sizing: border-box; }
@@ -22,39 +20,9 @@ const starter = `<style>
     max-width: 1280px;
     margin: 0 auto;
     padding: ${metric['notice-heading-gap']};
-    font: ${metric['page-body-size']}/1.5 var(--tmt-ui-font-body);
-    overflow-wrap: anywhere;
   }
-  h1, h2, h3 {
-    margin: 0 0 8px;
-    font-weight: ${metric['card-title-weight']};
-    line-height: ${metric['page-title-line-height']};
-  }
-  h1 {
-    font-size: ${metric['page-title-compact-size']};
-    font-weight: ${metric['page-title-weight']};
-    letter-spacing: ${metric['page-title-compact-tracking']};
-  }
-  h2 { font-size: ${h2Size}; }
-  h3 { font-size: ${metric['card-title-size']}; }
-  p, ul, ol, pre, table { margin: 0 0 ${metric['notice-heading-gap']}; }
   section { margin: 0 0 ${metric['notice-heading-gap']}; }
   section > :last-child { margin-bottom: 0; }
-  ul, ol { padding-left: 24px; }
-  table { width: 100%; border-collapse: collapse; }
-  th, td {
-    padding: 8px;
-    border-bottom: ${metric['rule-width']} solid var(--tmt-ui-surface-rule);
-    text-align: left;
-    vertical-align: top;
-  }
-  pre {
-    padding: 12px ${metric['notice-heading-gap']};
-    background: var(--tmt-ui-surface-code);
-    border-radius: var(--tmt-ui-radius);
-    font: 13px/1.5 var(--tmt-ui-font-mono);
-    white-space: pre-wrap;
-  }
   .muted { color: var(--tmt-ui-color-secondary); }
   .waiting { color: var(--tmt-ui-color-waiting); }
 }
