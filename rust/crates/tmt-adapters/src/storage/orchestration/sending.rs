@@ -111,7 +111,7 @@ impl ReceivingCalendar {
 
 /// Stored leads whose identities are still active; a retired one drops out here, not by
 /// rewriting the list.
-pub(in crate::storage) fn active_leads(snapshot: &OrchSnapshot) -> Vec<&str> {
+pub fn active_leads(snapshot: &OrchSnapshot) -> Vec<&str> {
     snapshot
         .leads
         .iter()

@@ -5,6 +5,7 @@ mod write;
 use super::{Storage, StorageError, StorageErrorCode, errors::classify};
 use crate::orchestration::wire::{self, OrchPlanDocument, OrchSubjectDocument};
 use rusqlite::{Connection, OptionalExtension, TransactionBehavior, params};
+pub use sending::active_leads;
 use serde_json::{Value, json};
 use tmt_core::{
     dispatch::canonical_id,

@@ -264,10 +264,12 @@ fn prepare_records<E>(
         input.preamble = None;
     }
     // Sending rules and talk limits apply only between two agents: never to a person's own
-    // message or an anonymous one (#4892). Finals, notices and checklists are not prepared here.
+    // message, an anonymous one or a job's (Automation) (#4892). Finals, notices and
+    // checklists are not prepared here.
     let mut held_for_person = None;
     if delivery.mode != super::digest::DeliveryMode::Passthrough
         && input.kind == RequestKind::Request
+        && input.origin != super::RequestOrigin::Automation
         && let (Some(from), Some(to)) = (
             input.originator.identity_id(),
             input.recipient_identity_id.as_deref(),

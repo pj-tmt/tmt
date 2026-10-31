@@ -22,6 +22,7 @@ pub fn orch_error_code(error: OrchError) -> &'static str {
         OrchError::MemberNotFound => "ORCH_MEMBER_NOT_FOUND",
         OrchError::ReceivingUnavailable => "ORCH_RECEIVING_UNAVAILABLE",
         OrchError::Ambiguous => "ORCH_PLAN_AMBIGUOUS",
+        OrchError::NotPermitted => "ORCH_NOT_PERMITTED",
     }
 }
 pub fn orch_error_message(error: OrchError) -> &'static str {
@@ -38,5 +39,8 @@ pub fn orch_error_message(error: OrchError) -> &'static str {
             "The Digest tick has not published its settings yet; run tmt digest tick or install Digest."
         }
         OrchError::Ambiguous => "Plan name is ambiguous; select its UUID.",
+        OrchError::NotPermitted => {
+            "Only a person or a lead may do this; the calling agent is not a lead."
+        }
     }
 }

@@ -41,6 +41,25 @@ pub enum OrchMutationDocument {
         #[serde(rename = "identityId")]
         identity_id: String,
     },
+    /// Replace the leads list (#4892).
+    #[serde(rename = "leads.set")]
+    SetLeads {
+        #[serde(rename = "identityIds")]
+        identity_ids: Vec<String>,
+    },
+    /// Allow one ordered route past its sending rule until `untilMs`. `actorId` attributes
+    /// the caller (a verified agent must be a lead); it authenticates no one.
+    #[serde(rename = "route.allow")]
+    AllowRoute {
+        #[serde(rename = "fromId")]
+        from_id: String,
+        #[serde(rename = "toId")]
+        to_id: String,
+        #[serde(rename = "untilMs")]
+        until_ms: u64,
+        #[serde(rename = "actorId", default, skip_serializing_if = "Option::is_none")]
+        actor_id: Option<String>,
+    },
 }
 #[derive(Debug, Clone, Deserialize)]
 #[serde(tag = "phase", rename_all = "camelCase", deny_unknown_fields)]
@@ -122,6 +141,29 @@ fn validate_mutation(mutation: &OrchMutationDocument) -> Result<(), OrchError> {
             }
             None
         }
+        OrchMutationDocument::SetLeads { identity_ids } => {
+            if identity_ids.len() > tmt_core::orchestration::ORCH_MAX_MEMBERS
+                || identity_ids.iter().any(|id| !canonical_id(id))
+            {
+                return Err(OrchError::Invalid);
+            }
+            None
+        }
+        OrchMutationDocument::AllowRoute {
+            from_id,
+            to_id,
+            until_ms,
+            actor_id,
+        } => {
+            if !canonical_id(from_id)
+                || !canonical_id(to_id)
+                || !wire::valid_ms(*until_ms)
+                || actor_id.as_deref().is_some_and(|id| !canonical_id(id))
+            {
+                return Err(OrchError::Invalid);
+            }
+            None
+        }
     };
     if let Some(candidate) = candidate {
         candidate.to_core()?;
@@ -138,6 +180,7 @@ fn validate_mutation(mutation: &OrchMutationDocument) -> Result<(), OrchError> {
 fn normalized(
     snapshot: &OrchSnapshot,
     doc: &OrchMutationDocument,
+    at: u64,
 ) -> Result<(OrchMutationDocument, OrchMutation), OrchError> {
     let selected = |selector: &str| -> Result<&OrchPlan, OrchError> {
         let id = read::selected_plan(snapshot, Some(selector))?.ok_or(OrchError::NotFound)?;
@@ -210,6 +253,38 @@ fn normalized(
                 },
             )
         }
+        OrchMutationDocument::SetLeads { identity_ids } => (
+            doc.clone(),
+            OrchMutation::SetLeads {
+                identity_ids: identity_ids.clone(),
+            },
+        ),
+        OrchMutationDocument::AllowRoute {
+            from_id,
+            to_id,
+            until_ms,
+            actor_id,
+        } => {
+            // A verified agent may allow a route only as a current lead; a person (no
+            // verified caller) may always. Local attribution, not authentication.
+            if let Some(actor) = actor_id
+                && !crate::storage::orchestration_active_leads(snapshot).contains(&actor.as_str())
+            {
+                return Err(OrchError::NotPermitted);
+            }
+            (
+                doc.clone(),
+                OrchMutation::AllowRoute {
+                    grant: tmt_core::orchestration::sending::OrchRouteGrant {
+                        from_id: from_id.clone(),
+                        to_id: to_id.clone(),
+                        until_ms: *until_ms,
+                        granted_by: actor_id.clone(),
+                    },
+                    now_ms: at,
+                },
+            )
+        }
     })
 }
 
@@ -228,7 +303,7 @@ fn preview(
     if !wire::valid_ms(at) {
         return Err(OrchError::Invalid);
     }
-    let (doc, mutation) = normalized(&state.snapshot, doc)?;
+    let (doc, mutation) = normalized(&state.snapshot, doc, at)?;
     let candidate = changed_snapshot(&state.snapshot, &mutation)?;
     let before = read::overview(&state.snapshot, zone, at, 1, None, at)?;
     let after = read::overview(&candidate, zone, at, 1, None, at)?;

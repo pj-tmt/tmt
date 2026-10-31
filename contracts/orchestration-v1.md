@@ -2,7 +2,8 @@
 
 Core owns one resolver for plans and personal focus. Plan/focus writes share an
 effect preview and explicit consent. Receiving uses existing Digest admission,
-claims and transport; sending enforcement and jobs remain separate later slices.
+claims and transport; sending rules and talk limits use existing request
+admission; jobs remain a separate slice.
 No timer is installed or resident process added. Existing readiness, approval,
 person and delivery owners retain authority.
 
@@ -278,6 +279,59 @@ Real wake admissions and outcomes use the existing transaction-local journal and
 frozen claim provenance. Reads, config saves, marker scans, blocked/no-op
 observations and rollback append no decisions. No new command, daemon or timer
 is added. Jobs, catch-up once and the merged `tmt tick` remain slice 3.
+
+## Sending and talk limits
+
+Sending rules and talk limits apply only to a new request between two agents:
+the originator and the recipient are both identities and neither is the `user`
+person. Anonymous senders, a person's passthrough text, reply/answer finals,
+result notices and Digest checklists are never refused, counted or held. Request
+admission decides at its transaction's captured instant, inside that same
+transaction, with the same resolver; there is no other entry point, counter or clock.
+
+Leads are an explicit list of canonical identity UUIDs in the orchestration
+configuration, replaced by `orchestration.write` mutation `leads.set`
+(`identityIds`, at most 256, unique) or `tmt orch leads set NAME...`. Core never
+reads another component's squad metadata. A retired identity stays stored and
+is dropped from the effective list at read time.
+
+The sender's effective `sending` decides the route: `anyone` allows every
+recipient, `leads` only current leads, `paused` no agent. A restricted route is
+refused before anything is stored: `ORCH_ROUTE_RESTRICTED` (CLI exit 5), no
+request, no paste. The refusal is journaled (subject = sender, action `block`,
+reason `route_restricted`, source = the sending field) in its own transaction
+after the preparation rolls back. `--urgent` does not bypass it.
+`route.allow` (`fromId`, `toId`, `untilMs`, optional `actorId`) or
+`tmt orch route allow FROM TO [--until TIME]` lets that ordered pair pass its rule
+until `untilMs`, at most 24 hours ahead; a later allow replaces it.
+
+The pair limit is the smaller effective `talkLimit` of the two members; `null`
+is unlimited, the default. The count is the new requests between them, both
+directions, prepared in the last 60 minutes or since the pair's last resume,
+whichever is later; requests from a current lead and held requests are not
+counted, and a lead's own requests are never held. At the limit the request is
+stored and held, never dropped: no wake and no Digest item. Talk returns
+`status:"held"`, `waitingFor:"person"`, and `x show` reports the same. The hold
+is journaled (action `delay`, outcome `held`, reason `talk_limit`).
+`talks.resume` or `tmt orch talks resume A B` releases every held request of
+the pair through normal delivery and restarts the pair's window at that instant.
+`--urgent` does not bypass the limit.
+
+`route.allow` and `talks.resume` use the same preview, consent and CAS as other
+writes. A caller attributed as a verified agent that is not a current lead is
+refused with `ORCH_NOT_PERMITTED` (exit 1); a person at a terminal (no verified
+agent caller) may always. This is local attribution, not authentication.
+
+`orchestration.read` adds `talks` and `routes` views, both with optional
+`memberQuery` and a page cursor (`limit` 1..256, opaque `after`). `talks` lists
+pairs with counted or held requests in the window: members with their effective
+`talkLimit`, `count`, `limit`, `lastAtMs`, `windowStartMs`, `state` (`open` or
+`held`), `heldCount` and up to 20 `held` entries (request ID, sender/recipient
+UUIDs and names, time; no bodies or receipts), plus `leads` (with `retired`) and
+live `routeGrants`. `routes` returns, for each ordered pair among at most 256
+selected members, the verdict `allowed`, `blocked` or `needs_person` and its
+source (`base`, `plan`, `member` or `grant`). An unknown or missing view is not
+available, so an older Core degrades cleanly.
 
 ## Calendar
 

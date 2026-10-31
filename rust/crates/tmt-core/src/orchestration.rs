@@ -16,6 +16,8 @@ pub enum OrchError {
     MemberNotFound,
     ReceivingUnavailable,
     Ambiguous,
+    /// The caller is a verified agent that is not a lead (#4892).
+    NotPermitted,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
