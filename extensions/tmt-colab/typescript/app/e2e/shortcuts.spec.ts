@@ -829,8 +829,14 @@ for (const width of [390, 1440])
       await expect(
         page.getByRole('menuitemcheckbox', { name: 'To do', exact: true }),
       ).toBeVisible();
+      for (const name of ['Page state', 'Project', 'Also'])
+        await expect(page.getByRole('group', { name, exact: true })).toBeVisible();
+      const projects = page.getByRole('group', { name: 'Project', exact: true });
       await expect(
-        page.getByRole('menuitem', { name: 'Manage projects…', exact: true }),
+        projects.getByRole('menuitemcheckbox', { name: 'design', exact: true }),
+      ).toBeVisible();
+      await expect(
+        projects.getByRole('menuitem', { name: 'Manage projects…', exact: true }),
       ).toBeVisible();
       await page.screenshot({ path: info.outputPath('filter-open.png') });
       await page.keyboard.press('Escape');

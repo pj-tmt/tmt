@@ -381,10 +381,11 @@ in flight. `ended` replaces
 the page with one card: the failure sentence and the one action that fits (`Pair again` with the
 command only for verified revoked, expired or missing pairing; a way back to the space for a
 page that is gone; `Reload` for ended sessions, access refusals, identity mismatches and a device
-at its Remote session limit, and generic reconnect failures; none for an oversized change). A modal drawer makes that card inert, so a live Chat
-composer owns its ended sentence/action once; an archived Chat and every other drawer keep
-the same sentence/action in the `notice` row under the header. An ended annotation keeps its
-action scroll- and keyboard-reachable within the existing composer overflow. `Live` stays
+at its Remote session limit, and generic reconnect failures; none for an oversized change). A live
+Chat composer owns its ended sentence/action once; archived Chat uses the non-modal BrowserPanel
+`panel-notice`, and other drawers keep the same sentence/action in the `notice` row under the header.
+An ended annotation keeps its action scroll- and keyboard-reachable within the existing composer
+overflow. `Live` stays
 the transport owner: it keeps its bounded resync
 and publishes failures, and no longer decides terminal or recoverable for the page.
 One table, `connection-state.ts`, classifies every token the live path can fail with (sync frame

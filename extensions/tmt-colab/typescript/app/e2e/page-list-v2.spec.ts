@@ -59,7 +59,7 @@ test('concept17 shows real pins in owner order, wraps after three and shares the
   expect(bounds[0]).toBe(bounds[2]);
   expect(bounds[3]).toBeGreaterThan(bounds[0]);
   await app(page).getByRole('button', { name: 'Filter', exact: true }).click();
-  await page.getByRole('menuitemcheckbox', { name: 'project: blog', exact: true }).click();
+  await page.getByRole('menuitemcheckbox', { name: 'blog', exact: true }).click();
   await expect(
     app(page).getByRole('button', { name: 'Remove project: blog', exact: true }),
   ).toBeVisible();

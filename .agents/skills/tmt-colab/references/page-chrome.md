@@ -78,7 +78,8 @@ rest and Plus at both widths; empty rows show Plus alone. The group opens the ex
 The row's ⋯ → Projects… and `l`, and the header's More → Projects…, use that same open request.
 Each group is one visible focus target, exposes every membership in its accessible name/title,
 and restores focus on close without taking focus away from a new dialog. Writer row pills open
-the picker; project scope and search retain filtering. Viewer row tags retain read-only filtering.
+the picker; a project is a search-bar condition chip selected through Filter. Its Project group
+ends with Manage projects… for writers. Viewer row tags retain read-only filtering.
 Opening observes the catalog; choosing a project or creating one is the write. Long project and
 Access text uses an ellipsis with the full text available on hover. The chips come from the list the space home last loaded, so arriving
 from the list reads nothing extra. A page opened by a link has no list yet: it reads `spaceHome(signal)`
@@ -171,14 +172,14 @@ shared-link reader keeps its existing Info surface: creator attribution and the 
 rows, with no metadata write callback or owner-store CLI guidance. Native and hosted readers derive
 those rows from their already-admitted own records; no extra read, pairing or Ask is introduced.
 
-Home keeps one vertical list viewport. After its full controls boundary passes the top,
-a 58px sticky row retains project scopes, the same mounted search editor and New page;
-through 650px it keeps only search and New page, below the unchanged phone module strip.
-The heading, pins, stage tabs and sort scroll away and return at the top. A list-root
-IntersectionObserver derives this presentation without a stored preference; resize and instant
-scroll jumps sample the same boundary geometry. Observers and listeners disconnect on unmount. Search drafts, route filters, row selection and command owners survive the
-transition; reduced motion disables its animation. A viewer's project list is absent when
-it has no items, while a writer retains the picker entry.
+Home keeps one vertical list viewport. Its hero contains only a right-aligned action row;
+pins and stage tabs follow it. After the full controls boundary passes the top, the sticky
+compact row retains condition chips, the same mounted search editor, Filter and New page.
+Sort remains visible on phones, wrapping below the search row; at wider widths it scrolls away.
+A list-root IntersectionObserver derives this presentation without a stored preference;
+resize and instant scroll jumps sample the same boundary geometry. Observers and listeners
+disconnect on unmount. Search drafts, route filters, row selection and command owners survive
+the transition; reduced motion disables its animation.
 
 Header search results and page-list titles are real links with router-generated URLs.
 Plain click/Enter keep the existing same-tab navigation and focus behavior. Modified clicks

@@ -908,6 +908,7 @@ export const text = {
     matchesPreview: (titles: string[]) =>
       `Matches ${titles.length} ${titles.length === 1 ? 'page' : 'pages'}${titles.length ? `: ${titles.join(', ')}` : ''}`,
     pageState: 'Page state',
+    projectGroup: 'Project',
     anyState: 'Any state',
     any: 'Any',
     stateLabel: (value: string) => `Page state: ${value}`,

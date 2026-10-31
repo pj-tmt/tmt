@@ -64,7 +64,7 @@ async function scopeTo(page: Page, name: string) {
     if (await chip.count()) await chip.first().click();
   } else {
     await openFilter(page);
-    await page.getByRole('menuitemcheckbox', { name: `project: ${name}`, exact: true }).click();
+    await page.getByRole('menuitemcheckbox', { name, exact: true }).click();
   }
 }
 /**
@@ -83,7 +83,7 @@ async function filterProject(page: Page, name: string) {
 }
 /** A project option in the open Filter menu. */
 const menuProject = (page: Page, name: string) =>
-  page.getByRole('menuitemcheckbox', { name: `project: ${name}`, exact: true });
+  page.getByRole('menuitemcheckbox', { name, exact: true });
 const manageRequests = (page: Page) => page.evaluate(() => window.__projectManage);
 /** A page's project crumb links to the scoped list, which opens on All like any bare link. */
 const showAll = (page: Page) =>
@@ -892,7 +892,9 @@ test('a reader gets search, filters and the scope, but no project writes or arch
   await filterProject(page, 'ops');
   await expect(titles(page)).toHaveText(['Delta ops']);
   await openFilter(page);
-  await expect(page.getByRole('menuitemcheckbox', { name: /^project: / })).toHaveCount(3);
+  await expect(
+    page.getByRole('group', { name: 'Project', exact: true }).getByRole('menuitemcheckbox'),
+  ).toHaveCount(3);
   await page.keyboard.press('Escape');
   await expect(app(page).getByRole('button', { name: 'Project actions' })).toHaveCount(0);
 });

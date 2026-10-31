@@ -720,9 +720,11 @@ export function Home() {
               label={text.shortcuts.filter}
               triggerText={phone ? undefined : text.shortcuts.filter}
               icon={<Funnel />}
+              popupLayout="grouped"
               items={[
-                ...(['todo', 'in-progress', 'done'] as const).map((state) => ({
+                ...(['todo', 'in-progress', 'done'] as const).map((state, index) => ({
                   key: `state:${state}`,
+                  heading: index === 0 ? text.shortcuts.pageState : undefined,
                   label: text.workBand.taskState[state],
                   role: 'menuitemcheckbox' as const,
                   checked: (Array.isArray(search.state) ? search.state : [search.state]).includes(
@@ -731,17 +733,26 @@ export function Home() {
                 })),
                 ...projectNames.map((project, index) => ({
                   key: `project:${project}`,
-                  label: text.shortcuts.project(project),
+                  label: project,
+                  heading: index === 0 ? text.shortcuts.projectGroup : undefined,
                   role: 'menuitemcheckbox' as const,
                   checked: scope === project,
                   separated: index === 0,
                 })),
                 ...(port
-                  ? [{ key: 'manage-projects', label: `${t.manageProjects}…`, separated: true }]
+                  ? [
+                      {
+                        key: 'manage-projects',
+                        label: `${t.manageProjects}…`,
+                        heading: projectNames.length ? undefined : text.shortcuts.projectGroup,
+                        separated: projectNames.length === 0,
+                      },
+                    ]
                   : []),
                 {
                   key: 'needs',
                   label: text.shortcuts.needsMe,
+                  heading: text.shortcuts.also,
                   role: 'menuitemcheckbox' as const,
                   checked: !!search.needs,
                   separated: true,

@@ -455,7 +455,7 @@ test('compact project condition preserves draft and focus across viewport change
   await home.evaluate((node) => (node.scrollTop = 520));
   await expect(home).toHaveAttribute('data-compact', '');
   await home.getByRole('button', { name: 'Filter', exact: true }).click();
-  await page.getByRole('menuitemcheckbox', { name: 'project: blog', exact: true }).click();
+  await page.getByRole('menuitemcheckbox', { name: 'blog', exact: true }).click();
   await expect(home).not.toHaveAttribute('data-compact');
   await expect(app(page).locator('.tmt-ui-topbar-title-current')).toHaveText('blog');
   const chip = home.getByRole('button', { name: 'Remove project: blog', exact: true });
@@ -686,7 +686,7 @@ for (const width of [1440, 390])
     await expect(home).toHaveAttribute('data-compact', '');
     if (width === 1440) {
       await home.getByRole('button', { name: 'Filter', exact: true }).click();
-      await page.getByRole('menuitemcheckbox', { name: 'project: blog' }).click();
+      await page.getByRole('menuitemcheckbox', { name: 'blog' }).click();
       await expect(home).not.toHaveAttribute('data-compact');
       expect(await home.evaluate((node) => node.scrollTop)).toBe(0);
     }
