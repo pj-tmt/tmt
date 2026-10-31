@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { createServer } from 'node:http';
 
 export const MOCK_MODEL_TOKEN = 'tmt-synthetic-model-token';
@@ -18,10 +19,74 @@ function validModel(model) {
   return typeof model === 'string' && /^[a-zA-Z0-9_.:-]{1,128}$/.test(model);
 }
 
+function validInputText(text) {
+  return typeof text === 'string' && text.trim().length > 0 && Buffer.byteLength(text) <= 8192;
+}
+
+/** Approved synthetic-input diagnostics only; no request/header object reaches this seam. */
+export function describeMockInputMismatch(parsed, scripted) {
+  if ((parsed !== undefined && typeof parsed !== 'string') || typeof scripted !== 'string')
+    throw new TypeError('MOCK_DIAGNOSTIC: parsed text and scripted text only');
+  const actual = parsed === undefined ? undefined : Buffer.from(parsed);
+  const expected = Buffer.from(scripted);
+  const summary = (bytes) => ({
+    bytes: bytes.length,
+    sha256: createHash('sha256').update(bytes).digest('hex'),
+  });
+  let firstDifferingByte = null;
+  if (actual) {
+    let i = 0;
+    while (i < actual.length && i < expected.length && actual[i] === expected[i]) i++;
+    if (i < actual.length || i < expected.length) firstDifferingByte = i;
+  }
+  const excerpt = (text) => {
+    if (text === undefined || (actual && firstDifferingByte === null)) return '';
+    // Replace before slicing, preserving byte offsets even if a window cuts through the token.
+    const bytes = Buffer.from(
+      text.split(MOCK_MODEL_TOKEN).join('*'.repeat(MOCK_MODEL_TOKEN.length))
+    );
+    let start = Math.max(0, Math.min(bytes.length - 256, (firstDifferingByte ?? 0) - 128));
+    let end = Math.min(bytes.length, start + 256);
+    while (start < end && (bytes[start] & 0xc0) === 0x80) start++;
+    while (end > start && (bytes[end] & 0xc0) === 0x80) end--;
+    return bytes.subarray(start, end).toString('utf8');
+  };
+  return {
+    parsed: actual
+      ? { state: 'text', ...summary(actual) }
+      : { state: 'missing_or_unsupported', bytes: null, sha256: null },
+    scripted: summary(expected),
+    firstDifferingByte,
+    excerpts: { parsed: excerpt(parsed), scripted: excerpt(scripted) },
+  };
+}
+
+function lastUserText(input) {
+  if (typeof input === 'string') return input.trim() || undefined;
+  const content = input.findLast((item) => item?.role === 'user')?.content;
+  if (typeof content === 'string') return content.trim() || undefined;
+  if (
+    !Array.isArray(content) ||
+    !content.length ||
+    content.some(
+      (part) => !['text', 'input_text'].includes(part?.type) || typeof part.text !== 'string'
+    )
+  )
+    return undefined;
+  return (
+    content
+      .map((part) => part.text)
+      .join('\n')
+      .trim() || undefined
+  );
+}
+
 function compileTurn(turn, index) {
   if (!turn || !['messages', 'responses'].includes(turn.protocol))
     throw new Error('MOCK_CONFIG: unsupported turn protocol');
   if (!validModel(turn.model)) throw new Error('MOCK_CONFIG: invalid model');
+  if (turn.inputText !== undefined && !validInputText(turn.inputText))
+    throw new Error('MOCK_CONFIG: inputText must be nonempty and at most 8192 UTF-8 bytes');
   if (typeof turn.text !== 'string' || Buffer.byteLength(turn.text) > 8192)
     throw new Error('MOCK_CONFIG: text must be at most 8192 UTF-8 bytes');
   for (const name of ['inputTokens', 'outputTokens', 'cachedInputTokens']) {
@@ -122,7 +187,7 @@ function compileTurn(turn, index) {
     .map((event) => `event: ${event.type}\ndata: ${JSON.stringify(event)}\n\n`)
     .join('');
   if (Buffer.byteLength(wire) > 65536) throw new Error('MOCK_CONFIG: response exceeds 65536 bytes');
-  return { protocol, model, wire, json: JSON.stringify(result) };
+  return { protocol, model, inputText: turn.inputText?.trim(), wire, json: JSON.stringify(result) };
 }
 
 function compileSideRequest(side, index) {
@@ -139,8 +204,22 @@ function compileSideRequest(side, index) {
     const turn = compileTurn(side.turn, 1000 + index);
     if (side.method !== 'POST' || side.path !== `/v1/${turn.protocol}` || 'response' in side)
       throw new Error('MOCK_CONFIG: side text must match its protocol POST route');
-    return { ...side, turn, model: turn.model, maxCalls, calls: 0 };
+    if (
+      side.unlessLastUserText !== undefined &&
+      (!validInputText(side.unlessLastUserText) || maxCalls > 2)
+    )
+      throw new Error('MOCK_CONFIG: discriminated side text needs an input and at most two calls');
+    return {
+      ...side,
+      unlessLastUserText: side.unlessLastUserText?.trim(),
+      turn,
+      model: turn.model,
+      maxCalls,
+      calls: 0,
+    };
   }
+  if (side.unlessLastUserText !== undefined)
+    throw new Error('MOCK_CONFIG: input discrimination requires a text-turn side reply');
   if (['/v1/messages', '/v1/responses'].includes(side.path))
     throw new Error('MOCK_CONFIG: model routes need a text-turn reply');
   let json;
@@ -157,7 +236,20 @@ function compileSideRequest(side, index) {
 }
 
 /** Scripted transport only: never launches a provider, reads its state, or forwards traffic. */
-export async function startMockModelServer({ turns, sideRequests = [], limits = {} }) {
+export async function startMockModelServer({
+  turns,
+  sideRequests = [],
+  limits = {},
+  sessionSource,
+  onInputMismatch,
+}) {
+  if (onInputMismatch !== undefined && typeof onInputMismatch !== 'function')
+    throw new TypeError('MOCK_CONFIG: onInputMismatch must be a diagnostic callback');
+  if (
+    sessionSource !== undefined &&
+    !['claude-code-2.1.285', 'codex-0.160.0'].includes(sessionSource)
+  )
+    throw new Error('MOCK_CONFIG: session source must name an exact supported client pin');
   if (!Array.isArray(turns) || turns.length < 1 || turns.length > 16)
     throw new Error('MOCK_CONFIG: supply 1..16 scripted text turns');
   const key = (protocol, model) => JSON.stringify([protocol, model]);
@@ -173,6 +265,13 @@ export async function startMockModelServer({ turns, sideRequests = [], limits = 
   const sides = sideRequests.map(compileSideRequest);
   const routes = [];
   for (const side of sides) {
+    const ownedTurns = side.turn && queues.get(key(side.turn.protocol, side.model));
+    const discriminated = side.unlessLastUserText !== undefined;
+    if (
+      discriminated &&
+      (!ownedTurns || ownedTurns.some((turn) => turn.inputText !== side.unlessLastUserText))
+    )
+      throw new Error('MOCK_CONFIG: discriminated side request needs matching scripted input');
     if (
       routes.some(
         (row) =>
@@ -180,7 +279,7 @@ export async function startMockModelServer({ turns, sideRequests = [], limits = 
           row.path === side.path &&
           (row.model === undefined || side.model === undefined || row.model === side.model)
       ) ||
-      (side.turn && queues.has(key(side.turn.protocol, side.model)))
+      (ownedTurns && !discriminated)
     )
       throw new Error('MOCK_CONFIG: duplicate or overlapping side request');
     routes.push(side);
@@ -210,9 +309,10 @@ export async function startMockModelServer({ turns, sideRequests = [], limits = 
   };
   const server = createServer((request, response) => {
     requestsSeen++;
+    const pathname = (request.url ?? '').split('?')[0];
     const entry = {
       method: request.method ?? '',
-      path: (request.url ?? '').split('?')[0].slice(0, 128),
+      path: pathname.slice(0, 128),
       status: 0,
       bodyBytes: 0,
     };
@@ -248,19 +348,19 @@ export async function startMockModelServer({ turns, sideRequests = [], limits = 
     if (requestsSeen > bounds.maxRequests)
       return refuse(429, 'MOCK_REQUEST_LIMIT', 'Request budget exhausted');
     if (failure) return refuse(409, 'MOCK_FAILED', 'An earlier request failed; inspect the census');
-    if (request.method === 'GET' && request.url === '/healthz') {
+    if (request.method === 'GET' && pathname === '/healthz') {
       entry.kind = 'health';
       send('{"ready":true}');
       return;
     }
     const protocol =
-      request.url === '/v1/messages'
+      pathname === '/v1/messages'
         ? 'messages'
-        : request.url === '/v1/responses'
+        : pathname === '/v1/responses'
           ? 'responses'
           : undefined;
     const sideRoutes = sides.filter(
-      (side) => side.method === request.method && side.path === request.url
+      (side) => side.method === request.method && side.path === pathname
     );
     if (request.method !== 'POST') {
       if (sideRoutes.length) return sendSide(sideRoutes[0], false);
@@ -270,9 +370,7 @@ export async function startMockModelServer({ turns, sideRequests = [], limits = 
       return refuse(404, 'MOCK_UNKNOWN_REQUEST', 'Request route is not declared');
     if (
       request.headers.authorization !== `Bearer ${MOCK_MODEL_TOKEN}` &&
-      !(
-        request.url?.startsWith('/v1/messages') && request.headers['x-api-key'] === MOCK_MODEL_TOKEN
-      )
+      !(pathname.startsWith('/v1/messages') && request.headers['x-api-key'] === MOCK_MODEL_TOKEN)
     )
       return refuse(401, 'MOCK_SYNTHETIC_AUTH_REQUIRED', 'Use only the fixture synthetic token');
     if (!/^application\/json(?:;|$)/i.test(request.headers['content-type'] ?? ''))
@@ -300,6 +398,23 @@ export async function startMockModelServer({ turns, sideRequests = [], limits = 
       }
       if (validModel(body?.model)) entry.model = body.model;
       if (typeof body?.stream === 'boolean') entry.stream = body.stream;
+      // Candidate wire locations stay unqualified until a hosted request matches public CLI JSON.
+      // Never retain the containing metadata, header, or a non-canonical identifier.
+      let sessionId;
+      if (sessionSource === 'codex-0.160.0' && protocol === 'responses')
+        sessionId = request.headers.session_id;
+      if (sessionSource === 'claude-code-2.1.285' && protocol === 'messages') {
+        try {
+          sessionId = JSON.parse(body?.metadata?.user_id).session_id;
+        } catch {
+          // Missing or moved fields remain absent; the advisory assertion refuses qualification.
+        }
+      }
+      if (
+        typeof sessionId === 'string' &&
+        /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(sessionId)
+      )
+        entry.sessionId = sessionId;
       // Recheck after asynchronous reads: a refusal on another connection is fatal to the fixture.
       if (failure)
         return refuse(409, 'MOCK_FAILED', 'An earlier request failed; inspect the census');
@@ -315,7 +430,15 @@ export async function startMockModelServer({ turns, sideRequests = [], limits = 
           : protocol === 'responses' && typeof input === 'string' && input.length > 0)
       )
         return refuse(400, 'MOCK_REQUEST_SHAPE', 'Expected a text-turn request with input');
-      if (side) return sendSide(side, body.stream === true);
+      const userText = lastUserText(input);
+      if (
+        side &&
+        (side.unlessLastUserText === undefined ||
+          (userText !== undefined &&
+            userText !== side.unlessLastUserText &&
+            (body.tools === undefined || (Array.isArray(body.tools) && body.tools.length === 0))))
+      )
+        return sendSide(side, body.stream === true);
       const queue = queues.get(key(protocol, body.model));
       if (!queue) return refuse(409, 'MOCK_TURN_MISMATCH', 'No script for this protocol/model');
       if (!queue.length)
@@ -324,6 +447,10 @@ export async function startMockModelServer({ turns, sideRequests = [], limits = 
           'MOCK_SCRIPT_EXHAUSTED',
           'No scripted turn remains for this protocol/model'
         );
+      if (queue[0].inputText !== undefined && userText !== queue[0].inputText) {
+        onInputMismatch?.(describeMockInputMismatch(userText, queue[0].inputText));
+        return refuse(409, 'MOCK_TURN_INPUT', 'Last user text does not match the scripted input');
+      }
       const turn = queue.shift();
       completedTurns++;
       entry.kind = 'turn';

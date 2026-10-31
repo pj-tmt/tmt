@@ -3,6 +3,8 @@ import { once } from 'node:events';
 import { afterEach, describe, expect, it } from 'vite-plus/test';
 import {
   MOCK_MODEL_TOKEN,
+  describeMockInputMismatch,
+  type MockInputMismatch,
   startMockModelServer,
   type ScriptedTextTurn,
 } from '../support/mock-model-server.mjs';
@@ -184,7 +186,7 @@ describe('bounded loopback model fixture', () => {
 
   it.each([
     ['HEAD', '/api/private?secret=not-recorded'],
-    ['POST', '/v1/messages?extra=true'],
+    ['POST', '/v1/undeclared?extra=true'],
     ['GET', '/v1/responses'],
     ['POST', '/v1/messages/count_tokens'],
   ])(
@@ -467,4 +469,349 @@ it('copies the script length and accepts omitted stream as non-streaming JSON', 
   expect(response.headers.get('content-type')).toBe('application/json');
   expect(await response.json()).toMatchObject({ status: 'completed' });
   expect(server.snapshot()).toMatchObject({ completedTurns: 1, plannedTurns: 1 });
+});
+
+it.each(['messages', 'responses'] as const)(
+  'matches %s by pathname when SDK query flags are present',
+  async (protocol) => {
+    const server = await start([turn(protocol)]);
+    const response = await fetch(`${server.baseUrl}/v1/${protocol}?beta=true`, {
+      method: 'POST',
+      headers: { authorization: `Bearer ${MOCK_MODEL_TOKEN}`, 'content-type': 'application/json' },
+      body: JSON.stringify(body(protocol)),
+      signal: AbortSignal.timeout(2000),
+    });
+    expect(response.status).toBe(200);
+    await response.text();
+    expect(server.snapshot()).toMatchObject({ completedTurns: 1 });
+    expect(server.snapshot().failure).toBeUndefined();
+    expect(server.snapshot().census[0].path).toBe(`/v1/${protocol}`);
+  }
+);
+
+const sessionId = '12345678-1234-4234-8234-123456789abc';
+
+it.each(['messages', 'responses'] as const)(
+  'exposes only a canonical UUID from the selected pinned %s session field',
+  async (protocol) => {
+    const server = await startMockModelServer({
+      turns: [turn(protocol)],
+      sessionSource: protocol === 'messages' ? 'claude-code-2.1.285' : 'codex-0.160.0',
+    });
+    servers.push(server);
+    const response = await fetch(`${server.baseUrl}/v1/${protocol}`, {
+      method: 'POST',
+      headers: {
+        authorization: `Bearer ${MOCK_MODEL_TOKEN}`,
+        'content-type': 'application/json',
+        session_id: sessionId,
+        'x-private-field': 'must-not-be-captured',
+      },
+      body: JSON.stringify({
+        ...body(protocol),
+        metadata: {
+          user_id: JSON.stringify({ session_id: sessionId, account_id: 'must-not-be-captured' }),
+        },
+      }),
+    });
+    await response.text();
+    const snapshot = server.snapshot();
+    expect(snapshot.census[0].sessionId).toBe(sessionId);
+    expect(JSON.stringify(snapshot)).not.toContain('must-not-be-captured');
+    expect(Object.keys(snapshot.census[0]).sort()).toEqual(
+      ['method', 'path', 'status', 'bodyBytes', 'model', 'stream', 'kind', 'sessionId'].sort()
+    );
+  }
+);
+
+it.each([undefined, 'not-a-uuid', sessionId.toUpperCase()])(
+  'does not qualify a missing or non-canonical session field (%s)',
+  async (value) => {
+    const server = await startMockModelServer({
+      turns: [turn('responses')],
+      sessionSource: 'codex-0.160.0',
+    });
+    servers.push(server);
+    const response = await fetch(`${server.baseUrl}/v1/responses`, {
+      method: 'POST',
+      headers: {
+        authorization: `Bearer ${MOCK_MODEL_TOKEN}`,
+        'content-type': 'application/json',
+        ...(value === undefined ? {} : { session_id: value }),
+      },
+      body: JSON.stringify(body('responses')),
+    });
+    await response.text();
+    expect(server.snapshot().census[0]).not.toHaveProperty('sessionId');
+  }
+);
+
+it('accepts the observed Claude HEAD hello without consuming a turn or returning a body', async () => {
+  const server = await startMockModelServer({
+    turns: [turn('messages')],
+    sideRequests: [{ method: 'HEAD', path: '/api/hello', maxCalls: 1, response: {} }],
+  });
+  servers.push(server);
+  const hello = await fetch(`${server.baseUrl}/api/hello`, { method: 'HEAD' });
+  expect(hello.status).toBe(200);
+  expect(await hello.text()).toBe('');
+  expect(server.snapshot()).toMatchObject({ sideRequestsSeen: 1, completedTurns: 0 });
+  expect(server.snapshot().failure).toBeUndefined();
+  expect(server.snapshot().census[0]).toMatchObject({
+    method: 'HEAD',
+    path: '/api/hello',
+    kind: 'side',
+  });
+  expect((await post(server, 'messages')).status).toBe(200);
+  expect(server.snapshot().completedTurns).toBe(1);
+});
+
+describe('bounded same-model side requests (#4610)', () => {
+  const prompt = 'fixture input';
+  function options(protocol: ScriptedTextTurn['protocol']) {
+    return {
+      turns: [{ ...turn(protocol), inputText: prompt }],
+      sideRequests: [
+        {
+          method: 'POST' as const,
+          path: `/v1/${protocol}`,
+          maxCalls: 2,
+          unlessLastUserText: prompt,
+          turn: { ...turn(protocol), text: 'Fixed background reply' },
+        },
+      ],
+    };
+  }
+  function different(protocol: ScriptedTextTurn['protocol']) {
+    return {
+      ...body(protocol),
+      tools: [],
+      ...(protocol === 'messages'
+        ? { messages: [{ role: 'user', content: 'A synthetic background task' }] }
+        : { input: 'A synthetic background task' }),
+    };
+  }
+  it.each(['messages', 'responses'] as const)(
+    'keeps %s side calls separate before and after the one scripted turn',
+    async (protocol) => {
+      const server = await startMockModelServer(options(protocol));
+      servers.push(server);
+      const first = await post(server, protocol, different(protocol));
+      expect(first.status).toBe(200);
+      expect(await first.text()).toContain('Fixed background reply');
+      expect(server.snapshot()).toMatchObject({ sideRequestsSeen: 1, completedTurns: 0 });
+      expect((await post(server, protocol)).status).toBe(200);
+      expect(server.snapshot()).toMatchObject({ sideRequestsSeen: 1, completedTurns: 1 });
+      expect((await post(server, protocol, different(protocol))).status).toBe(200);
+      expect(server.snapshot()).toMatchObject({ sideRequestsSeen: 2, completedTurns: 1 });
+      expect(JSON.stringify(server.snapshot())).not.toContain('A synthetic background task');
+      expect((await post(server, protocol, different(protocol))).status).toBe(429);
+      expect(server.snapshot().failure?.code).toBe('MOCK_SIDE_LIMIT');
+    }
+  );
+  it.each(['messages', 'responses'] as const)(
+    'never classifies a %s request carrying tools as a background side call',
+    async (protocol) => {
+      const server = await startMockModelServer(options(protocol));
+      servers.push(server);
+      const response = await post(server, protocol, {
+        ...different(protocol),
+        tools: [{ name: 'forbidden-tool' }],
+      });
+      expect(response.status).toBe(409);
+      expect(server.snapshot()).toMatchObject({ completedTurns: 0, sideRequestsSeen: 0 });
+      expect(server.snapshot().failure?.code).toBe('MOCK_TURN_INPUT');
+    }
+  );
+  it.each(['messages', 'responses'] as const)(
+    'refuses opaque %s last-user content instead of treating it as a side call',
+    async (protocol) => {
+      const server = await startMockModelServer(options(protocol));
+      servers.push(server);
+      const content = [{ type: 'image_url', image_url: 'fixture.invalid' }];
+      const request = {
+        ...body(protocol),
+        ...(protocol === 'messages'
+          ? { messages: [{ role: 'user', content }] }
+          : { input: [{ role: 'user', content }] }),
+      };
+      expect((await post(server, protocol, request)).status).toBe(409);
+      expect(server.snapshot()).toMatchObject({ completedTurns: 0, sideRequestsSeen: 0 });
+    }
+  );
+  it('requires matching explicit scripted input and at most two side calls', async () => {
+    const unowned = options('messages');
+    delete (unowned.turns[0] as Partial<ScriptedTextTurn> & { inputText?: string }).inputText;
+    await expect(startMockModelServer(unowned)).rejects.toThrow('MOCK_CONFIG');
+    const tooMany = options('messages');
+    tooMany.sideRequests[0].maxCalls = 3;
+    await expect(startMockModelServer(tooMany)).rejects.toThrow('MOCK_CONFIG');
+  });
+  it.each(['messages', 'responses'] as const)(
+    'matches plain %s user text blocks without consuming a side allowance',
+    async (protocol) => {
+      const server = await startMockModelServer(options(protocol));
+      servers.push(server);
+      const content = [{ type: protocol === 'messages' ? 'text' : 'input_text', text: prompt }];
+      const request = {
+        ...body(protocol),
+        ...(protocol === 'messages'
+          ? {
+              messages: [
+                { role: 'user', content },
+                { role: 'assistant', content: 'Older output' },
+              ],
+            }
+          : {
+              input: [
+                { role: 'user', content },
+                { role: 'assistant', content: 'Older output' },
+              ],
+            }),
+      };
+      expect((await post(server, protocol, request)).status).toBe(200);
+      expect(server.snapshot()).toMatchObject({ completedTurns: 1, sideRequestsSeen: 0 });
+    }
+  );
+  it('refuses empty user text instead of treating it as a background request', async () => {
+    const server = await startMockModelServer(options('responses'));
+    servers.push(server);
+    expect((await post(server, 'responses', { ...body('responses'), input: '   ' })).status).toBe(
+      409
+    );
+    expect(server.snapshot()).toMatchObject({ completedTurns: 0, sideRequestsSeen: 0 });
+  });
+  it('requires the scripted turn input even without side-call declarations', async () => {
+    const server = await startMockModelServer({
+      turns: [{ ...turn('messages'), inputText: prompt }],
+    });
+    servers.push(server);
+    expect((await post(server, 'messages', different('messages'))).status).toBe(409);
+    expect(server.snapshot().completedTurns).toBe(0);
+  });
+});
+
+describe('bounded synthetic input mismatch diagnostics', () => {
+  it('hashes exact UTF-8 bytes and emits no excerpts for equal text', () => {
+    const diagnostic = describeMockInputMismatch('abc', 'abc');
+    expect(diagnostic.parsed).toEqual({
+      state: 'text',
+      bytes: 3,
+      sha256: 'ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad',
+    });
+    expect(diagnostic.scripted).toEqual({ bytes: 3, sha256: diagnostic.parsed.sha256 });
+    expect(diagnostic.firstDifferingByte).toBeNull();
+    expect(diagnostic.excerpts).toEqual({ parsed: '', scripted: '' });
+  });
+
+  it.each([
+    ['ab', 'abcd', 2],
+    ['abcd', 'ab', 2],
+    ['abc', 'axc', 1],
+    ['\u00e9x', '\u00eax', 1],
+  ] as const)('locates the first differing UTF-8 byte of %j and %j', (parsed, scripted, offset) => {
+    expect(describeMockInputMismatch(parsed, scripted).firstDifferingByte).toBe(offset);
+  });
+
+  it('reports unavailable parsed text and rejects request or header objects at the seam', () => {
+    expect(describeMockInputMismatch(undefined, 'expected')).toMatchObject({
+      parsed: { state: 'missing_or_unsupported', bytes: null, sha256: null },
+      firstDifferingByte: null,
+    });
+    for (const value of [
+      null,
+      7,
+      { headers: { authorization: 'must-not-retain' }, messages: [] },
+    ]) {
+      expect(() => describeMockInputMismatch(value as unknown as string, 'expected')).toThrow(
+        'text only'
+      );
+      expect(() => describeMockInputMismatch('parsed', value as unknown as string)).toThrow(
+        'text only'
+      );
+    }
+  });
+
+  it('bounds both excerpts together and cuts only at UTF-8 boundaries', () => {
+    const prefix = String.fromCodePoint(0x1f680).repeat(79);
+    const parsed = `${prefix}actual${String.fromCodePoint(0x1f680).repeat(100)}`;
+    const scripted = `${prefix}expected${String.fromCodePoint(0x1f680).repeat(100)}`;
+    const diagnostic = describeMockInputMismatch(parsed, scripted);
+    expect(diagnostic.firstDifferingByte).toBe(316);
+    const excerpts = Object.values(diagnostic.excerpts);
+    expect(excerpts.reduce((size, text) => size + Buffer.byteLength(text), 0)).toBeLessThanOrEqual(
+      512
+    );
+    expect(excerpts.join('')).not.toContain('\ufffd');
+    expect(diagnostic.excerpts.parsed).toContain('actual');
+    expect(diagnostic.excerpts.scripted).toContain('expected');
+  });
+
+  it('redacts the synthetic credential before any excerpt window can split it', () => {
+    const parsed = `${'x'.repeat(130)}${MOCK_MODEL_TOKEN}${'y'.repeat(400)}`;
+    const diagnostic = describeMockInputMismatch(parsed, `${'x'.repeat(130)}different`);
+    expect(diagnostic.parsed.bytes).toBe(Buffer.byteLength(parsed));
+    const output = JSON.stringify(diagnostic);
+    expect(output).not.toContain(MOCK_MODEL_TOKEN);
+    expect(output).not.toContain('tmt-synthetic');
+    expect(output).toContain('*'.repeat(MOCK_MODEL_TOKEN.length));
+  });
+
+  it('reports only the refused last-user mismatch without consuming a turn or changing census', async () => {
+    const seen: MockInputMismatch[] = [];
+    const server = await startMockModelServer({
+      turns: [{ ...turn('messages'), inputText: 'synthetic expected' }],
+      onInputMismatch: (value) => seen.push(value),
+    });
+    servers.push(server);
+    const response = await fetch(`${server.baseUrl}/v1/messages`, {
+      method: 'POST',
+      headers: {
+        authorization: `Bearer ${MOCK_MODEL_TOKEN}`,
+        'content-type': 'application/json',
+        'x-private-fixture-header': 'header-not-evidence',
+      },
+      body: JSON.stringify({
+        model: 'fixture-model',
+        messages: [
+          { role: 'assistant', content: 'earlier-message-not-evidence' },
+          { role: 'user', content: 'synthetic actual' },
+        ],
+      }),
+      signal: AbortSignal.timeout(2000),
+    });
+    expect(response.status).toBe(409);
+    expect((await response.json()).error.code).toBe('MOCK_TURN_INPUT');
+    expect(seen).toHaveLength(1);
+    expect(seen[0].excerpts).toEqual({
+      parsed: 'synthetic actual',
+      scripted: 'synthetic expected',
+    });
+    expect(JSON.stringify(seen)).not.toMatch(
+      /header-not-evidence|earlier-message-not-evidence|authorization/
+    );
+    expect(JSON.stringify(seen)).not.toContain(MOCK_MODEL_TOKEN);
+    expect(server.snapshot()).toMatchObject({
+      completedTurns: 0,
+      sideRequestsSeen: 0,
+      failure: { code: 'MOCK_TURN_INPUT' },
+    });
+    expect(JSON.stringify(server.snapshot())).not.toContain('synthetic actual');
+    await post(server, 'messages');
+    expect(seen).toHaveLength(1);
+  });
+
+  it('never diagnoses an exact scripted turn', async () => {
+    const seen: MockInputMismatch[] = [];
+    const server = await startMockModelServer({
+      turns: [{ ...turn('messages'), inputText: 'fixture input' }],
+      onInputMismatch: (value) => seen.push(value),
+    });
+    servers.push(server);
+    const response = await post(server, 'messages');
+    expect(response.status).toBe(200);
+    await response.text();
+    expect(seen).toHaveLength(0);
+    expect(server.snapshot().completedTurns).toBe(1);
+  });
 });

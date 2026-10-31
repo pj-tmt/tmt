@@ -12,6 +12,15 @@ Use this skill for the repository's Docker E2E test foundation. Keep E2E tests s
 - Exercise the real `tmt` CLI and a real tmux server.
 - Run deterministic mock agents inside tmux panes; never invoke a real AI agent, model, credential, or network service.
 - Never touch the host user's tmux server, host credentials, or unrelated processes. The container must be network-isolated.
+- Exception: the separately reviewed #4610 advisory lane may run checksum-pinned
+  real Claude/Codex binaries against the loopback scripted model server, only in
+  its hosted container with an isolated HOME/config, synthetic tokens, private
+  tmux socket and `--network none`. Manual dispatch or the `real-harness` label
+  on a same-repository PR selects it; it has no required PR/merge-group edge.
+  Exact versions must pass before a turn. No host provider settings, stores,
+  Herdr or tmux server may be touched. Downloads happen only in the derived
+  image build; publishing/caching that image outside the job requires a separate
+  distribution and licence review. This exception does not change ordinary E2E.
 - Reuse the existing E2E harness and its cleanup hooks. Every scenario must leave its temporary tmux server, socket, panes, and files cleaned up, including on assertion failure.
 - Run one focused Docker E2E selection for the changed scenarios. Run twice only
   when a lifecycle or transport change needs repeat evidence for leaks or

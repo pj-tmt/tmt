@@ -1,0 +1,74 @@
+name: Real harness advisory
+
+on:
+  workflow_dispatch:
+  pull_request:
+    types: [labeled, synchronize]
+
+permissions: {}
+
+concurrency:
+  group: real-harness-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  smoke:
+    name: Pinned real harnesses (advisory)
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.pull_request.head.repo.full_name == github.repository &&
+       contains(github.event.pull_request.labels.*.name, 'real-harness') &&
+       (github.event.action == 'synchronize' || github.event.label.name == 'real-harness'))
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: ./.github/actions/setup-docker-mirror
+      - name: Build the ordinary base then the pinned advisory layer
+        shell: bash
+        run: |
+          set -euo pipefail
+          started=$SECONDS
+          docker build --build-arg TMT_E2E_ADAPTER_TESTS=0 \
+            -f typescript/test/e2e/Dockerfile -t tmt-real-harness-base .
+          docker build -f typescript/test/e2e/real-harness.Dockerfile \
+            -t tmt-real-harness-advisory .
+          echo "HARNESS_SETUP_SECONDS=$((SECONDS - started))" >> "$GITHUB_ENV"
+      - name: Run loopback-only public CLI smoke (check is diagnostic)
+        shell: bash
+        run: |
+          set -euo pipefail
+          container="real-harness-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          mkdir -p real-harness-results
+          trap 'docker rm -f "$container" >/dev/null 2>&1 || true' EXIT
+          started=$SECONDS
+          docker create --name "$container" --init --network none \
+            --cap-drop ALL --security-opt no-new-privileges \
+            tmt-real-harness-advisory \
+            env -u TMUX -u TMUX_PANE pnpm --dir /workspace/typescript exec vp test run \
+            --config test/e2e/real-harness.config.ts
+          docker start --attach "$container" || true
+          status=$(docker inspect --format '{{.State.ExitCode}}' "$container")
+          docker cp "$container:/tmp/real-harness-results/." real-harness-results/ || true
+          export HARNESS_RUN_SECONDS=$((SECONDS - started))
+          node --input-type=module -e '
+            import { writeFileSync } from "node:fs";
+            writeFileSync("real-harness-results/timings.json", JSON.stringify({
+              setupSeconds: Number(process.env.HARNESS_SETUP_SECONDS),
+              runSeconds: Number(process.env.HARNESS_RUN_SECONDS),
+              measured: true, checkDiagnosticOnly: true
+            }, null, 2));'
+          exit "$status"
+      - name: Preserve bounded census, versions and public JSON evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: real-harness-${{ github.run_id }}-${{ github.run_attempt }}
+          path: real-harness-results/
+          if-no-files-found: warn
+          retention-days: 7
