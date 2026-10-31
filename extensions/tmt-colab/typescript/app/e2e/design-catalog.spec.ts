@@ -102,7 +102,14 @@ for (const width of [1440, 390])
                   `${entry.tag} must finish upgrading in its real catalog frame`,
                 ).toBeVisible();
                 await preview.scrollIntoViewIfNeeded();
+                await info.attach(`design-preview-${entry.tag}-${width}-${theme}`, {
+                  body: await preview.screenshot(),
+                  contentType: 'image/png',
+                });
               }
+              await catalog
+                .getByRole('heading', { name: 'GUI', exact: true })
+                .scrollIntoViewIfNeeded();
             }
 
             if (surface === 'detail') {
@@ -121,7 +128,7 @@ for (const width of [1440, 390])
           }
         }
         await info.attach(`design-${surface}-${width}-${theme}`, {
-          body: await page.screenshot({ fullPage: true }),
+          body: await page.screenshot({ fullPage: surface !== 'index' }),
           contentType: 'image/png',
         });
       });

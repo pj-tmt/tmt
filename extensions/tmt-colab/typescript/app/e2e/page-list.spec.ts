@@ -898,7 +898,7 @@ test('a reader gets search, filters and the scope, but no project writes or arch
   await expect(app(page).getByRole('button', { name: 'Project actions' })).toHaveCount(0);
 });
 
-test('the module menu is the fixed list: All pages, Shortcuts with its commands, then settings', async ({
+test('the module menu keeps All pages and Shortcuts, then Design before settings', async ({
   page,
 }) => {
   await mount(page);
@@ -912,7 +912,7 @@ test('the module menu is the fixed list: All pages, Shortcuts with its commands,
     await menu
       .locator('a[data-id]')
       .evaluateAll((nodes) => nodes.map((node) => (node as HTMLElement).dataset.id)),
-  ).toEqual(['all', 'colab-settings']);
+  ).toEqual(['all', 'design', 'colab-settings']);
   // No project rows or project commands: projects live in the list's filter. With no dashboard,
   // no Dashboards group.
   await expect(menu).not.toContainText('Dashboards');
@@ -920,6 +920,12 @@ test('the module menu is the fixed list: All pages, Shortcuts with its commands,
   await expect(menu).not.toContainText('New project');
   await expect(menu.locator('[aria-current="page"]')).toHaveCount(1);
   await expect(menu.locator('a[data-id="all"]')).toHaveAttribute('aria-current', 'page');
+  await menu.locator('a[data-id="design"]').click();
+  await expect(app(page).locator('.design-page')).toBeVisible();
+  await expect(menu.locator('[aria-current="page"]')).toHaveCount(1);
+  await expect(menu.locator('a[data-id="design"]')).toHaveAttribute('aria-current', 'page');
+  await expect(menu.locator('a[data-id="all"]')).not.toHaveAttribute('aria-current', 'page');
+  await menu.locator('a[data-id="all"]').click();
   // A project scope is a filter of All pages, which stays the one selected row.
   await scopeTo(page, 'design');
   await expect(menu.locator('[aria-current="page"]')).toHaveCount(1);
@@ -934,7 +940,7 @@ test('the module menu is the fixed list: All pages, Shortcuts with its commands,
     await menu
       .locator('a[data-id]')
       .evaluateAll((nodes) => nodes.map((node) => (node as HTMLElement).dataset.id!.split(':')[0])),
-  ).toEqual(['all', 'shell', 'colab-settings']);
+  ).toEqual(['all', 'shell', 'design', 'colab-settings']);
   const shell = menu.locator('a[data-id^="shell:"]');
   await expect(shell).toHaveText('Reading shell');
   await expect(shell).toHaveAttribute('href', /#\/pages\/[0-9a-f-]+$/);

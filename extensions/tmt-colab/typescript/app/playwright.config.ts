@@ -3,6 +3,8 @@ const port = Number(process.env.COLAB_APP_TEST_PORT ?? 4179);
 if (!Number.isSafeInteger(port) || port < 1 || port > 65535)
   throw new Error('COLAB_APP_TEST_PORT must be a TCP port.');
 const baseURL = `http://127.0.0.1:${port}`;
+// `test:browser` builds and verifies all owned assets before this server starts.
+// Direct `playwright` invocations must prepare and freeze those assets first.
 export default defineConfig({
   testDir: './e2e',
   workers: 1,
