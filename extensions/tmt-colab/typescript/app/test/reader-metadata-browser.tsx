@@ -2,6 +2,7 @@ import { MetadataDialogs } from '../src/metadata-dialogs.js';
 import type { PageBinding } from '../src/transport.js';
 /** Read-only UI/provenance double. Real owner admission is covered by acceptance/reader.spec.ts. */
 import { createRoot, type Root } from 'react-dom/client';
+import { flushSync } from 'react-dom';
 import { canonical, digest, encodeBinary, metadataRequest, text } from '@tmt/colab-client';
 import { ReaderApp } from '../src/reader-app.js';
 import { MetadataRequests } from '../src/link-metadata.js';
@@ -198,4 +199,12 @@ export function after() {
   referenceShown = false;
   component = ReaderApp;
   paint();
+}
+
+/** Change only verified layout metadata; retain the same reader component and source. */
+export function layout(next: PageView['layout']) {
+  flushSync(() => {
+    view = { ...view, layout: next };
+    paint();
+  });
 }
