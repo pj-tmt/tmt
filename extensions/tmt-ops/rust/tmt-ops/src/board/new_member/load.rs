@@ -14,6 +14,8 @@ use std::{
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(in crate::board) enum Work {
     Load,
+    LoadEdit(String),
+    Edit(Box<super::edit::model::Plan>),
     Save {
         host: String,
         argv: Option<Vec<String>>,
@@ -49,6 +51,14 @@ pub(in crate::board) struct Completed {
 }
 pub(super) enum Outcome {
     Loaded(Box<Loaded>),
+    EditLoaded {
+        loaded: Box<Loaded>,
+        preset: Result<super::edit::model::Preset, String>,
+    },
+    Edited {
+        message: String,
+        preferences: Option<crate::config::OpsPreferences>,
+    },
     Created {
         id: String,
         room: Option<String>,
@@ -58,6 +68,21 @@ pub(super) enum Outcome {
 pub(in crate::board) fn complete(core: &Core, task: Task) -> Completed {
     let result = match &task.work {
         Work::Load => read(core).map(|loaded| Outcome::Loaded(Box::new(loaded))),
+        Work::LoadEdit(id) => read(core).map(|loaded| Outcome::EditLoaded {
+            loaded: Box::new(loaded),
+            preset: super::edit::model::Preset::read(core, id),
+        }),
+        Work::Edit(plan) => match task.config.clone() {
+            Some(config) => {
+                super::edit::load::apply(core, plan, *config).map(|(message, preferences)| {
+                    Outcome::Edited {
+                        message,
+                        preferences,
+                    }
+                })
+            }
+            None => Err(unavailable("Edit requires its held Config.")),
+        },
         Work::Save { .. } => {
             return match task.config.clone() {
                 Some(config) => save(core, task, *config),

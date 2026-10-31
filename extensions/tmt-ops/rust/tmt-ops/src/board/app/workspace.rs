@@ -656,6 +656,7 @@ impl App {
                         OpsUiAction::AgentsFilter
                             | OpsUiAction::IdleAlert
                             | OpsUiAction::NewMember
+                            | OpsUiAction::Edit
                             | OpsUiAction::SwitchTool
                             | OpsUiAction::DiscoverAgents
                             | OpsUiAction::RenameMember
@@ -796,12 +797,6 @@ impl App {
 
     fn workspace_factory_actions(&self) -> Bindings {
         let mut keys = Bindings::new();
-        if self.shell.tab == OpsTab::Agents && self.focused() == Pane::Rows {
-            keys.insert(
-                "i".into(),
-                Action::parse("idle-alert").expect("idle alert action"),
-            );
-        }
         if self.shell.tab == OpsTab::Digest && self.focused() == Pane::Rows {
             keys.insert(
                 "e".into(),
@@ -1198,8 +1193,12 @@ impl App {
             TerminalZoom => return self.toggle_terminal_zoom(),
             IdleAlert => return self.open_idle_alert(None),
             NewMember => return self.open_new_member(),
+            Edit => return self.open_member_edit(),
             SwitchTool => return self.open_switch_tool(),
-            MonitorDetails => return self.overview_details(),
+            MonitorDetails => {
+                self.right_tab = super::super::shell::RightTab::Measure;
+                return self.overview_details();
+            }
             DigestDetails => {
                 if self.shell.tab != crate::board::shell::OpsTab::Digest {
                     return self.say("Details tabs are on the Digest tab.");
@@ -1800,7 +1799,16 @@ pub(in crate::board) fn not_applied(code: &str) -> bool {
 
 /// Preserve per-item evidence rather than replacing a partial batch with a
 /// generic success/failure banner. Errors can follow a write, so say Unknown.
-fn operation_results(document: &Value) -> String {
+pub(in crate::board) fn operation_results(document: &Value) -> String {
+    let lines = operation_result_lines(document);
+    if lines.is_empty() {
+        serde_json::to_string_pretty(document).unwrap_or_default()
+    } else {
+        lines.join("\n")
+    }
+}
+/// Per-item facts shared by compound Edit; callers retain their own empty-result wording.
+pub(in crate::board) fn operation_result_lines(document: &Value) -> Vec<String> {
     fn collect(value: &Value, lines: &mut Vec<String>) {
         if let Some(results) = value.get("results").and_then(Value::as_array) {
             for item in results {
@@ -1829,11 +1837,7 @@ fn operation_results(document: &Value) -> String {
     }
     let mut lines = Vec::new();
     collect(document, &mut lines);
-    if lines.is_empty() {
-        serde_json::to_string_pretty(document).unwrap_or_default()
-    } else {
-        lines.join("\n")
-    }
+    lines
 }
 
 #[cfg(test)]

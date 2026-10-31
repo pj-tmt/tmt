@@ -4,7 +4,7 @@ use super::*;
 use crate::board::app::workspace::tests::board;
 use crate::{config::Config, core::SquadError};
 use serde_json::json;
-fn loaded() -> Loaded {
+pub(super) fn loaded() -> Loaded {
     Loaded{caller_host:Default::default(),hosts:crate::launch::hosts(&json!({"version":1,"hosts":[{"host":"herdr","state":"ok","launch":null},{"host":"tmux","state":"builtin","launch":{"argv":["host","{session}","{command}"],"placeholders":["session","command"]}},{"host":"pty","state":"builtin","launch":{"argv":["pty-host","{session}","{command}"],"placeholders":["session","command"]}}]})).unwrap(),config:Config::read(std::env::temp_dir().join(format!("ops-new-member-missing-{}",crate::id::new_v4().unwrap()))).unwrap(),executable:"/tool/tmt".into(),display_executable:"tmt".into(),
     choices:[("codex".to_owned(),crate::board::host_launch::LaunchChoices{models:vec!["gpt-6.1-sol".into(),"gpt-6.1-terra".into()],efforts:vec!["low".into(),"medium".into(),"high".into()]})].into()}
 }
@@ -784,4 +784,210 @@ fn edit_squad_key_opens_the_squad_form_before_worker_io() {
         "e must open the selected squad edit form"
     );
     assert_eq!(app.workspace.selected, Some(OpsTarget::Squad(room.into())));
+}
+
+pub(super) fn edit_member_form() -> App {
+    let mut app = board();
+    let id = crate::board::app::workspace::tests::MEMBER;
+    app.references = crate::board::inventory::Inventory::from_listed(&Ok(json!({"identities":[{
+        "id":id,"name":"worker","pane":"%old","driverSupport":"full","runningDriver":"codex",
+        "location":{"host":"tmux","session":"work"},
+        "resume":{"driver":"codex","session":"thread-worker","model":"gpt-6.1-sol","observedModel":{"model":"gpt-6.1-sol","observedAtMs":100}}
+    }]})));
+    let Effect::NewMember(task) = app.open_member_edit() else {
+        panic!("Edit must schedule its existing lane read")
+    };
+    app.finished_new_member(Completed {
+        task,
+        result: Ok(Outcome::EditLoaded {
+            loaded: Box::new(loaded()),
+            preset: Ok(super::edit::model::Preset {
+                executable: Some("codex".into()),
+                model: None,
+                effort: None,
+                associated: true,
+            }),
+        }),
+    });
+    app
+}
+#[test]
+fn edit_plan_is_noop_until_a_field_changes_and_name_alone_never_relaunches() {
+    let _ui = crate::runner::forbid_commands();
+    let mut app = edit_member_form();
+    let c = app.new_member.as_mut().unwrap();
+    let edit = c.edit.as_ref().unwrap();
+    let plan = edit.plan(&c.draft, c.loaded.as_ref().unwrap()).unwrap();
+    assert!(plan.empty());
+    assert_eq!(plan.lines("tmt"), ["nothing changed yet"]);
+    c.draft.set(model::Slot::Name, "renamed worker");
+    let plan = c
+        .edit
+        .as_ref()
+        .unwrap()
+        .plan(&c.draft, c.loaded.as_ref().unwrap())
+        .unwrap();
+    assert_eq!(plan.rename.as_deref(), Some("renamed worker"));
+    assert!(plan.runtime.is_none());
+    assert!(plan.membership.is_none());
+    assert_eq!(plan.lines("tmt"), ["tmt mv worker 'renamed worker'"]);
+}
+#[test]
+fn edit_plan_coalesces_same_driver_model_and_effort_into_one_resume() {
+    let _ui = crate::runner::forbid_commands();
+    let mut app = edit_member_form();
+    let c = app.new_member.as_mut().unwrap();
+    c.draft.set(model::Slot::Model, "gpt-6.1-terra");
+    c.draft.set(model::Slot::Effort, "high");
+    let plan = c
+        .edit
+        .as_ref()
+        .unwrap()
+        .plan(&c.draft, c.loaded.as_ref().unwrap())
+        .unwrap();
+    let runtime = plan.runtime.as_ref().unwrap();
+    assert_eq!(
+        runtime
+            .command
+            .iter()
+            .filter(|w| w.as_str() == "resume")
+            .count(),
+        1
+    );
+    assert!(runtime.command.iter().any(|w| w == "--driver=codex"));
+    assert!(runtime.command.iter().any(|w| w == "--model=gpt-6.1-terra"));
+    assert!(runtime.command.iter().any(|w| w == "--effort=high"));
+    let mut same_container = json!({"id":crate::board::app::workspace::tests::MEMBER,"pane":"%old","runningDriver":"codex","location":{"host":"tmux","session":"work"},"resume":{"observedModel":{"model":"gpt-6.1-terra","observedAtMs":200}}});
+    assert!(
+        !runtime.observed(&same_container),
+        "a model event in the old container is not a relaunch"
+    );
+    same_container["pane"] = json!("%new");
+    assert!(runtime.observed(&same_container));
+
+    assert!(!runtime.observed(&json!({"id":crate::board::app::workspace::tests::MEMBER,"runningDriver":"codex","location":{"host":"tmux","session":"work"},"resume":{"observedModel":{"model":"gpt-6.1-sol","observedAtMs":100}}})),"old same-driver evidence cannot confirm a relaunch");
+}
+#[test]
+fn edit_plan_common_pool_removes_only_the_single_selected_membership() {
+    let _ui = crate::runner::forbid_commands();
+    let mut app = edit_member_form();
+    let c = app.new_member.as_mut().unwrap();
+    c.draft.set(model::Slot::Squad, "");
+    let plan = c
+        .edit
+        .as_ref()
+        .unwrap()
+        .plan(&c.draft, c.loaded.as_ref().unwrap())
+        .unwrap();
+    let Some(crate::membership::workspace::Operation::Remove { room, member }) = plan.membership
+    else {
+        panic!("Common pool means leave the selected membership")
+    };
+    assert_eq!(room.id, crate::board::app::workspace::tests::ROOM);
+    assert_eq!(member, crate::board::app::workspace::tests::MEMBER);
+    assert!(plan.rename.is_none());
+    assert!(plan.runtime.is_none());
+}
+
+#[test]
+fn edit_draft_reopens_only_for_its_frozen_target_and_enter_does_not_save_text() {
+    let _ui = crate::runner::forbid_commands();
+    let mut app = edit_member_form();
+    app.new_member
+        .as_mut()
+        .unwrap()
+        .draft
+        .set(model::Slot::Name, "kept-name");
+    paint(&app, 160, 36);
+    assert_eq!(key(&mut app, KeyCode::Enter), Effect::None);
+    assert!(app.new_member_shown());
+    assert_eq!(app.new_member.as_ref().unwrap().stage, Stage::Form);
+    key(&mut app, KeyCode::Esc);
+    assert!(!app.new_member_shown());
+    app.open_member_edit();
+    assert!(app.new_member_shown());
+    assert_eq!(
+        app.new_member
+            .as_ref()
+            .unwrap()
+            .draft
+            .text(model::Slot::Name),
+        "kept-name"
+    );
+    key(&mut app, KeyCode::Esc);
+    app.workspace.selected = Some(OpsTarget::Squad(
+        crate::board::app::workspace::tests::ROOM.into(),
+    ));
+    app.open_member_edit();
+    assert!(
+        app.new_member_shown(),
+        "a kept draft remains accessible for Discard even if its row disappeared"
+    );
+    assert!(
+        paint(&app, 160, 36).contains("Edit member"),
+        "the new target never adopts the old draft"
+    );
+    assert_eq!(
+        app.new_member
+            .as_ref()
+            .unwrap()
+            .draft
+            .text(model::Slot::Name),
+        "kept-name"
+    );
+}
+
+#[test]
+fn edit_pending_hides_reopens_and_never_replays_save() {
+    let _ui = crate::runner::forbid_commands();
+    let mut app = edit_member_form();
+    app.new_member
+        .as_mut()
+        .unwrap()
+        .draft
+        .set(model::Slot::Name, "renamed");
+    for _ in 0..5 {
+        key(&mut app, KeyCode::Down);
+    }
+    key(&mut app, KeyCode::Right);
+    paint(&app, 160, 36);
+    let Effect::NewMember(task) = key(&mut app, KeyCode::Enter) else {
+        panic!("the painted Save must dispatch once")
+    };
+    assert!(matches!(task.work, Work::Edit(_)));
+    assert_eq!(key(&mut app, KeyCode::Enter), Effect::None);
+    key(&mut app, KeyCode::Esc);
+    assert!(!app.new_member_shown());
+    app.open_member_edit();
+    assert_eq!(app.new_member.as_ref().unwrap().stage, Stage::Launching);
+    assert_eq!(key(&mut app, KeyCode::Enter), Effect::None);
+    app.finished_new_member(Completed {
+        task,
+        result: Ok(Outcome::Edited {
+            message: "✓ Applied · Name: renamed".into(),
+            preferences: None,
+        }),
+    });
+    assert!(matches!(
+        app.new_member.as_ref().unwrap().stage,
+        Stage::Result(_)
+    ));
+}
+
+#[test]
+fn edit_resize_invalidates_mouse_admission_without_dropping_the_draft() {
+    let _ui = crate::runner::forbid_commands();
+    let mut app = edit_member_form();
+    paint(&app, 160, 36);
+    app.overlay_event(&Event::Resize(60, 8));
+    app.overlay_event(&Event::Mouse(ratatui::crossterm::event::MouseEvent {
+        kind: MouseEventKind::Down(MouseButton::Left),
+        column: 0,
+        row: 0,
+        modifiers: KeyModifiers::NONE,
+    }));
+    assert!(
+        app.new_member_shown(),
+        "stale geometry cannot admit an outside press"
+    );
 }

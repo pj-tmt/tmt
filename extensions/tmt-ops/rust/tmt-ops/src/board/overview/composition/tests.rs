@@ -172,6 +172,9 @@ fn eight_rows_keep_view_details_and_usage_keys_without_a_table_header() {
     for width in [60, 100, 160] {
         let mut app = board();
         waiting(&mut app);
+        app.references = crate::board::inventory::Inventory::from_listed(&Ok(
+            serde_json::json!({"identities":[{"id":MEMBER,"name":"worker"}]}),
+        ));
         let selected = app.workspace.selected.clone();
         crate::board::app::workspace::tests::open_usage_controls(&mut app);
         assert!(!app.usage_controls);
@@ -187,7 +190,15 @@ fn eight_rows_keep_view_details_and_usage_keys_without_a_table_header() {
         assert!(app.workspace.filter == crate::board::workspace::AgentsFilter::Agents);
         assert_eq!(app.workspace.selected, selected);
         key(&mut app, KeyCode::Char('e'));
-        assert!(app.monitor_details.is_some());
+        assert!(app.new_member_shown(), "e opens Edit even at eight rows");
+        assert!(app.monitor_details.is_none());
+        key(&mut app, KeyCode::Esc);
+        app.perform(&crate::action::Action::parse("monitor-details").unwrap());
+        assert_eq!(app.right_tab, crate::board::shell::RightTab::Measure);
+        assert!(
+            app.monitor_details.is_some(),
+            "the same full values remain reachable from Measure"
+        );
         key(&mut app, KeyCode::Esc);
         assert!(app.monitor_details.is_none());
         app.invalidate_frame_geometry();

@@ -57,6 +57,29 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
         );
         y += 1;
     }
+    if matches!(app.workspace.selected, Some(OpsTarget::Member { .. }))
+        && bottom.saturating_sub(y) >= 2
+    {
+        let button = tmt_tui::components::Button::secondary("Observed values");
+        let hits = crate::board::buttons::paint(
+            app,
+            frame.buffer_mut(),
+            Rect::new(area.x, y, area.width, 1),
+            &[button],
+            tmt_cli_style::grid::Align::Left,
+            None,
+        );
+        if let Some(Some(hit)) = hits.first() {
+            app.workspace_strip_hits.borrow_mut().push((
+                *hit,
+                crate::board::app::Choice::Action(
+                    crate::action::Action::parse("monitor-details")
+                        .expect("observed values action"),
+                ),
+            ));
+        }
+        y += 2;
+    }
     let rule = |frame: &mut Frame, y: u16, title: &str, note: Line<'static>| {
         section_rule::paint(
             frame.buffer_mut(),

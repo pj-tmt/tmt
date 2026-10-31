@@ -729,24 +729,28 @@ exec ${quote(peer)} ${quote(fixture.executables.cli.executable)} ${quote(scenari
       fixture.tmux(['send-keys', '-t', board, 'Enter']);
       await fixture.waitForCapture((screen) => /\/[ \t]+Search/.test(screen), board);
       fixture.tmux(['send-keys', '-t', board, '/', 'worker', 'Enter', 'End']);
-      await fixture.waitForCapture((screen) => screen.includes('S switch tool'), board);
-      fixture.tmux(['send-keys', '-t', board, 'S']);
+      await fixture.waitForCapture((screen) => screen.includes('e edit'), board);
+      fixture.tmux(['send-keys', '-t', board, 'e']);
       await fixture.waitForCapture(
-        (screen) => screen.includes('Switch AI tool') && screen.includes('choose or type tool'),
+        (screen) => screen.includes('Edit member') && screen.includes('nothing changed yet'),
         board
       );
+      // Name is first; choose Tool and Model through the same lists as New member.
+      fixture.tmux(['send-keys', '-t', board, 'Down', 'Enter']);
+      await fixture.waitForCapture((screen) => screen.includes('AI tool · choose'), board);
       fixture.tmux(['send-keys', '-l', '-t', board, 'claude']);
-      // ↓ moves to Model, then to Cancel; → reaches Review.
-      fixture.tmux(['send-keys', '-t', board, 'Down']);
+      fixture.tmux(['send-keys', '-t', board, 'Enter', 'Down', 'Enter']);
+      await fixture.waitForCapture((screen) => screen.includes('Model · choose'), board);
       fixture.tmux(['send-keys', '-l', '-t', board, 'switch-model']);
-      fixture.tmux(['send-keys', '-t', board, 'Down', 'Right', 'Enter']);
+      fixture.tmux(['send-keys', '-t', board, 'Enter']);
       await fixture.waitForCapture(
-        (screen) => screen.includes('Opens with') && screen.includes('--driver=claude'),
+        (screen) => screen.includes('Runs') && screen.includes('--driver=claude') &&
+          screen.includes('--model=switch-model'),
         board
       );
-      fixture.tmux(['send-keys', '-t', board, 'Right']);
-      await fixture.waitForCapture((screen) => screen.includes('Opens with'), board);
-      fixture.tmux(['send-keys', '-t', board, 'Enter']);
+      // Down stops at the footer, whether the driver's Effort field is present or not.
+      // Cancel is first; Right chooses the one coalesced Save.
+      fixture.tmux(['send-keys', '-t', board, 'Down', 'Down', 'Down', 'Down', 'Right', 'Enter']);
       try {
         await fixture.waitFor(
           () => fixture.capture(100, board).includes('worker is running claude'),
@@ -772,6 +776,10 @@ exec ${quote(peer)} ${quote(fixture.executables.cli.executable)} ${quote(scenari
       await waitForFileContent(path.join(fixture.root, 'switch-claude.report.json'), {
         description: 'requested lifecycle',
       });
+      const resultScreen = fixture.capture(100, board);
+      // This peer reports no model in SessionStart: launch evidence is not a model receipt.
+      expect(resultScreen).toContain('Observed model: unavailable');
+      expect(resultScreen).toContain('Requested model: switch-model');
       expect(durableIdentity(fixture, 'worker')).toEqual(identity);
       expect(fs.readFileSync(notes, 'utf8')).toBe('Current work: causal Ops switch 4584.');
       const calls = fs
@@ -816,7 +824,7 @@ exec ${quote(peer)} ${quote(fixture.executables.cli.executable)} ${quote(scenari
         source
       );
       fixture.tmux(['send-keys', '-t', board, 'Escape']);
-      await fixture.waitForCapture((screen) => !screen.includes('Switch AI tool'), board);
+      await fixture.waitForCapture((screen) => !screen.includes('Edit member'), board);
       fixture.tmux(['send-keys', '-t', board, 'q']);
       await fixture.waitForCapture((screen) => screen.includes('SWITCH_BOARD_EXIT=0'), board);
     });

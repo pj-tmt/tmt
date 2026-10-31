@@ -92,7 +92,7 @@ fn one_literal_launch_observes_same_uuid_and_reports_observed_not_requested_mode
     let review = f.review();
     let outcome = load::launch(&f.core, &review, Duration::from_secs(2)).unwrap();
     assert!(
-        matches!(outcome,Outcome::Switched(ref text) if text.contains("Observed model: observed-model")&&!text.contains("Observed model: a'b"))
+        matches!(outcome,Outcome::Switched(ref text) if text.message.contains("Observed model: observed-model")&&!text.message.contains("Observed model: a'b"))
     );
     let calls = f.launches();
     assert_eq!(calls.lines().count(), 1);

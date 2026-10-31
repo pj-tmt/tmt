@@ -17,7 +17,7 @@ Agents or Digest destination through `shell::OpsShell`.
 | `workspace::observe`  | Roster, room and document projection from one acquisition                                 |
 | `workspace::render`   | Dense tree, clipped hits, squad detail and management dialog                              |
 | `workspace::manage`   | Frozen management operations and guarded effects                                          |
-| `new_member`          | Async new-member form, frozen host launch and bound-UUID result                           |
+| `new_member`          | New/Edit forms, changed-only saves and frozen host launch                           |
 | `app::workspace`      | UUID selection, effective bindings and workspace routing                                  |
 | `conversation`        | Shared selected-agent response, source and follow state                                   |
 | `view::waiting`       | WP1 composer and completion geometry                                                      |

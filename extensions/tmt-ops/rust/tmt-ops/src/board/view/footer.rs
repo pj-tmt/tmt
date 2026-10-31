@@ -366,7 +366,7 @@ fn agents_legend(app: &App) -> Option<Hints> {
     let row: &[(Ui, &str, &str)] = if app.workspace_selected_member().is_some() {
         &[
             (Ui::NewMember, "n", "new"),
-            (Ui::SwitchTool, "S", "switch tool"),
+            (Ui::Edit, "e", "edit"),
             (Ui::MoveMembership, "m", "move"),
             (Ui::RemoveMembership, "x", "leave squad"),
             (Ui::MemberSession, "R", "resume"),
@@ -382,7 +382,7 @@ fn agents_legend(app: &App) -> Option<Hints> {
             {
                 &[
                     (Ui::NewMember, "n", "new"),
-                    (Ui::IdleAlert, "i", "idle alert"),
+                    (Ui::Edit, "e", "edit"),
                     (Ui::Manage, "m", "manage"),
                     (Ui::CreateSquad, "N", "create squad"),
                     (Ui::ShowSquad, "S", ""),
@@ -390,7 +390,7 @@ fn agents_legend(app: &App) -> Option<Hints> {
             }
             Some(OpsTarget::Squad(_)) => &[
                 (Ui::NewMember, "n", "new"),
-                (Ui::IdleAlert, "i", "idle alert"),
+                (Ui::Edit, "e", "edit"),
                 (Ui::Manage, "m", "manage"),
                 (Ui::CreateSquad, "N", "create squad"),
                 (Ui::HideSquad, "H", ""),

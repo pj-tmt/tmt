@@ -596,7 +596,8 @@ fn member_footer_uses_effective_crud_bindings_and_never_advertises_future_action
     for hint in ["n new", "m move", "R resume", "x leave squad"] {
         assert!(text.contains(hint), "{hint}: {text}");
     }
-    assert!(text.contains("S switch tool"));
+    assert!(text.contains("e edit"), "{text}");
+    assert!(!text.contains("S switch tool"));
     assert!(!text.contains("r rename"));
     assert!(!text.contains("d remove"));
     app.shell.tab = OpsTab::Digest;
@@ -662,13 +663,21 @@ fn rename_command_quotes_only_shell_sensitive_values_and_protects_option_operand
 }
 
 #[test]
-fn switch_tool_is_member_only_preserves_squad_s_and_opens_before_io() {
-    let mut app = board();
-    assert_eq!(app.bindings()["S"].text, "switch-tool");
+fn edit_replaces_member_s_preserves_squad_s_and_opens_before_io() {
+    let mut app = configured_member(
+        "",
+        json!({"id":MEMBER,"name":"worker","runningDriver":"codex","location":{"host":"tmux","session":"work"}}),
+    );
+    app.references = crate::board::inventory::Inventory::from_listed(&Ok(json!({
+        "identities": [{"id": MEMBER, "name": "worker", "runningDriver": "codex",
+            "location": {"host": "tmux", "session": "work"}}]
+    })));
+    assert!(!app.bindings().contains_key("S"));
+    assert_eq!(app.bindings()["e"].text, "edit");
     let _no_commands = crate::runner::forbid_commands();
-    key(&mut app, KeyCode::Char('S'));
+    key(&mut app, KeyCode::Char('e'));
     let text = paint(&app, 150, 43).join("\n");
-    assert!(text.contains("Switch AI tool"));
+    assert!(text.contains("Edit member"));
     assert!(text.contains("Loading"));
     key(&mut app, KeyCode::Esc);
     app.workspace.selected = Some(OpsTarget::Squad(ROOM.into()));

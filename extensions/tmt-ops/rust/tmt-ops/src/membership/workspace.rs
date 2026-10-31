@@ -10,7 +10,7 @@ pub struct RoomTarget {
     pub revision: u64,
 }
 impl RoomTarget {
-    fn admit(&self, core: &Core) -> Result<Squad, SquadError> {
+    pub(crate) fn admit(&self, core: &Core) -> Result<Squad, SquadError> {
         let shown = core.json(&["room", "show", &self.id])?;
         let room = &shown["room"];
         if room["id"] != self.id

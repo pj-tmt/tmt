@@ -20,9 +20,13 @@ pub(in crate::board) struct Completed {
     pub(super) task: Task,
     pub(super) result: Result<Outcome, SquadError>,
 }
+pub(super) struct Observed {
+    pub message: String,
+    pub model: Option<String>,
+}
 pub(super) enum Outcome {
     Loaded(Box<host_launch::Loaded>),
-    Switched(String),
+    Switched(Observed),
     Unknown(String),
 }
 pub(in crate::board) fn complete(core: &Core, task: Task) -> Completed {
@@ -99,14 +103,16 @@ pub(super) fn launch(
         {
             let model = row["resume"]["observedModel"]["model"]
                 .as_str()
-                .unwrap_or("unavailable");
-            return Ok(Outcome::Switched(format!(
-                "{} is running {} in {} / {}.\nObserved model: {model}\nName, UUID, notes and open requests stay.",
+                .map(str::to_owned);
+            let message = format!(
+                "{} is running {} in {} / {}.\nObserved model: {}\nName, UUID, notes and open requests stay.",
                 review.source.name,
                 review.driver,
                 review.source.host(),
-                review.source.session()
-            )));
+                review.source.session(),
+                model.as_deref().unwrap_or("unavailable")
+            );
+            return Ok(Outcome::Switched(Observed { message, model }));
         }
         std::thread::sleep(remaining.min(Duration::from_secs(1)));
     }

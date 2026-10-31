@@ -401,9 +401,9 @@ it as it is.
   band, so it never lands on a row and drops the draft.
 - Every other overlay is a dialog and takes the press. That covers the forms, Settings, Timer review,
   the theme and panels pickers, Recovery, both Checklists, the reply reader, Unread, Discovery,
-  Session, New agent, Switch tool, Idle alert and the Usage controls dropdown.
+  Session, New agent, Edit, authored Switch tool, Idle alert and the Usage controls dropdown.
 - An outside press keeps what Esc keeps (the conversation Checklist's unsent form included).
-- A dialog whose operation is running (New agent launch or template save, Switch tool, Idle alert
+- A dialog whose operation is running (New agent launch or template save, Edit save, authored Switch tool, Idle alert
   save, room Checklist update, a pending workspace form) hides instead of closing. The status line
   says it is running, then names the result and the key that reopens it.
 - `home::tests::dialog_dismiss::assert_close_rule` is the shared test. `close_rule_test` names

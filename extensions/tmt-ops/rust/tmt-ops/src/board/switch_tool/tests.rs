@@ -123,7 +123,10 @@ fn pending_cannot_replay_and_late_completion_cannot_replace_another_owner() {
     };
     app.finished_switch_tool(Completed {
         task,
-        result: Ok(Outcome::Switched("old result".into())),
+        result: Ok(Outcome::Switched(load::Observed {
+            message: "old result".into(),
+            model: None,
+        })),
     });
     assert_eq!(app.switch_tool.as_ref().unwrap().stage, Stage::Form);
     assert!(app.switch_tool.as_ref().unwrap().loaded.is_none());
@@ -226,9 +229,10 @@ fn modal_revision_pending_hides_reopens_and_keeps_one_outcome() {
     key(&mut app, KeyCode::Esc);
     app.finished_switch_tool(Completed {
         task,
-        result: Ok(Outcome::Switched(
-            "worker is running claude in tmux / work".into(),
-        )),
+        result: Ok(Outcome::Switched(load::Observed {
+            message: "worker is running claude in tmux / work".into(),
+            model: None,
+        })),
     });
     assert!(
         app.overlay().is_none(),

@@ -310,6 +310,7 @@ pub(crate) fn defaults(scope: OpsKeyScope) -> Bindings {
     match scope {
         OpsKeyScope::Reader => {}
         OpsKeyScope::Squad => entries.extend([
+            ("e", "edit"),
             ("j", "jump"),
             ("o", "open"),
             ("D", "digest"),
@@ -321,7 +322,7 @@ pub(crate) fn defaults(scope: OpsKeyScope) -> Bindings {
         ]),
         OpsKeyScope::Member => entries.extend([
             ("p", "pin"),
-            ("e", "monitor-details"),
+            ("e", "edit"),
             ("enter", "talk"),
             ("j", "jump"),
             ("o", "open"),
@@ -330,7 +331,6 @@ pub(crate) fn defaults(scope: OpsKeyScope) -> Bindings {
             ("t", "terminal"),
             ("z", "terminal-zoom"),
             ("m", "move-membership"),
-            ("S", "switch-tool"),
             ("D", "digest"),
         ]),
         OpsKeyScope::Pool => entries.extend([("m", "manage"), ("N", "create-squad")]),
@@ -1061,7 +1061,11 @@ mod tests {
             .unwrap()
             .bindings;
         assert_eq!(scoped["j"].verb, Verb::Run);
-        assert_eq!(scoped["S"].text, "switch-tool");
+        assert!(
+            !scoped.contains_key("S"),
+            "runtime changes belong in Edit by default"
+        );
+        assert_eq!(scoped["e"].text, "edit");
         for (event, action) in scoped {
             assert!(!event.is_empty());
             assert!(!action.description().is_empty());

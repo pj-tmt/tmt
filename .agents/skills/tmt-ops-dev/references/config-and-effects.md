@@ -248,6 +248,16 @@ membership target; unsupported legacy actions are reported rather than remapped.
   named edit once; a failed save keeps the draft and notice without retry; Esc drops the
   preview and uses the latest saved view.
 
+## Compound Edit persistence
+
+Agent/squad Edit uses Config's read-only `ensure_current` before any planned
+effect; this is preflight, not a replacement for each writer's atomic CAS.
+The existing idle-alert writer retains its After-first partial result, and
+confirmed visibility publication returns through the workspace preference
+owner. A rename advances only its own confirmed name/revision. Unknown steps
+stop the plan and require a new explicit review; no automatic rollback or retry
+is inferred. Form/worker ownership is in [the board reference](board.md).
+
 ## Settings inspection and editing
 
 The `?` panel settings rows offer workspace layout, the Digest window, Bindings (with j presets),
