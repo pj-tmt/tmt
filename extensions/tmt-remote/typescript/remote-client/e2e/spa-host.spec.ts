@@ -90,6 +90,7 @@ const APP_ROUTES = [
   '/remote/join',
   '/remote/overview',
   '/remote/members',
+  '/remote/invites',
   '/remote/my-devices',
   '/remote/service',
   '/remote/settings',
@@ -106,7 +107,6 @@ const APP_ROUTES = [
 const NOT_APP_ROUTES = [
   '/nope',
   '/remote/other',
-  '/remote/invites',
   '/ops/x',
   '/digest/x',
   '/settings/x',

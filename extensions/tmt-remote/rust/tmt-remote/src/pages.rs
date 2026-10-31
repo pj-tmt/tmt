@@ -52,6 +52,7 @@ pub(crate) fn app_route(path: &str) -> bool {
             | "/remote/join"
             | "/remote/overview"
             | "/remote/members"
+            | "/remote/invites"
             | "/remote/my-devices"
             | "/remote/service"
             | "/remote/settings"
