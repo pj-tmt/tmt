@@ -1,0 +1,71 @@
+name: Remote squads emulator qualifier
+
+# Advisory evidence for Remote's two-machine squads qualifier (#5767); never part of the
+# required CI aggregates. The command is owned by the Remote squads README
+# (Native CLI emulator qualifier): loopback Auth and Firestore emulators, demo project only.
+on:
+  pull_request:
+    paths:
+      - 'extensions/tmt-remote/rust/**'
+      - '.github/workflows/remote-squads-emulator.yml'
+      - 'scripts/install-ci-rust.sh'
+      - 'rust/Cargo.toml'
+      - 'rust/Cargo.lock'
+  push:
+    branches: [main]
+    paths:
+      - 'extensions/tmt-remote/rust/**'
+      - '.github/workflows/remote-squads-emulator.yml'
+      - 'scripts/install-ci-rust.sh'
+      - 'rust/Cargo.toml'
+      - 'rust/Cargo.lock'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: remote-squads-emulator-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+jobs:
+  remote-squads-emulator:
+    name: Remote squads emulator qualifier
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    env:
+      CARGO_PROFILE_DEV_DEBUG: 0
+      CARGO_INCREMENTAL: 0
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 26.12.1
+      - name: Install pinned Rust toolchain
+        run: sh scripts/install-ci-rust.sh 1.97.0 --profile minimal
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          workspaces: rust
+          shared-key: remote-squads-emulator
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      - name: Fetch locked dependencies before offline builds
+        working-directory: rust
+        run: cargo fetch --locked
+      # Compile outside the emulator step so its timeout bounds only the qualifier run.
+      - name: Build the emulator-featured door and qualifier test
+        timeout-minutes: 25
+        run: |
+          CARGO_BUILD_JOBS=3 cargo build --offline --locked --manifest-path rust/Cargo.toml -p tmt-remote --bin tmt-remote --features test-emulator
+          CARGO_BUILD_JOBS=3 cargo test --offline --locked --manifest-path rust/Cargo.toml -p tmt-remote --lib --features test-emulator --no-run
+      - name: Select the hosted Temurin 21 for the Firestore emulator
+        run: |
+          test -n "$JAVA_HOME_21_X64"
+          printf 'JAVA_HOME=%s\n' "$JAVA_HOME_21_X64" >> "$GITHUB_ENV"
+          printf '%s\n' "$JAVA_HOME_21_X64/bin" >> "$GITHUB_PATH"
+          "$JAVA_HOME_21_X64/bin/java" -version
+      - name: Install the pinned Firebase emulator tools
+        run: npm install --global firebase-tools@15.29.0
+      - name: Run the two-machine squads qualifier against Auth and Firestore emulators
+        timeout-minutes: 10
+        run: |
+          TMT_REMOTE_QUALIFIER_BIN="$PWD/rust/target/debug/tmt-remote" CARGO_BUILD_JOBS=3 firebase emulators:exec --only auth,firestore --project demo-native-pairing --config extensions/tmt-remote/rust/tmt-remote/tests/emulator/native-squads.firebase.json --non-interactive 'cargo test --offline --locked --manifest-path rust/Cargo.toml -p tmt-remote --lib --features test-emulator cloud_pairing::service::tests::emulator::squads_cli_qualifier::native_cli_squad_change_heartbeat_restart_revoke_and_budget -- --ignored --exact --test-threads=1'

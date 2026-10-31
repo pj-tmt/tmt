@@ -49,6 +49,12 @@ owns Java/Node/firebase-tools pins. Remote uses hosted Temurin; Colab's digest-p
 image uses the same pins, `--rm --init --network none`, a read-only extension mount
 and no credentials. Both fail closed within step bounds, without retries or cache.
 
+[Remote squads emulator qualifier](../../../../.github/workflows/remote-squads-emulator.yml)
+is advisory and outside required aggregates: PRs and main pushes touching Remote Rust,
+the workflow, `rust/Cargo.toml` or `rust/Cargo.lock` run the Remote squads README
+command verbatim against loopback Auth and Firestore emulators with the same pins.
+It compiles before starting the emulators, so the qualifier step stays bounded at 10 minutes.
+
 ## Worker gates
 
 `Native Rust contracts` aggregates fmt/Clippy, workspace test/build, native process

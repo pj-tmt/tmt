@@ -689,6 +689,57 @@ describe('native dependency notices selection', () => {
       "      - name: Install Linux dependencies for PRs\n        if: github.event_name == 'pull_request'\n        uses: ./.github/actions/install-chromium-deps\n"
     );
   });
+  it('runs the Remote squads emulator qualifier advisory, path-filtered and bounded', () => {
+    const read = (file: string) =>
+      readFileSync(new URL(`../../../${file}`, import.meta.url), 'utf8');
+    const workflow = read('.github/workflows/remote-squads-emulator.yml');
+    const readme = read('extensions/tmt-remote/rust/tmt-remote/src/squads/README.md');
+    // The Remote README owns the command; the job runs its two lines verbatim.
+    const commands = readme
+      .split('## Native CLI emulator qualifier\n')[1]
+      .split('```sh\n')[1]
+      .split('```')[0]
+      .trim()
+      .split('\n');
+    expect(commands).toHaveLength(2);
+    expect(commands[1]).toContain('--only auth,firestore --project demo-native-pairing');
+    const step = (name: string) =>
+      workflow.split(`      - name: ${name}\n`)[1].split('\n      - ')[0];
+    const build = step('Build the emulator-featured door and qualifier test');
+    expect(build).toContain('        timeout-minutes: 25\n');
+    expect(build).toContain(`\n          ${commands[0]}\n`);
+    expect(build).toMatch(/-p tmt-remote --lib --features test-emulator --no-run$/);
+    const qualifier = step(
+      'Run the two-machine squads qualifier against Auth and Firestore emulators'
+    );
+    expect(qualifier).toBe(
+      `        timeout-minutes: 10\n        run: |\n          ${commands[1]}\n`
+    );
+    expect(workflow).toContain('    timeout-minutes: 40\n');
+    // The Firestore emulator shares the Unit tests pins: hosted Temurin 21 and firebase-tools.
+    const ci = read('.github/workflows/ci.yml');
+    const firebaseTools = 'npm install --global firebase-tools@15.29.0';
+    expect(ci).toContain(firebaseTools);
+    expect(workflow).toContain(firebaseTools);
+    expect(workflow).toContain('test -n "$JAVA_HOME_21_X64"');
+    // PRs and main pushes share one Remote path filter; no merge-group trigger keeps it advisory.
+    const filter = (event: string) =>
+      workflow
+        .split(`\n  ${event}:\n`)[1]
+        .split('    paths:\n')[1]
+        .split(/\n {2}[a-z_]+:/)[0];
+    expect(filter('pull_request')).toBe(filter('push'));
+    for (const input of [
+      'extensions/tmt-remote/rust/**',
+      '.github/workflows/remote-squads-emulator.yml',
+      'rust/Cargo.lock',
+    ])
+      expect(`${filter('pull_request')}\n`).toContain(`      - '${input}'\n`);
+    expect(workflow).toContain('  push:\n    branches: [main]\n');
+    expect(workflow).not.toContain('merge_group');
+    expect(ci).not.toContain('remote-squads-emulator');
+    expect(workflow).not.toContain('continue-on-error');
+  });
 });
 
 describe('CI area selection', () => {
