@@ -35,12 +35,14 @@ const allRadiusProperties = [
 ];
 
 let theme: Theme = stored('tmt-docs-theme') === 'light' ? 'light' : 'dark';
-let radius: Radius = (['2', '4', 'current'] as const).find((r) => r === stored('tmt-docs-radius')) ?? '2';
+let radius: Radius =
+  (['2', '4', 'current'] as const).find((r) => r === stored('tmt-docs-radius')) ?? '2';
 function apply() {
   root.dataset.theme = theme;
   root.dataset.tmtPalette = 'b';
   for (const name of allRadiusProperties) root.style.removeProperty(name);
-  for (const [name, value] of Object.entries(radiusStyle[radius])) root.style.setProperty(name, value);
+  for (const [name, value] of Object.entries(radiusStyle[radius]))
+    root.style.setProperty(name, value);
   for (const listener of listeners) listener();
 }
 apply();
@@ -55,7 +57,11 @@ export function setRadius(next: Radius) {
   store('tmt-docs-radius', next);
   apply();
 }
-export const radiusLabel: Record<Radius, string> = { '2': '2 / 4', '4': '4 / 6', current: 'Current' };
+export const radiusLabel: Record<Radius, string> = {
+  '2': '2 / 4',
+  '4': '4 / 6',
+  current: 'Current',
+};
 export function usePreview(): { theme: Theme; radius: Radius } {
   const subscribe = (notify: () => void) => {
     listeners.add(notify);

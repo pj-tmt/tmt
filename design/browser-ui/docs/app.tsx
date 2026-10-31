@@ -191,8 +191,8 @@ function Introduction() {
       <p>
         The tokens live in <code>design/tokens/tokens.json</code> in three tiers. <b>Ref</b> tokens
         are raw values. <b>Semantic roles</b> such as <code>--tmt-ui-color-accent</code> are what
-        components read. <b>Component tokens</b> alias the roles inside the shadcn-based parts. Palette
-        B, red, black, white and grey, maps the roles onto refs.
+        components read. <b>Component tokens</b> alias the roles inside the shadcn-based parts.
+        Palette B, red, black, white and grey, maps the roles onto refs.
       </p>
       <p>
         The components come from <code>@tmt/browser-ui</code>. The <code>/ui</code> entry is the
@@ -201,8 +201,8 @@ function Introduction() {
       </p>
       <h2>Use the switches</h2>
       <p>
-        The top bar switches the theme and the one radius knob for every page and the Colab mock: 2/4,
-        4/6, or today&apos;s values for comparison.
+        The top bar switches the theme and the one radius knob for every page and the Colab mock:
+        2/4, 4/6, or today&apos;s values for comparison.
       </p>
       <div className="docs-cards">
         <a className="docs-card" href="/docs/principles" onClick={follow}>
@@ -250,10 +250,7 @@ function Principles() {
     ],
   ];
   return (
-    <Article
-      title="Principles"
-      lead="Short rules that decide most questions before they come up."
-    >
+    <Article title="Principles" lead="Short rules that decide most questions before they come up.">
       <ol className="docs-principles">
         {rules.map(([title, body]) => (
           <li key={title}>

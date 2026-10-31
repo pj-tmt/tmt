@@ -30,7 +30,8 @@ function LiveValue({ fallback, from }: { fallback: string; from: () => HTMLEleme
             .padStart(2, '0')
         : '';
     setValue(`#${hex}${alpha}`);
-  });
+    // The gallery's palette and theme switches reload the page, so one read after mount is enough.
+  }, [from]);
   return <span className="gallery-value">{value}</span>;
 }
 

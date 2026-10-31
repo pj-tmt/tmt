@@ -91,8 +91,8 @@ function SwitchDemo() {
   const [on, setOn] = useState(true);
   return (
     <label className="docs-inline">
-      <Switch checked={on} onCheckedChange={setOn} aria-label="Notify me" /> Notify me when a
-      member is blocked
+      <Switch checked={on} onCheckedChange={setOn} aria-label="Notify me" /> Notify me when a member
+      is blocked
     </label>
   );
 }
@@ -157,7 +157,10 @@ export const components: ComponentDoc[] = [
     ],
     dos: [
       ['do', 'Use one primary button for the action the surface exists for.'],
-      ['dont', 'Fill a destructive action with red. Delete is outlined text in the blocked colour.'],
+      [
+        'dont',
+        'Fill a destructive action with red. Delete is outlined text in the blocked colour.',
+      ],
     ],
   },
   {

@@ -28,7 +28,12 @@ export function PageRow({
   state?: 'waiting' | 'blocked';
 }) {
   return (
-    <a className="pattern-row" href="/mock/colab/page" onClick={follow} data-unread={unread || undefined}>
+    <a
+      className="pattern-row"
+      href="/mock/colab/page"
+      onClick={follow}
+      data-unread={unread || undefined}
+    >
       <span className="pattern-row-title">
         {state && (
           <span className="pattern-state" data-tone={state}>

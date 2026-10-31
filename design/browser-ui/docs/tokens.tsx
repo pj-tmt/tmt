@@ -20,13 +20,20 @@ function useComputed(property: string, measure?: (node: HTMLElement) => string) 
   return { ref, value };
 }
 const hex = (node: HTMLElement) => {
-  const parts = getComputedStyle(node).backgroundColor.match(/[\d.]+/g)?.map(Number) ?? [];
+  const parts =
+    getComputedStyle(node)
+      .backgroundColor.match(/[\d.]+/g)
+      ?.map(Number) ?? [];
   const rgb = parts
     .slice(0, 3)
     .map((part) => part.toString(16).padStart(2, '0'))
     .join('');
   const alpha =
-    parts.length > 3 && parts[3]! < 1 ? Math.round(parts[3]! * 255).toString(16).padStart(2, '0') : '';
+    parts.length > 3 && parts[3]! < 1
+      ? Math.round(parts[3]! * 255)
+          .toString(16)
+          .padStart(2, '0')
+      : '';
   return `#${rgb}${alpha}`;
 };
 
@@ -51,7 +58,13 @@ function Swatches({ prefix, list }: { prefix: string; list: string[] }) {
   );
 }
 
-function Measured({ variable, children }: { variable: string; children: (value: string) => ReactNode }) {
+function Measured({
+  variable,
+  children,
+}: {
+  variable: string;
+  children: (value: string) => ReactNode;
+}) {
   const { ref, value } = useComputed(variable);
   return <span ref={ref}>{children(value)}</span>;
 }
@@ -128,7 +141,9 @@ export const tokenPages: { slug: string; title: string; lead: string; render(): 
         </ul>
         <h2>Families</h2>
         <p style={{ fontFamily: 'var(--tmt-ui-font-body)' }}>Inter — body and headings.</p>
-        <p style={{ fontFamily: 'var(--tmt-ui-font-mono)' }}>JetBrains Mono — tmt colab page check</p>
+        <p style={{ fontFamily: 'var(--tmt-ui-font-mono)' }}>
+          JetBrains Mono — tmt colab page check
+        </p>
       </>
     ),
   },
@@ -186,7 +201,9 @@ export const tokenPages: { slug: string; title: string; lead: string; render(): 
         {names(tokens.browser.motion).map((name) => (
           <li key={name}>
             <code>{name}</code>
-            <Measured variable={`--tmt-ui-motion-${name}`}>{(value) => <span>{value}</span>}</Measured>
+            <Measured variable={`--tmt-ui-motion-${name}`}>
+              {(value) => <span>{value}</span>}
+            </Measured>
           </li>
         ))}
       </ul>

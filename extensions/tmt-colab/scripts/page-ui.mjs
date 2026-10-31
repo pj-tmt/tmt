@@ -8,9 +8,10 @@ import { readFile } from 'node:fs/promises';
 
 // The injected page UI CSS cap, in bytes, the one figure the build and the runtime check share: the exact
 // measured size, no headroom (GUI lead, #5794): 119,949 -> 125,075 bytes for the type ramp and the
-// editorial layer. A change that grows it re-measures and asks again; #5809 cuts the injected static.css
-// to what an author page can use and lowers this to its new exact figure.
-export const PAGE_UI_LIMIT = 125_075;
+// editorial layer; 125,075 -> 137,542 bytes for palette B's scope and the ref tier (#5821), temporary
+// until B becomes the default. A change that grows it re-measures and asks again; #5809 cuts the injected
+// static.css to what an author page can use and lowers this to its new exact figure.
+export const PAGE_UI_LIMIT = 137_542;
 
 export async function buildPageUi() {
   // The design system the frame injects into every page (#5057): the leaf's static.css, whole, in the
@@ -46,11 +47,12 @@ export async function buildPageUi() {
   // itself paints, which the frame measures from the page's canvas colour. A page that paints its own light
   // body under a dark viewer then gets light-theme components on it. Each theme block names both selectors,
   // and the second has the higher specificity, so the painted scheme wins over the viewer's.
+  // A block is one at the start of a line: palette B's scoped blocks (#5821) end in the same selector.
   const schemed = ['light', 'dark'].reduce((css, name) => {
-    const block = `[data-theme='${name}'] {`;
+    const block = `\n[data-theme='${name}'] {`;
     if (css.split(block).length !== 2)
-      throw new Error(`static.css must hold exactly one ${block} token block`);
-    return css.replace(block, `[data-theme='${name}'],\n:root[data-colab-scheme='${name}'] {`);
+      throw new Error(`static.css must hold exactly one ${block.trim()} token block`);
+    return css.replace(block, `\n[data-theme='${name}'],\n:root[data-colab-scheme='${name}'] {`);
   }, staticCss);
   // Quoted strings must survive the compaction untouched.
   const quoted = (css) => css.match(/"(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*'/g) ?? [];
