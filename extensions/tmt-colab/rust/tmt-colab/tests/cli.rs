@@ -4,6 +4,8 @@ mod core_fixture;
 mod fixture_process;
 #[path = "cli/question_metadata.rs"]
 mod question_metadata;
+#[path = "support/store_snapshot.rs"]
+mod store_snapshot;
 mod support;
 #[path = "cli/user_templates.rs"]
 mod user_templates;
@@ -1470,46 +1472,8 @@ fn serve_migrates_an_older_store_and_preserves_the_page() {
     assert_eq!(pilot.call(&["page", "read", PAGE, "--json"]), page);
     assert_eq!(pilot.call(&["ls", "--json"])["pages"][0]["pageId"], PAGE);
     pilot.stop();
-    // SQLite owns the snapshot's cache/change counters; every other byte must match.
-    // Header fields: https://www.sqlite.org/fileformat.html#the_database_header
-    const FILE_CHANGE_COUNTER: std::ops::Range<usize> = 24..28;
-    const SCHEMA_COOKIE: std::ops::Range<usize> = 40..44;
-    const VERSION_VALID_FOR: std::ops::Range<usize> = 92..96;
-    // NOFOLLOW also rejects a symlink in a parent path (macOS /tmp -> /private/tmp).
-    let copy = tmt_colab::store::backup_path(&db.canonicalize().unwrap(), 4);
-    let snapshot = fs::read(&copy).unwrap();
-    assert_eq!(snapshot.len(), before.len());
-    for bytes in [&before, &snapshot] {
-        assert_eq!(bytes[FILE_CHANGE_COUNTER], bytes[VERSION_VALID_FOR]);
-    }
-    let mut comparable = snapshot.clone();
-    for field in [FILE_CHANGE_COUNTER, SCHEMA_COOKIE, VERSION_VALID_FOR] {
-        comparable[field.clone()].copy_from_slice(&before[field]);
-    }
-    assert_eq!(comparable, before);
-    let saved = rusqlite::Connection::open_with_flags(
-        &copy,
-        rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY | rusqlite::OpenFlags::SQLITE_OPEN_NOFOLLOW,
-    )
-    .unwrap();
-    assert_eq!(
-        saved
-            .query_row("PRAGMA quick_check", [], |row| row.get::<_, String>(0))
-            .unwrap(),
-        "ok"
-    );
-    assert_eq!(
-        saved
-            .pragma_query_value(None, "schema_version", |row| row.get::<_, u32>(0))
-            .unwrap(),
-        u32::from_be_bytes(snapshot[SCHEMA_COOKIE].try_into().unwrap())
-    );
-    assert_eq!(
-        saved
-            .pragma_query_value(None, "user_version", |row| row.get::<_, u32>(0))
-            .unwrap(),
-        4
-    );
+    let copy = tmt_colab::store::backup_path(&db, 4);
+    let saved = store_snapshot::assert_snapshot(&copy, &before);
     let copied_pages: Vec<(String, String)> = saved
         .prepare("SELECT page, epoch FROM pages ORDER BY page")
         .unwrap()
