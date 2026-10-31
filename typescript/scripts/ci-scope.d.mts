@@ -24,6 +24,7 @@ export interface ComponentMap {
     readonly scopedChecks?: {
       readonly nativeTests: readonly string[];
       readonly e2eFiles: readonly string[];
+      readonly unitTests: boolean;
     };
     readonly neverShippedPaths: readonly {
       readonly root: string;
@@ -120,7 +121,11 @@ export function selectNativeScope(paths: readonly string[], map?: ComponentMap):
 export function scopedChecks(
   scope: string,
   map?: ComponentMap
-): { readonly nativeTests: readonly string[]; readonly e2eFiles: readonly string[] };
+): {
+  readonly nativeTests: readonly string[];
+  readonly e2eFiles: readonly string[];
+  readonly unitTests: boolean;
+};
 export function nativeGatePasses(
   scope: string,
   results: NativeJobResults,

@@ -5,7 +5,7 @@
     "rules: ordered, the first rule whose `paths` match a changed path decides native verification (Rust, tooling and E2E jobs). No match retains full native verification.",
     "migrations: the source files that list a component's SQLite migrations; outside the alpha channel a release that has more entries in one than the last published release of that component is held for the owner, while an alpha only reports them (typescript/scripts/publication-gates.mjs).",
     "skills: true when the component's native archive carries the agent-skills tree extensions/<name>/skills (cargo-dist include ../../skills); typescript/scripts/component-skills.mjs reads it for the archive policy and verifier, and component-skills.test.ts checks the tree and the include.",
-    "scopedChecks: a component that cannot affect the others (only Ops) lists the native test files and E2E files its own scope runs (an explicit empty e2eFiles list runs no Docker E2E shard); ci-scope.mjs turns that into the native_scope outputs.",
+    "scopedChecks: a component that cannot affect the others (only Ops) lists the native test files and E2E files its own scope runs (an explicit empty e2eFiles list runs no Docker E2E shard), and unitTests, required true or false: true keeps the Linux runtime builds and Unit tests because tooling tests read its sources. A path no rule maps keeps full scope even inside a scoped component. ci-scope.mjs turns that into the native_scope outputs.",
     "Globs: `**` matches any path, `*` and `?` stay inside one directory. A rule may only narrow selection for a path that provably no job of the dropped consumer reads; ci-scope.test.ts guards each narrowed class.",
     "releaseConsumers: a private leaf adds its owned changes to named packaged products, including products awaiting activation, without replacing matching released-root membership; ownership, CI scope and version updates remain independent.",
     "A private component may declare release:false, with or without a Cargo package; it owns files but gets no release. Binary targets require explicit package.metadata.dist.dist=false; library-only crates need no opt-out. A crate that inherits the workspace version keeps its Cargo.lock entry in the release of the component that owns rust/Cargo.toml, whoever owns the crate.",
@@ -68,7 +68,8 @@
           "native-installation.test.ts",
           "uninstall.test.ts"
         ],
-        "e2eFiles": ["ops.e2e.test.ts", "ops-reminder.e2e.test.ts", "claude-channel.e2e.test.ts"]
+        "e2eFiles": ["ops.e2e.test.ts", "ops-reminder.e2e.test.ts", "claude-channel.e2e.test.ts"],
+        "unitTests": false
       },
       "predecessor": "squad",
       "uses": [],

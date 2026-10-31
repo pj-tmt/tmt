@@ -1258,10 +1258,12 @@ describe('component map', () => {
         'uninstall.test.ts',
       ],
       e2eFiles: ['ops.e2e.test.ts', 'ops-reminder.e2e.test.ts', 'claude-channel.e2e.test.ts'],
+      unitTests: false,
     });
-    expect(scopedChecks('full', map)).toEqual({ nativeTests: [], e2eFiles: [] });
-    expect(scopedChecks('none', map)).toEqual({ nativeTests: [], e2eFiles: [] });
-    expect(scopedChecks('office', map)).toEqual({ nativeTests: [], e2eFiles: [] });
+    const none = { nativeTests: [], e2eFiles: [], unitTests: false };
+    expect(scopedChecks('full', map)).toEqual(none);
+    expect(scopedChecks('none', map)).toEqual(none);
+    expect(scopedChecks('office', map)).toEqual(none);
   });
 
   it('rejects scoped checks that are not plain file names', () => {
@@ -1282,6 +1284,103 @@ describe('component map', () => {
     expect(invalid((value) => (value.components.ops.scopedChecks.e2eFiles = ['']))).toThrow(
       'plain file names'
     );
+    // Skipping Unit tests is never inferred: a missing or non-boolean value rejects the map.
+    expect(invalid((value) => delete value.components.ops.scopedChecks.unitTests)).toThrow(
+      'components.ops.scopedChecks.unitTests must be true or false.'
+    );
+    for (const bad of ['false', 0, null, []])
+      expect(invalid((value) => (value.components.ops.scopedChecks.unitTests = bad))).toThrow(
+        'must be true or false'
+      );
+  });
+
+  it('keeps the runtime builds and Unit tests for a scoped component that declares unitTests', () => {
+    const value = JSON.parse(mapText);
+    value.components.ops.scopedChecks.unitTests = true;
+    const withUnit = parseComponentMap(JSON.stringify(value));
+    const run = {
+      nativeRust: 'success',
+      unitTests: 'success',
+      e2eShard1: 'success',
+      e2eShard2: 'skipped',
+      runtimeBuild: 'success',
+      packedInstall: 'skipped',
+      macosRuntimeBuild: 'skipped',
+      macosPackedInstall: 'skipped',
+    };
+    expect(nativeGatePasses('ops', run, 'true', withUnit)).toBe(true);
+    for (const job of ['unitTests', 'runtimeBuild'])
+      expect(nativeGatePasses('ops', { ...run, [job]: 'skipped' }, 'true', withUnit), job).toBe(
+        false
+      );
+    // Ops declares false, so the same results fail its gate.
+    expect(nativeGatePasses('ops', run, 'true', map)).toBe(false);
+  });
+
+  it('keeps full scope for a path no rule maps, even inside a scoped component', () => {
+    const value = JSON.parse(mapText);
+    value.components['tmt-colab'].scopedChecks = {
+      nativeTests: ['extension-install.test.ts'],
+      e2eFiles: [],
+      unitTests: true,
+    };
+    const colab = parseComponentMap(JSON.stringify(value));
+    const rust = 'extensions/tmt-colab/rust/tmt-colab/src/lib.rs';
+    expect(explainCiSelection([rust], colab)[0].rule).toBe('colab-rust');
+    expect(selectNativeScope([rust], colab)).toBe('tmt-colab');
+    for (const unmapped of [
+      'extensions/tmt-colab/skills/tmt-colab/SKILL.md',
+      'extensions/tmt-colab/contracts/vectors/authority-v1.json',
+      'extensions/tmt-colab/firestore/admission.rules',
+      'extensions/tmt-colab/scripts/cloud-sync-emulator.mjs',
+    ]) {
+      expect(explainCiSelection([unmapped], colab)[0], unmapped).toMatchObject({
+        owner: 'tmt-colab',
+        rule: 'unmapped',
+        native: true,
+      });
+      expect(selectNativeScope([unmapped], colab), unmapped).toBe('full');
+      expect(selectNativeScope([rust, unmapped], colab), unmapped).toBe('full');
+    }
+    // Every Ops path is mapped, so Ops keeps its scope.
+    for (const row of explainCiSelection(
+      tracked().filter((file) => ownerOf(file, map) === 'ops'),
+      map
+    ))
+      expect(row.rule, row.path).not.toBe('unmapped');
+  });
+
+  it('rejects skipping Unit tests for a scoped component whose sources tooling tests read', () => {
+    // Code quality runs these on every pull request; Unit tests runs the rest.
+    const qualityCommand = /vp test run ([^\n]+)/.exec(
+      readFileSync(path.join(repository, '.github/workflows/ci.yml'), 'utf8')
+    )![1];
+    const tooling = tracked().filter(
+      (file) =>
+        /^typescript\/test\/tooling\/[^/]+\.ts$/.test(file) &&
+        !qualityCommand.includes(file.replace('typescript/', ''))
+    );
+    const readers = (component: { readonly owns: readonly string[] }) =>
+      tooling.filter((file) => {
+        const text = readFileSync(path.join(repository, file), 'utf8');
+        return component.owns.some((root) => text.includes(`${root}/`));
+      });
+    const skipping = (checked: ReturnType<typeof parseComponentMap>) =>
+      checked.components.filter(
+        (component) => component.scopedChecks && !component.scopedChecks.unitTests
+      );
+    for (const component of skipping(map)) expect(readers(component), component.name).toEqual([]);
+    // A Colab scope that skipped Unit tests would skip the tooling tests that read Colab.
+    const value = JSON.parse(mapText);
+    value.components['tmt-colab'].scopedChecks = {
+      nativeTests: ['extension-install.test.ts'],
+      e2eFiles: [],
+      unitTests: false,
+    };
+    const colab = skipping(parseComponentMap(JSON.stringify(value))).find(
+      (component) => component.name === 'tmt-colab'
+    )!;
+    expect(readers(colab).length).toBeGreaterThan(0);
   });
 
   it('admits a scoped component that names no E2E files, so neither Docker shard runs', () => {
@@ -1645,7 +1744,11 @@ describe('remote Rust retains full CI coverage', () => {
       ]);
       expect(selectCiAreas(files)).toEqual(all);
       expect(selectNativeScope(files)).toBe('full');
-      expect(scopedChecks(selectNativeScope(files))).toEqual({ nativeTests: [], e2eFiles: [] });
+      expect(scopedChecks(selectNativeScope(files))).toEqual({
+        nativeTests: [],
+        e2eFiles: [],
+        unitTests: false,
+      });
     }
   );
 
@@ -2077,6 +2180,7 @@ describe('CI diff and command integration', () => {
         native_sync_emulator: 'false',
         scoped_native_tests:
           'ops.test.ts extension-install.test.ts extension-upgrade-proof.test.ts native-installation.test.ts uninstall.test.ts',
+        scoped_unit_tests: 'false',
         e2e_shard_1: 'ops.e2e.test.ts ops-reminder.e2e.test.ts claude-channel.e2e.test.ts',
         e2e_shard_2: '',
       });
@@ -2463,7 +2567,7 @@ describe('CI diff and command integration', () => {
       "      colab_firestore: ${{ steps.mainfull.outputs.colab_firestore || steps.scope.outputs.colab_firestore || steps.queue.outputs.colab_firestore || 'false' }}"
     );
     expect(job).toContain(
-      "if: needs.changes.outputs.verify == 'true' && needs.changes.outputs.native_scope == 'full'"
+      "if: needs.changes.outputs.verify == 'true' && (needs.changes.outputs.native_scope == 'full' || needs.changes.outputs.scoped_unit_tests == 'true')"
     );
     expect(job).toContain('timeout-minutes: 15');
     const steps = job.slice(
@@ -3403,14 +3507,19 @@ describe('required CI gate', () => {
     );
     // Jobs about the CLI runtime and tooling run only for the full scope; the runtime build also
     // runs for the seeding runs, whose scope is full, and the other two only for verification events.
+    // A scoped component that declares unitTests keeps the runtime builds and Unit tests.
     expect(job('native-runtime-build')).toContain(
-      "if: needs.changes.outputs.native_scope == 'full'"
+      "if: needs.changes.outputs.native_scope == 'full' || needs.changes.outputs.scoped_unit_tests == 'true'"
     );
-    for (const name of ['unit-tests', 'packed-native-install']) {
-      expect(job(name), name).toContain(
-        "if: needs.changes.outputs.verify == 'true' && needs.changes.outputs.native_scope == 'full'"
-      );
-    }
+    expect(job('unit-tests')).toContain(
+      "if: needs.changes.outputs.verify == 'true' && (needs.changes.outputs.native_scope == 'full' || needs.changes.outputs.scoped_unit_tests == 'true')"
+    );
+    expect(job('packed-native-install')).toContain(
+      "if: needs.changes.outputs.verify == 'true' && needs.changes.outputs.native_scope == 'full'"
+    );
+    expect(changes).toContain(
+      "scoped_unit_tests: ${{ steps.mainfull.outputs.scoped_unit_tests || steps.scope.outputs.scoped_unit_tests || steps.queue.outputs.scoped_unit_tests || 'false' }}"
+    );
     // The Rust job runs for every native scope, the E2E job for every native scope of a pull request.
     for (const name of ['native-clippy', 'native-workspace-tests', 'native-msrv']) {
       expect(job(name)).toContain("if: needs.changes.outputs.native == 'true'");
