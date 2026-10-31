@@ -405,6 +405,8 @@ unrelated backlog cannot block its continuation. Invalid queue rows are atomical
 queue failure receipt, so they cannot poison the flusher or another identity.
 
 A main transaction commits capture plus its UUID receipt; queue acknowledgment follows.
+Queue ingestion validates the event and returns an existing exact-event receipt without
+acquiring the main writer; a receipt miss is checked again inside the capture transaction.
 Direct capture checks its hook deadline before work; once admitted under the writer,
 it finishes the final and receipt rather than rolling them back on budget expiry.
 Receipts are content-free bookkeeping excluded from board change-cursor triggers and
