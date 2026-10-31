@@ -71,6 +71,9 @@ Native-process contracts retain a 20-minute job limit and unchanged test deadlin
 adapter environment slice), component scope requires shard 1 when its `scopedChecks.e2eFiles`
 names files and neither for an explicit empty list (the job skips on an empty file list, which
 the harness would read as every file), and no native selection requires neither.
+A component scope applies only when every native path it changes matches a map rule; an
+unmapped path keeps full scope. Its required `scopedChecks.unitTests` keeps the Linux
+runtime builds and Unit tests when true; a missing or non-boolean value rejects the map.
 Vitest and the splitter discover identical retained files; the guard rejects zero
 or double membership. Pinned Node runs the built-in-only wrapper on the host;
 pnpm activation/frozen install belong to the image. Only the hosted `ubuntu-latest`

@@ -48,6 +48,7 @@ jobs:
       colab_chrome: ${{ steps.mainfull.outputs.colab_chrome || steps.scope.outputs.colab_chrome || steps.queue.outputs.colab_chrome || 'false' }}
       browser_ui: ${{ steps.mainfull.outputs.browser_ui || steps.scope.outputs.browser_ui || steps.queue.outputs.browser_ui || steps.seed.outputs.browser_ui || 'false' }}
       scoped_native_tests: ${{ steps.mainfull.outputs.scoped_native_tests || steps.scope.outputs.scoped_native_tests || steps.queue.outputs.scoped_native_tests }}
+      scoped_unit_tests: ${{ steps.mainfull.outputs.scoped_unit_tests || steps.scope.outputs.scoped_unit_tests || steps.queue.outputs.scoped_unit_tests || 'false' }}
       e2e_shard_1: ${{ steps.mainfull.outputs.e2e_shard_1 || steps.scope.outputs.e2e_shard_1 || steps.queue.outputs.e2e_shard_1 }}
       e2e_shard_2: ${{ steps.mainfull.outputs.e2e_shard_2 || steps.scope.outputs.e2e_shard_2 || steps.queue.outputs.e2e_shard_2 }}
     steps:
@@ -602,7 +603,7 @@ jobs:
   unit-tests:
     name: Unit tests
     needs: [changes, native-runtime-build]
-    if: needs.changes.outputs.verify == 'true' && needs.changes.outputs.native_scope == 'full'
+    if: needs.changes.outputs.verify == 'true' && (needs.changes.outputs.native_scope == 'full' || needs.changes.outputs.scoped_unit_tests == 'true')
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -794,7 +795,7 @@ jobs:
   native-runtime-build:
     name: Build native runtime (${{ matrix.target }})
     needs: changes
-    if: needs.changes.outputs.native_scope == 'full'
+    if: needs.changes.outputs.native_scope == 'full' || needs.changes.outputs.scoped_unit_tests == 'true'
     strategy:
       fail-fast: false
       # Linux targets; macOS has separate jobs so its skipped result is observable.
