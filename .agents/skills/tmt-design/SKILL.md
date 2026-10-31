@@ -9,18 +9,18 @@ For `design/browser-ui/` work, read [the leaf README](../../../design/browser-ui
 and [the component guide](../../../design/gui-components.md) first.
 
 Static site in `site/` with its own lockfile outside the TypeScript workspace.
-The public site renders the v9 Home (`home/HomePage.tsx`), including installation,
+The full local build renders the v9 Home (`home/HomePage.tsx`), including installation,
 workflow and Squad/Colab illustrations, plus the English `/colab/` landing exploration
 (`colab/ColabLanding.tsx`). Its feature close-ups are illustrations; only the developer embed sends requests.
 Layout owns theme, language and anchor scrolling;
 the router preserves `/colab/` and normalizes old chapter/unknown paths to the localized Home. Retained MDX,
-chapter components and translations are source-only for future refinement: the public
+chapter components and translations are source-only for future refinement: the Home
 entry point does not import or render them. Do not restore chapter exposure implicitly.
 `scripts/spa-routes.mjs` publishes four Home entries with Home-only alternates/canonicals, the English Colab
 entry with its own canonical,
 noindex redirect stubs for historical chapter/zh paths, and a noindex Home-app 404 fallback.
 
-Merging `site/**` or `design/tokens/**` to `main` deploys to GitHub Pages
+Merging `site/**` or `design/tokens/**` to `main` deploys only the blog to GitHub Pages
 (`.github/workflows/site.yml`); PRs never deploy. Source-only chapter scene behavior remains
 covered here. No handbook prose is authored by OpenAI members.
 
@@ -29,8 +29,8 @@ cd site
 pnpm install --frozen-lockfile
 pnpm dev                        # http://127.0.0.1:5173/tmt/
 pnpm check                      # types, Vite+ lint/format, MDX imports, translation sync
-SITE_ORIGIN=https://example.com pnpm build              # four Homes, Colab landing, historical redirect stubs
-SITE_ORIGIN=https://example.com SITE_BASE=/ pnpm build  # root path or custom domain
+SITE_ORIGIN=https://example.com SITE_REPOSITORY=owner/repository pnpm build              # four Homes, Colab landing, historical redirect stubs
+SITE_ORIGIN=https://example.com SITE_REPOSITORY=owner/repository SITE_BASE=/ pnpm build  # root path or custom domain
 SITE_BASE=./ VITE_SITE_HISTORY=hash pnpm exec vp build   # preview at an unknown path
 ```
 
@@ -47,12 +47,18 @@ own `languageExceptions` entry with its first approved post. See [site README](.
 for language URLs, English fallback, the approval protocol and commands.
 
 Vite builds complete blog HTML plus external bundled article modules into the
-same `site/dist` artifact as Home; URLs derive from `SITE_ORIGIN` plus `SITE_BASE` plus `blog/`
+same full `site/dist` build as Home; URLs derive from `SITE_ORIGIN` plus `SITE_BASE` plus `blog/`
 (a production build requires `SITE_ORIGIN`; the workflow derives it from the repository owner).
 Preserve the existing blog CSP: no inline scripts or new resource origins.
 `pnpm blog:demo` is an explicit local example build; production verification
-rejects it by default. Only the existing `site.yml` Build site job checks/uploads
-this artifact; do not add a second Pages deployment or a native CI consumer.
+rejects it by default. Only the existing `site.yml` Build site job checks/builds, runs
+`node src/blog/pages.mjs` and `node src/blog/verify-dist.mjs --pages`, then uploads
+`site/dist-pages`. That directory retains blog routes/data and their reachable
+assets, a root redirect to the blog and a static 404 with blog/repository links.
+Home/handbook/Colab source stays intact but is not published. `SITE_REPOSITORY`
+(`owner/repository`) or Actions' `GITHUB_REPOSITORY` supplies blog outbound links;
+production requires it. The site guide owns the build/preview commands;
+do not add a second Pages deployment or a native CI consumer.
 
 ## Translations
 

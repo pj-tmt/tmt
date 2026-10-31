@@ -4,7 +4,14 @@ import { readFile, mkdtemp, cp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { generate } from "../src/blog/build.mjs";
-import { filesBelow, indexBody, layout, localOrigin, locationConfig } from "../src/blog/site.mjs";
+import {
+  filesBelow,
+  indexBody,
+  layout,
+  localOrigin,
+  locationConfig,
+  repositoryUrl,
+} from "../src/blog/site.mjs";
 
 const meta = {
   slug: "agent-conversations",
@@ -17,13 +24,17 @@ const site = { title: "TMT Journal", description: "Notes" };
 const origin = "https://example.com";
 test("blog URLs derive from the site base and escape metadata", () => {
   for (const base of ["/", "/tmt/", "/custom/path/"]) {
-    const location = locationConfig({ base, origin });
+    const location = locationConfig({ base, origin, repository: "renamed-owner/renamed-repo" });
     assert.equal(location.base, base + "blog/");
     const body = indexBody([{ meta }], site, location);
     assert.ok(body.includes(`href="${base}blog/posts/agent-conversations/"`));
     assert.match(body, /Title &amp; &lt;markup&gt;/);
     const html = layout({ site, location, title: "Blog", description: "Notes", body });
-    assert.ok(html.includes(`href="${base}"`));
+    assert.equal(
+      (html.match(/href="https:\/\/github.com\/renamed-owner\/renamed-repo"/g) ?? []).length,
+      2,
+    );
+    assert.ok(!html.includes(`href="${base}"`));
     assert.ok(html.includes(`href="${origin}${base}blog/"`));
   }
   for (const base of ["../", "//host/", "/a/../", "/missing-slash"])
@@ -88,4 +99,18 @@ test("generation renders articles; production removes demo inputs without touchi
   } finally {
     await rm(root, { recursive: true, force: true });
   }
+});
+
+test("repository configuration accepts a build-owned repository and rejects URLs or unsafe paths", () => {
+  assert.equal(repositoryUrl("new-owner/project"), "https://github.com/new-owner/project");
+  for (const value of [
+    "",
+    "owner",
+    "https://github.com/owner/repo",
+    "../repo",
+    "owner/..",
+    "owner/repo/path",
+    "owner/repo?x",
+  ])
+    assert.throws(() => repositoryUrl(value), /must name owner\/repository/);
 });

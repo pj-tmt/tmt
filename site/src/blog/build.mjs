@@ -1,14 +1,29 @@
 import { mkdir, readFile, writeFile, rm, copyFile, realpath } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { extractArticle, articleFromSource, metadata, stableJson } from "./content.mjs";
-import { indexBody, layout, locationConfig, postBody, readPosts, rss } from "./site.mjs";
+import {
+  indexBody,
+  layout,
+  locationConfig,
+  postBody,
+  readPosts,
+  repositoryUrl,
+  rss,
+} from "./site.mjs";
 import { languages, indexPath, postPath } from "./languages.mjs";
 import { postTags, tagPath } from "./tags.mjs";
 
 // Generated HTML lives under the Vite root so its output paths are blog/**.
 // Only this directory is disposable; approved src/posts and review records are not.
-export async function generate({ root, demo = false, development = false, base, origin }) {
-  const location = locationConfig({ base, origin: origin || undefined });
+export async function generate({
+  root,
+  demo = false,
+  development = false,
+  base,
+  origin,
+  repository,
+}) {
+  const location = locationConfig({ base, origin: origin || undefined, repository });
   const site = JSON.parse(await readFile(join(root, "src/blog/site.json"), "utf8"));
   let posts = await readPosts(join(root, "src/posts"));
   if (demo) {
@@ -135,6 +150,7 @@ export async function generate({ root, demo = false, development = false, base, 
       development,
       base: location.base,
       siteBase: location.siteBase,
+      repository: location.repository,
       pages,
     }),
     ".nojekyll": "",
@@ -144,9 +160,16 @@ export async function generate({ root, demo = false, development = false, base, 
   return { output, entries, publicFiles };
 }
 
-export async function blogBuild({ root, base, origin, development, demo }) {
+export async function blogBuild({
+  root,
+  base,
+  origin,
+  development,
+  demo,
+  repository = process.env.SITE_REPOSITORY || process.env.GITHUB_REPOSITORY,
+}) {
   root = await realpath(root);
-  const generated = await generate({ root, base, origin, development, demo });
+  const generated = await generate({ root, base, origin, development, demo, repository });
   const readFileMark = await readFile(join(root, "src/blog/mark.svg"));
   return {
     entries: generated.entries,
@@ -156,6 +179,7 @@ export async function blogBuild({ root, base, origin, development, demo }) {
       // Config loading (lint, format, tests) also generates the pages, so the origin is demanded
       // where a build starts: a production artifact never carries the neutral local origin.
       buildStart() {
+        if (!demo && !development) repositoryUrl(repository);
         if (!origin && !demo && !development)
           throw new Error(
             "SITE_ORIGIN is required for a production build, for example https://example.com",

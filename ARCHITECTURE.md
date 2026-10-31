@@ -36,7 +36,7 @@ Infra reviews the [layout map/allowlist](.github/repository-layout.json).
 | `contracts/`              | Core public contracts and normative fixtures                                         |
 | `scripts/`                | Shared shell/build/development helpers                                               |
 | `skills/`                 | Canonical bundled user-agent guidance                                                |
-| `site/`                   | Public Home/Colab landing, blog, handbook sources and translations                   |
+| `site/`                   | Public blog; retained Home/Colab, handbook sources and translations                  |
 | `design/`                 | Tokens/CLI; [private browser-ui](design/gui-components.md); no Core/CLI dep/embed    |
 
 New homes or exceptions need infra review and coordinated map/allowlist changes; ignored outputs
@@ -50,7 +50,10 @@ product-neutral `rust/archive/NATIVE-INSTALL.md`; [dev-only embed](site/README.m
 
 ## Public blog boundary
 
-`site/src/blog/` builds independently approved `site/src/posts/` language variants into the shared site artifact.
+`site/src/blog/` builds independently approved `site/src/posts/` language variants into the full site build,
+then owns pruning and verification of the blog-only Pages artifact. The shared Pages workflow uploads only
+that artifact: blog routes/data and their referenced assets, a root blog redirect and a static 404.
+Home, handbook and Colab source/build output remain local; repository links derive from build configuration.
 [The site guide](site/README.md#blog) owns content, approval, CSP and base paths.
 
 ## TypeScript workspace boundary

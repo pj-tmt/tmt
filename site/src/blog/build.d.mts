@@ -3,6 +3,7 @@ export function blogBuild(options: {
   root: string;
   base: string;
   origin?: string;
+  repository?: string;
   development: boolean;
   demo: boolean;
 }): Promise<{ entries: string[]; plugin: Plugin }>;

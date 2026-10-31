@@ -6,12 +6,13 @@ import { attr, walk } from "./content.mjs";
 import { assertSiteOrigin, filesBelow, csp } from "./site.mjs";
 import { languageInfo } from "./languages.mjs";
 import { postTags } from "./tags.mjs";
+import { verifyPages } from "./pages.mjs";
 
 // A production artifact is checked against the origin it was built for (SITE_ORIGIN): its canonical
 // links, RSS and sitemap must name it. A demo artifact has no canonical links and an empty feed.
 export async function verifyDist(
   root = resolve("dist"),
-  { demo = false, blogDirectory = "blog", origin } = {},
+  { demo = false, blogDirectory = "blog", origin, pages = false, repository } = {},
 ) {
   const allFiles = await filesBelow(root);
   const prefix = blogDirectory ? blogDirectory + "/" : "";
@@ -205,13 +206,17 @@ export async function verifyDist(
     throw new Error("Examples must not enter RSS or indexing");
   for (const path of expectedPages.keys())
     if (!files[path]) throw new Error("Missing prerendered article");
+  if (pages) verifyPages(allFiles, info, { origin, repository });
   console.log(`Verified ${htmlPaths.length} rendered HTML pages, local links, CSP and RSS.`);
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   const args = process.argv.slice(2);
-  if (args.some((arg) => arg !== "--demo")) throw new Error("Usage: verify-dist.mjs [--demo]");
-  await verifyDist(undefined, {
+  if (args.some((arg) => !["--demo", "--pages"].includes(arg)))
+    throw new Error("Usage: verify-dist.mjs [--demo] [--pages]");
+  await verifyDist(args.includes("--pages") ? resolve("dist-pages") : undefined, {
+    pages: args.includes("--pages"),
+    repository: process.env.SITE_REPOSITORY || process.env.GITHUB_REPOSITORY,
     demo: args.includes("--demo"),
     origin: process.env.SITE_ORIGIN || undefined,
   });

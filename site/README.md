@@ -51,8 +51,13 @@ builds, even when the embed flag is set.
 
 ## Blog
 
-The blog is built as complete HTML under `${SITE_BASE}blog/` alongside Home,
-using the same Vite build and `site/dist` Pages artifact. The working title is
+The blog is built as complete HTML under `${SITE_BASE}blog/`. The full Vite build
+remains in `site/dist`; `node src/blog/pages.mjs` creates the blog-only
+`site/dist-pages` directory for GitHub Pages. It retains `blog/**` and only the
+shared assets those pages reference. Home, locale Homes, handbook redirects and
+Colab remain in source and the full build, but are not published. The Pages root
+redirects to the blog with a meta refresh and visible link; `404.html` links to
+the blog and repository. Blog header/footer outbound links use the repository. The working title is
 TMT Journal. Its shared layout uses a black-only ninja palette in both color
 preferences, rice-paper text, a red accent and a file-backed hooded mark.
 Provenance is recorded in [the blog style source note](src/blog/PROVENANCE.md).
@@ -91,10 +96,14 @@ Run from `site/`:
 ```sh
 pnpm install --frozen-lockfile
 pnpm check
-SITE_ORIGIN=https://example.com pnpm build              # production; excludes all illustrative fixtures
-SITE_ORIGIN=https://example.com SITE_BASE=/ pnpm build  # custom-domain/root deployment: /blog/
+export SITE_ORIGIN=https://example.com
+export SITE_REPOSITORY=owner/repository
+pnpm build                          # full production build; no illustrative fixtures
+node src/blog/pages.mjs              # create and list dist-pages
+node src/blog/verify-dist.mjs --pages # verify the exact deployment directory
+SITE_BASE=/ pnpm build               # root deployment: /blog/
 pnpm blog:demo                      # explicit noindex example, empty RSS/sitemap
-pnpm preview --port 4176 --strictPort
+pnpm exec vp preview --outDir dist-pages --port 4176 --strictPort
 ```
 
 `SITE_BASE` defaults to `/tmt/`. A production build requires `SITE_ORIGIN`, the
@@ -102,6 +111,11 @@ HTTPS origin the site is served from, without a trailing slash or path; it has n
 default, because it is the host in the blog's canonical links, RSS and sitemap.
 `.github/workflows/site.yml` derives it from the repository owner
 (`https://<owner>.github.io`), so a custom domain is the one value there.
+`SITE_REPOSITORY` is `owner/repository`; it overrides `GITHUB_REPOSITORY`, which
+Actions supplies. Production builds require one of them and derive the GitHub
+URL without hard-coding an owner. Local dev/demo runs use a neutral example
+repository when neither is set. No DNS or install-script serving changes are
+made by this pipeline: `install.tmt.ninja` serves the installer from Releases.
 `verify-dist` takes the same `SITE_ORIGIN` and fails a production artifact whose
 canonical links, RSS or sitemap name another origin. The dev server, `pnpm blog:demo`
 and the unit tests need none and use a neutral local origin.
@@ -186,7 +200,9 @@ Review the complete diff and restore the backup if import fails. Changing Englis
 does not approve or rewrite existing translations. Never edit committed
 article/assets or metadata without renewing approval.
 
-Only the existing `Build site` job checks/builds and verifies the output before
-upload. Production verification is the default; demo requires `--demo` and
+Only the existing `Build site` job checks/builds, prunes and verifies the blog-only
+output before uploading `dist-pages`. `verify-dist --pages` rejects non-blog
+HTML, unused shared assets, missing HTML/CSS/module dependencies, invalid root
+redirect/404 links and a mismatched repository. Production verification is the default; demo requires `--demo` and
 is rejected by the upload gate. Main merges follow the existing Pages workflow;
 PRs never deploy. Publication timing remains Ben's decision.

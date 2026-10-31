@@ -1,4 +1,4 @@
-# The handbook website (site/): checked on pull requests and main. Every push
+# The blog-only Pages deployment (site/): checked on pull requests and main. Every push
 # to main that changes the site deploys it to GitHub Pages; a manual run with
 # deploy=true redeploys. The repository is public, so a deploy publishes the
 # site publicly; the owner chose publish-on-merge. The build job is read-only;
@@ -35,6 +35,7 @@ jobs:
       # Where Pages serves this site (canonical links, RSS, sitemap). It follows the repository
       # owner, so an organization rename needs no edit here; a custom domain is this one line.
       SITE_ORIGIN: https://${{ github.repository_owner }}.github.io
+      SITE_REPOSITORY: ${{ github.repository }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -55,14 +56,17 @@ jobs:
       - name: Build static files for GitHub Pages
         working-directory: site
         run: pnpm build
+      - name: Prune the Pages artifact to the blog
+        working-directory: site
+        run: node src/blog/pages.mjs
       - name: Verify production artifact before upload
         working-directory: site
-        run: node src/blog/verify-dist.mjs
+        run: node src/blog/verify-dist.mjs --pages
       - name: Upload the Pages artifact
         if: github.ref == 'refs/heads/main' && (github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.deploy))
         uses: actions/upload-pages-artifact@v3
         with:
-          path: site/dist
+          path: site/dist-pages
 
   deploy:
     name: Deploy to GitHub Pages
