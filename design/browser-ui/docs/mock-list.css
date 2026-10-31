@@ -363,3 +363,88 @@ tr[data-unread] .list-title a {
   max-width: 50%;
   text-overflow: ellipsis;
 }
+
+/* Menu screens (#5821 note 8): Manage shortcuts and Colab settings. */
+.menu-manage {
+  width: min(520px, calc(100vw - 32px));
+}
+.menu-shortcuts {
+  display: grid;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.menu-shortcuts li {
+  display: grid;
+  grid-template-columns: 14px 16px minmax(0, 1fr) repeat(4, auto);
+  align-items: center;
+  gap: var(--tmt-ui-ref-space-2);
+  min-height: 44px;
+  border-bottom: var(--tmt-ui-rule-width) solid var(--tmt-ui-surface-rule-soft);
+}
+.menu-grip,
+.menu-icon {
+  width: 14px;
+  color: var(--tmt-ui-color-secondary);
+}
+.menu-name {
+  display: grid;
+  min-width: 0;
+}
+.menu-name code {
+  overflow: hidden;
+  color: var(--tmt-ui-color-secondary);
+  font: var(--tmt-ui-ref-size-2) var(--tmt-ui-font-mono);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.menu-settings {
+  display: grid;
+  gap: var(--tmt-ui-ref-space-5);
+  max-width: 760px;
+  padding: var(--tmt-ui-ref-space-6) var(--tmt-ui-ref-space-5) 120px;
+}
+.menu-h2 {
+  margin: 0;
+  font: 600 var(--tmt-ui-ref-size-7) / 1.3 var(--tmt-ui-font-display);
+}
+.menu-quiet {
+  color: var(--tmt-ui-color-secondary);
+  font-size: var(--tmt-ui-ref-size-3);
+}
+.menu-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--tmt-ui-ref-space-3);
+}
+.menu-defs {
+  display: grid;
+  margin: 0;
+}
+.menu-defs > div {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--tmt-ui-ref-space-4);
+  padding: var(--tmt-ui-ref-space-3) 0;
+  border-bottom: var(--tmt-ui-rule-width) solid var(--tmt-ui-surface-rule-soft);
+}
+.menu-defs dt {
+  display: grid;
+}
+.menu-defs dd {
+  margin: 0;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.menu-command {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: var(--tmt-ui-ref-space-3);
+  padding: var(--tmt-ui-ref-space-1) var(--tmt-ui-ref-space-1) var(--tmt-ui-ref-space-1)
+    var(--tmt-ui-ref-space-3);
+  border-radius: var(--tmt-ui-radius);
+  background: var(--tmt-ui-surface-code);
+  font: var(--tmt-ui-ref-size-3) var(--tmt-ui-font-mono);
+}

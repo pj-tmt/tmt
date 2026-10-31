@@ -526,7 +526,13 @@ const listMissing = [
   'Needs-you dot: the 8px waiting dot shared with the Chat unread dot.',
 ];
 
-export function ListScreen({ globals }: { globals: ReactNode }) {
+export function ListScreen({
+  globals,
+  controls = listControls,
+}: {
+  globals: ReactNode;
+  controls?: StateControl[];
+}) {
   const query = useQuery();
   const data = query.get('data');
   const filter = query.get('filter');
@@ -667,7 +673,7 @@ export function ListScreen({ globals }: { globals: ReactNode }) {
           </DialogContent>
         </Dialog>
       )}
-      <StatePanel controls={listControls}>{globals}</StatePanel>
+      <StatePanel controls={controls}>{globals}</StatePanel>
     </TooltipProvider>
   );
 }

@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useState, type ReactNode } from 'react';
-import { BrowserShell, BrowserTopBar, useTopBarReady } from '../src/react.js';
+import { useEffect, useMemo } from 'react';
+import { BrowserShell } from '../src/react.js';
 import {
   shellCount,
   shellRail,
@@ -9,32 +9,17 @@ import {
   type ShellMenuItem,
   type ShellModule,
 } from '../src/shell.js';
-import {
-  Alert,
-  AlertDescription,
-  AlertTitle,
-  Button,
-  Card,
-  CardContent,
-  CardDescription,
-  CardFooter,
-  CardHeader,
-  CardTitle,
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-  Separator,
-  UiTheme,
-} from '../src/ui/index.js';
+import { Button, Separator, UiTheme } from '../src/ui/index.js';
 import { ListScreen } from './mock-list.js';
+import { ManageDialog, menuControls, SettingsScreen } from './mock-menu.js';
 import { ReaderScreen } from './mock-reader.js';
 import { radiusLabel, setRadius, setTheme, usePreview, type Radius } from './preview.js';
-import { follow, navigate } from './router.js';
+import { follow, navigate, setQuery, useQuery } from './router.js';
 
 /*
- * The Colab mockup (#5821): three screens built only from the design-system parts, in palette B. The
- * rail and the module menu are the shared shell (#5805's one-level children); everything in the content
- * area is a `ui` part. Each screen lists the pieces that are stand-ins until a real part exists.
+ * The Colab mockup (#5821): the side menu, the page list, the reader and Colab settings, built from the
+ * design-system parts in palette B. The rail and the module menu are the shared shell; everything in
+ * the content area is a `ui` part. Each screen lists the pieces that are stand-ins until a part exists.
  */
 
 const base = '/mock/colab';
@@ -70,11 +55,12 @@ const common: ShellCommonControls = {
   remote: { kind: 'confirmed', liveSessions: 2, href: base },
 };
 
-type Screen = 'menu' | 'list' | 'page';
+type Screen = 'menu' | 'list' | 'page' | 'settings';
 const screens: { id: Screen; label: string; href: string }[] = [
   { id: 'menu', label: 'Side menu', href: `${base}/menu` },
   { id: 'list', label: 'Page list', href: base },
   { id: 'page', label: 'Page detail', href: `${base}/page` },
+  { id: 'settings', label: 'Settings', href: `${base}/settings` },
 ];
 
 interface Entry {
@@ -86,106 +72,41 @@ interface Entry {
   unread?: boolean;
   children?: Entry[];
 }
-const menuGroups: { label?: string; add?: string; entries: Entry[] }[] = [
-  {
-    entries: [
-      {
-        id: 'pages',
-        label: 'Pages',
-        href: base,
-        total: 38,
-        needsYou: 4,
-        children: [
-          { id: 'needs-you', label: 'Needs you', needsYou: 4 },
-          { id: 'unread', label: 'Unread', total: 6, unread: true },
-          { id: 'mine', label: 'Mine', total: 11 },
-          { id: 'archived', label: 'Archived' },
-        ],
-      },
-    ],
-  },
-  {
-    label: 'Projects',
-    add: 'New project',
-    entries: [
-      {
-        id: 'release',
-        label: 'Release 0.9',
-        total: 7,
-        needsYou: 2,
-        children: [
-          { id: 'release-plan', label: 'Release plan', unread: true },
-          { id: 'rollout', label: 'Rollout checklist' },
-          { id: 'notes', label: 'Release notes draft' },
-        ],
-      },
-      { id: 'remote-launch', label: 'Remote launch', total: 5 },
-      { id: 'night-shift', label: 'Night shift', total: 9, unread: true },
-    ],
-  },
-  {
-    label: 'Design',
-    entries: [
-      {
-        id: 'design-system',
-        label: 'Design system',
-        total: 4,
-        children: [
-          { id: 'theme-b', label: 'Theme B review', href: `${base}/page`, unread: true },
-          { id: 'tokens', label: 'Token tiers' },
-          { id: 'components', label: 'Component audit' },
-        ],
-      },
-      { id: 'brand', label: 'Brand sheet', total: 2 },
-    ],
-  },
+/** Colab's menu with #5826 proposal C: All pages, then the Shortcuts group with Manage. */
+const shortcuts: Entry[] = [
+  { id: 'spec', label: 'spec', total: 19, needsYou: 3 },
+  { id: 'night', label: 'night', total: 1 },
+  { id: 'pm', label: 'pm', total: 2 },
+  { id: 'design', label: 'design', total: 3, needsYou: 1 },
+  { id: 'blog', label: 'blog', total: 2 },
 ];
 
-function buildMenu(
-  current: string,
-  expanded: ReadonlySet<string>,
-  toggle: (id: string) => void,
-): ShellMenu {
+function buildMenu(current: string, withShortcuts: boolean, needs: boolean): ShellMenu {
   const item = (entry: Entry): ShellMenuItem => ({
     id: entry.id,
     label: entry.label,
     href: entry.href ?? `${base}#${entry.id}`,
     current: entry.id === current,
     total: entry.total,
-    count: entry.needsYou ? shellCount(entry.needsYou) : undefined,
-    emphasis: entry.unread ? 'unread' : undefined,
-    ...(entry.children
-      ? {
-          children: entry.children.map(item),
-          expanded: expanded.has(entry.id),
-          toggle: () => toggle(entry.id),
-        }
-      : {}),
+    count: needs && entry.needsYou ? shellCount(entry.needsYou) : undefined,
   });
   return {
     title: 'Colab',
-    groups: menuGroups.map((group) => ({
-      label: group.label,
-      items: group.entries.map(item),
-      add: group.add ? { label: group.add, onActivate: () => {} } : undefined,
-    })),
-    settings: { id: 'settings', label: 'Colab settings', href: `${base}#settings`, current: false },
+    groups: [
+      { items: [item({ id: 'all', label: 'All pages', href: base, total: 99, needsYou: 16 })] },
+      {
+        label: 'Shortcuts',
+        action: { label: 'Manage', icon: 'settings', onActivate: () => setQuery({ manage: '1' }) },
+        items: withShortcuts ? shortcuts.map(item) : [],
+      },
+    ],
+    settings: {
+      id: 'settings',
+      label: 'Colab settings',
+      href: `${base}/settings`,
+      current: current === 'settings',
+    },
   };
-}
-
-/** The top bar's breadcrumb: the trail in the quiet colour, the current page in the text colour. */
-function Bar({ trail, current, actions }: { trail: string; current: string; actions: ReactNode }) {
-  return useTopBarReady() ? (
-    <BrowserTopBar
-      title={
-        <h1>
-          <span className="tmt-ui-topbar-title-prefix">{trail}</span>
-          <span className="tmt-ui-topbar-title-current">{current}</span>
-        </h1>
-      }
-      actions={actions}
-    />
-  ) : null;
 }
 
 /** The mock's global switches: screen, theme and radius, and the way back to the docs. */
@@ -246,69 +167,35 @@ export function GlobalSwitches({ screen }: { screen: Screen }) {
   );
 }
 
-/** The mock's own switches, kept off the screens: a floating popover with screens, theme and radius. */
-function MockSwitch({ screen }: { screen: Screen }) {
-  return (
-    <div className="mock-switch">
-      <Popover>
-        <PopoverTrigger asChild>
-          <Button type="button" variant="outline" size="sm">
-            Mock · {screens.find((entry) => entry.id === screen)!.label}
-          </Button>
-        </PopoverTrigger>
-        <PopoverContent align="end" className="mock-switch-panel">
-          <GlobalSwitches screen={screen} />
-        </PopoverContent>
-      </Popover>
-    </div>
-  );
-}
-
-/** What on this screen is not yet a real part. */
-function StandIns({ items }: { items: string[] }) {
-  return (
-    <Alert className="mock-standins">
-      <AlertTitle>Mock notes</AlertTitle>
-      <AlertDescription>
-        <ul>
-          {items.map((item) => (
-            <li key={item}>{item}</li>
-          ))}
-        </ul>
-      </AlertDescription>
-    </Alert>
-  );
-}
-
 export function ColabMock({ path }: { path: string }) {
   const screen: Screen = path.startsWith(`${base}/page`)
     ? 'page'
     : path.startsWith(`${base}/menu`)
       ? 'menu'
-      : 'list';
+      : path.startsWith(`${base}/settings`)
+        ? 'settings'
+        : 'list';
   const { theme } = usePreview();
-  const [expanded, setExpanded] = useState<ReadonlySet<string>>(
-    () => new Set(['pages', 'release', 'design-system']),
-  );
-  const toggle = (id: string) =>
-    setExpanded((now) => {
-      const next = new Set(now);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
+  const query = useQuery();
+  const withShortcuts = query.get('shortcuts') !== 'none';
+  const needs = query.get('dots') !== 'off';
   const view = useMemo(() => {
     const place = { origin: location.origin, href: `${location.origin}${base}` };
     return {
       rail: shellRail(answer, place, colab),
-      menu: buildMenu(screen === 'page' ? 'theme-b' : 'pages', expanded, toggle),
+      menu: buildMenu(
+        screen === 'settings' ? 'settings' : screen === 'page' ? '' : 'all',
+        withShortcuts,
+        needs,
+      ),
     };
-  }, [screen, expanded]);
+  }, [screen, withShortcuts, needs]);
   // The side-menu screen opens the drawer on a phone, where the menu otherwise waits behind its button.
   useEffect(() => {
     if (screen !== 'menu' || !matchMedia('(max-width: 900px)').matches) return;
     document.querySelector<HTMLButtonElement>('.tmt-ui-shell-open')?.click();
   }, [screen]);
+  const globals = <GlobalSwitches screen={screen} />;
   return (
     <UiTheme theme={theme}>
       <BrowserShell
@@ -321,60 +208,14 @@ export function ColabMock({ path }: { path: string }) {
         }}
       >
         {screen === 'page' ? (
-          <ReaderScreen globals={<GlobalSwitches screen={screen} />} />
-        ) : screen === 'menu' ? (
-          <MenuScreen />
+          <ReaderScreen globals={globals} />
+        ) : screen === 'settings' ? (
+          <SettingsScreen globals={globals} />
         ) : (
-          <ListScreen globals={<GlobalSwitches screen={screen} />} />
+          <ListScreen globals={globals} controls={screen === 'menu' ? menuControls : undefined} />
         )}
       </BrowserShell>
-      {screen === 'menu' && <MockSwitch screen={screen} />}
+      {query.get('manage') === '1' && <ManageDialog />}
     </UiTheme>
-  );
-}
-
-function MenuScreen() {
-  return (
-    <>
-      <Bar trail="Colab / " current="Home" actions={<Button type="button">New page</Button>} />
-      <div className="mock-page">
-        <section className="mock-section">
-          <h2 className="mock-h2">Needs you</h2>
-          <div className="mock-cards">
-            {[
-              ['Theme B review', 'Design system', 'Answer the radius question', 'waiting'],
-              ['Release plan', 'Release 0.9', '2 open comments on the rollout order', 'waiting'],
-              ['CI flake triage', 'Release 0.9', 'Blocked on the macOS runner image', 'blocked'],
-            ].map(([title, project, why, state]) => (
-              <Card key={title} className="mock-card">
-                <CardHeader>
-                  <CardTitle>{title}</CardTitle>
-                  <CardDescription>{project}</CardDescription>
-                </CardHeader>
-                <CardContent>
-                  <p className="mock-state" data-tone={state}>
-                    {state === 'blocked' ? '✕' : '◆'} {why}
-                  </p>
-                </CardContent>
-                <CardFooter>
-                  <Button asChild variant="outline" size="sm">
-                    <a href={`${base}/page`} onClick={follow}>
-                      Open
-                    </a>
-                  </Button>
-                </CardFooter>
-              </Card>
-            ))}
-          </div>
-        </section>
-        <StandIns
-          items={[
-            'The rail and the module menu are the real shared shell; Pages, Release 0.9 and Design system open a nested level.',
-            'Home cards are Card parts; a real Colab home is not designed yet.',
-            'Search and the Remote chip in the bar are the shell’s own common controls, not wired here.',
-          ]}
-        />
-      </div>
-    </>
   );
 }
