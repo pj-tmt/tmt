@@ -309,7 +309,8 @@ Tracker rules:
 - New epics require the maintainer's approval; leads propose them through tmt-lead.
   No agent creates one on its own. Epic work requires the maintainer's explicit go; until
   then its issues stay `Todo`. Leads/PM freely open children below approved epics:
-  one outcome, acceptance criteria and normally one PR; split work hiding progress.
+  one outcome, acceptance criteria and normally one PR, sized as a whole feature or a
+  module's fix set ([Delivery lifecycle](AGENTS.md#delivery-lifecycle)).
 - [PM procedure and cadence](.agents/skills/tmt-pm/SKILL.md#cadence) own scheduled checks,
   daily reports and event-driven lead updates. Batch edits, never poll; stay near 200 GraphQL calls per lead per day:
   one account-wide GraphQL limit is shared.
