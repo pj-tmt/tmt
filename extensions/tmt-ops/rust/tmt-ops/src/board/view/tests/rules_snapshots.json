@@ -123,7 +123,7 @@
       "                                                                           │",
       "                                                                           │",
       "                                                                           │   ⏎ to message worker",
-      " 1–3 / 3 rows  ·  0 more ↓                               1 squad · 1 agent │ worker  ● 0 unread                            ⏎ send  Alt+⏎ new line  tmt/ mention",
+      " 1–3 / 3 rows  ·  0 more ↓                               1 squad · 1 agent │ worker  ● 0 unread                               ⏎ send  Alt+⏎ new line  @ mention",
       " ↑↓←→ move  ⏎ chat  n new  S switch tool  m move  x leave squad  R resume  C checklist  / search  ? help  q quit"
     ]
   },
@@ -155,7 +155,7 @@
       " │ Third response line",
       "",
       "   ⏎ to message worker",
-      " worker  ● 0 unread                                            ⏎ send  Alt+⏎ new line  tmt/ mention",
+      " worker  ● 0 unread                                               ⏎ send  Alt+⏎ new line  @ mention",
       " ↑↓←→ move  ⏎ chat  n new  S switch tool  m move  x leave squad  R resume  / search  ? help  q quit"
     ]
   },
@@ -187,7 +187,7 @@
       " │ Third response line",
       "",
       "   ⏎ to message worker",
-      " worker  ● 0 unread                        ⏎ send  Alt+⏎ new line  tmt/ mention",
+      " worker  ● 0 unread                           ⏎ send  Alt+⏎ new line  @ mention",
       " ↑↓←→ move  ⏎ chat  n new  S switch tool  m move  / search  ? help  q quit"
     ]
   },
@@ -315,7 +315,7 @@
       "                                                                           │",
       "                                                                           │",
       "                                                                           │   ⏎ to message worker",
-      " 1–3 / 3 rows  ·  0 more ↓                               1 squad · 1 agent │ worker  ● 0 unread                            ⏎ send  Alt+⏎ new line  tmt/ mention",
+      " 1–3 / 3 rows  ·  0 more ↓                               1 squad · 1 agent │ worker  ● 0 unread                               ⏎ send  Alt+⏎ new line  @ mention",
       " ↑↓←→ move  ⏎ chat  n new  S switch tool  m move  x leave squad  R resume  C checklist  / search  ? help  q quit"
     ]
   },
@@ -347,7 +347,7 @@
       "                                               │",
       "                                               │",
       "                                               │   ⏎ to message worker",
-      " 1–3 / 3 rows  ·  0 more ↓                     │ worker  ● 0 unread                  ⏎  Alt+⏎  tmt/",
+      " 1–3 / 3 rows  ·  0 more ↓                     │ worker  ● 0 unread                     ⏎  Alt+⏎  @",
       " ↑↓←→ move  ⏎ chat  n new  S switch tool  m move  x leave squad  R resume  / search  ? help  q quit"
     ]
   },
@@ -379,7 +379,7 @@
       " │ Third response line",
       "",
       "   ⏎ to message worker",
-      " worker  ● 0 unread                        ⏎ send  Alt+⏎ new line  tmt/ mention",
+      " worker  ● 0 unread                           ⏎ send  Alt+⏎ new line  @ mention",
       " ↑↓←→ move  ⏎ chat  n new  S switch tool  m move  / search  ? help  q quit"
     ]
   },
@@ -507,7 +507,7 @@
       " │ Third response line",
       "",
       "   ⏎ to message worker",
-      " worker  ● 0 unread                                                                                                        ⏎ send  Alt+⏎ new line  tmt/ mention",
+      " worker  ● 0 unread                                                                                                           ⏎ send  Alt+⏎ new line  @ mention",
       " ↑↓←→ move  ⏎ chat  n new  S switch tool  m move  x leave squad  R resume  C checklist  / search  ? help  q quit"
     ]
   },
@@ -539,7 +539,7 @@
       " │ Third response line",
       "",
       "   ⏎ to message worker",
-      " worker  ● 0 unread                                            ⏎ send  Alt+⏎ new line  tmt/ mention",
+      " worker  ● 0 unread                                               ⏎ send  Alt+⏎ new line  @ mention",
       " ↑↓←→ move  ⏎ chat  n new  S switch tool  m move  x leave squad  R resume  / search  ? help  q quit"
     ]
   },
@@ -571,7 +571,7 @@
       " │ Third response line",
       "",
       "   ⏎ to message worker",
-      " worker  ● 0 unread                        ⏎ send  Alt+⏎ new line  tmt/ mention",
+      " worker  ● 0 unread                           ⏎ send  Alt+⏎ new line  @ mention",
       " ↑↓←→ move  ⏎ chat  n new  S switch tool  m move  / search  ? help  q quit"
     ]
   }

@@ -28,6 +28,105 @@ fn app() -> App {
     app
 }
 #[test]
+fn both_mention_triggers_insert_the_canonical_identity_fold() {
+    for trigger in ["@", "tmt/"] {
+        for accept in [KeyCode::Enter, KeyCode::Tab] {
+            let mut app = app();
+            app.paste(&format!("ask {trigger}do"));
+            assert!(app.mentions.completion.open(), "{trigger}");
+            assert_eq!(app.mentions.completion.matches[0].id, "agent:docs-id");
+            assert_eq!(key(&mut app, accept), Effect::None);
+            let input = app.input.as_ref().unwrap();
+            assert_eq!(input.text.as_str(), "ask tmt/docs ");
+            assert_eq!(mentioned(&input.text.folds()[0]), Some("docs-id"));
+            assert!(input.text.folds()[0].expanded);
+            assert_eq!(
+                input.compose,
+                Compose::Talk {
+                    to: "auth-fix".into()
+                }
+            );
+            app.references = crate::board::inventory::Inventory::from_listed(&Ok(
+                serde_json::json!({"identities":[{"id":"docs-id","name":"Docs","canonicalName":"docs-2"},{"id":"other","name":"docs"}]}),
+            ));
+            assert!(matches!(key(&mut app, KeyCode::Enter),
+                Effect::Act(Request::Talk { to, text, .. })
+                if to == "auth-fix" && text == "ask tmt/docs-2 "));
+        }
+    }
+}
+
+#[test]
+fn both_mention_triggers_obey_word_starts_and_escape_dismissal() {
+    for prefix in ["", "ask ", "line\n", "\u{2003}"] {
+        for trigger in ["@", "tmt/"] {
+            let mut app = app();
+            app.paste(&format!("{prefix}{trigger}do"));
+            assert!(app.mentions.completion.open(), "{prefix:?}{trigger}");
+            assert_eq!(app.mentions.completion.matches[0].id, "agent:docs-id");
+            key(&mut app, KeyCode::Esc);
+            app.update_mentions();
+            assert!(
+                !app.mentions.completion.open(),
+                "dismissed token stays closed"
+            );
+        }
+    }
+    for literal in ["foo@bar", "footmt/docs", "@@docs", "tmt/tmt/docs"] {
+        let mut app = app();
+        app.paste(literal);
+        assert!(!app.mentions.completion.open(), "{literal}");
+        assert!(matches!(key(&mut app, KeyCode::Enter),
+            Effect::Act(Request::Talk { to, text, .. })
+            if to == "auth-fix" && text == literal));
+    }
+}
+
+#[test]
+fn an_uncompleted_at_query_stays_literal_on_send() {
+    let mut app = app();
+    app.paste("@x");
+    assert!(app.mentions.completion.open());
+    assert!(app.mentions.completion.matches.is_empty());
+    key(&mut app, KeyCode::Esc);
+    assert!(matches!(key(&mut app, KeyCode::Enter),
+        Effect::Act(Request::Talk { to, text, .. })
+        if to == "auth-fix" && text == "@x"));
+}
+
+#[test]
+fn clicking_either_trigger_replaces_its_whole_token_without_sending() {
+    for trigger in ["@", "tmt/"] {
+        let mut app = app();
+        app.paste(&format!("ask {trigger}do"));
+        assert!(app.mentions.completion.open(), "{trigger}");
+        draw_completion(&app);
+        let (area, _) = app.mentions.hits.borrow()[0];
+        assert_eq!(
+            app.mouse(
+                MouseEvent {
+                    kind: MouseEventKind::Down(MouseButton::Left),
+                    column: area.x,
+                    row: area.y,
+                    modifiers: KeyModifiers::NONE,
+                },
+                std::time::Instant::now()
+            ),
+            Effect::None
+        );
+        let input = app.input.as_ref().unwrap();
+        assert_eq!(input.text.as_str(), "ask tmt/docs ");
+        assert_eq!(mentioned(&input.text.folds()[0]), Some("docs-id"));
+        assert_eq!(
+            input.compose,
+            Compose::Talk {
+                to: "auth-fix".into()
+            }
+        );
+    }
+}
+
+#[test]
 fn every_conversation_mode_names_the_actual_recipient_and_inserts_only_text() {
     for compose in [
         Compose::Talk {
@@ -53,9 +152,8 @@ fn every_conversation_mode_names_the_actual_recipient_and_inserts_only_text() {
         }
         let buffer = draw_completion(&app);
         let painted: String = buffer.content.iter().map(|cell| cell.symbol()).collect();
-        assert!(painted.contains(&format!(
-            "Agents · ↑↓ choose · Tab insert · text only, sent to {recipient}"
-        )));
+        assert!(painted.contains("Agents · @ / tmt/"));
+        assert!(painted.contains(&format!("text only, sent to {recipient}")));
         assert_eq!(key(&mut app, KeyCode::Enter), Effect::None);
         let input = app.input.as_ref().unwrap();
         assert_eq!(input.compose, compose);
@@ -566,7 +664,10 @@ fn a_narrow_picker_drops_key_hints_before_it_cuts_the_recipient() {
         .iter()
         .map(|cell| cell.symbol())
         .collect();
-    assert!(painted.contains("Agents · Tab insert · text only, sent to auth-fix"));
+    assert!(
+        painted.contains("@ / tmt/  Tab insert  text only, sent to auth-fix"),
+        "{painted}"
+    );
     assert!(!painted.contains("↑↓ choose"));
 }
 
