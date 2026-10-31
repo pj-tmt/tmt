@@ -3,6 +3,8 @@ import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vite-plus/test';
+import e2eConfig from '../e2e/vitest.config.js';
+import advisoryConfig from '../e2e/real-harness.config.js';
 import {
   assertHarnessImage,
   downloadHarnessArchive,
@@ -27,6 +29,15 @@ const pins = () =>
   JSON.parse(readFileSync(new URL('../e2e/real-harness-pins.json', import.meta.url), 'utf8'));
 
 describe('container harness acquisition boundary', () => {
+  it('inherits the ordinary E2E lifecycle setup while selecting only the advisory scenario', () => {
+    expect(e2eConfig.test?.globalSetup).toEqual(['test/e2e/harness/lifecycle.ts']);
+    expect(advisoryConfig.test?.globalSetup).toBe(e2eConfig.test?.globalSetup);
+    expect(advisoryConfig.test?.pool).toBe(e2eConfig.test?.pool);
+    expect(advisoryConfig.test?.include).toEqual(['test/e2e/real-harness-smoke.advisory.test.ts']);
+    expect(advisoryConfig.test?.testTimeout).toBe(150_000);
+    expect(advisoryConfig.test?.hookTimeout).toBe(30_000);
+  });
+
   it('accepts the exact manifest versions and registry archive locations', () => {
     expect(validateHarnessPins(pins()).packages).toHaveLength(4);
   });
