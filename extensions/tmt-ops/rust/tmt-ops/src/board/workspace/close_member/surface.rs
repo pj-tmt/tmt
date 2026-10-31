@@ -151,9 +151,9 @@ pub(in crate::board::workspace) fn render(frame: &mut Frame, app: &App, draft: &
                                 .get(&draft.member.as_ref().unwrap().id)
                                 .is_some_and(|agent| agent.parameters["pane"].as_str().is_some())));
                 if i == labels.len() - 1 && labels.len() > 1 {
-                    Button::primary(*label).enabled(enabled)
+                    Button::primary(label).enabled(enabled)
                 } else {
-                    Button::secondary(*label).enabled(enabled)
+                    Button::secondary(label).enabled(enabled)
                 }
             })
             .collect(),

@@ -246,7 +246,7 @@ impl App {
             .iter()
             .enumerate()
             .map(|(i, label)| {
-                Button::secondary(*label).enabled(hits.buttons.get(i).is_some_and(Option::is_some))
+                Button::secondary(label).enabled(hits.buttons.get(i).is_some_and(Option::is_some))
             })
             .collect();
         let jump = matches!(event, Event::Key(key) if key.code == KeyCode::Char('j') && key.modifiers.is_empty())
