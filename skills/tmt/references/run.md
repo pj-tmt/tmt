@@ -130,11 +130,11 @@ one-TERM stop, no KILL or retry. The identity, binding and remembered session st
 TMT opened it; a pane you created, or one whose origin is unknown, stays open and the
 command says so. `resume`, `mv`, `rm` and `stop` also take the saved identity UUID.
 
-`tmt rm <name>` refuses `AGENT_RUNNING` (exit 5) while the member's agent is alive or
-not proven ended, and removes nothing. Run `tmt stop <name>` first; an agent TMT cannot
-prove (a live pane with no recorded agent) is exited in its pane, or unbound with
-`tmt unbind <name>`. When the host cannot be observed, the message says so instead.
-`--force` only confirms removing a saved identity and never overrides this check.
+`tmt rm <name>` refuses `AGENT_RUNNING` (exit 5) while the member's recorded agent is
+alive, suspended or unobservable, and removes nothing: run `tmt stop <name>` first, or
+exit a suspended agent in its pane. When the host cannot be observed, the message says
+so instead. A hand-bound pane with no recorded agent removes as before. `--force` only
+confirms removing a saved identity and never overrides this check.
 
 To switch the agent behind the same identity, run
 `tmt resume <name> --driver claude --model claude-sonnet-5-5` (or `--driver codex`).

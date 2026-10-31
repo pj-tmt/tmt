@@ -178,8 +178,7 @@ pub enum RemoveOutcome {
 pub enum AgentRunning {
     /// The recorded agent process is alive.
     Alive,
-    /// No ended agent can be proven: the process is suspended or unobservable,
-    /// or the pane is live and no agent process was recorded.
+    /// The recorded agent process is suspended or could not be observed.
     Unproven,
     /// The binding's host could not be observed.
     HostUnobserved,
@@ -472,8 +471,8 @@ impl<R, O: fmt::Display> fmt::Display for BindingError<R, O> {
             Self::NameAlreadyActive => output.write_str("Name is already active on another pane."),
             Self::NameTaken(name) => write!(output, "Another identity is already named '{name}'."),
             Self::ConfirmationRequired => output.write_str("Saved identity removal requires --force. Its role and preamble will be removed; exchanges are retained."),
-            Self::AgentRunning(name, AgentRunning::Alive) => write!(output, "{name}'s agent is still running; stop it first with tmt stop {name}, then remove. Nothing was removed."),
-            Self::AgentRunning(name, AgentRunning::Unproven) => write!(output, "{name}'s agent cannot be proven ended; exit it in its pane (or run tmt unbind {name}), then remove. Nothing was removed."),
+            Self::AgentRunning(name, AgentRunning::Alive) => write!(output, "{name}'s agent is still running; stop it first with tmt stop {name} or quit it in its pane, then remove. Nothing was removed."),
+            Self::AgentRunning(name, AgentRunning::Unproven) => write!(output, "{name}'s agent is suspended or could not be observed, so it cannot be proven ended; exit it in its pane, then remove. Nothing was removed."),
             Self::AgentRunning(name, AgentRunning::HostUnobserved) => write!(output, "{name}'s host could not be observed, so TMT cannot tell whether its agent ended. Nothing was removed; retry once the host is reachable."),
             Self::Changed => output.write_str("The identity's binding changed before it was removed. Nothing was removed."),
             Self::Unverified => output.write_str("Could not verify the identity binding. No successful binding change is claimed."),

@@ -293,8 +293,9 @@ pub fn request<'r>(
         })?
 }
 
-/// The remove guard: `Ok` only when the identity has no binding, its recorded
-/// agent process is proven gone, or its pane is gone with no agent recorded.
+/// The remove guard: `Ok` when the identity has no binding, no recorded agent
+/// process (a hand-bound pane removes as before), or its recorded agent process
+/// is proven gone.
 fn agent_ended(
     entry: &BindingEntry,
     evidence: &BindingEvidence,
@@ -307,10 +308,7 @@ fn agent_ended(
         return Err(AgentRunning::HostUnobserved);
     }
     let Some(key) = &binding.session.key else {
-        return match evidence {
-            BindingEvidence::EndpointLost => Ok(()),
-            _ => Err(AgentRunning::Unproven),
-        };
+        return Ok(());
     };
     match observe_runtime_process(&UnixCommandRunner, key.incarnation.pid(), deadline)
         .map(|observed| observed.matches(&key.incarnation))

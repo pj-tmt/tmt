@@ -503,15 +503,15 @@ been, sent. A caller MUST NOT remove the identity after one.
 **Remove.** `identity.remove` deletes the identity exactly as `tmt rm` does (its
 role and preamble go; exchanges are retained) and needs no Saved-identity force: the caller's own
 confirmation is the consent. It refuses `AGENT_RUNNING`, changing and signalling
-nothing, while the identity has a binding whose agent is alive or not proven ended:
+nothing, while the identity's recorded agent process is alive or not proven ended, or
+its host could not be observed:
 
 | Binding                    | Recorded agent process (PID and start) | Removed                                                           |
 | -------------------------- | -------------------------------------- | ----------------------------------------------------------------- |
 | none                       | none                                   | yes                                                               |
 | any observed state         | proven gone                            | yes                                                               |
-| pane gone                  | none recorded                          | yes                                                               |
+| any observed state         | none recorded (a hand-bound pane)      | yes                                                               |
 | any observed state         | alive, suspended or unobservable       | no: `AGENT_RUNNING`                                               |
-| live pane                  | none recorded                          | no: `AGENT_RUNNING` (exit it in its pane, or `tmt unbind`)        |
 | host could not be observed | any                                    | no: `AGENT_RUNNING`, whose message says the host was not observed |
 
 The delete rechecks the name and the captured binding in one IMMEDIATE binding
