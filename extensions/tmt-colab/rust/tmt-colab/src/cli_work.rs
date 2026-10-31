@@ -198,9 +198,21 @@ pub(crate) fn write_work(
     expected: Option<&str>,
 ) -> Result<page::Receipt> {
     let layout = Layout::existing(root)?.ok_or(Fault::Missing)?;
-    let key = Keyring::read(&layout)?;
     let lock = crate::write_owner(&layout)?;
-    let store = Store::read(&layout)?;
+    write_work_owned(root, &layout, page, action, body, expected, lock.as_ref())
+}
+/// `write_work` under a write lock the caller already holds (`None`: the running serve writes).
+fn write_work_owned(
+    root: &Path,
+    layout: &Layout,
+    page: &str,
+    action: &'static str,
+    body: &Value,
+    expected: Option<&str>,
+    lock: Option<&nix::fcntl::Flock<std::fs::File>>,
+) -> Result<page::Receipt> {
+    let key = Keyring::read(layout)?;
+    let store = Store::read(layout)?;
     store.require_current_schema()?;
     let page_id = resolve_page(&store, &key, page)?;
     let mut decoder = Decoder::new(std::env::current_exe()?)?;
@@ -223,7 +235,7 @@ pub(crate) fn write_work(
     work_admission::admit(
         &Space {
             root,
-            layout: &layout,
+            layout,
             store: &store,
             key: &key,
         },
@@ -259,15 +271,7 @@ pub(crate) fn write_work(
     let closed = store.close();
     let prepared = prepared?;
     closed?;
-    crate::publish_structured_owned(
-        &layout,
-        &key,
-        &page_id,
-        prepared,
-        &mut decoder,
-        now,
-        lock.as_ref(),
-    )
+    crate::publish_structured_owned(layout, &key, &page_id, prepared, &mut decoder, now, lock)
 }
 
 pub fn run(root: &Path, group: &str, args: &ArgMatches) -> Result<()> {
@@ -342,8 +346,13 @@ struct Read {
 /// page still holding version 1 gets one `work.migrate` action, which keeps its linked pages in
 /// task order and its summary and drops its plain tasks. A page already at version 2 is left alone,
 /// so the run is idempotent; a page that cannot be rewritten now is `report`ed and tried at the
-/// next open (its first write migrates it too). Returns the pages rewritten.
-pub(crate) fn migrate_space(root: &Path, report: &dyn Fn(&str)) -> Result<Vec<String>> {
+/// next open (its first write migrates it too). The serve holds the write lock (`serve_lock`)
+/// and passes it, since its own socket is not up yet to take a write. Returns the pages rewritten.
+pub(crate) fn migrate_space(
+    root: &Path,
+    lock: &nix::fcntl::Flock<std::fs::File>,
+    report: &dyn Fn(&str),
+) -> Result<Vec<String>> {
     let Some(layout) = Layout::existing(root)? else {
         return Ok(Vec::new());
     };
@@ -365,7 +374,15 @@ pub(crate) fn migrate_space(root: &Path, report: &dyn Fn(&str)) -> Result<Vec<St
     closed?;
     let mut rewritten = Vec::new();
     for page in legacy {
-        match write_work(root, &page, tmt_colab::work::MIGRATE, &json!({}), None) {
+        match write_work_owned(
+            root,
+            &layout,
+            &page,
+            tmt_colab::work::MIGRATE,
+            &json!({}),
+            None,
+            Some(lock),
+        ) {
             Ok(_) => rewritten.push(page),
             Err(error) => report(&format!(
                 "Page {page} keeps its task-era work until the next serve: {error}"

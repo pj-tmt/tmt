@@ -117,7 +117,7 @@ limits and publication/retry rules live in the
 [answer-block contract](../../../contracts/colab-v1.md#answer-blocks).
 
 Inspect state with `tmt colab question ls PAGE --json`. A verified question-bound answer
-projects answered independently of Ask delivery. `question handle PAGE ID [--task T-n]` marks
+projects answered independently of Ask delivery. `question handle PAGE ID` marks
 it handled; `question reopen PAGE ID` reopens it. Repeat `question add --title` to update a
 registered title; an unchanged registration is a no-op. A handled entry stays handled until
 explicitly reopened, and deleting its last verified answer otherwise returns it to open.
