@@ -155,10 +155,6 @@ impl Plan {
             }
         }
         if let Some(runtime) = &self.runtime {
-            let Target::Member { id, .. } = &self.target else {
-                unreachable!()
-            };
-            let _ = id;
             lines.push("Relaunch once through this agent's host:".into());
             if runtime.outer.is_none() {
                 lines.push("Copy only · nothing runs here; other edits remain unsaved".into());
@@ -291,10 +287,8 @@ impl super::Edit {
                     if model_changed {
                         valid_text(model, "Model")?;
                     }
-                    if effort_changed {
-                        if !draft.efforts(loaded).iter().any(|v| v == effort) {
-                            return Err("Choose an effort offered by this AI tool.".into());
-                        }
+                    if effort_changed && !draft.efforts(loaded).iter().any(|v| v == effort) {
+                        return Err("Choose an effort offered by this AI tool.".into());
                     }
                     if draft.text(Slot::Host).is_empty() || draft.text(Slot::Session).is_empty() {
                         return Err(

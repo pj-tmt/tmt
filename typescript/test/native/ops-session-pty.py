@@ -67,8 +67,9 @@ def read_output(timeout):
         query_tail = query_tail[-16:]
 
 
-def wait_for(predicate, label):
-    deadline = time.monotonic() + 25
+def wait_for(predicate, label, deadline=None):
+    if deadline is None:
+        deadline = time.monotonic() + 25
     # A PTY read can stop mid-paint. Never admit a key from a mixture of
     # the previous modal and its replacement; Crossterm ends each paint here.
     while not (output.endswith((b"\x1b[?25l", b"\x1b[?25h")) and predicate()):
@@ -78,9 +79,34 @@ def wait_for(predicate, label):
 
 
 def open_session():
+    # Session has no default key. Use the selected row's real Actions menu;
+    # keep the original 25 s bound across opening, selection and public read.
+    deadline = time.monotonic() + 25
+    rows = ["".join(row) for row in screen.cells]
+    row = next(index for index, line in enumerate(rows) if "└" in line and "worker" in line)
+    column = rows[row].index("worker")
     before = len(output)
-    os.write(master, b"R")
-    wait_for(lambda: len(output) > before and screen.contains("Launch preset:"), "session public read completed")
+    os.write(master, f"\x1b[<2;{column + 1};{row + 1}M\x1b[<2;{column + 1};{row + 1}m".encode())
+    wait_for(lambda: len(output) > before and screen.contains("Enter runs · Esc closes"),
+             "selected agent Actions menu", deadline)
+
+    def session_selected():
+        return any("›" in line and line.split("›", 1)[1].lstrip().startswith("Member session")
+                   for line in ("".join(row) for row in screen.cells))
+
+    for _ in range(80):
+        if session_selected():
+            break
+        before = len(output)
+        os.write(master, b"\x1b[B")
+        wait_for(lambda: len(output) > before and screen.contains("Enter runs · Esc closes"),
+                 "Actions selection advanced", deadline)
+    else:
+        raise AssertionError("Member session missing from the selected agent Actions menu")
+    before = len(output)
+    os.write(master, b"\r")
+    wait_for(lambda: len(output) > before and screen.contains("Launch preset:"),
+             "session public read completed", deadline)
 
 
 def open_review():

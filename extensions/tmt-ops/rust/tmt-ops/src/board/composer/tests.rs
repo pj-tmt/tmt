@@ -1078,7 +1078,8 @@ fn open_blocking_owner(app: &mut crate::board::app::App, owner: &str) {
     use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
     let effect = match owner {
         "review" => app.key(KeyEvent::new(KeyCode::Char('x'), KeyModifiers::NONE)),
-        "details" => app.key(KeyEvent::new(KeyCode::Char('e'), KeyModifiers::NONE)),
+        // Use the Measure detail control owner without navigating the base tab.
+        "details" => app.overview_details(),
         "help" => app.key(KeyEvent::new(KeyCode::Char('?'), KeyModifiers::NONE)),
         "reader" => app.perform(&crate::action::Action::parse("view-reply").unwrap()),
         "menu" => app.perform(&crate::action::Action::parse("menu").unwrap()),

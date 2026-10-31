@@ -782,6 +782,7 @@ exec ${quote(peer)} ${quote(fixture.executables.cli.executable)} ${quote(scenari
       // This peer reports no model in SessionStart: launch evidence is not a model receipt.
       expect(resultScreen).toContain('Observed model: unavailable');
       expect(resultScreen).toContain('Requested model: switch-model');
+      expect(resultScreen).toContain('last observed: unavailable');
       expect(durableIdentity(fixture, 'worker')).toEqual(identity);
       expect(fs.readFileSync(notes, 'utf8')).toBe('Current work: causal Ops switch 4584.');
       const calls = fs
