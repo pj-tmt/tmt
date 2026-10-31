@@ -901,7 +901,8 @@ test('<tmt-icon> draws a bounded Lucide icon with the Colab defaults, and an unk
     source: `<p>Done <tmt-icon id="ok" name="check"></tmt-icon>
       <tmt-icon id="named" name="circle-check" label="Passed"></tmt-icon>
       <tmt-icon id="none" name="not-an-icon"></tmt-icon>
-      <tmt-icon id="proto" name="constructor"></tmt-icon></p>`,
+      <tmt-icon id="proto" name="constructor"></tmt-icon>
+      <tmt-icon id="user" name="user"></tmt-icon></p>`,
   });
   const target = page.frameLocator('#target-icons');
   await expect(target.locator('#ok svg')).toHaveCount(1);
@@ -918,6 +919,21 @@ test('<tmt-icon> draws a bounded Lucide icon with the Colab defaults, and an unk
   await expect(target.locator('#named svg')).toHaveAttribute('aria-label', 'Passed');
   await expect(target.locator('#none svg')).toHaveCount(0);
   await expect(target.locator('#proto svg')).toHaveCount(0);
+  // `user` is the same Lucide glyph the shared browser-ui shell draws (`createIcon('user')`, #5722).
+  expect(
+    await target
+      .locator('#user svg > *')
+      .evaluateAll((nodes) =>
+        nodes.map((node) =>
+          node.tagName === 'path'
+            ? ['path', node.getAttribute('d')]
+            : [node.tagName, ...['cx', 'cy', 'r'].map((name) => node.getAttribute(name))],
+        ),
+      ),
+  ).toEqual([
+    ['path', 'M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2'],
+    ['circle', '12', '7', '4'],
+  ]);
 });
 
 test('a page opts in to the bundled runtime exactly as the shared marker vectors say', async ({
