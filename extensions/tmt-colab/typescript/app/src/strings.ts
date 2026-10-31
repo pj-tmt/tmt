@@ -665,6 +665,7 @@ export const text = {
     label: 'Work on this page',
     stateUnavailable: 'State unavailable',
     progressUnavailable: 'Progress unavailable',
+    emptyProgress: 'No sub-pages or tasks',
     expandPanel: 'Expand status panel',
     collapsePanel: 'Collapse status panel',
     unknown: 'Unknown',

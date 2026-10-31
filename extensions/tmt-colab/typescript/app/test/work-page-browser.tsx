@@ -316,6 +316,7 @@ export function mountWorkPage(
                   comments: 0,
                   waiting: false,
                   needsYou: 0,
+                  author: 'feat-1',
                   work: { stage: 'done' as const, done: 1, total: 1, signoff: 0, working: [] },
                 },
               },

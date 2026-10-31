@@ -1154,7 +1154,7 @@ The compact line shows verified manual `pageState`, native `PageProgress` bucket
 control. It scrolls with content; expansion pushes the canvas down. Its measured height participates
 in renderer viewport room and canvas minimum height; expanding/collapsing resizes the existing frame
 without remounting or introducing another scroll region. Progress never sets state.
-Missing progress is unavailable, zero is `0 of 0 done`, and unknown children stay unknown.
+Missing progress is unavailable, zero shows `No sub-pages or tasks` with an empty bar, and unknown children stay unknown.
 `Live` retains optional owner details across subscription and coalesces invalidations through
 `ProgressReads` in `reading-details.ts`: one active read and a trailing read per burst, no polling.
 Snapshot joins the admitted read. The first owner-list observation establishes the child-state

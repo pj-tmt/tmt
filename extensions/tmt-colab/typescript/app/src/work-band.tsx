@@ -44,7 +44,7 @@ export interface WorkBandProps extends TaskDetailSlots {
   progress?: PageProgress | null;
   stateControl?: ReactNode;
   attachAction?: ReactNode;
-  subpages?: readonly { id: string; title?: string; state?: PageState | null }[];
+  subpages?: readonly { id: string; title?: string; state?: PageState | null; creator?: string }[];
   /** Below the list and the open task: where a new task is made and a refusal is told. */
   listActions?: ReactNode;
   /** The address of a page, optionally at one cosmetic hint (a task). */
@@ -157,7 +157,9 @@ export function WorkBand({
                   ),
               )}
             </div>
-            <span className="work-progress">{t.progress(progress.done, progress.total)}</span>
+            <span className="work-progress">
+              {progress.total === 0 ? t.emptyProgress : t.progress(progress.done, progress.total)}
+            </span>
           </>
         ) : (
           <span className="work-progress">{t.progressUnavailable}</span>
@@ -207,7 +209,10 @@ export function WorkBand({
                         {child.title ?? t.unknownPage}
                       </span>
                     )}
-                    <span>{child.state ? t.taskState[child.state] : t.unknown}</span>
+                    <span>
+                      {child.state ? t.taskState[child.state] : t.unknown}
+                      {child.creator ? ` · ${child.creator}` : ''}
+                    </span>
                   </li>
                 ))}
               </ul>

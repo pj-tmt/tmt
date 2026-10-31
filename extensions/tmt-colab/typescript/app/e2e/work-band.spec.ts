@@ -113,7 +113,7 @@ test('empty progress is zero and complete progress never changes manual state', 
   page,
 }) => {
   let host = await mountBand(page, 'zero');
-  await expect(host.locator('.work-progress')).toHaveText('0 of 0 done');
+  await expect(host.locator('.work-progress')).toHaveText('No sub-pages or tasks');
   await expect(host.locator('.work-segments span')).toHaveCount(0);
   host = await mountBand(page, 'complete');
   await expect(host.locator('.work-progress')).toHaveText('5 of 5 done');
@@ -172,7 +172,7 @@ test('missing child list rows stay unknown, known rows use manual state', async 
     1,
   );
   await expand(page);
-  await expect(page.getByRole('list', { name: 'Sub-pages' })).toHaveText('Legal copyDone');
+  await expect(page.getByRole('list', { name: 'Sub-pages' })).toHaveText('Legal copyDone · feat-1');
   await mountRoute(page, true, false, 'linked-missing');
   await expand(page);
   await expect(page.getByRole('list', { name: 'Sub-pages' })).toHaveText('Unknown pageUnknown');

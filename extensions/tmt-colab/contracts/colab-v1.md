@@ -3193,11 +3193,11 @@ once, in task order. Sign-off is the count of `in-review` tasks with `needsSigno
 status panel below the nav, scrolling with content. Its chip shows the independent manual page state,
 never the task-derived stage. The segmented bar and count use the native progress buckets above:
 Done is theme green, In progress is review purple, To do is empty, and Unknown is neutral. Zero total
-shows `0 of 0 done`; unavailable progress shows a label without invented counts. Share readers have
+shows an empty bar and `No sub-pages or tasks`; unavailable progress shows a label without invented counts. Share readers have
 verified manual state and `progress: null`, no owner metadata writes or discovery reads.
 
 The panel reports its measured height to the existing renderer viewport owner and canvas minimum-height calculation, including after expansion or resize, so a short page does not gain a second scroll region. Expanding the panel pushes content down and shows direct sub-pages (titles/manual states only from
-existing owner-list rows, with missing values unknown), plus the bucket legend. With sub-pages,
+existing owner-list rows, with missing values unknown, and the creator label when available), plus the bucket legend. With sub-pages,
 `Tasks N` opens the unlinked task list and detail in place. Without sub-pages, the selectable task
 list appears directly; there is no duplicate summary or task toggle. Task deep links open that detail once. Owner task
 controls send the existing closed browser work actions, with changes appearing only through the

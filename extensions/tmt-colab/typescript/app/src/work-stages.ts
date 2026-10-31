@@ -30,7 +30,12 @@ export function useLinkedPages(
   pages?: readonly PageSummary[];
   knownChild: boolean;
   parent?: WorkParent;
-  subpages: readonly { id: string; title?: string; state?: PageSummary['state'] }[];
+  subpages: readonly {
+    id: string;
+    title?: string;
+    state?: PageSummary['state'];
+    creator?: string;
+  }[];
 } {
   const key = followed(work);
   const [pages, setPages] = useState<readonly PageSummary[] | undefined>(() =>
@@ -73,7 +78,7 @@ export function useLinkedPages(
     () =>
       [...new Set(key.split(' ').filter(Boolean))].map((id) => {
         const row = pages?.find((page) => page.id === id);
-        return { id, title: row?.title, state: row?.state };
+        return { id, title: row?.title, state: row?.state, creator: row?.summary?.author };
       }),
     [key, pages],
   );
