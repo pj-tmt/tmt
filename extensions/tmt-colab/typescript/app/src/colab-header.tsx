@@ -211,7 +211,14 @@ export function ColabHeader({
             >
               {(!page || crumb !== undefined) && (
                 <span className="tmt-ui-topbar-title-prefix">
-                  <CrumbGroup>{page ? crumb : text.product}</CrumbGroup>
+                  {page ? (
+                    <CrumbGroup>{crumb}</CrumbGroup>
+                  ) : (
+                    <>
+                      <CrumbGroup>{text.product}</CrumbGroup>
+                      {crumb !== undefined && <CrumbGroup>{crumb}</CrumbGroup>}
+                    </>
+                  )}
                 </span>
               )}
               <span className="tmt-ui-topbar-title-current" title={title}>

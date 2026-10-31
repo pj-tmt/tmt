@@ -1,5 +1,5 @@
 import { expect, test } from 'vite-plus/test';
-import { designSystems, designRouteTitle, isDesignRoute } from '../src/design-systems.js';
+import { designSystems, designRouteHeader, isDesignRoute } from '../src/design-systems.js';
 
 test('catalog addresses do not depend on a rail or menu registration', () => {
   expect(designSystems.map((entry) => entry.id)).toEqual(['gui', 'tui']);
@@ -13,5 +13,9 @@ test('catalog addresses do not depend on a rail or menu registration', () => {
     '/design/gui/tmt-ui-button/extra',
   ])
     expect(isDesignRoute(path)).toBe(false);
-  expect(designRouteTitle('/design/gui/tmt-ui-button')).toBe('Design / GUI / Action');
+  expect(designRouteHeader('/design/gui/tmt-ui-button')).toEqual({
+    title: 'Action',
+    crumb: 'Design / GUI',
+  });
+  expect(designRouteHeader('/design/tui')).toEqual({ title: 'TUI', crumb: 'Design' });
 });

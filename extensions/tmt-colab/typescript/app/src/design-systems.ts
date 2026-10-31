@@ -5,11 +5,14 @@ export const designSystems = [
   { id: 'gui', name: 'GUI', description: 'Live browser-ui widgets, shared with the application.' },
   { id: 'tui', name: 'TUI', description: 'Terminal widgets and styles from the real painters.' },
 ] as const;
-export function designRouteTitle(path: string): string {
+export function designRouteHeader(path: string): { title: string; crumb: string } {
   const [, , system, component] = path.split('/');
   const current = designSystems.find((entry) => entry.id === system);
   const widget = browserElements.find((entry) => entry.tag === component);
-  return ['Design', current?.name ?? 'GUI', widget?.name].filter(Boolean).join(' / ');
+  const segments = ['Design', current?.name ?? 'GUI', widget?.name].filter(
+    (value): value is string => !!value,
+  );
+  return { title: segments.at(-1)!, crumb: segments.slice(0, -1).join(' / ') };
 }
 
 /** Only catalog-owned paths enter legacy owner/hash navigation; unknown paths still refuse. */

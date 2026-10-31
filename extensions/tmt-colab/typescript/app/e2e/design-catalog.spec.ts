@@ -53,6 +53,20 @@ for (const width of [1440, 390])
           }, path);
           const catalog = page.locator('.design-page');
           await expect(catalog).toBeVisible();
+          const currentTitle = page.locator('.tmt-ui-topbar-title-current');
+          const prefix = page.locator('.tmt-ui-topbar-title-prefix');
+          await expect(currentTitle).toHaveText(
+            surface === 'terminal' ? 'TUI' : surface === 'detail' ? 'Dialog' : 'GUI',
+          );
+          if (width === 390) await expect(prefix).toBeHidden();
+          else {
+            await expect(prefix).toBeVisible();
+            expect(
+              Number(await prefix.evaluate((node) => getComputedStyle(node).fontWeight)),
+            ).toBeLessThan(
+              Number(await currentTitle.evaluate((node) => getComputedStyle(node).fontWeight)),
+            );
+          }
           if (surface === 'terminal') {
             await expect(catalog.getByRole('table', { name: 'TUI components' })).toBeVisible();
             await expect(catalog).toContainText('not available in this build');
