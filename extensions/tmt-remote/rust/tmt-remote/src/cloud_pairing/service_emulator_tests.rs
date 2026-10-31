@@ -1,4 +1,4 @@
-//! Ordinary-user qualification. Admin is used only to install Rules in a demo emulator.
+//! Ordinary-user qualification. Admin configures demo Rules and seeds owner entitlements only.
 use super::*;
 use crate::emulator_http::EMULATOR_HTTP_TIMEOUT;
 use crate::{
@@ -1176,3 +1176,6 @@ fn ordinary_user_two_way_finals_and_direction_refusals() {
         2
     );
 }
+
+#[path = "squads_cli_emulator_tests.rs"]
+mod squads_cli_qualifier;

@@ -36,6 +36,8 @@ mod member_commands;
 mod member_failures;
 #[path = "cli/member_reads.rs"]
 mod member_reads;
+#[path = "cli/squad_reads.rs"]
+mod squad_reads;
 /// Bound on a `serve` child reporting readiness. Startup runs freshly written
 /// fake-core executables, whose first exec waits behind the same assessment
 /// queue as the fixture probe.

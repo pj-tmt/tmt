@@ -111,6 +111,7 @@ export type {
 export type {
   RemoteMembers,
   RemoteMember,
+  RemoteMemberObservation,
   MemberRoster,
   MemberSummary,
   MemberMachines,

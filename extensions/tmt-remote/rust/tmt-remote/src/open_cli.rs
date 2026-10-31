@@ -16,7 +16,7 @@ pub fn command(extension: bool) -> Command {
         } else {
             OutputModes::HumanAndJson
         },
-        details: "Only a short path on the running local door is accepted. New browsers receive read-only access. While a manual pairing is open, the page opens without connecting a new browser. Printed links never contain a pairing code. --no-open suppresses opening.",
+        details: "Only a short path on the running local door is accepted. New browsers receive read-only access. While a manual pairing is open, the page opens without connecting a new browser. Printed links never contain a pairing code. --json alone never opens; --open explicitly opens even with --json. --no-open always suppresses opening.",
     };
     tmt_cli_style::command(&spec)
         .hide(extension)
@@ -29,7 +29,6 @@ pub fn command(extension: bool) -> Command {
             Arg::new("open")
                 .long("open")
                 .action(ArgAction::SetTrue)
-                .conflicts_with("no-open")
                 .help("Open even when automatic opening is suppressed"),
         )
         .arg(
@@ -93,6 +92,6 @@ mod tests {
     fn open_help_states_what_happens_while_manual_pairing_is_open() {
         let help = super::command(false).render_long_help().to_string();
         let help = help.split_whitespace().collect::<Vec<_>>().join(" ");
-        assert!(help.contains("Only a short path on the running local door is accepted. New browsers receive read-only access. While a manual pairing is open, the page opens without connecting a new browser. Printed links never contain a pairing code. --no-open suppresses opening."), "{help}");
+        assert!(help.contains("Only a short path on the running local door is accepted. New browsers receive read-only access. While a manual pairing is open, the page opens without connecting a new browser. Printed links never contain a pairing code. --json alone never opens; --open explicitly opens even with --json. --no-open always suppresses opening."), "{help}");
     }
 }

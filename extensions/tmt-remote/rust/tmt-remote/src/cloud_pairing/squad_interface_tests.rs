@@ -51,7 +51,16 @@ fn directory_adapter_reads_original_delivery_and_final_without_dispatch_replay()
         "failed source is not an empty list"
     );
     let interface = Firestore::new(&sender, &Empty);
+    let control = message_control(&sender, &_sender_lease);
     let before = wire.reads.lock().unwrap().len();
+    assert_eq!(
+        crate::control::squad_list(&sender.layout.directory).unwrap(),
+        serde_json::to_value(Firestore::new(&sender, sender.as_ref()).list().unwrap()).unwrap()
+    );
+    assert_eq!(
+        crate::control::squad_delivery(&sender.layout.directory, &remote, TARGET).unwrap()["state"],
+        "unknown"
+    );
     assert_eq!(
         interface.delivery(&remote, TARGET).unwrap().state,
         DeliveryPhase::Unknown
@@ -176,6 +185,14 @@ fn directory_adapter_reads_original_delivery_and_final_without_dispatch_replay()
         "revocation refuses fresh observation"
     );
     assert_eq!(core.sends(), 1, "revocation cannot replay the original");
+    control.stop();
+    assert!(
+        !sender
+            .layout
+            .directory
+            .join(crate::control::SOCKET)
+            .exists()
+    );
     sender.stop.store(true, Ordering::Release);
     owner.stop.store(true, Ordering::Release);
 }

@@ -29,7 +29,7 @@ async function ready() {
     remoteId: member.remoteId,
     administrator: false,
     displayName: null,
-    members: [member],
+    members: [{ ...member, lastUsedAtMs: null as number | null }],
     nextCursor: null,
     invitation: null,
     routes: { state: 'unavailable' },
@@ -382,5 +382,27 @@ test('member summary refuses uncorrelated or unsafe facts and unknown fields', a
       door.calls.map((call) => call.envelope.operation),
       ['remote.members.summary'],
     );
+  }
+});
+
+test('roster use is nullable historical data and never part of a mutation result', async () => {
+  const { client, roster, member } = await ready();
+  for (const value of [null, 0, 1234]) {
+    roster.members[0]!.lastUsedAtMs = value;
+    assert.equal((await client.list({ cursor: null, limit: 50 })).members[0]!.lastUsedAtMs, value);
+  }
+  const outcome = await client.rename({
+    operationId: crypto.randomUUID(),
+    remoteId: member.remoteId,
+    memberId: member.memberId,
+    memberRevision: 1,
+    name: 'New name',
+  });
+  assert.equal(outcome.state, 'committed');
+  if (outcome.state === 'committed' && 'member' in outcome.result)
+    assert.equal(Object.hasOwn(outcome.result.member, 'lastUsedAtMs'), false);
+  for (const bad of [-1, 0.5, Number.MAX_SAFE_INTEGER + 1, 'today', undefined]) {
+    Object.assign(roster.members[0]!, { lastUsedAtMs: bad });
+    await assert.rejects(client.list({ cursor: null, limit: 50 }));
   }
 });

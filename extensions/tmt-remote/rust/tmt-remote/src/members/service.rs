@@ -41,6 +41,14 @@ impl From<Member> for Person {
         }
     }
 }
+/// Read-only historical use, separate from immutable mutation receipt people.
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PersonObservation {
+    #[serde(flatten)]
+    pub person: Person,
+    pub last_used_at_ms: Option<u64>,
+}
 /// Durable row facts only; neither timestamp nor count is a presence observation.
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -57,7 +65,7 @@ pub struct Roster {
     pub display_name: Option<String>,
     pub invitation: Option<super::observations::MemberInvitationView>,
     pub routes: super::observations::MemberRouteView,
-    pub members: Vec<Person>,
+    pub members: Vec<PersonObservation>,
     pub next_cursor: Option<String>,
 }
 #[derive(Debug, Serialize)]
@@ -219,10 +227,11 @@ pub(crate) fn validate_roster(
     let current = scope(&store.connection, caller, now)?;
     if current.remote != view.remote_id
         || current.administrator() != view.administrator
-        || current
-            .member
-            .as_ref()
-            .is_some_and(|member| view.members.iter().any(|row| &row.member_id != member))
+        || current.member.as_ref().is_some_and(|member| {
+            view.members
+                .iter()
+                .any(|row| &row.person.member_id != member)
+        })
     {
         return Err(denied());
     }
