@@ -59,6 +59,7 @@ export function ReaderApp({
   const descriptors = state.kind === 'ready' ? (state.view.attachments ?? []) : [];
   const source = state.kind === 'ready' && !shell ? state.view.source : null;
   const title = state.kind === 'ready' ? state.view.title : '';
+  const layout = state.kind === 'ready' ? state.view.layout : undefined;
   const [render, setRender] = useState<RenderState | 'loading'>('loading');
   const host = useRef<HTMLDivElement>(null);
   const bar = useRef<HTMLElement>(null);
@@ -137,6 +138,7 @@ export function ReaderApp({
     resetPageLinks();
     void mountRenderer(host.current!, source, {
       signal: controller.signal,
+      layout,
       onState: (next) => {
         if (next !== 'ready') resetPageLinks();
         setRender(next);
@@ -161,7 +163,7 @@ export function ReaderApp({
       resetPageLinks();
       renderer.current = null;
     };
-  }, [source, shell, resetPageLinks, requestPageLink, editLockLayer.onEditLocks]);
+  }, [source, shell, layout, resetPageLinks, requestPageLink, editLockLayer.onEditLocks]);
   return (
     <>
       {pageLinkBar}
