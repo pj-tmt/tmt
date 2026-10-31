@@ -329,32 +329,161 @@ fn backup(store: &Path, version: u32) -> StoreResult<()> {
     let mut partial_name = target.file_name().unwrap_or_default().to_os_string();
     partial_name.push(".partial");
     let partial = target.with_file_name(partial_name);
-    let write = || -> io::Result<()> {
+    let write = || -> crate::Result<()> {
         match fs::remove_file(&partial) {
-            Err(error) if error.kind() != io::ErrorKind::NotFound => return Err(error),
+            Err(error) if error.kind() != io::ErrorKind::NotFound => return Err(error.into()),
             _ => {}
         }
-        let mut source = fs::File::open(store)?;
-        let mut file = fs::OpenOptions::new()
+        let file = fs::OpenOptions::new()
             .write(true)
             .create_new(true)
             .mode(0o600)
             .custom_flags(nix::fcntl::OFlag::O_NOFOLLOW.bits())
             .open(&partial)?;
-        io::copy(&mut source, &mut file)?;
+        // The migration already holds a writer reservation on another connection. Read through
+        // SQLite so closing the source cannot discard that connection's POSIX lock.
+        let source = Connection::open_with_flags(
+            store,
+            rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY | rusqlite::OpenFlags::SQLITE_OPEN_NOFOLLOW,
+        )?;
+        let mut destination = Connection::open_with_flags(
+            &partial,
+            rusqlite::OpenFlags::SQLITE_OPEN_READ_WRITE | rusqlite::OpenFlags::SQLITE_OPEN_NOFOLLOW,
+        )?;
+        destination.pragma_update(None, "synchronous", "FULL")?;
+        {
+            let copy = rusqlite::backup::Backup::new(&source, &mut destination)?;
+            let result = copy.step(-1)?;
+            if result != rusqlite::backup::StepResult::Done {
+                return Err(format!("SQLite backup did not complete: {result:?}").into());
+            }
+        }
+        destination.close().map_err(|(_, error)| error)?;
+        source.close().map_err(|(_, error)| error)?;
         file.sync_all()?;
         fs::rename(&partial, &target)?;
-        fs::File::open(target.parent().unwrap_or(Path::new(".")))?.sync_all()
+        fs::File::open(target.parent().unwrap_or(Path::new(".")))?.sync_all()?;
+        Ok(())
     };
     write().map_err(|error| {
         let _ = std::fs::remove_file(&partial);
-        Fault::Backup(error)
+        Fault::Backup(std::io::Error::other(error))
     })
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The peer runs in a different process because POSIX locks are process-scoped. Its own
+    /// SQLite connection must fail for a lock, and must succeed after the holder releases it.
+    #[test]
+    fn sqlite_files_keep_other_connections_locks() {
+        use crate::{keyring::Layout, store::Store};
+        use std::{
+            env,
+            ffi::OsString,
+            time::{Duration, Instant},
+        };
+        const PROBE: &str = "TMT_COLAB_SQLITE_LOCK_PROBE";
+        const EXPECT: &str = "TMT_COLAB_SQLITE_LOCK_EXPECT";
+        const TEST: &str = "store::schema::tests::sqlite_files_keep_other_connections_locks";
+        if let Some(path) = env::var_os(PROBE) {
+            let connection = Connection::open_with_flags(
+                path,
+                rusqlite::OpenFlags::SQLITE_OPEN_READ_WRITE
+                    | rusqlite::OpenFlags::SQLITE_OPEN_NOFOLLOW,
+            )
+            .unwrap();
+            connection.busy_timeout(Duration::ZERO).unwrap();
+            let attempt = connection.execute_batch("BEGIN IMMEDIATE; ROLLBACK");
+            if env::var(EXPECT).unwrap() == "blocked" {
+                assert!(
+                    matches!(&attempt, Err(rusqlite::Error::SqliteFailure(error, _))
+                    if error.code == rusqlite::ErrorCode::DatabaseBusy),
+                    "peer acquired the held lock: {attempt:?}"
+                );
+            } else {
+                attempt.unwrap();
+            }
+            return;
+        }
+        let root = env::temp_dir().join(format!("tmt-colab-sqlite-lock-{}", std::process::id()));
+        assert!(!root.exists());
+        struct Cleanup(std::path::PathBuf);
+        impl Drop for Cleanup {
+            fn drop(&mut self) {
+                std::fs::remove_dir_all(&self.0).unwrap();
+            }
+        }
+        let layout = Layout::open(&root).unwrap();
+        let _cleanup = Cleanup(root.clone());
+        Store::open(&layout).unwrap().close().unwrap();
+        let path = layout.directory.join("space.db");
+        let held = Connection::open(&path).unwrap();
+        let peer = |expected: &str| {
+            let mut database = OsString::from(format!("{PROBE}="));
+            database.push(&path);
+            let args = [
+                database,
+                format!("{EXPECT}={expected}").into(),
+                env::current_exe().unwrap().into_os_string(),
+                "--exact".into(),
+                TEST.into(),
+                "--nocapture".into(),
+            ];
+            let output = tmt_invoke::invoke(
+                tmt_invoke::Request {
+                    program: Path::new("/usr/bin/env"),
+                    args: &args,
+                    input: &[],
+                    deadline: Instant::now() + Duration::from_secs(10),
+                    max_stream_bytes: 8192,
+                    launch: tmt_invoke::LaunchOptions {
+                        environment: tmt_invoke::EnvironmentPolicy::ClearAllowlist(&[]),
+                        ..Default::default()
+                    },
+                },
+                None,
+            )
+            .unwrap();
+            assert!(
+                output.status.success(),
+                "{} {}",
+                String::from_utf8_lossy(&output.stdout),
+                String::from_utf8_lossy(&output.stderr)
+            );
+        };
+        for operation in ["read", "write_existing", "open", "backup"] {
+            held.execute_batch("BEGIN IMMEDIATE").unwrap();
+            peer("blocked");
+            let opened = match operation {
+                "read" => Some(Store::read(&layout).unwrap()),
+                "write_existing" => Some(Store::write_existing(&layout).unwrap()),
+                "open" => {
+                    let error = Store::open(&layout)
+                        .err()
+                        .expect("a second writer must wait");
+                    assert!(crate::store::contended(error.as_ref()), "{error}");
+                    None
+                }
+                "backup" => {
+                    backup(&path, CURRENT_VERSION).unwrap();
+                    None
+                }
+                _ => unreachable!(),
+            };
+            peer("blocked");
+            drop(opened);
+            peer("blocked");
+            held.execute_batch("ROLLBACK").unwrap();
+            peer("available");
+            if operation == "open" {
+                Store::open(&layout).unwrap().close().unwrap();
+            }
+        }
+        drop(held);
+    }
 
     #[test]
     fn failed_reclaim_keeps_the_committed_write() {

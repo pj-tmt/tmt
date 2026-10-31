@@ -531,12 +531,16 @@ is added.
 - `Store::open` creates and migrates, first copying an existing store (`schema::backup`:
   `space.db.pre-v<N>.bak`, 0600, partial file synced and renamed; once the migration commits, the copy just
   taken and the newest other stay and the rest go, and a failed migration prunes nothing; a failed copy
-  refuses to migrate with `COLAB_STORE_BACKUP_FAILED`; the plain file copy relies on journal mode DELETE,
-  which keeps the store one complete file, so the journal stays DELETE with `synchronous=FULL`) and, for a newer store, naming the newest copy this
+  refuses to migrate with `COLAB_STORE_BACKUP_FAILED`; SQLite's backup API reads through a separate
+  read-only connection while migration retains its writer reservation, with no raw source-file opens;
+  the snapshot retains schema and row data while SQLite owns its header cache/change counters;
+  the journal stays DELETE with `synchronous=FULL`) and, for a newer store, naming the newest copy this
   build can open in the `COLAB_STORE_NEWER` message (`schema::copies`; contract: Copy before a migration).
   `Store::read` and `Store::write_existing` open only
   existing 0600 state owned by the user, create nothing and never migrate;
   `write_existing` requires the serve lifecycle lock and exactly the current schema.
+  Database admission checks path metadata without opening a separate file descriptor, so it cannot
+  release another connection's POSIX locks; SQLite opens retain `SQLITE_OPEN_NOFOLLOW`.
   Both existing-state paths check the version derived from `MIGRATIONS`; a future
   schema fails closed with `COLAB_STORE_NEWER` and the `tmt upgrade` instruction.
   Current-schema CLI inspection rejects an older migratable schema with

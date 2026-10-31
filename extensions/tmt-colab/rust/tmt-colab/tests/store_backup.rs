@@ -1,5 +1,7 @@
 //! The copy of the owner store taken before a schema migration (#4280): when it is made, who may
 //! read it, how many stay, and how a newer store's refusal points back to one.
+#[path = "support/store_snapshot.rs"]
+mod store_snapshot;
 use rusqlite::Connection;
 use std::{
     fs,
@@ -166,7 +168,7 @@ fn busy_physical_conversion_keeps_the_store_usable_and_retries_on_next_open() {
 }
 
 #[test]
-fn an_upgrade_copies_the_store_first_byte_for_byte_and_owner_only() {
+fn an_upgrade_snapshots_the_store_first_and_owner_only() {
     let fixture = Fixture::new();
     let layout = fixture.layout();
     let (store, previous) = previous_schema(&layout);
@@ -180,7 +182,7 @@ fn an_upgrade_copies_the_store_first_byte_for_byte_and_owner_only() {
             .directory
             .join(format!("space.db.pre-v{previous}.bak"))
     );
-    assert_eq!(fs::read(&copy).unwrap(), before);
+    store_snapshot::assert_snapshot(&copy, &before);
     assert_eq!(fs::metadata(&copy).unwrap().mode() & 0o777, 0o600);
     // Nothing else is left beside it: no partial file.
     assert_eq!(names(&layout), [format!("space.db.pre-v{previous}.bak")]);
@@ -221,7 +223,7 @@ fn a_copy_that_cannot_be_written_stops_the_migration_and_leaves_the_store_untouc
     fs::remove_dir(&blocker).unwrap();
     Store::open(&layout).unwrap().close().unwrap();
     assert_eq!(version(&store), SCHEMA_VERSION);
-    assert_eq!(fs::read(backup_path(&store, previous)).unwrap(), before);
+    store_snapshot::assert_snapshot(&backup_path(&store, previous), &before);
 }
 
 #[test]
@@ -239,7 +241,7 @@ fn a_second_upgrade_from_the_same_schema_replaces_the_copy() {
         .unwrap();
     let second = fs::read(&store).unwrap();
     Store::open(&layout).unwrap().close().unwrap();
-    assert_eq!(fs::read(backup_path(&store, previous)).unwrap(), second);
+    store_snapshot::assert_snapshot(&backup_path(&store, previous), &second);
     assert_eq!(names(&layout), [format!("space.db.pre-v{previous}.bak")]);
 }
 
@@ -311,7 +313,7 @@ fn a_migration_that_fails_partway_keeps_its_copy_and_every_older_one() {
         .unwrap();
     assert_eq!(pins, 0);
     assert_eq!(version(&store), previous);
-    assert_eq!(fs::read(backup_path(&store, previous)).unwrap(), before);
+    store_snapshot::assert_snapshot(&backup_path(&store, previous), &before);
     let mut expected = vec![
         "space.db.pre-v3.bak".to_string(),
         format!("space.db.pre-v{previous}.bak"),
@@ -332,7 +334,7 @@ fn the_copy_just_taken_stays_even_when_copies_at_newer_schemas_exist() {
     }
     let before = fs::read(&store).unwrap();
     Store::open(&layout).unwrap().close().unwrap();
-    assert_eq!(fs::read(backup_path(&store, previous)).unwrap(), before);
+    store_snapshot::assert_snapshot(&backup_path(&store, previous), &before);
     assert_eq!(
         names(&layout),
         [

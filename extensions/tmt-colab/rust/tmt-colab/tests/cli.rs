@@ -4,6 +4,8 @@ mod core_fixture;
 mod fixture_process;
 #[path = "cli/question_metadata.rs"]
 mod question_metadata;
+#[path = "support/store_snapshot.rs"]
+mod store_snapshot;
 mod support;
 #[path = "cli/user_templates.rs"]
 mod user_templates;
@@ -1455,6 +1457,13 @@ fn serve_migrates_an_older_store_and_preserves_the_page() {
         DROP TABLE edit_decisions; DROP TABLE cloud_page_rows; DROP TABLE link_publications; DROP TABLE link_admissions; DROP TABLE cloud_publications; DROP TABLE page_auto_cleaned; DROP TABLE project_pin_choice; DROP TABLE project_pins; DROP TABLE page_pins; DROP TABLE page_titles; DROP TABLE page_projects; DROP TABLE projects; ALTER TABLE pages DROP COLUMN last_activity_at_ms; ALTER TABLE checkpoints DROP COLUMN signer;
         ALTER TABLE pages DROP COLUMN last_update_at_ms; PRAGMA user_version=4")
         .unwrap();
+    let stored_pages: Vec<(String, String)> = conn
+        .prepare("SELECT page, epoch FROM pages ORDER BY page")
+        .unwrap()
+        .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))
+        .unwrap()
+        .collect::<rusqlite::Result<_>>()
+        .unwrap();
     drop(conn);
     let before = fs::read(&db).unwrap();
     failure(&pilot, &["ls", "--json"], "COLAB_STORE_OUTDATED");
@@ -1463,9 +1472,17 @@ fn serve_migrates_an_older_store_and_preserves_the_page() {
     assert_eq!(pilot.call(&["page", "read", PAGE, "--json"]), page);
     assert_eq!(pilot.call(&["ls", "--json"])["pages"][0]["pageId"], PAGE);
     pilot.stop();
-    // The serve copied the older store, byte for byte and owner-only, before it migrated it.
     let copy = tmt_colab::store::backup_path(&db, 4);
-    assert_eq!(fs::read(&copy).unwrap(), before);
+    let saved = store_snapshot::assert_snapshot(&copy, &before);
+    let copied_pages: Vec<(String, String)> = saved
+        .prepare("SELECT page, epoch FROM pages ORDER BY page")
+        .unwrap()
+        .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))
+        .unwrap()
+        .collect::<rusqlite::Result<_>>()
+        .unwrap();
+    assert_eq!(copied_pages, stored_pages);
+    drop(saved);
     assert_eq!(
         fs::metadata(&copy).unwrap().permissions().mode() & 0o777,
         0o600
@@ -1483,6 +1500,13 @@ fn serve_migrates_an_older_store_and_preserves_the_page() {
         None
     );
     assert_eq!(pilot.call(&["page", "read", PAGE, "--json"]), page);
+    drop(conn);
+    // Restore the saved database through the documented stopped-service recovery path.
+    fs::copy(&copy, &db).unwrap();
+    failure(&pilot, &["ls", "--json"], "COLAB_STORE_OUTDATED");
+    pilot.start();
+    assert_eq!(pilot.call(&["page", "read", PAGE, "--json"]), page);
+    pilot.stop();
 }
 
 #[test]
@@ -6842,7 +6866,8 @@ fn installed_service(pilot: &Pilot, core: PathBuf, json_output: bool) -> (Servin
 /// A receipt-bound replacement driver supplies the selected version's bounded preflight,
 /// then either execs the real current binary or fails after the cutoff. Real Colab owns the
 /// migrated store, page patch and socket; the driver only makes two versions reproducible.
-fn select_replacement(pilot: &Pilot, lib: &std::path::Path, fail: bool) {
+/// `before_start` runs after the real serve/door close and before the new CLI opens its store.
+fn select_replacement(pilot: &Pilot, lib: &std::path::Path, fail: bool, before_start: &str) {
     use sha2::{Digest, Sha256};
     let layout = tmt_colab::keyring::Layout::existing(&pilot.root.join("selected"))
         .unwrap()
@@ -6851,7 +6876,7 @@ fn select_replacement(pilot: &Pilot, lib: &std::path::Path, fail: bool) {
     let prepared = json!({"state":"prepared","version":"9.9.9-installed","spaceId":key.space_id,
         "schema":tmt_colab::store::SCHEMA_VERSION});
     let program = format!(
-        "#!/bin/sh\nif [ \"$2\" = '--upgrade-check' ]; then printf '%s\\n' {}; exit 0; fi\necho $$ > replacement.pid\n{}\n",
+        "#!/bin/sh\nif [ \"$2\" = '--upgrade-check' ]; then printf '%s\\n' {}; exit 0; fi\necho $$ > replacement.pid\n{before_start}\n{}\n",
         quote(&prepared.to_string()),
         if fail {
             format!(
@@ -6958,7 +6983,7 @@ fn a_release_replacement_leaves_an_attached_door_untouched() {
     let (mut serving, lib) = installed_service(&pilot, core, true);
     let first = serving.ready();
     assert_eq!(first["door"], "attached");
-    select_replacement(&pilot, &lib, false);
+    select_replacement(&pilot, &lib, false, "");
     let ready = replacement_ready(&serving);
     assert_eq!(ready["url"], first["url"]);
     assert_eq!(ready["door"], "attached");
@@ -6973,7 +6998,7 @@ fn a_release_replacement_keeps_human_foreground_output_instead_of_printing_json(
     let pilot = Pilot::new(None);
     let core = pilot.remote_core(Some(DOOR), Serve::Fail);
     let (mut serving, lib) = installed_service(&pilot, core, false);
-    select_replacement(&pilot, &lib, false);
+    select_replacement(&pilot, &lib, false, "");
     let deadline = Instant::now() + Duration::from_secs(10);
     let output = loop {
         let output = fs::read_to_string(&serving.out).unwrap();
@@ -7003,40 +7028,68 @@ fn a_release_replacement_migrates_for_the_new_cli_and_restarts_its_owned_door() 
     let door = pilot.serve_pid().unwrap();
     let first = serving.ready();
     let db = pilot.root.join("selected/colab/space.db");
+    // The driver runs only after serve closes its store and owned door. Hold it before the new
+    // CLI opens the database, so this artificial downgrade has exclusive ownership.
+    use std::os::unix::fs::OpenOptionsExt;
+    let gate = pilot.root.join("replacement.go");
+    nix::unistd::mkfifo(
+        &gate,
+        nix::sys::stat::Mode::S_IRUSR | nix::sys::stat::Mode::S_IWUSR,
+    )
+    .unwrap();
+    // Keep a nonblocking reader so releasing the gate cannot hang if the driver exits early.
+    let _gate_reader = fs::OpenOptions::new()
+        .read(true)
+        .custom_flags(nix::fcntl::OFlag::O_NONBLOCK.bits())
+        .open(&gate)
+        .unwrap();
+    select_replacement(
+        &pilot,
+        &lib,
+        false,
+        "read proceed < replacement.go || exit 1",
+    );
+    Serving::wait_for(&pilot.root.join("replacement.pid"), "\n");
+    let new = pid_file(&pilot, "replacement.pid");
+    assert_eq!(new.as_raw() as u32, serving.child.id());
+    assert_gone(door);
     let connection = rusqlite::Connection::open(&db).unwrap();
     connection
         .execute_batch(
             "DROP TABLE edit_decisions; DROP TABLE cloud_page_rows; DROP TABLE link_publications; DROP TABLE link_admissions; DROP TABLE cloud_publications; DROP TABLE page_auto_cleaned; DROP TABLE project_pin_choice; DROP TABLE project_pins; DROP TABLE page_pins; DROP TABLE page_titles; DROP TABLE page_projects; DROP TABLE projects; ALTER TABLE pages DROP COLUMN last_activity_at_ms; ALTER TABLE checkpoints DROP COLUMN signer; PRAGMA user_version=6",
         )
         .unwrap();
+    assert_eq!(
+        connection
+            .query_row("PRAGMA quick_check", [], |row| row.get::<_, String>(0))
+            .unwrap(),
+        "ok"
+    );
     drop(connection);
     failure(
         &pilot,
         &["page", "read", PAGE, "--json"],
         "COLAB_STORE_OUTDATED",
     );
-    select_replacement(&pilot, &lib, false);
-    Serving::wait_for(&pilot.root.join("replacement.pid"), "\n");
-    let new = pid_file(&pilot, "replacement.pid");
-    assert_eq!(new.as_raw() as u32, serving.child.id());
+    fs::OpenOptions::new()
+        .write(true)
+        .custom_flags(nix::fcntl::OFlag::O_NONBLOCK.bits())
+        .open(&gate)
+        .unwrap()
+        .write_all(b"proceed\n")
+        .unwrap();
     let ready = replacement_ready(&serving);
     assert_eq!(ready["url"], first["url"]);
     assert_eq!(ready["door"], "started");
-    assert_gone(door);
     let next_door = pilot.serve_pid().unwrap();
     assert_ne!(next_door, door);
-    let deadline = Instant::now() + Duration::from_secs(10);
-    loop {
-        let connection = rusqlite::Connection::open(&db).unwrap();
-        let version: u32 = connection
-            .pragma_query_value(None, "user_version", |row| row.get(0))
-            .unwrap();
-        if version == tmt_colab::store::SCHEMA_VERSION {
-            break;
-        }
-        assert!(Instant::now() < deadline, "new service did not migrate");
-        thread::sleep(Duration::from_millis(20));
-    }
+    // Mounted readiness follows Store::open, so migration must already be complete.
+    let connection = rusqlite::Connection::open(&db).unwrap();
+    let version: u32 = connection
+        .pragma_query_value(None, "user_version", |row| row.get(0))
+        .unwrap();
+    assert_eq!(version, tmt_colab::store::SCHEMA_VERSION);
+    drop(connection);
     let source = pilot.root.join("upgraded.html");
     fs::write(&source, "<p>Written after the Colab upgrade</p>").unwrap();
     let written = pilot.patch_call(PAGE, &["--file", source.to_str().unwrap(), "--json"]);
@@ -7062,7 +7115,7 @@ fn a_post_cutoff_release_failure_names_the_release_and_manual_recovery_without_r
     let core = pilot.remote_core(Some(STOPPED), Serve::Hold);
     let (mut serving, lib) = installed_service(&pilot, core, true);
     let door = pilot.serve_pid().unwrap();
-    select_replacement(&pilot, &lib, true);
+    select_replacement(&pilot, &lib, true, "");
     Serving::wait_for(&serving.out, "COLAB_RELEASE_REPLACEMENT");
     let deadline = Instant::now() + Duration::from_secs(10);
     let status = loop {
