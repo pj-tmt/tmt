@@ -10,25 +10,17 @@ import { squadsView } from './ops-squads.js';
 import { timersView } from './ops-timers.js';
 import { opsSource, type OpsBoard, type OpsSource } from './ops-source.js';
 import { whileVisible } from './owner-reads.js';
+import { OPS_SECTIONS, opsMenu, opsSection, type OpsSection } from './ops-menu.js';
 
 /** The board's own reload cadence (`tmt ops ui`). */
 const REFRESH_MS = 5000;
-
-const SECTIONS = [
-  { id: 'agents', label: 'Agents' },
-  { id: 'squads', label: 'Squads' },
-  { id: 'schedules', label: 'Timers' },
-  { id: 'settings', label: 'Ops settings' },
-] as const;
-type Section = (typeof SECTIONS)[number]['id'];
 
 export function opsPage(shell: RemoteShell, source: OpsSource = opsSource): void {
   const main = document.getElementById('ops-section');
   const note = document.getElementById('ops-note');
   if (!main || !note) return;
-  const href = (id: Section) => `${location.pathname}#${id}`;
-  const current = (): Section =>
-    SECTIONS.find((section) => `#${section.id}` === location.hash)?.id ?? 'agents';
+  const href = (id: OpsSection) => `${location.pathname}#${id}`;
+  const current = (): OpsSection => opsSection(location.hash);
   let board: OpsBoard | undefined;
   // Each section keeps what the reader set (filter, search, collapsed squads, selection) across
   // repaints and across leaving and coming back.
@@ -41,30 +33,8 @@ export function opsPage(shell: RemoteShell, source: OpsSource = opsSource): void
   const paint = () => {
     const section = current();
     if (section !== 'squads') views.squads.close();
-    shell.setMenu({
-      title: 'Ops',
-      groups: [
-        {
-          items: SECTIONS.filter((item) => item.id !== 'settings').map((item) => ({
-            id: item.id,
-            label: item.label,
-            href: href(item.id),
-            current: item.id === section,
-          })),
-        },
-        {
-          items: [
-            {
-              id: 'settings',
-              label: 'Ops settings',
-              href: href('settings'),
-              current: section === 'settings',
-            },
-          ],
-        },
-      ],
-    });
-    const label = SECTIONS.find((item) => item.id === section)!.label;
+    shell.setMenu(opsMenu(section, board, location.pathname));
+    const label = OPS_SECTIONS.find((item) => item.id === section)!.label;
     shell.setTitle(label, ['Ops'], 'Ops');
     if (!board) main.replaceChildren(pageLoading());
     else if (board.unavailable) main.replaceChildren();

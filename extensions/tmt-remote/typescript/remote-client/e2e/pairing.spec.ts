@@ -5203,7 +5203,7 @@ test('landing registry keeps two origins independent and confirms public-only ha
       }
       await pairAt(env, 'Registry A');
       await page.goto(`${origin}/remote/`);
-      await expect(modulePages(page)).toContainText(/connected/i);
+      await expect(page.locator('#state-label')).toHaveText('Connected');
       const first = await identity();
       expect(first.extractable).toBe(false);
       await expect(page.locator('#remote-list > li')).toHaveCount(1);
@@ -5220,7 +5220,7 @@ test('landing registry keeps two origins independent and confirms public-only ha
       await sdk('add', ['studio', `${origin}/`]);
       await sdk('add', ['desk', `${secondOrigin}/`]);
       await page.reload();
-      await expect(modulePages(page)).toContainText(/connected/i);
+      await expect(page.locator('#state-label')).toHaveText('Connected');
       await expect(page.locator('[data-remote="studio"] .tmt-ui-list-state')).toHaveText(
         '● Connected',
       );
@@ -5278,7 +5278,7 @@ test('landing registry keeps two origins independent and confirms public-only ha
       expect(openB).not.toContain('machinePublicKey');
       await pairAt(secondEnv, 'Registry B');
       await page.goto(`${secondOrigin}/remote/`);
-      await expect(modulePages(page)).toContainText(/connected/i);
+      await expect(page.locator('#state-label')).toHaveText('Connected');
       const second = await identity();
       expect(second.publicKey).not.toEqual(first.publicKey);
       await sdk('add', ['studio', `${secondOrigin}/`]);
@@ -5351,7 +5351,7 @@ test('landing registry keeps two origins independent and confirms public-only ha
       expect(await identity()).toEqual(second);
       // A's old fixed-key device record remains readable and unchanged after a B round trip.
       await page.goto(`${origin}/remote/`);
-      await expect(modulePages(page)).toContainText(/connected/i);
+      await expect(page.locator('#state-label')).toHaveText('Connected');
       expect(await identity()).toEqual(first);
       expect((await sdk<{ entries: unknown[] }>('list')).entries).toHaveLength(2);
       // A preview cannot overwrite a concurrent edit, and an invalid import stores no row.
@@ -5444,7 +5444,7 @@ test('landing registry keeps two origins independent and confirms public-only ha
       await storage.detach();
       expect(await sdk('list')).toEqual({ version: 1, entries: [] });
       await page.goto(`${secondOrigin}/remote/`);
-      await expect(modulePages(page)).toContainText(/connected/i);
+      await expect(page.locator('#state-label')).toHaveText('Connected');
       expect(await identity()).toEqual(second);
       expect((await sdk<{ entries: unknown[] }>('list')).entries).toHaveLength(1);
     },
@@ -5455,24 +5455,24 @@ test('My Remotes is the one list and keeps settings drafts across origin switche
   await withRegistryWorld(async ({ page, secondOrigin, secondEnv, pairAt, identity, sdk }) => {
     await pairAt(secondEnv, 'Registry B');
     await page.goto(`${secondOrigin}/remote/`);
-    await expect(modulePages(page)).toContainText(/connected/i);
+    await expect(page.locator('#state-label')).toHaveText('Connected');
     const second = await identity();
     await pairAt(env, 'Registry A');
     await page.goto(`${origin}/remote/`);
-    await expect(modulePages(page)).toContainText(/connected/i);
+    await expect(page.locator('#state-label')).toHaveText('Connected');
     const first = await identity();
     const menu = modulePages(page);
-    // Status is the row for the connection; settings light their own row.
+    // Overview has no temporary rail row; the shared shell selects the Remote module itself.
     await page.goto(`${origin}/remote/overview`);
-    await expect(menu.getByRole('link', { name: 'This Remote · Connected' })).toHaveAttribute(
+    await expect(page.locator('nav.tmt-ui-rail a[data-id="remote"]')).toHaveAttribute(
       'aria-current',
       'page',
     );
     await sdk('add', ['studio', `${origin}/`]);
     await sdk('add', ['desk', `${secondOrigin}/`]);
     await page.reload();
-    await expect(modulePages(page)).toContainText(/connected/i);
-    const currentItem = menu.getByRole('link', { name: 'This Remote · Connected' });
+    await expect(page.locator('#state-label')).toHaveText('Connected');
+    const currentItem = page.locator('nav.tmt-ui-rail a[data-id="remote"]');
     const foreignItem = page.getByRole('link', {
       name: 'Open desk',
       exact: true,
@@ -5569,7 +5569,7 @@ test('My Remotes is the one list and keeps settings drafts across origin switche
     expect(await identity()).toEqual(second);
     // A public handoff opens the target door's Overview; the global list stays separate.
     await expect(page).toHaveURL(`${secondOrigin}/remote/overview`);
-    await expect(menu.getByRole('link', { name: 'This Remote · Connected' })).toHaveAttribute(
+    await expect(page.locator('nav.tmt-ui-rail a[data-id="remote"]')).toHaveAttribute(
       'aria-current',
       'page',
     );
@@ -5595,8 +5595,8 @@ test('My Remotes is the one list and keeps settings drafts across origin switche
     // Not paired is the Status view's word: open it again.
     await page.goto(`${origin}/remote/`);
     await expect(page.locator('#state-label')).toHaveText('Not paired');
-    await expect(menu.getByRole('link', { name: 'This Remote · Not paired' })).toBeVisible();
-    await menu.getByRole('link', { name: 'Pair again', exact: true }).click();
+    await expect(menu.getByRole('button', { name: 'Pair again', exact: true })).toBeVisible();
+    await menu.getByRole('button', { name: 'Pair again', exact: true }).click();
     await expect(page.locator('#copy-guide-pair')).toBeFocused();
   });
 });
