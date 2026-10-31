@@ -15,6 +15,7 @@ import {
   BrowserChips,
   BrowserChip,
   BrowserNotice,
+  BrowserListTable,
   BusyMark,
 } from '../../src/react.js';
 import type { BrowserActionVariant } from '../../src/static.js';
@@ -27,7 +28,7 @@ if (!example) throw new Error('Unknown element fixture');
 document.documentElement.dataset.theme = query.get('theme') ?? 'light';
 const style = document.createElement('style');
 style.textContent =
-  'body{margin:0;background:var(--tmt-ui-surface-paper);color:var(--tmt-ui-color-text);font-family:var(--tmt-ui-font-body)}main{box-sizing:border-box;padding:var(--tmt-ui-space-l);width:100%}';
+  '.element-table-reference{--tmt-ui-list-tracks:repeat(2,minmax(0,1fr));--tmt-ui-list-tracks-compact:minmax(0,1fr)}body{margin:0;background:var(--tmt-ui-surface-paper);color:var(--tmt-ui-color-text);font-family:var(--tmt-ui-font-body)}main{box-sizing:border-box;padding:var(--tmt-ui-space-l);width:100%}';
 document.head.append(style);
 registerBrowserElements();
 registerBrowserElements();
@@ -228,6 +229,25 @@ function Reference() {
           removeLabel="Remove Design"
           disabled={false}
           onRemove={() => remove(true)}
+        />
+      );
+    case 'tmt-ui-list-table':
+      return (
+        <BrowserListTable
+          label="Pages"
+          className="element-table-reference"
+          columns={[
+            { id: 'title', label: 'Page' },
+            { id: 'state', label: 'State' },
+          ]}
+          rows={
+            state === 'empty'
+              ? []
+              : [
+                  { id: 'notes', cells: ['Project notes', 'Draft'] },
+                  { id: 'review', cells: ['Review', 'Ready'] },
+                ]
+          }
         />
       );
     case 'tmt-ui-notice':

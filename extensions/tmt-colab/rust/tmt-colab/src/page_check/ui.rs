@@ -27,6 +27,8 @@ struct ElementDefinition {
     minimum_items: Option<usize>,
     #[serde(default)]
     text_label: bool,
+    #[serde(default)]
+    table_data: bool,
 }
 #[derive(serde::Deserialize)]
 struct Attribute {
@@ -74,6 +76,26 @@ fn global_attribute(name: &str) -> bool {
 fn structure(tree: &Tree, id: Id, definition: &ElementDefinition) -> bool {
     if !tree.html_element(id) {
         return false;
+    }
+    if definition.table_data {
+        let Some(columns) = tree
+            .attr(id, "columns")
+            .and_then(|source| serde_json::from_str::<Vec<String>>(source).ok())
+        else {
+            return false;
+        };
+        let Some(rows) = tree
+            .attr(id, "rows")
+            .and_then(|source| serde_json::from_str::<Vec<Vec<String>>>(source).ok())
+        else {
+            return false;
+        };
+        if columns.is_empty()
+            || columns.iter().any(|label| label.trim().is_empty())
+            || rows.iter().any(|row| row.len() != columns.len())
+        {
+            return false;
+        }
     }
     let children: Vec<Id> = tree.child_elements(id).collect();
     for &child in &children {
@@ -166,6 +188,8 @@ pub(super) fn check(tree: &Tree, elements: &[(Id, usize)], report: &mut Report) 
                 for (name, value) in tree.attributes(id) {
                     if let Some(rule) = definition.attributes.get(name) {
                         invalid |= (rule.required && value.trim().is_empty())
+                            || (rule.kind == "json"
+                                && serde_json::from_str::<serde_json::Value>(value).is_err())
                             || (rule.kind == "enum"
                                 && !rule.values.iter().any(|allowed| allowed == value))
                             || (rule.kind == "boolean" && !value.is_empty() && value != name);

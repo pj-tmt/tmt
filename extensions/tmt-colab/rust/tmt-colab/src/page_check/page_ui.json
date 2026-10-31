@@ -901,6 +901,48 @@
    ]
   },
   {
+   "docs": "design/browser-ui/README.md#list-table-and-page-subheader",
+   "tokens": [
+    "--tmt-ui-font-body",
+    "--tmt-ui-color-text",
+    "--tmt-ui-control-size"
+   ],
+   "tag": "tmt-ui-list-table",
+   "name": "List table",
+   "component": "BrowserListTable",
+   "category": "Data",
+   "purpose": "Text rows in the shared responsive list table; the author supplies the track variables.",
+   "attributes": {
+    "label": {
+     "kind": "text",
+     "required": true
+    },
+    "columns": {
+     "kind": "json",
+     "required": true
+    },
+    "rows": {
+     "kind": "json",
+     "required": true
+    }
+   },
+   "slots": [],
+   "tableData": true,
+   "source": "list-table.tsx",
+   "styles": "list.css",
+   "gallery": "list-table",
+   "examples": [
+    {
+     "state": "default",
+     "html": "<tmt-ui-list-table label=\"Pages\" columns='[\"Page\",\"State\"]' rows='[[\"Project notes\",\"Draft\"],[\"Review\",\"Ready\"]]' style=\"--tmt-ui-list-tracks:repeat(2,minmax(0,1fr));--tmt-ui-list-tracks-compact:minmax(0,1fr)\"></tmt-ui-list-table>"
+    },
+    {
+     "state": "empty",
+     "html": "<tmt-ui-list-table label=\"Pages\" columns='[\"Page\",\"State\"]' rows='[]' style=\"--tmt-ui-list-tracks:repeat(2,minmax(0,1fr));--tmt-ui-list-tracks-compact:minmax(0,1fr)\"></tmt-ui-list-table>"
+    }
+   ]
+  },
+  {
    "docs": "design/browser-ui/README.md#controlled-input-contracts",
    "tokens": [
     "--tmt-ui-font-body",

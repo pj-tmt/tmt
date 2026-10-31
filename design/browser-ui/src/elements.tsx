@@ -11,11 +11,13 @@ import { BrowserTabs } from './tabs.js';
 import { BrowserDialog } from './dialog.js';
 import { BrowserChips, BrowserChip } from './chips.js';
 import { BrowserNotice } from './notice.js';
+import { BrowserListTable } from './list-table.js';
 import { BusyMark } from './spinner.js';
 import type { BrowserActionVariant, BrowserNoticeTone } from './static.js';
 import {
   browserElements,
   elementAttributeIssue,
+  listTableData,
   type BrowserElementDefinition,
 } from './elements-manifest.js';
 
@@ -81,6 +83,11 @@ function valid(owner: ElementOwner): boolean {
   for (const [name, rule] of Object.entries(owner.definition.attributes)) {
     if (rule.required && !attribute(owner, name).trim()) return false;
   }
+  if (
+    owner.definition.tableData &&
+    !listTableData(attribute(owner, 'columns'), attribute(owner, 'rows'))
+  )
+    return false;
   if (owner.definition.textLabel && !(attribute(owner, 'label') || owner.text).trim()) return false;
   for (const node of owner.source) {
     if (
@@ -320,6 +327,16 @@ function ElementView({ owner }: { owner: ElementOwner }) {
           onRemove={() => changed(owner, 'removed', true)}
         />
       );
+    case 'tmt-ui-list-table': {
+      const table = listTableData(attribute(owner, 'columns'), attribute(owner, 'rows'))!;
+      return (
+        <BrowserListTable
+          label={label}
+          columns={table.columns.map((label, index) => ({ id: `column-${index}`, label }))}
+          rows={table.rows.map((cells, index) => ({ id: `row-${index}`, cells }))}
+        />
+      );
+    }
     case 'tmt-ui-notice': {
       const tone = attribute(owner, 'tone', 'muted') as BrowserNoticeTone;
       const states = {

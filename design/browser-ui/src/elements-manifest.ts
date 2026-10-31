@@ -1,6 +1,6 @@
 /** Product-neutral author contract. Runtime, checker and catalog consume this same data. */
 export interface ElementAttribute {
-  kind: 'text' | 'boolean' | 'enum';
+  kind: 'text' | 'boolean' | 'enum' | 'json';
   values?: readonly string[];
   required?: boolean;
 }
@@ -12,13 +12,15 @@ export interface BrowserElementDefinition {
   tag: string;
   name: string;
   component: string;
-  category: 'Input' | 'Navigation' | 'Overlay' | 'Feedback';
+  category: 'Input' | 'Navigation' | 'Overlay' | 'Feedback' | 'Data';
   purpose: string;
   attributes: Readonly<Record<string, ElementAttribute>>;
   slots: readonly string[];
   itemSlot?: string;
   minimumItems?: number;
   textLabel?: boolean;
+  tableData?: boolean;
+  styles?: string;
   tokens: readonly string[];
   source: string;
   docs: string;
@@ -275,6 +277,35 @@ export const browserElements: readonly BrowserElementDefinition[] = [
     examples: [{ state: 'default', html: '<tmt-ui-chip>Design</tmt-ui-chip>' }],
   }),
   definition({
+    tag: 'tmt-ui-list-table',
+    name: 'List table',
+    component: 'BrowserListTable',
+    category: 'Data',
+    purpose:
+      'Text rows in the shared responsive list table; the author supplies the track variables.',
+    attributes: {
+      label: required,
+      columns: { kind: 'json', required: true },
+      rows: { kind: 'json', required: true },
+    },
+    slots: [],
+    tableData: true,
+    source: 'list-table.tsx',
+    styles: 'list.css',
+    gallery: 'list-table',
+    docs: 'design/browser-ui/README.md#list-table-and-page-subheader',
+    examples: [
+      {
+        state: 'default',
+        html: `<tmt-ui-list-table label="Pages" columns='["Page","State"]' rows='[["Project notes","Draft"],["Review","Ready"]]' style="--tmt-ui-list-tracks:repeat(2,minmax(0,1fr));--tmt-ui-list-tracks-compact:minmax(0,1fr)"></tmt-ui-list-table>`,
+      },
+      {
+        state: 'empty',
+        html: `<tmt-ui-list-table label="Pages" columns='["Page","State"]' rows='[]' style="--tmt-ui-list-tracks:repeat(2,minmax(0,1fr));--tmt-ui-list-tracks-compact:minmax(0,1fr)"></tmt-ui-list-table>`,
+      },
+    ],
+  }),
+  definition({
     tag: 'tmt-ui-notice',
     name: 'Notice',
     component: 'BrowserNotice',
@@ -298,6 +329,36 @@ export const browserElements: readonly BrowserElementDefinition[] = [
   }),
 ];
 
+/** The author table accepts text data, never HTML or host row commands. */
+export function listTableData(
+  columnsSource: string,
+  rowsSource: string,
+): { columns: readonly string[]; rows: readonly (readonly string[])[] } | undefined {
+  try {
+    const columns: unknown = JSON.parse(columnsSource);
+    const rows: unknown = JSON.parse(rowsSource);
+    if (
+      !Array.isArray(columns) ||
+      !columns.length ||
+      !columns.every((value) => typeof value === 'string' && value.trim())
+    )
+      return;
+    if (
+      !Array.isArray(rows) ||
+      !rows.every(
+        (row) =>
+          Array.isArray(row) &&
+          row.length === columns.length &&
+          row.every((value) => typeof value === 'string'),
+      )
+    )
+      return;
+    return { columns: columns as string[], rows: rows as string[][] };
+  } catch {
+    return;
+  }
+}
+
 export function browserElement(name: string): BrowserElementDefinition | undefined {
   return browserElements.find((entry) => entry.tag === name);
 }
@@ -313,6 +374,13 @@ export function elementAttributeIssue(
       ? undefined
       : 'unknown-ui-attribute';
   if (rule.required && !value.trim()) return 'invalid-ui-attribute';
+  if (rule.kind === 'json') {
+    try {
+      JSON.parse(value);
+    } catch {
+      return 'invalid-ui-attribute';
+    }
+  }
   if (rule.kind === 'enum' && !rule.values?.includes(value)) return 'invalid-ui-attribute';
   if (rule.kind === 'boolean' && !['', name].includes(value)) return 'invalid-ui-attribute';
   return undefined;

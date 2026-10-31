@@ -18,9 +18,9 @@ not in an author-supplied script. Static class-only pages and `tmt-icon` remain
 available without the React bundle.
 
 `@tmt/browser-ui/elements-manifest` is the admission and example source for the
-11 v1 tags: `tmt-ui-button`, `tmt-ui-icon-button`, `tmt-ui-field`, `tmt-ui-toggle`,
+12 v1 tags: `tmt-ui-button`, `tmt-ui-icon-button`, `tmt-ui-field`, `tmt-ui-toggle`,
 `tmt-ui-checkbox`, `tmt-ui-menu`, `tmt-ui-tabs`, `tmt-ui-dialog`, `tmt-ui-chips`,
-`tmt-ui-chip` and `tmt-ui-notice`. Attributes have closed boolean/enum rules;
+`tmt-ui-chip`, `tmt-ui-list-table` and `tmt-ui-notice`. Attributes have closed boolean/enum rules;
 labels, named slots, unique item values and selected-value membership are checked.
 Malformed controls render a local alert rather than an actionable fallback. These
 are frame-local presentation controls, with no network, session, store, save or
@@ -33,6 +33,22 @@ its React root and releases overlay/listener ownership; moving a connected host 
 not reset it. Replacing widget-bearing source remounts the Colab frame. Attribute
 updates do not rescan authored children; replace the host to change its item/slot
 structure. Dialog and notice slots can compose other author elements.
+
+`tmt-ui-list-table` accepts a required `label`, a JSON array of nonempty column labels
+in `columns`, and a JSON array of text-only rows in `rows`. Each row has exactly one
+string per column; an empty row array is valid. Cells are text, never HTML or row
+commands. The author supplies `--tmt-ui-list-tracks` and optional compact tracks on
+the host, using the same [list-table contract](#list-table-and-page-subheader).
+
+```html
+<tmt-ui-list-table
+  label="Pages"
+  columns='["Page","State"]'
+  rows='[["Project notes","Draft"],["Review","Ready"]]'
+  style="--tmt-ui-list-tracks:repeat(2,minmax(0,1fr));--tmt-ui-list-tracks-compact:minmax(0,1fr)"
+>
+</tmt-ui-list-table>
+```
 
 `@tmt/browser-ui/catalog` exports build-generated documentation, gallery and test
 inventory joined to this manifest. A Test chip means matching tests were collected,

@@ -59,7 +59,9 @@ for (const width of [1440, 390])
             await expect(catalog.locator('iframe')).toHaveCount(0);
           } else {
             const previews = catalog.locator('[data-design-ready]');
-            await expect(previews).toHaveCount(surface === 'index' ? 12 : 1);
+            await expect(previews).toHaveCount(
+              surface === 'index' ? browserElements.length + 1 : 1,
+            );
             await expect(catalog.getByRole('alert')).toHaveCount(0);
             if (surface === 'index') {
               const lifetimes = [];
@@ -79,7 +81,7 @@ for (const width of [1440, 390])
                         registered: !!customElements.get(node.localName),
                         children: node.childElementCount,
                         controls: node.querySelectorAll(
-                          'button,input,[role="tablist"],.tmt-ui-notice,.tmt-ui-chip',
+                          'button,input,[role="tablist"],.tmt-ui-notice,.tmt-ui-chip,.tmt-ui-list-table',
                         ).length,
                       })),
                   })),
@@ -97,7 +99,9 @@ for (const width of [1440, 390])
                 await expect(
                   preview
                     .frameLocator('iframe')
-                    .locator('button,input,[role="tablist"],.tmt-ui-notice,.tmt-ui-chip')
+                    .locator(
+                      'button,input,[role="tablist"],.tmt-ui-notice,.tmt-ui-chip,.tmt-ui-list-table',
+                    )
                     .first(),
                   `${entry.tag} must finish upgrading in its real catalog frame`,
                 ).toBeVisible();

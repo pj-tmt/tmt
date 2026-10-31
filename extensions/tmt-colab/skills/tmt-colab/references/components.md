@@ -284,7 +284,7 @@ previews are unavailable until the shared terminal exporter and frame land.
 
 Use `tmt-ui-button`, `tmt-ui-icon-button`, `tmt-ui-field`, `tmt-ui-toggle`,
 `tmt-ui-checkbox`, `tmt-ui-menu`, `tmt-ui-tabs`, `tmt-ui-dialog`, `tmt-ui-chips`,
-`tmt-ui-chip` and `tmt-ui-notice` as documented by the live catalog. The page runtime
+`tmt-ui-chip`, `tmt-ui-list-table` and `tmt-ui-notice` as documented by the live catalog. The page runtime
 loads automatically for these HTML elements. No script, runtime marker, external
 library or second stylesheet is needed. They use the viewer/page theme and the same
 controls as the application. Existing classes and `tmt-icon` remain lightweight.
@@ -303,3 +303,8 @@ removing the element resets its local state. Replace the host to change child sl
 or item structure. The checker reports unknown tags/attributes, invalid enum or
 boolean values, missing labels, and invalid slot/item structure. See the
 [shared element contract](../../../../../design/browser-ui/README.md#colab-author-elements).
+
+The list-table element uses the shared responsive presentation. Set `columns` to a
+JSON array of nonempty labels and `rows` to arrays of text cells, one per column.
+Cells never interpret HTML. Supply the real host track variables on the element;
+compact tracks can stack its cells. The Design catalog has a copyable example.

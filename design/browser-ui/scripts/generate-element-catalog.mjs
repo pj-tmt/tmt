@@ -69,7 +69,10 @@ const entries = browserElements.map((entry) => {
 });
 for (const entry of entries) {
   const definition = browserElements.find((item) => item.tag === entry.tag);
-  const css = new URL(`src/${definition.source.replace(/\.tsx?$/, '.css')}`, root);
+  const css = new URL(
+    `src/${definition.styles ?? definition.source.replace(/\.tsx?$/, '.css')}`,
+    root,
+  );
   entry.tokens = existsSync(css)
     ? [...new Set((await readFile(css, 'utf8')).match(/--tmt-ui-[a-z0-9-]+/g) ?? [])].sort()
     : [...definition.tokens];

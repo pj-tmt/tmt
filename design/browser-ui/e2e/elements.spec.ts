@@ -13,6 +13,7 @@ const controls: Record<string, string> = {
   'tmt-ui-chips': '.tmt-ui-chips',
   'tmt-ui-chip': '.tmt-ui-chip',
   'tmt-ui-notice': '.tmt-ui-notice',
+  'tmt-ui-list-table': '.tmt-ui-list-table',
 };
 async function paint(control: Locator) {
   return control.evaluate((node) => {
@@ -63,6 +64,30 @@ for (const width of [1440, 390])
                 .first()
                 .evaluate((node) => parseFloat(getComputedStyle(node).paddingTop)),
             ).toBeGreaterThan(0);
+          }
+          if (entry.tag === 'tmt-ui-list-table') {
+            for (const root of [custom, reference]) {
+              await expect(root.locator('[role="columnheader"]')).toHaveText(['Page', 'State']);
+              const rows = root.locator('[role="rowgroup"] > [role="row"]');
+              await expect(rows).toHaveCount(example.state === 'empty' ? 0 : 2);
+              if (example.state !== 'empty') {
+                await expect(rows.first().getByRole('cell')).toHaveText(['Project notes', 'Draft']);
+                const cells = await rows
+                  .first()
+                  .getByRole('cell')
+                  .evaluateAll((nodes) => nodes.map((node) => node.getBoundingClientRect().top));
+                expect(cells[0] === cells[1]).toBe(width === 1440);
+              }
+            }
+          }
+          if (entry.tag === 'tmt-ui-list-table' && example.state !== 'empty') {
+            await custom
+              .locator('tmt-ui-list-table')
+              .evaluate((node) =>
+                node.setAttribute('rows', JSON.stringify([['<b>literal</b>', 'Ready']])),
+              );
+            await expect(custom.getByRole('cell')).toHaveText(['<b>literal</b>', 'Ready']);
+            await expect(custom.locator('b')).toHaveCount(0);
           }
           if (entry.tag === 'tmt-ui-toggle') {
             for (const root of [custom, reference]) await root.getByRole('button').click();

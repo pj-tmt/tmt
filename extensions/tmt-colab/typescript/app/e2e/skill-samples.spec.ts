@@ -147,3 +147,69 @@ for (const width of [1440, 390])
           fullPage: true,
         });
     });
+
+// The runtime reset must not repaint existing widget-free templates. Reuse the same compiled
+// template fixtures above; the baseline changes only the shared CSS layer declaration.
+for (const name of ['starter', 'gallery'])
+  test(`template ${name} keeps its paint across the runtime layer order`, async ({
+    browser,
+    baseURL,
+  }, info) => {
+    const sample = templates.find((entry) => entry.capture === name)!;
+    const captures: Buffer[] = [];
+    for (const phase of ['before', 'after']) {
+      const page = await browser.newPage({
+        viewport: { width: 1440, height: 1000 },
+        reducedMotion: 'reduce',
+      });
+      try {
+        await page.route('**/src/main.tsx', (route) =>
+          route.fulfill({ contentType: 'text/javascript', body: '' }),
+        );
+        if (phase === 'before')
+          await page.route('**/renderer.html*', async (route) => {
+            const response = await route.fetch();
+            const body = await response.text();
+            const order = '@layer theme,base,colab-frame,tmt-starter,tmt-ui,components,utilities;';
+            expect(body.split(order)).toHaveLength(2);
+            await route.fulfill({
+              response,
+              body: body.replace(order, '@layer colab-frame,tmt-starter,tmt-ui;'),
+            });
+          });
+        await page.goto(baseURL!);
+        await page.evaluate(async ({ source, layout }) => {
+          document.documentElement.dataset.theme = 'light';
+          document.body.replaceChildren();
+          document.body.style.margin = '0';
+          const host = document.createElement('main');
+          document.body.append(host);
+          const path = '/src/renderer.ts';
+          const { mountRenderer } = await import(path);
+          await mountRenderer(host, source, {
+            signal: new AbortController().signal,
+            layout,
+            onState: (state: string) => {
+              host.dataset.state = state;
+            },
+          });
+        }, sample);
+        await expect(page.locator('main')).toHaveAttribute('data-state', 'ready');
+        await page
+          .frameLocator('iframe')
+          .locator('body')
+          .evaluate(async () => {
+            await document.fonts.ready;
+          });
+        const image = await page.screenshot({ animations: 'disabled' });
+        captures.push(image);
+        await info.attach(`template-${name}-1440-light-${phase}`, {
+          body: image,
+          contentType: 'image/png',
+        });
+      } finally {
+        await page.close();
+      }
+    }
+    expect(captures[1]!.equals(captures[0]!)).toBe(true);
+  });

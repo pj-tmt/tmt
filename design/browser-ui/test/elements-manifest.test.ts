@@ -1,6 +1,7 @@
 import { expect, it } from 'vite-plus/test';
 import {
   browserElements,
+  listTableData,
   browserElement,
   elementAttributeIssue,
   mayUseBrowserElements,
@@ -38,4 +39,21 @@ it('admits only declared widget attributes and ordinary HTML metadata', () => {
     ['src', 'https://example.test', 'unknown-ui-attribute'],
   ])
     expect(elementAttributeIssue(button, name!, value!)).toBe(code);
+});
+
+it('admits only labelled text columns and rows with one string cell per column', () => {
+  expect(listTableData('["Page","State"]', '[]')).toEqual({ columns: ['Page', 'State'], rows: [] });
+  expect(listTableData('["Page"]', '[["<b>literal</b>"]]')?.rows).toEqual([['<b>literal</b>']]);
+  for (const [columns, rows] of [
+    ['[]', '[]'],
+    ['[" "]', '[]'],
+    ['["Page"]', '[[1]]'],
+    ['["Page"]', '[["one","two"]]'],
+    ['["Page"]', '{}'],
+    ['broken', '[]'],
+  ])
+    expect(listTableData(columns!, rows!)).toBeUndefined();
+  expect(elementAttributeIssue(browserElement('tmt-ui-list-table')!, 'rows', 'broken')).toBe(
+    'invalid-ui-attribute',
+  );
 });

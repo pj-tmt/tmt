@@ -10086,6 +10086,80 @@
           "code": "invalid-ui-structure"
         }
       ]
+    },
+    {
+      "name": "list-table-mismatched-cells",
+      "scope": "checker",
+      "why": "The text-data adapter must meet the real list-table column and row contract.",
+      "source": [
+        "<tmt-ui-list-table label=\"Pages\" columns='[\"Page\",\"State\"]' rows='[[\"One\"]]'></tmt-ui-list-table>"
+      ],
+      "admitted": {
+        "questions": [],
+        "groups": []
+      },
+      "findings": [
+        {
+          "element": "tmt-ui-list-table",
+          "ordinal": 1,
+          "id": null,
+          "line": 1,
+          "severity": "warning",
+          "code": "invalid-ui-structure"
+        }
+      ]
+    },
+    {
+      "name": "list-table-nontext-cell",
+      "scope": "checker",
+      "why": "The text-data adapter must meet the real list-table column and row contract.",
+      "source": [
+        "<tmt-ui-list-table label=\"Pages\" columns='[\"Page\"]' rows='[[1]]'></tmt-ui-list-table>"
+      ],
+      "admitted": {
+        "questions": [],
+        "groups": []
+      },
+      "findings": [
+        {
+          "element": "tmt-ui-list-table",
+          "ordinal": 1,
+          "id": null,
+          "line": 1,
+          "severity": "warning",
+          "code": "invalid-ui-structure"
+        }
+      ]
+    },
+    {
+      "name": "list-table-invalid-json",
+      "scope": "checker",
+      "why": "The text-data adapter must meet the real list-table column and row contract.",
+      "source": [
+        "<tmt-ui-list-table label=\"Pages\" columns='[\"Page\"]' rows='broken'></tmt-ui-list-table>"
+      ],
+      "admitted": {
+        "questions": [],
+        "groups": []
+      },
+      "findings": [
+        {
+          "element": "tmt-ui-list-table",
+          "ordinal": 1,
+          "id": null,
+          "line": 1,
+          "severity": "warning",
+          "code": "invalid-ui-attribute"
+        },
+        {
+          "element": "tmt-ui-list-table",
+          "ordinal": 1,
+          "id": null,
+          "line": 1,
+          "severity": "warning",
+          "code": "invalid-ui-structure"
+        }
+      ]
     }
   ]
 }
