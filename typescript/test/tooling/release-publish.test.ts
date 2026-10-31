@@ -8,6 +8,7 @@ import {
   backfillReleaseIndex,
   checkPublishedRelease,
   convergeCliLatest,
+  ghPublishApi,
   publishBlocker,
   publishDraft,
   renderFailureIssue,
@@ -173,6 +174,33 @@ describe('convergent CLI latest selection', () => {
     expect(corrections).toEqual([low.tag_name, high.tag_name]);
     expect(latest).toBe(high.tag_name);
   });
+  it('does not replay an uncertain correction over a newer publisher', () => {
+    const releases = [draft(TAG, [], { draft: false })];
+    const high = draft('v5.0.0-alpha.10', [], { draft: false });
+    let latest = 'v5.0.0-alpha.8';
+    const corrections: string[] = [];
+    const api: PublishApi = {
+      readRelease: () => releases[0],
+      listReleases: () => releases,
+      latestRelease: () => ({ tag_name: latest }),
+      setLatest: (tag) => {
+        corrections.push(tag);
+        if (corrections.length === 1) {
+          releases.push(high);
+          latest = high.tag_name;
+          throw new Error('gh: Server Error (HTTP 503)');
+        }
+        latest = tag;
+      },
+      publish: vi.fn(),
+      upload: vi.fn(),
+      deleteAsset: vi.fn(),
+    };
+    expect(convergeCliLatest({ api, tag: TAG })).toBe(high.tag_name);
+    expect(corrections).toEqual([TAG]);
+    expect(latest).toBe(high.tag_name);
+    expect(api.publish).not.toHaveBeenCalled();
+  });
   it('fails visibly after bounded disagreement and makes no publication rollback', () => {
     const api: PublishApi = {
       readRelease: () => draft(TAG, [], { draft: false }),
@@ -184,6 +212,84 @@ describe('convergent CLI latest selection', () => {
       deleteAsset: () => {},
     };
     expect(() => convergeCliLatest({ api, tag: TAG, attempts: 3 })).toThrow('did not converge');
+  });
+});
+
+describe('bounded GitHub latest convergence transport', () => {
+  function fixture(failing: string, failures: number, status = 502, applied = false) {
+    const calls: string[] = [],
+      sleeps: number[] = [];
+    let latest = 'v5.0.0-alpha.8',
+      remaining = failures;
+    const api = ghPublishApi({
+      repository: 'tmt-ninja/tmt',
+      sleep: (ms) => sleeps.push(ms),
+      spawn: (_command, args) => {
+        const endpoint = args.find((arg) => arg.startsWith('repos/')) ?? '';
+        const operation = args.includes('--paginate')
+          ? 'list'
+          : args.includes('PATCH')
+            ? 'correction'
+            : endpoint.endsWith('/latest')
+              ? 'latest'
+              : 'exact tag';
+        calls.push(operation);
+        if (operation === failing && remaining-- > 0) {
+          if (applied && operation === 'correction') latest = TAG;
+          return { status: 1, stdout: '', stderr: `gh: Server Error (HTTP ${status})` };
+        }
+        const release = { id: 17, tag_name: TAG, draft: false };
+        if (operation === 'correction') latest = TAG;
+        const body =
+          operation === 'list'
+            ? [[release]]
+            : operation === 'latest'
+              ? { tag_name: latest }
+              : release;
+        return { status: 0, stdout: JSON.stringify(body), stderr: '' };
+      },
+    });
+    return { api, calls, sleeps };
+  }
+  it.each(['list', 'latest', 'exact tag', 'correction'])(
+    'recovers a transient 5xx at %s',
+    (operation) => {
+      const f = fixture(operation, 1),
+        waits: number[] = [];
+      expect(convergeCliLatest({ api: f.api, tag: TAG, wait: () => waits.push(1) })).toBe(TAG);
+      expect(f.api.latestRelease()?.tag_name).toBe(TAG);
+      expect(f.calls.filter((call) => call === operation).length).toBeGreaterThanOrEqual(2);
+      expect(f.sleeps).toEqual(['list', 'latest'].includes(operation) ? [1000] : []);
+      expect(waits).toHaveLength(['exact tag', 'correction'].includes(operation) ? 1 : 0);
+    }
+  );
+  it.each(['list', 'latest', 'exact tag', 'correction'])(
+    'fails after three persistent 5xx at %s',
+    (operation) => {
+      const f = fixture(operation, 99),
+        waits: number[] = [];
+      expect(() => convergeCliLatest({ api: f.api, tag: TAG, wait: () => waits.push(1) })).toThrow(
+        'HTTP 502'
+      );
+      expect(f.calls.filter((call) => call === operation)).toHaveLength(3);
+      expect(f.sleeps).toEqual(['list', 'latest'].includes(operation) ? [1000, 2000] : []);
+      expect(waits).toHaveLength(['exact tag', 'correction'].includes(operation) ? 2 : 0);
+      if (['list', 'latest'].includes(operation)) expect(f.calls).not.toContain('correction');
+    }
+  );
+  it('reconciles an applied correction whose acknowledgement failed without replaying it', () => {
+    const f = fixture('correction', 1, 503, true);
+    expect(convergeCliLatest({ api: f.api, tag: TAG })).toBe(TAG);
+    expect(f.calls.filter((call) => call === 'correction')).toHaveLength(1);
+    expect(f.api.latestRelease()?.tag_name).toBe(TAG);
+  });
+  it('does not retry a non-transient correction failure', () => {
+    const f = fixture('correction', 99, 403),
+      wait = vi.fn();
+    expect(() => convergeCliLatest({ api: f.api, tag: TAG, wait })).toThrow('HTTP 403');
+    expect(f.calls.filter((call) => call === 'correction')).toHaveLength(1);
+    expect(wait).not.toHaveBeenCalled();
+    expect(f.sleeps).toEqual([]);
   });
 });
 
@@ -212,6 +318,25 @@ describe('publishDraft', () => {
     };
     return { api, published };
   }
+
+  it.each([false, true])(
+    'keeps publication applied when correction 5xx is persistent=%s',
+    (persistent) => {
+      const f = fakeApi([draft(TAG, ['release-publication.json'])]),
+        setLatest = f.api.setLatest;
+      let corrections = 0;
+      f.api.setLatest = (tag) => {
+        if (++corrections === 1 || persistent) throw new Error('gh: Server Error (HTTP 502)');
+        setLatest(tag);
+      };
+      const publish = () => publishDraft({ api: f.api, product: 'cli', tag: TAG });
+      if (persistent) expect(publish).toThrow('HTTP 502');
+      else expect(publish().flags).toContain('--draft=false');
+      expect(f.published).toHaveLength(1);
+      expect(f.api.readRelease(TAG)?.draft).toBe(false);
+      expect(corrections).toBe(persistent ? 3 : 2);
+    }
+  );
 
   it.each([
     'exact',
