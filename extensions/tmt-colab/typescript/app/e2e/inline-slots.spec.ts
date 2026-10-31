@@ -1,5 +1,6 @@
 import { expect, test, type Page } from '@playwright/test';
 import { capturePath } from './captures.js';
+import { pageAction } from '../test/page-actions.js';
 const fixture = '/test/inline-slots-browser.tsx';
 for (const occupied of [249, 250])
   test(`reading slots preserve all ${occupied} existing controls within the shared cap`, async ({
@@ -211,7 +212,7 @@ for (const width of [1440, 390])
       }
     });
 
-test('hidden question navigation uses metadata without opening its hidden controls', async ({
+test('hidden questions stay out of header navigation and remain available in metadata', async ({
   page,
 }) => {
   await page.goto('/');
@@ -222,8 +223,8 @@ test('hidden question navigation uses metadata without opening its hidden contro
   const slot = page.locator('.question-compact-inline');
   const line = slot.locator('.question-line');
   await expect(slot).toHaveCSS('display', 'none');
-  await page.getByRole('button', { name: 'Needs you: 1', exact: true }).click();
-  await page.getByRole('menuitem', { name: 'Which list version? · Agent 1', exact: true }).click();
+  await expect(page.locator('.needs-you-header-trigger')).toHaveCount(0);
+  await (await pageAction(page, 'Questions…')).click();
   await expect(page.getByRole('dialog', { name: 'Questions', exact: true })).toBeVisible();
   await expect(line).toHaveAttribute('aria-expanded', 'false');
   await expect(slot).toHaveCSS('display', 'none');

@@ -48,9 +48,8 @@ import {
  * Host-owned echoes, in send order. A landed echo stays, and its verified record stays hidden,
  * until a mark that has shown has had its hold (`busyMarkHoldMs`); then the record takes its place.
  */
-export function useMessageEcho(comments: readonly CommentView[]) {
+export function useMessageEcho(comments: readonly CommentView[], asks: readonly PageAsk[]) {
   const [echoes, setEchoes] = useState<readonly MessageEcho[]>([]);
-  const [released, setReleased] = useState<ReadonlySet<string>>(() => new Set());
   const [host] = useState<MessageEchoHost>(() => ({
     show: (echo) =>
       setEchoes((previous) =>
@@ -60,7 +59,7 @@ export function useMessageEcho(comments: readonly CommentView[]) {
       ),
     remove: (local) => setEchoes((previous) => previous.filter((value) => value.local !== local)),
   }));
-  const landed = echoes.filter((echo) => echoLanded(echo, comments));
+  const landed = echoes.filter((echo) => echoLanded(echo, comments, asks));
   const landedKey = landed.map((echo) => echo.local).join(' ');
   useEffect(() => {
     const timers = landed.map((echo) => {
@@ -70,7 +69,6 @@ export function useMessageEcho(comments: readonly CommentView[]) {
       const wait = markShown ? Math.max(0, echo.at + busyMarkDelayMs + busyMarkHoldMs - now) : 0;
       return setTimeout(() => {
         setEchoes((previous) => previous.filter((value) => value.local !== echo.local));
-        setReleased((previous) => new Set(previous).add(echo.local));
       }, wait);
     });
     return () => timers.forEach(clearTimeout);
@@ -79,9 +77,7 @@ export function useMessageEcho(comments: readonly CommentView[]) {
   const held = (comment: CommentView) =>
     echoes.some(
       (echo) =>
-        !released.has(echo.local) &&
-        echo.message?.writer === comment.ref.writer &&
-        echo.message.id === comment.messageId,
+        echo.message?.writer === comment.ref.writer && echo.message.id === comment.messageId,
     );
   return [echoes, host, held] as const;
 }
@@ -100,7 +96,8 @@ export function MessageEchoTurn({ echo, writer }: { echo: MessageEcho; writer?: 
       // The verified record's message actions take this slot; holding it keeps the row's height.
       actions={<span className="comment-echo-actions" aria-hidden="true" />}
       meta={
-        !echo.failure && (
+        !echo.failure &&
+        !echo.recipients.length && (
           // The mark has no words and follows the shared busy-mark delay.
           <span className="comment-echo-mark" aria-hidden="true" data-shown={marked || undefined}>
             {' '}
@@ -108,8 +105,30 @@ export function MessageEchoTurn({ echo, writer }: { echo: MessageEcho; writer?: 
           </span>
         )
       }
+      status={
+        !echo.failure && echo.recipients.length > 0 ? (
+          <>
+            {echo.recipients.map((recipient, index) => (
+              <span key={index}>
+                <span className="conversation-status" aria-label={`Ask ${recipient}`}>
+                  <span className="ask-state" data-tone="waiting">
+                    <span
+                      className="comment-echo-mark"
+                      aria-hidden="true"
+                      data-shown={marked || undefined}
+                    >
+                      <BusyMark />
+                    </span>
+                  </span>
+                  <span className="comment-echo-actions" aria-hidden="true" />
+                </span>
+              </span>
+            ))}
+          </>
+        ) : undefined
+      }
       delivery={
-        echo.failure && (
+        echo.failure ? (
           // The row is the draft and the one place this failure is reported.
           <>
             <p role="alert" className="comment-echo-failure">
@@ -137,10 +156,12 @@ export function MessageEchoTurn({ echo, writer }: { echo: MessageEcho; writer?: 
               />
             </div>
           </>
-        )
+        ) : echo.recipients.length ? (
+          <div />
+        ) : undefined
       }
     >
-      <MarkdownText className="comment-body" value={echo.body} names={[]} />
+      <MarkdownText className="comment-body" value={echo.body} names={echo.recipients} />
       <EchoAttachments attachments={echo.attachments} />
     </ConversationTurn>
   );
@@ -477,7 +498,7 @@ export function ThreadWindow({
   const [ownPending, setOwnPending] = useState<boolean>();
   const pendingResolved = onPendingResolved ? parentPending : ownPending;
   const setPendingResolved = onPendingResolved ?? setOwnPending;
-  const [echoes, echoHost, held] = useMessageEcho(thread?.comments ?? []);
+  const [echoes, echoHost, held] = useMessageEcho(thread?.comments ?? [], asks);
   const shownResolved = pendingResolved ?? thread?.resolved;
   useEffect(() => setShowResolved(false), [thread?.ref.writer, thread?.threadId, thread?.resolved]);
   useEffect(() => {
@@ -491,9 +512,11 @@ export function ThreadWindow({
   // observed until Reopen restores the marker.
   const tracked = !!anchor && !shownResolved;
   const messageIds = [
-    ...(thread?.comments.map((comment) =>
-      conversationRecordKey('comment', comment.ref.writer, comment.messageId),
-    ) ?? []),
+    ...echoes.map((echo) => `echo:${echo.local}`),
+    ...(thread?.comments
+      .filter((comment) => !held(comment))
+      .map((comment) => conversationRecordKey('comment', comment.ref.writer, comment.messageId)) ??
+      []),
     ...conversationAsks(thread, asks, true)
       .filter((record) => record.reply !== undefined)
       .map((record) => conversationRecordKey('reply', record.writer, record.operationId)),

@@ -93,7 +93,7 @@ test('the page actions belong to the route: they appear on a page and leave with
   await page.setViewportSize({ width: 1440, height: 900 });
   await mount(page, 'page');
   await expect(bar(page).getByRole('navigation', { name: 'Page actions' })).toBeVisible();
-  await page.getByRole('link', { name: 'All pages', exact: true }).click();
+  await page.getByRole('link', { name: /^All pages(?: · .+)?$/ }).click();
   await expect(
     page.locator('#root, body').getByRole('heading', { level: 1 }).first(),
   ).toBeVisible();

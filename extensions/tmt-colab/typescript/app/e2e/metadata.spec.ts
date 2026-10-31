@@ -140,15 +140,12 @@ test('pending metadata fences reactivation and dismissal, with one overlay', asy
   await expect(dialog).not.toBeVisible();
 });
 
-test('a removed registered question remains pending and opens the registry rather than a fake anchor', async ({
+test('a removed registered question stays in metadata and out of anchored header navigation', async ({
   page,
 }) => {
   await ready(page);
-  const pending = page.getByRole('button', { name: 'Needs you: 2', exact: true });
-  await pending.click();
-  await page
-    .getByRole('menuitem', { name: 'Removed question · First creator', exact: true })
-    .click();
+  await expect(page.getByRole('button', { name: 'Needs you: 1', exact: true })).toBeVisible();
+  await (await pageAction(page, 'Questions…')).click();
   const dialog = page.getByRole('dialog', { name: 'Questions', exact: true });
   const removed = dialog
     .getByRole('listitem')
@@ -241,22 +238,26 @@ for (const vector of answerVectors.cases)
       ),
     );
     await dialog.getByRole('button', { name: 'Close', exact: true }).click();
-    if (vector.pending.length)
-      await expect(
-        page.getByRole('button', { name: `Needs you: ${vector.pending.length}`, exact: true }),
-      ).toBeVisible();
-    else await expect(page.locator('.needs-you-header-trigger')).toHaveCount(0);
+    // #5814: this corpus has no authored controls; retained state cannot supply an anchor.
+    await expect(page.locator('.needs-you-header-trigger')).toHaveCount(0);
   });
 
-test('a registered question and a legacy passage with the same ID both remain pending', async ({
+test('an ID collision cannot supply a reading or registered question with a false target', async ({
   page,
 }) => {
   await ready(page);
   await command(page, 'readingCollision');
-  await page.getByRole('button', { name: 'Needs you: 3', exact: true }).click();
-  await expect(page.getByRole('menu').locator('.needs-you-header-title')).toHaveText([
-    'Same ID reading',
+  // #5814 retains the source and registry, but the shared control owner refuses the colliding slot.
+  await expect(
+    page.frameLocator('iframe').getByRole('heading', { name: 'Same ID reading' }),
+  ).toBeVisible();
+  await expect(page.getByLabel('✓ Nothing waits', { exact: true })).toBeVisible();
+  await expect(page.locator('.needs-you-header-trigger')).toHaveCount(0);
+  const dialog = await open(page, 'Questions…');
+  await expect(dialog.locator('.metadata-question-title strong')).toHaveText([
     'First question',
+    'Second question',
+    'Handled question',
     'Removed question',
   ]);
 });
@@ -343,7 +344,7 @@ for (const originalAuthor of ['Legacy author', undefined]) {
 
 test('an explicit empty registry replaces legacy markup pending targets', async ({ page }) => {
   await ready(page);
-  await expect(page.getByRole('button', { name: 'Needs you: 2', exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Needs you: 1', exact: true })).toBeVisible();
   await command(page, 'emptyRegistry');
   await expect(page.locator('.needs-you-header-trigger')).toHaveCount(0);
 });

@@ -1,3 +1,4 @@
+import { expectAvailableDockWindow } from '../test/floating-panel.js';
 import { expect, test, type Page } from '@playwright/test';
 import { commentsClose, commentsRegion } from '../test/comments-region.js';
 import { commentsAction, pageAction, chooseThreadFilter } from '../test/page-actions.js';
@@ -58,9 +59,34 @@ test('Discussion uses twelve-pixel phone gutters above the dock', async ({ page 
   const dock = (await page.locator('#ask-page-fixture .page-floating-actions').boundingBox())!;
   expect(frame.x).toBeCloseTo(12, 0);
   expect(frame.x + frame.width).toBeCloseTo(378, 0);
-  expect(frame.height).toBeLessThanOrEqual(470);
+  const header = (await page.locator('#ask-page-fixture .tmt-ui-topbar').boundingBox())!;
+  expect(frame.y).toBeCloseTo(header.y + header.height + 12, 0);
   expect(frame.y + frame.height).toBeLessThanOrEqual(dock.y);
 });
+
+for (const viewport of [
+  { width: 1440, height: 900 },
+  { width: 1280, height: 720 },
+  { width: 390, height: 900 },
+])
+  test(`Discussion fills the available height at ${viewport.width}x${viewport.height}`, async ({
+    page,
+  }) => {
+    const { panel } = await openFirst(page, viewport.width);
+    await page.setViewportSize(viewport);
+    const topbar = page.locator('#ask-page-fixture .tmt-ui-topbar');
+    const bar = (await topbar.boundingBox())!;
+    expect((await panel.boundingBox())!.y - bar.y - bar.height).toBeCloseTo(12, 0);
+    const frame = (await panel.boundingBox())!;
+    const dock = (await page.locator('#ask-page-fixture .page-floating-actions').boundingBox())!;
+    expect(frame.y + frame.height).toBeCloseTo(dock.y - 16, 0);
+    const composer = panel.locator('.conversation-composer');
+    const before = (await composer.boundingBox())!;
+    await panel.locator('.conversation-history').evaluate((node) => {
+      node.scrollTop = 0;
+    });
+    expect((await composer.boundingBox())!.y).toBe(before.y);
+  });
 
 test('Chat shares the non-modal Discussion frame and keeps the page interactive', async ({
   page,
@@ -413,7 +439,7 @@ test('wide Discussion floats 16px above the dock without reflowing the page', as
   const dockBox = (await dock.boundingBox())!;
   const after = (await pageFrame.boundingBox())!;
   expect(windowBox.width).toBe(360);
-  expect(windowBox.height).toBe(470);
+  await expectAvailableDockWindow(page, panel);
   expect(Math.abs(windowBox.x + windowBox.width - dockBox.x - dockBox.width)).toBeLessThanOrEqual(
     1,
   );

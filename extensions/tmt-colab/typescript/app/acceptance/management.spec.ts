@@ -444,17 +444,19 @@ test('sidebar shortcuts reorder and delete survive a real served-page reload', a
       await save.getByRole('textbox', { name: 'Name', exact: true }).fill(name);
       await save.getByRole('button', { name: 'Save', exact: true }).click();
       await expect(save).not.toBeVisible();
-      await rail.getByRole('link', { name: 'All pages', exact: true }).click();
+      await rail.getByRole('link', { name: /^All pages(?: · .+)?$/ }).click();
     }
     const labels = rail.locator('a[data-id^="shortcut:"] .tmt-ui-module-menu-label');
     await expect(labels).toHaveText(['First shortcut', 'Second shortcut']);
-    await rail.getByRole('link', { name: 'Second shortcut', exact: true }).press('Alt+ArrowUp');
+    await rail
+      .getByRole('link', { name: 'Second shortcut · 1 total', exact: true })
+      .press('Alt+ArrowUp');
     await expect(labels).toHaveText(['Second shortcut', 'First shortcut']);
     await page.reload();
     await expect(labels).toHaveText(['Second shortcut', 'First shortcut']);
     const row = rail
       .locator('li[data-menu-item^="shortcut:"]')
-      .filter({ has: page.getByRole('link', { name: 'First shortcut', exact: true }) });
+      .filter({ has: page.getByRole('link', { name: 'First shortcut · 1 total', exact: true }) });
     await row.hover({ timeout: 5000 });
     await row.getByRole('button', { name: 'Delete First shortcut' }).click();
     await expect(labels).toHaveText(['Second shortcut']);

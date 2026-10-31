@@ -1,7 +1,7 @@
 {
   "baseline": "a5c85cb407003632dc9a5b3ac51ca2f6d92be355",
   "sha256": {
-    "generated/static.css": "43774df8fc73ca771cbd21ddab0d30f710e6d411d7497a9012ab9bde4bc39861",
+    "generated/static.css": "5e8e65a37327ca4d36148bf36c2c265c9eb01bad05e9b9a6e80882e5342cefed",
     "src/action.css": "c6d89fbc0ee8a8ed004783f0079408d06a0b8215fbccabd196b7f4f4e5b80e0d",
     "src/action.tsx": "b9406611c1519fa806ac226f5b1a7665e4c2e0a65d25d36de6692947f5342934",
     "src/chips.css": "46ee249714c41bf206c7d8202835ac0b6014492222d3de0d35aa632e8ec61d19",
@@ -339,6 +339,9 @@
         "control-size-l": "36px",
         "row-height": "40px",
         "subheader-height": "44px",
+        "floating-action-size": "40px",
+        "dock-width": "360px",
+        "rail-group-height": "28px",
         "indicator-width": "3px",
         "tab-indicator-width": "2px",
         "rail-width": "232px",
@@ -398,7 +401,9 @@
         "dialog-narrow-width": "440px",
         "dialog-wide-width": "800px",
         "dialog-confirm-mark-size": "46px",
-        "overlay-blur": "3px"
+        "overlay-blur": "3px",
+        "attention-dot-size": "8px",
+        "attention-dot-ring-width": "2px"
       }
     }
   }

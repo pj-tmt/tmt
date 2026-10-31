@@ -1107,3 +1107,42 @@ it('admits while recipients load, then reads the latest thread under the lock be
   await expect(pending).rejects.toThrow();
   expect(f.batches).toHaveLength(before);
 });
+
+it('publishes viewer attention acknowledgements through current admission and keeps domain threads intact', async () => {
+  const { readNeedsYouAcknowledgements } = await import('../src/needs-you-acknowledgement.js');
+  const f = storeFixture();
+  const target = { kind: 'answer' as const, id: 'question-one', version: 'exact-authored-version' };
+  await f.store.acknowledgeNeedsYou([target]);
+  expect(f.batches).toHaveLength(1);
+  expect(readNeedsYouAcknowledgements(f.own, fixture.scope, a).size).toBe(1);
+  expect(
+    readThreads(
+      f.own,
+      fixture.scope,
+      () => new Uint8Array(32),
+      () => true,
+    ),
+  ).toEqual([]);
+  validateOwn(f.own);
+  await f.store.acknowledgeNeedsYou([target]);
+  expect(f.batches).toHaveLength(1);
+  f.device(b);
+  expect(readNeedsYouAcknowledgements(f.own, fixture.scope, b).size).toBe(0);
+  f.deny();
+  await expect(f.store.acknowledgeNeedsYou([target])).rejects.toThrow('Denied');
+  expect(f.batches).toHaveLength(1);
+});
+
+it('a refused attention publication leaves no handled record and an explicit retry can publish', async () => {
+  const { readNeedsYouAcknowledgements } = await import('../src/needs-you-acknowledgement.js');
+  const f = storeFixture();
+  const target = { kind: 'review' as const, id: 'review-one', version: 'exact-version' };
+  f.fail(true);
+  await expect(f.store.acknowledgeNeedsYou([target])).rejects.toThrow('Publication failed');
+  expect(f.batches).toEqual([]);
+  expect(readNeedsYouAcknowledgements(f.own, fixture.scope, a).size).toBe(0);
+  f.fail(false);
+  await f.store.acknowledgeNeedsYou([target]);
+  expect(f.batches).toHaveLength(1);
+  expect(readNeedsYouAcknowledgements(f.own, fixture.scope, a).size).toBe(1);
+});

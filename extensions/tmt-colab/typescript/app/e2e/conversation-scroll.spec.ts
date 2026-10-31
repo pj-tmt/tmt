@@ -131,12 +131,19 @@ for (const width of [1440, 390]) {
         await run(page, 'pausePrepare');
         try {
           await input.press('Enter');
-          await expect(window.getByTestId('comment-entry').last()).toContainText(
+          // #5815 retains the visible echo while preparation waits; the own record is checked below.
+          await expect(window.getByTestId('comment-echo').last()).toContainText(
             'My own recorded turn',
           );
           await expect.poll(() => distance(history)).toBeLessThanOrEqual(1);
           await expect(jump).toHaveCount(0);
           await expect(input).toBeFocused();
+          const recorded = await run(page, 'discussionProof');
+          expect(
+            recorded.some((thread: { comments: { body: string }[] }) =>
+              thread.comments.some((comment) => comment.body.includes('My own recorded turn')),
+            ),
+          ).toBe(true);
           expect((await run(page, 'proof')).sends).toHaveLength(0);
         } finally {
           await run(page, 'resumePrepare');

@@ -360,6 +360,7 @@ export function AnnotationInput({
             size,
             preview: files.preview(id),
           })),
+          captured.destinations.map((destination) => destination.agentName),
         );
         echoHost.show(echoed);
         setEchoing(true);
@@ -381,13 +382,29 @@ export function AnnotationInput({
       stage = 'dispatch';
       if (echoed) echoHost?.show((echoed = { ...echoed, message: origin.message }));
       files.committed();
-      const failures = await sendCommentAsks(binding, origin, captured.destinations, {
-        quote,
-        comment: captured.value,
-        title: captured.title,
-        url: captured.url,
-        conversation: captured.conversation,
-      });
+      const deliveries: MessageEcho['deliveries'][number][] = [];
+      const failures = await sendCommentAsks(
+        binding,
+        origin,
+        captured.destinations,
+        {
+          quote,
+          comment: captured.value,
+          title: captured.title,
+          url: captured.url,
+          conversation: captured.conversation,
+        },
+        undefined,
+        (operationId, outcome) => {
+          if (
+            outcome.adopted === true &&
+            outcome.state !== 'preview' &&
+            outcome.state !== 'preparing'
+          )
+            deliveries.push({ operationId, state: outcome.state });
+        },
+      );
+      if (echoed) echoed = { ...echoed, deliveries };
       failures.forEach(recordFailure);
       if (!echoed) clearDraft();
       setError(undefined);
@@ -410,6 +427,7 @@ export function AnnotationInput({
         setBusy(false);
         setEchoing(false);
       }
+      if (echoed && origin) echoHost?.show({ ...echoed, sending: false });
       if (echoed && !origin) {
         // Not recorded: the echo becomes the failed row, which holds this exact draft.
         const failed: MessageEcho = {

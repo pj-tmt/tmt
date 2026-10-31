@@ -350,7 +350,10 @@ test('accepted recipients reach independent observation deadlines without redisp
   await input.fill('@beta Second question.');
   await input.press('Enter');
   await expect(status).toHaveCount(2);
+  // #5815 publishes admitted states before the send returns; baseline both completed sends.
+  await expect.poll(async () => (await run(page, 'proof')).commits).toBe(2);
   const before = await run(page, 'proof');
+  expect(before.sends).toHaveLength(2);
   await page.clock.fastForward(60 * 60 * 1000 + 1);
   await expect(status).toHaveText(['Sent', 'Sent']);
   await expect(page.getByRole('button', { name: 'Check again', exact: true })).toHaveCount(2);

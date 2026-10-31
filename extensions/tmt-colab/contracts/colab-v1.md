@@ -3684,6 +3684,22 @@ current exchange and a resolved reading ID; it has no publication authority. Unk
 stale requests do nothing. Reading slots consume only the remaining existing 250-slot budget,
 in document order, and never displace an existing proposal, question or review control.
 
+The page-header Needs you menu includes only current anchored targets. Removing a target
+keeps its authored and discussion records. Confirmed Clear all invokes the existing Mark read
+for each listed reading, without navigation. For listed questions, reviews and proposals it
+publishes a viewer-owned `messages` record keyed `<actionId>:needs-you-handled`, with exactly
+`{version:1,kind:"needs-you-handled",spaceId,pageId,epoch,senderDevice,actionId,at,items}`.
+Each item is `{kind,id,version}` (`answer`, `review` or `proposal`); `version` is the exact
+unpadded base64url SHA-256 of the inert authored target HTML and its admitted owner-state
+description captured by the header. Neighboring anchor context is excluded. Current own-write admission
+and the existing discussion lock precede publication. Outer writer, sender, page and epoch
+must match the admitted viewer; malformed records provide no handled state. A record holds
+1–1000 items, each version at most 64 KiB and the complete record at most 256 KiB UTF-8.
+Reload reads that viewer's admitted own stream; a new or changed version waits again. This
+acknowledgement never creates an answer, proposal decision or review close. The discovery
+summary below remains the owner's recorded pending projection; the header additionally applies
+current placement and viewer acknowledgements.
+
 ### Review sections
 
 A review section is authored page HTML, not a new discussion record, CLI command or concept. It
@@ -4025,9 +4041,10 @@ author-frame backdrop press dismisses only, without click-through; a second pres
 acts. The shared Close button retains draft/attempt owners. Action and Manage radio menus use the shared top-layer Menu; autocomplete
 remains a listbox. A nested menu consumes Escape before its drawer. Chat and Discussion
 are non-modal panels with no scrim, trap or inert page, sharing the single panel slot
-with the drawers. At wide widths each is a 360 × 470 px floating card, 16 px
+with the drawers. At wide widths each is a `dock-width` floating card with available viewport height, `space-l`
 above the measured dock, shortened as needed to remain below the header on short screens;
-at narrow widths it keeps 12 px side gutters and the same maximum 470 px height above the dock. Its compact
+at narrow widths it keeps `space-m` side gutters. The top is `space-m` below the top bar;
+the bottom retains the measured dock clearance. History scrolls above the pinned composer. Its compact
 single-row header holds Discussion, position, filter, previous/next, Resolve or Reopen,
 Resolve all and Close. Escape on the page or in Discussion closes it, retains the draft,
 clears passage selection and restores the opener when available; an in-flight Discussion

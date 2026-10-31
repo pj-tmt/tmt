@@ -1,4 +1,6 @@
 import { createContext } from 'react';
+import type { PageAsk } from './ask-panel.js';
+import { canTransition, type LedgerState } from './ask-records.js';
 import type { CommentView, DiscussionRef } from './thread-records.js';
 
 export type EchoAttachment = {
@@ -20,6 +22,11 @@ export type MessageEcho = {
   body: string;
   at: number;
   attachments: readonly EchoAttachment[];
+  /** Captured display labels reserve the final recipient-status footprint from the first frame. */
+  recipients: readonly string[];
+  sending: boolean;
+  /** Outcomes of this explicit send; only admitted records may replace its pending turn. */
+  deliveries: readonly { operationId: string; state: LedgerState }[];
   /** The recorded message, once the write returned; its verified record replaces the echo. */
   message?: DiscussionRef;
   /** Present when the send failed before it was recorded: the row then holds the draft. */
@@ -40,13 +47,35 @@ export const MessageEchoContext = createContext<MessageEchoHost | undefined>(und
 export function messageEcho(
   body: string,
   attachments: readonly EchoAttachment[] = [],
+  recipients: readonly string[] = [],
 ): MessageEcho {
-  return { local: crypto.randomUUID(), body, at: Date.now(), attachments };
+  return {
+    local: crypto.randomUUID(),
+    body,
+    at: Date.now(),
+    attachments,
+    recipients,
+    sending: true,
+    deliveries: [],
+  };
 }
 
-export function echoLanded(echo: MessageEcho, comments: readonly CommentView[]) {
+export function echoLanded(
+  echo: MessageEcho,
+  comments: readonly CommentView[],
+  asks: readonly PageAsk[],
+) {
   const message = echo.message;
   return (
+    !echo.sending &&
+    echo.deliveries.every((delivery) =>
+      asks.some(
+        (ask) =>
+          ask.writer === message?.writer &&
+          ask.operationId === delivery.operationId &&
+          (ask.state === delivery.state || canTransition(delivery.state, ask.state)),
+      ),
+    ) &&
     !!message &&
     comments.some(
       (comment) => comment.ref.writer === message.writer && comment.messageId === message.id,

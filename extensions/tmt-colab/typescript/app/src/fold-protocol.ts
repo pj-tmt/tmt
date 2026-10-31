@@ -1,5 +1,6 @@
 import { validateEditLockLimits } from './edit-locks.js';
 import { metadataRequest } from '@tmt/colab-client';
+import { validateNeedsYouAcknowledgement } from './needs-you-acknowledgement.js';
 import { validateDiscussionRecord } from './thread-records.js';
 import { validateShell, type Shell } from './shell.js';
 import { canonical } from './closed.js';
@@ -182,6 +183,15 @@ export function validateOwn(value: unknown): asserts value is OwnState {
           (record as Record<string, unknown>).kind === 'edit-request'
         )
           editRequest.editorRequest(record, root, key);
+        if (
+          record &&
+          typeof record === 'object' &&
+          !Array.isArray(record) &&
+          (record as Record<string, unknown>).kind === 'needs-you-handled'
+        ) {
+          requireValue(root === 'messages');
+          validateNeedsYouAcknowledgement(key, record);
+        }
         if (
           record &&
           typeof record === 'object' &&

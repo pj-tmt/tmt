@@ -1,3 +1,4 @@
+import { expectAvailableDockWindow } from '../test/floating-panel.js';
 import { headerHeight } from './tokens.js';
 import { commentsClose, commentsRegion, openPanel } from '../test/comments-region.js';
 import { pageAction, chatAction } from '../test/page-actions.js';
@@ -1229,7 +1230,7 @@ for (const [width, theme] of [
       if (panel === 'chat') {
         const dock = (await page.locator('.page-floating-actions:visible').boundingBox())!;
         expect(box.width).toBe(width === 390 ? width - 24 : 360);
-        expect(box.height).toBeLessThanOrEqual(470);
+        await expectAvailableDockWindow(page, drawer);
         expect(Math.abs(dock.y - box.y - box.height - 16)).toBeLessThanOrEqual(1);
       } else {
         const gap = width <= 480 ? 4 : 8;

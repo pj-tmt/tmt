@@ -34,64 +34,34 @@ for (const renderer of ['native', 'react'])
             }),
           );
         const original = await paints();
-        expect(original[0]![1]).not.toBe(original[1]![1]);
-        const pillLook = await counts.evaluate((node) => {
-          const total = node.children[0] as HTMLElement;
-          const attention = node.children[1] as HTMLElement;
-          const rail = node.closest('.tmt-ui-rail')!;
-          const row = node.closest('a')!;
-          const canvas = document.createElement('canvas');
-          canvas.width = canvas.height = 1;
-          const context = canvas.getContext('2d')!;
-          const rgb = (color: string) => {
-            context.fillStyle = color;
-            context.fillRect(0, 0, 1, 1);
-            return [...context.getImageData(0, 0, 1, 1).data].slice(0, 3);
-          };
-          const light = (channels: number[]) =>
-            channels
-              .map((n) => n / 255)
-              .map((n) => (n <= 0.04045 ? n / 12.92 : ((n + 0.055) / 1.055) ** 2.4))
-              .reduce((sum, n, i) => sum + n * [0.2126, 0.7152, 0.0722][i]!, 0);
-          const contrast = (a: number[], b: number[]) =>
-            (Math.max(light(a), light(b)) + 0.05) / (Math.min(light(a), light(b)) + 0.05);
-          const css = getComputedStyle(total);
-          const fill = rgb(css.backgroundColor);
-          const metrics = (element: HTMLElement) => {
-            const style = getComputedStyle(element);
-            return {
-              height: element.getBoundingClientRect().height,
-              padding: style.padding,
-              font: style.fontFamily,
-              size: style.fontSize,
-              minimum: style.minWidth,
-            };
-          };
-          return {
-            total: metrics(total),
-            attention: metrics(attention),
-            body: getComputedStyle(rail).fontFamily,
-            railContrast: contrast(fill, rgb(getComputedStyle(rail).backgroundColor)),
-            selectionContrast: contrast(fill, rgb(getComputedStyle(row).backgroundColor)),
-            textContrast: contrast(fill, rgb(css.color)),
-            neutralSpread: Math.max(...fill) - Math.min(...fill),
-          };
-        });
-        expect(pillLook.total).toEqual(pillLook.attention);
-        expect(pillLook.total.font).toBe(pillLook.body);
-        expect(pillLook.railContrast).toBeGreaterThanOrEqual(1.2);
-        expect(pillLook.selectionContrast).toBeGreaterThanOrEqual(1.2);
-        expect(pillLook.textContrast).toBeGreaterThanOrEqual(4.5);
-        expect(pillLook.neutralSpread).toBeLessThanOrEqual(32);
-
-        await expect(counts.locator('[data-kind="needs-you"]')).toHaveText('3');
+        await expect(counts.locator('.tmt-ui-attention-dot')).toHaveCSS('outline-style', 'none');
+        await expect(counts.locator('.tmt-ui-shell-count')).toHaveCount(1);
+        await expect(counts.locator('.tmt-ui-shell-count')).toHaveText('42');
+        await expect(counts.locator('.tmt-ui-shell-count')).toHaveCSS(
+          'background-color',
+          'rgba(0, 0, 0, 0)',
+        );
+        await expect(counts.locator('.tmt-ui-shell-count')).toHaveCSS('padding', '0px');
+        await expect(counts.locator('.tmt-ui-shell-count')).toHaveCSS(
+          'font-variant-numeric',
+          'tabular-nums',
+        );
+        await expect(counts.locator('.tmt-ui-attention-dot')).toHaveAttribute(
+          'aria-hidden',
+          'true',
+        );
+        await expect(rail.locator('[data-id="all"]')).toHaveAccessibleName(
+          'All pages · 42 total, 3 need you',
+        );
+        await expect(rail.locator('.tmt-ui-rail-sub-group')).toHaveCSS('text-transform', 'none');
+        await expect(rail.locator('.tmt-ui-rail-sub-group')).toHaveCSS('height', '28px');
         const allLabel = rail.locator('[data-id="all"] .tmt-ui-module-menu-label');
         const projectLabel = rail.locator('[data-id="project"] .tmt-ui-module-menu-label');
         const heading = rail.locator('.tmt-ui-rail-sub-group > span');
         const x = (node: typeof allLabel) =>
           node.evaluate((element) => element.getBoundingClientRect().x);
         expect(await x(projectLabel)).toBe(await x(allLabel));
-        expect(await x(heading)).toBe(await x(allLabel));
+        expect((await x(heading)) - (await selected.boundingBox())!.x).toBe(13);
         expect((await x(allLabel)) - (await selected.boundingBox())!.x).toBe(36);
         await expect(projectLabel).toHaveAttribute('title', 'Release planning and coordination');
         await expect(projectLabel).toHaveCSS('text-overflow', 'ellipsis');
@@ -148,3 +118,116 @@ for (const renderer of ['native', 'react'])
         await expect(rail).toHaveCount(0);
         await expect(page.getByRole('tooltip')).toHaveCount(0);
       });
+
+for (const renderer of ['native', 'react'])
+  test(`optional row icons and text group action use the shared renderer in ${renderer}`, async ({
+    page,
+  }) => {
+    await page.goto(`/?frame=rail&icons=true&renderer=${renderer}`);
+    const menu = page.locator('nav.tmt-ui-rail .tmt-ui-rail-sub');
+    await expect(menu.locator('a[data-id="all"] > svg')).toHaveAttribute('aria-hidden', 'true');
+    await expect(menu.locator('a[data-id="project"] > svg')).toHaveAttribute('aria-hidden', 'true');
+    const manage = menu.getByRole('button', { name: 'Manage', exact: true });
+    await expect(manage).toHaveText('Manage');
+    await expect(manage.locator('svg')).toHaveCount(0);
+    await manage.click();
+    await expect(page.getByRole('status')).toHaveText('Manage 0');
+  });
+
+for (const renderer of ['native', 'react'])
+  for (const theme of ['light', 'dark'])
+    for (const width of [1440, 390])
+      test(`reorder replaces the leading icon without moving its label ${renderer} ${theme} ${width}`, async ({
+        page,
+      }, testInfo) => {
+        await page.setViewportSize({ width, height: 900 });
+        await page.goto(
+          `/?frame=rail&interactive=true&icons=true&renderer=${renderer}&theme=${theme}`,
+        );
+        if (width === 390) await page.getByRole('button', { name: 'Open navigation' }).click();
+        const row = page.locator('li[data-menu-item="project"]');
+        const link = row.locator(':scope > a');
+        const icon = row.locator(':scope > .tmt-ui-swap > svg[data-swap=rest], :scope > a > svg');
+        const grip = row.locator('[data-rail-part="drag"]');
+        const label = link.locator('.tmt-ui-module-menu-label');
+        const initial = (await label.boundingBox())!;
+        const slot = (await icon.boundingBox())!;
+        const capture = async (state: string) =>
+          testInfo.attach(`icon-grip-${state}`, {
+            body: await page.screenshot(),
+            contentType: 'image/png',
+          });
+        await expect(icon).toHaveAttribute('aria-hidden', 'true');
+        await expect(icon).toHaveCSS('opacity', '1');
+        await expect(grip).toBeHidden();
+        await capture('rest');
+        await link.hover();
+        await expect(icon).toHaveCSS('opacity', '0');
+        await expect(grip).toHaveCSS('opacity', '1');
+        await expect(grip).toHaveAccessibleName('Reorder Colab v1 · In progress');
+        const hit = (await grip.boundingBox())!;
+        expect(hit.width).toBe(24);
+        expect(hit.height).toBe(24);
+        expect(hit.x + hit.width / 2).toBeCloseTo(slot.x + slot.width / 2, 0);
+        expect(hit.y + hit.height / 2).toBeCloseTo(slot.y + slot.height / 2, 0);
+        expect((await label.boundingBox())!.x).toBe(initial.x);
+        await capture('hover');
+        await page.mouse.move(width - 5, 895);
+        await link.focus();
+        await expect(icon).toHaveCSS('opacity', '0');
+        await expect(grip).toHaveCSS('opacity', '1');
+        expect((await label.boundingBox())!.x).toBe(initial.x);
+        await capture('focus');
+        const target = (await page.locator('li[data-menu-item="notes"] > a').boundingBox())!;
+        await page.mouse.move(hit.x + hit.width / 2, hit.y + hit.height / 2);
+        await page.mouse.down();
+        await page.mouse.move(target.x + target.width / 2, target.y + target.height / 2, {
+          steps: 12,
+        });
+        await expect(row).toHaveAttribute('data-dragging', '');
+        await expect(icon).toHaveCSS('opacity', '0');
+        await expect(grip).toHaveCSS('opacity', '1');
+        expect((await label.boundingBox())!.x).toBe(initial.x);
+        await capture('drag');
+        await page.mouse.up();
+        await page.emulateMedia({ reducedMotion: 'reduce' });
+        await expect(icon).toHaveCSS('transition-duration', '0s');
+        await expect(grip).toHaveCSS('transition-duration', '0s, 0s');
+        await page
+          .getByRole('button', { name: 'Toggle reorder availability', exact: true })
+          .evaluate((node) => (node as HTMLButtonElement).click());
+        await link.focus();
+        await expect(row.locator('[data-rail-part="drag"]')).toHaveCount(0);
+        await expect(icon).toHaveCSS('opacity', '1');
+      });
+
+for (const renderer of ['native', 'react'])
+  test(`coarse pointer retains the leading icon and Manage without a grip ${renderer}`, async ({
+    browser,
+    baseURL,
+  }) => {
+    const context = await browser.newContext({
+      baseURL,
+      viewport: { width: 390, height: 900 },
+      isMobile: true,
+      hasTouch: true,
+      reducedMotion: 'reduce',
+    });
+    try {
+      const page = await context.newPage();
+      await page.goto(`/?frame=rail&interactive=true&icons=true&renderer=${renderer}`);
+      expect(await page.evaluate(() => matchMedia('(pointer: coarse)').matches)).toBe(true);
+      await page.getByRole('button', { name: 'Open navigation' }).click();
+      const row = page.locator('li[data-menu-item="project"]');
+      await row.locator(':scope > a').focus();
+      await expect(row.locator(':scope > .tmt-ui-swap > svg[data-swap=rest]')).toHaveCSS(
+        'opacity',
+        '1',
+      );
+      await expect(row.locator('[data-rail-part="drag"]')).toBeHidden();
+      await page.getByRole('button', { name: 'Manage shortcuts', exact: true }).click();
+      await expect(page.locator('[data-host-status]')).toHaveText('Manage 0');
+    } finally {
+      await context.close();
+    }
+  });

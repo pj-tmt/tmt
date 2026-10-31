@@ -1,3 +1,9 @@
+import {
+  readNeedsYouAcknowledgements,
+  validateNeedsYouAcknowledgement,
+  type NeedsYouTarget,
+  type NeedsYouAcknowledgement,
+} from './needs-you-acknowledgement.js';
 import type { PageAsk } from './ask-panel.js';
 import { requireValue } from '@tmt/colab-client';
 import {
@@ -58,6 +64,8 @@ export interface AnswerBatchContext {
 }
 export interface ThreadBinding {
   readonly deviceId: string;
+  /** Explicit viewer attention acknowledgement; never a domain answer or decision. */
+  acknowledgeNeedsYou?(items: readonly NeedsYouTarget[]): Promise<void>;
   /** Current admitted document scope, never derived from page HTML. */
   readonly scope?: DiscussionScope;
   /** Absent where this binding cannot upload or open attachments. */
@@ -205,6 +213,30 @@ export class ThreadStore implements ThreadBinding {
         await action(await this.#admit());
       },
     );
+  }
+  async acknowledgeNeedsYou(items: readonly NeedsYouTarget[]) {
+    await this.#exclusive(async () => {
+      const handled = readNeedsYouAcknowledgements(this.options.own(), this.options, this.deviceId);
+      const pending = items.filter(
+        (item) => !handled.has(JSON.stringify([item.kind, item.id, item.version])),
+      );
+      if (!pending.length) return;
+      const actionId = crypto.randomUUID();
+      const value: NeedsYouAcknowledgement = {
+        version: 1,
+        kind: 'needs-you-handled',
+        spaceId: this.options.spaceId,
+        pageId: this.options.pageId,
+        epoch: this.options.epoch,
+        senderDevice: this.deviceId,
+        actionId,
+        at: String(Date.now()),
+        items: structuredClone(pending),
+      };
+      const key = `${actionId}:needs-you-handled`;
+      validateNeedsYouAcknowledgement(key, value);
+      await this.options.publish([{ root: 'messages', key, value: value as unknown as JsonValue }]);
+    });
   }
   async create(
     body: string,

@@ -89,3 +89,44 @@ it('registered questions own their count independently of a legacy passage with 
     pendingNeedsYou([answer, reading, answer, candidate('same', 'waiting', 'review')], true),
   ).toEqual([reading, answer]);
 });
+
+it('keeps handled attention in the admitted viewer stream and matches the exact item version', async () => {
+  const { needsYouKey, readNeedsYouAcknowledgements, validateNeedsYouAcknowledgement } =
+    await import('../src/needs-you-acknowledgement.js');
+  const { id } = await import('./ask-fixtures.js');
+  const scope = { spaceId: 'a'.repeat(32), pageId: id(1), epoch: '1' };
+  const item = {
+    ...candidate('question-1', 'unanswered', 'answer'),
+    version: 'authored-version-one',
+  };
+  const actionId = id(8);
+  const value = {
+    version: 1,
+    kind: 'needs-you-handled',
+    ...scope,
+    senderDevice: id(4),
+    actionId,
+    at: '1',
+    items: [{ kind: item.kind, id: item.id, version: item.version }],
+  };
+  expect(() =>
+    validateNeedsYouAcknowledgement(`${actionId}:needs-you-handled`, value),
+  ).not.toThrow();
+  const own = {
+    [id(4)]: {
+      threads: {},
+      intents: {},
+      replies: {},
+      messages: { [`${actionId}:needs-you-handled`]: value },
+    },
+  };
+  const handled = readNeedsYouAcknowledgements(own, scope, id(4));
+  expect(handled.has(needsYouKey(item))).toBe(true);
+  expect(handled.has(needsYouKey({ ...item, version: 'authored-version-two' }))).toBe(false);
+  expect(readNeedsYouAcknowledgements(own, scope, id(5)).size).toBe(0);
+  expect(readNeedsYouAcknowledgements(own, { ...scope, epoch: '2' }, id(4)).size).toBe(0);
+  expect(pendingNeedsYou([item], true, handled)).toEqual([]);
+  expect(
+    pendingNeedsYou([{ ...item, version: 'authored-version-two' }], true, handled),
+  ).toHaveLength(1);
+});

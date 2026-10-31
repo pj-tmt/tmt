@@ -135,7 +135,7 @@ export function useReadingLayer({
       admitted: admitted.current,
       changed: (id, outcome) => {
         setOutcomes((previous) => new Map(previous).set(id, outcome));
-        if (outcome.state === 'settled') next(id);
+        if (outcome.state === 'settled' && outcome.advance !== false) next(id);
       },
     });
   }, [snapshot.id, next]);
@@ -170,7 +170,7 @@ export function useReadingLayer({
           .filter(
             (row) =>
               row.anchor &&
-              !slotPositions.some((slot) => slot.id === row.reading.id && slot.hidden),
+              slotPositions.some((slot) => slot.id === row.reading.id && !slot.hidden),
           )
           .map(({ reading, state }) => ({
             id: reading.id,
@@ -241,7 +241,7 @@ export function useReadingLayer({
         row.reading.id !== reading.id &&
         row.anchor &&
         row.state.kind === 'unread' &&
-        !slotPositions.some((slot) => slot.id === row.reading.id && slot.hidden),
+        slotPositions.some((slot) => slot.id === row.reading.id && !slot.hidden),
     );
     return (
       <section

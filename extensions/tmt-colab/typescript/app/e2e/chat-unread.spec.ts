@@ -32,13 +32,32 @@ for (const width of [320, 390, 1440])
         await page.getByRole('button', { name: 'Dismiss Thread reply', exact: true }).click();
         await run(page, 'arrive', { destination: 'Chat', body: 'Unread Chat arrival' });
         await expect(action(page)).toHaveAccessibleName('Chat · Unread');
-        await expect(action(page)).toContainText('Unread');
+        await expect(action(page).locator('.chat-unread')).toHaveAttribute('aria-hidden', 'true');
+        await expect(action(page).locator('.chat-unread')).toHaveText('');
+        const unreadButton = (await action(page).boundingBox())!;
+        const dot = (await action(page).locator('.chat-unread').boundingBox())!;
+        expect(unreadButton.width).toBe(40);
+        expect(unreadButton.height).toBe(40);
+        expect(dot.width).toBe(8);
+        expect(dot.height).toBe(8);
+        expect(dot.y - unreadButton.y).toBe(8);
+        expect(unreadButton.x + unreadButton.width - dot.x - dot.width).toBe(8);
+        await expect(action(page).locator('.chat-unread')).toHaveCSS('outline-width', '2px');
+        expect(dot.x).toBeGreaterThan(unreadButton.x + unreadButton.width / 2);
+        expect(dot.y + dot.height).toBeLessThan(unreadButton.y + unreadButton.height / 2 + 1);
+        await action(page).hover();
+        await expect(
+          page
+            .locator('.tmt-ui-icon-action-tooltip:popover-open')
+            .filter({ hasText: 'Chat · Unread' }),
+        ).toBeVisible();
         await page.getByRole('button', { name: 'Dismiss Chat reply', exact: true }).click();
         await expect(page.locator('.tmt-ui-notification')).toHaveCount(0);
         await expect(action(page)).toHaveAccessibleName('Chat · Unread');
-        // Unread text grows the reordered capsule to the left; its right anchor stays fixed.
+        // The decorative dot never changes the dock layout.
         const after = await page.locator('.page-floating-actions').boundingBox();
-        expect(after!.x + after!.width).toBeCloseTo(original!.x + original!.width, 0);
+        expect(after!.width).toBeCloseTo(original!.width, 0);
+        expect(after!.x).toBeCloseTo(original!.x, 0);
         expect(after!.y).toBeCloseTo(original!.y, 0);
         const group = await page.locator('.page-floating-actions').boundingBox();
         expect(group!.x).toBeGreaterThanOrEqual(0);

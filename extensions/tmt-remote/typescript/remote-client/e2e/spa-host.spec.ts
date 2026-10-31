@@ -1084,18 +1084,37 @@ test.describe('the Ops route on the owner read', () => {
           ];
           await inspect(opsLabels, 'squads');
           const agents = modulePages(page).locator('a[data-id="agents"]');
-          await expect(agents.locator('.tmt-ui-shell-count')).toHaveText(['2', '1']);
-          await expect(agents.locator('.tmt-ui-shell-count').last()).toHaveAttribute(
-            'data-kind',
-            'needs-you',
+          // #5826: one muted total and a decorative attention dot replace the two pills.
+          await expect(agents.locator('.tmt-ui-shell-count')).toHaveText(['2']);
+          await expect(agents).toHaveAccessibleName('Agents · 2 total, 1 need you');
+          await expect(agents.locator('.tmt-ui-attention-dot')).toHaveAttribute(
+            'aria-hidden',
+            'true',
           );
           await expect(
             modulePages(page).locator('a[data-id="schedules"] .tmt-ui-shell-count'),
           ).toHaveCount(0);
-          const colours = await agents
-            .locator('.tmt-ui-shell-count')
-            .evaluateAll((nodes) => nodes.map((node) => getComputedStyle(node).backgroundColor));
-          expect(colours[0]).not.toBe(colours[1]);
+          const readColours = () =>
+            agents.evaluate((element) => {
+              const probe = document.createElement('span');
+              probe.style.color = 'var(--tmt-ui-color-secondary)';
+              probe.style.background = 'var(--tmt-ui-color-waiting)';
+              element.append(probe);
+              const css = getComputedStyle(probe);
+              const result = {
+                total: getComputedStyle(element.querySelector('.tmt-ui-shell-count')!).color,
+                dot: getComputedStyle(element.querySelector('.tmt-ui-attention-dot')!)
+                  .backgroundColor,
+                secondary: css.color,
+                waiting: css.backgroundColor,
+              };
+              probe.remove();
+              return result;
+            });
+          const colours = await readColours();
+          expect(colours.total).toBe(colours.secondary);
+          expect(colours.dot).toBe(colours.waiting);
+          expect(colours.dot).not.toBe(colours.total);
           await page.mouse.move(width - 1, 899);
           await page.screenshot({
             path: testInfo.outputPath(`rail-ops-${width}-${colorScheme}.png`),
@@ -1105,19 +1124,9 @@ test.describe('the Ops route on the owner read', () => {
             await modulePages(page).locator(`a[data-id="${id}"]`).click();
             await expect(page).toHaveURL(`${origin}/ops#${id}`);
             await inspect(opsLabels, id);
-            expect(
-              await modulePages(page)
-                .locator('a[data-id="agents"] .tmt-ui-shell-count')
-                .evaluateAll((nodes) =>
-                  nodes.map((node) => getComputedStyle(node).backgroundColor),
-                ),
-            ).toEqual(colours);
+            expect(await readColours()).toEqual(colours);
           }
-          expect(
-            await modulePages(page)
-              .locator('a[data-id="agents"] .tmt-ui-shell-count')
-              .evaluateAll((nodes) => nodes.map((node) => getComputedStyle(node).backgroundColor)),
-          ).toEqual(colours);
+          expect(await readColours()).toEqual(colours);
           await page.goto(`${origin}/remote/`);
           await page.evaluate(async () => {
             const { remoteRegistry } = (await import(

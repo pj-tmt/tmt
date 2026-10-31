@@ -36,6 +36,89 @@ async function mount(page: Page, surface: string, mode = 'accepted') {
 const echo = (page: Page) => page.getByTestId('comment-echo');
 const send = (page: Page) => page.getByRole('button', { name: /^Send(?: · to .+)?$/ });
 
+for (const surface of ['reply', 'chat'])
+  for (const width of [390, 1440])
+    for (const theme of ['light', 'dark'] as const)
+      test(`${surface} agent send has a stable turn and no transient problem at ${width} ${theme}`, async ({
+        page,
+      }) => {
+        await page.setViewportSize({ width, height: 900 });
+        await page.emulateMedia({ colorScheme: theme });
+        const input = await mount(page, surface);
+        await input.pressSequentially('@alpha A stable message.');
+        await run(page, 'holdAskPublication');
+        await page.evaluate(() => {
+          const frames: { y: number; height: number; composerY: number; problem: boolean }[] = [];
+          let frame = 0;
+          const sample = () => {
+            const turn = document.querySelector(
+              '[data-testid="comment-echo"], [data-testid="comment-entry"]',
+            );
+            const composer = document.querySelector('.annotation-compose');
+            if (turn && composer) {
+              const box = turn.getBoundingClientRect();
+              frames.push({
+                y: box.y,
+                height: box.height,
+                composerY: composer.getBoundingClientRect().y,
+                problem: !!document.querySelector('[data-tone="problem"]'),
+              });
+            }
+            frame = requestAnimationFrame(sample);
+          };
+          frame = requestAnimationFrame(sample);
+          (window as typeof window & { stopSendFrames?: () => typeof frames }).stopSendFrames =
+            () => {
+              cancelAnimationFrame(frame);
+              return frames;
+            };
+        });
+        await input.press('Enter');
+        await expect(echo(page)).toHaveCount(1);
+        const before = (await echo(page).boundingBox())!;
+        const composeBefore = (await page.locator('.annotation-compose').boundingBox())!;
+        await page.screenshot({
+          path: capturePath(`send-${surface}-pending-${width}-${theme}.png`),
+        });
+        await expect.poll(async () => (await run(page, 'proof')).preparations).toBe(1);
+        await run(page, 'publishRecorded');
+        // The signed intent has arrived but its state publication is still in flight.
+        await expect(page.locator('[data-tone="problem"]')).toHaveCount(0);
+        await expect(echo(page)).toHaveCount(1);
+        await run(page, 'releaseAskPublication');
+        await expect(page.getByTestId('comment-entry')).toHaveCount(1);
+        await expect(echo(page)).toHaveCount(0);
+        await expect(page.getByTestId('ask-state')).toHaveAttribute('data-state', 'accepted');
+        const after = (await page.getByTestId('comment-entry').boundingBox())!;
+        const composeAfter = (await page.locator('.annotation-compose').boundingBox())!;
+        await page.screenshot({
+          path: capturePath(`send-${surface}-settled-${width}-${theme}.png`),
+        });
+        expect(after.y).toBeCloseTo(before.y, 0);
+        expect(after.height).toBeCloseTo(before.height, 0);
+        expect(composeAfter.y).toBeCloseTo(composeBefore.y, 0);
+        const frames = await page.evaluate(() => {
+          const state = window as typeof window & {
+            stopSendFrames?: () => {
+              y: number;
+              height: number;
+              composerY: number;
+              problem: boolean;
+            }[];
+          };
+          const frames = state.stopSendFrames!();
+          delete state.stopSendFrames;
+          return frames;
+        });
+        expect(frames.length).toBeGreaterThan(0);
+        for (const frame of frames) {
+          expect(frame.problem).toBe(false);
+          expect(frame.y).toBeCloseTo(before.y, 0);
+          expect(frame.height).toBeCloseTo(before.height, 0);
+          expect(frame.composerY).toBeCloseTo(composeBefore.y, 0);
+        }
+      });
+
 for (const surface of ['reply', 'chat']) {
   test(`${surface}: the sent message shows in the frame the composer clears, with no busy words or grey`, async ({
     page,

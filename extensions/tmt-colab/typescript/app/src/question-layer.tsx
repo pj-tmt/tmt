@@ -215,7 +215,7 @@ export function useQuestionLayer({
           const ids = group.split ? group.questions : [group.id];
           const attached = ids.some((id) => {
             const slot = slots.find((value) => value.id === id);
-            return !!slot?.chip;
+            return !!slot?.chip && !slot.hidden;
           });
           if (
             !attached ||
@@ -225,6 +225,7 @@ export function useQuestionLayer({
           return [
             {
               kind: 'answer',
+              version: JSON.stringify([group, members]),
               questionCount: { waiting: pending.length, total: members.length },
               state: pending.length ? 'unanswered' : 'answered',
               id: group.id,
@@ -239,6 +240,22 @@ export function useQuestionLayer({
     associated,
     open,
     navigation,
+    version: (id: string) =>
+      JSON.stringify([
+        questions.find((question) => question.id === id),
+        associated(id).map((thread) => [
+          thread.ref,
+          thread.comments.map((comment) => [comment.ref, comment.revision, comment.deleted]),
+        ]),
+      ]),
+    attached: (id: string) => {
+      const group = groups.find((group) => group.questions.includes(id));
+      const target = group && !group.split ? group.id : id;
+      return (
+        !!anchors?.some((anchor) => anchor.id === id) &&
+        slots.some((slot) => slot.id === target && !!slot.chip && !slot.hidden)
+      );
+    },
     ready: state === 'ready' && anchors !== null,
     jump: (id: string) => {
       const item = navigation.find((value) => value.id === id || value.targetId === id);

@@ -59,7 +59,7 @@ export function ChatPanel({
   const chats = threads.filter(isChatThread);
   const own = chats.find((thread) => thread.ref.writer === discussion?.deviceId);
   const legacy = useMemo(() => asks.filter((ask) => !ask.thread), [asks]);
-  const [echoes, echoHost, held] = useMessageEcho(own?.comments ?? []);
+  const [echoes, echoHost, held] = useMessageEcho(own?.comments ?? [], asks);
   // Called where the verified record will render, so it takes the same day heading.
   const echoTurn = () =>
     echoes.map((echo) => (
@@ -71,9 +71,9 @@ export function ChatPanel({
   const messageIds = [
     ...echoes.map((echo) => `echo:${echo.local}`),
     ...chats.flatMap((thread) => [
-      ...thread.comments.map((comment) =>
-        conversationRecordKey('comment', comment.ref.writer, comment.messageId),
-      ),
+      ...thread.comments
+        .filter((comment) => !held(comment))
+        .map((comment) => conversationRecordKey('comment', comment.ref.writer, comment.messageId)),
       ...conversationAsks(thread, asks, true)
         .filter((record) => record.reply !== undefined)
         .map((record) => conversationRecordKey('reply', record.writer, record.operationId)),
@@ -107,7 +107,9 @@ export function ChatPanel({
   };
   const history = chats.map((thread) => (
     <section
-      key={`${thread.ref.writer}:${thread.threadId}`}
+      key={
+        thread === own ? `own:${discussion?.deviceId}` : `${thread.ref.writer}:${thread.threadId}`
+      }
       data-testid="chat-thread"
       data-thread-id={thread.threadId}
       data-writer={thread.ref.writer}
@@ -134,6 +136,12 @@ export function ChatPanel({
       {thread === own && echoTurn()}
     </section>
   ));
+  if (!own && echoes.length > 0)
+    history.push(
+      <section key={`own:${discussion?.deviceId}`} data-testid="chat-thread">
+        {echoTurn()}
+      </section>,
+    );
   const legacyDays = legacy.map((record) => dayHeading(record.issuedAt));
   return (
     <ConversationPresentation value="chat">
@@ -199,7 +207,6 @@ export function ChatPanel({
           </div>
         )}
         {history}
-        {!own && echoes.length > 0 && <section data-testid="chat-thread">{echoTurn()}</section>}
         {legacy.length > 0 && (
           <AskPanel
             readOnly={archived}

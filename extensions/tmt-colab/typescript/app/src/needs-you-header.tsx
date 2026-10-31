@@ -18,7 +18,7 @@ import {
 } from '@tmt/browser-ui/ui';
 import '@tmt/browser-ui/ui.css';
 import { browserUiClasses as c, countText } from '@tmt/browser-ui/static';
-import { BrowserAvatar } from '@tmt/browser-ui/react';
+import { BrowserAvatar, BrowserAction, BrowserDialog } from '@tmt/browser-ui/react';
 import { ChevronDown } from 'lucide-react';
 import { AgentList } from './components/agent-chip.js';
 import type { NeedsYouCandidate } from './needs-you.js';
@@ -33,19 +33,43 @@ const agentNames = (item: NeedsYouCandidate) => item.agents.filter((name) => nam
 /** Only disclosure/focus live here. Each page layer owns its pending state and navigation. */
 export function NeedsYouHeader({
   items,
+  ready = true,
   href,
   onPick,
   menuFocus,
+  onClear,
 }: {
   items: readonly NeedsYouCandidate[];
+  /** Keep the captured confirmation alive while source/owner projections refresh. */
+  ready?: boolean;
   href(item: NeedsYouCandidate): string;
   onPick(item: NeedsYouCandidate): void;
+  onClear?(items: readonly NeedsYouCandidate[]): Promise<void>;
   /** Owned by the host: whether an open menu held focus when this header went away. The header
    * remounts while its layers reparse, so the flag has to outlive one instance. */
   menuFocus: MutableRefObject<boolean>;
 }) {
   const theme = useSyncExternalStore(subscribeTheme, getTheme, () => 'light' as const);
   const [open, setOpen] = useState(false);
+  const [clearItems, setClearItems] = useState<readonly NeedsYouCandidate[]>();
+  const [clearing, setClearing] = useState(false);
+  const [clearError, setClearError] = useState(false);
+  const clearBusy = useRef(false);
+  async function clearAll() {
+    if (!onClear || !clearItems || clearBusy.current) return;
+    clearBusy.current = true;
+    setClearing(true);
+    setClearError(false);
+    try {
+      await onClear(clearItems);
+      setClearItems(undefined);
+    } catch {
+      setClearError(true);
+    } finally {
+      clearBusy.current = false;
+      setClearing(false);
+    }
+  }
   const pending = useRef<string | undefined>(undefined);
   const report = useNotificationModalPresence();
   useEffect(() => {
@@ -70,183 +94,237 @@ export function NeedsYouHeader({
     setOpen(false);
     report(false);
   }
-  if (!items.length)
-    return (
-      <span
-        ref={nothingWaits}
-        tabIndex={-1}
-        onBlur={() => {
-          menuFocus.current = false;
-        }}
-        // Nothing waits and nothing shows (#4116); the element stays only to take the focus an emptied menu held.
-        className="needs-you-header-empty tmt-ui-visually-hidden"
-        aria-label={text.needsYouNothing}
-      />
-    );
+  const empty = (
+    <span
+      ref={nothingWaits}
+      tabIndex={-1}
+      onBlur={() => {
+        menuFocus.current = false;
+      }}
+      // Nothing waits and nothing shows (#4116); the element stays only to take the focus an emptied menu held.
+      className="needs-you-header-empty tmt-ui-visually-hidden"
+      aria-label={text.needsYouNothing}
+    />
+  );
   return (
-    <span className="needs-you-header">
-      <UiTheme theme={theme}>
-        <DropdownMenu
-          open={open}
-          onOpenChange={(value) => {
-            if (!value) menuFocus.current = false;
-            setOpen(value);
-            report(value);
-          }}
-        >
-          <DropdownMenuTrigger asChild>
-            <button
-              type="button"
-              className={`${c.countChip} needs-you-header-trigger`}
-              data-tone="attention"
-              aria-label={text.needsYouLabel(items.length)}
-              onPointerDownCapture={(event) => {
-                if (!event.isTrusted) {
-                  event.preventDefault();
-                  event.stopPropagation();
-                }
-              }}
-              onKeyDownCapture={(event) => {
-                if (!event.isTrusted || event.nativeEvent.isComposing) {
-                  event.preventDefault();
-                  event.stopPropagation();
-                }
+    <>
+      {!ready ? null : items.length ? (
+        <span className="needs-you-header">
+          <UiTheme theme={theme}>
+            <DropdownMenu
+              open={open}
+              onOpenChange={(value) => {
+                if (!value) menuFocus.current = false;
+                setOpen(value);
+                report(value);
               }}
             >
-              <span className="needs-you-wide" aria-hidden="true">
-                {text.needsYouWord}
-              </span>
-              <span className={c.count} aria-hidden="true">
-                {countText(items.length)}
-              </span>
-              <ChevronDown className="tmt-ui-icon" aria-hidden="true" />
-            </button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent
-            className="needs-you-header-menu"
-            align="end"
-            onFocusCapture={() => {
-              menuFocus.current = true;
-            }}
-            onCloseAutoFocus={(event) => {
-              const id = pending.current;
-              pending.current = undefined;
-              const item = items.find((value) => value.id === id);
-              if (!item) return;
-              event.preventDefault();
-              onPick(item);
-            }}
-            onClickCapture={(event) => {
-              if (!event.isTrusted) {
-                event.preventDefault();
-                event.stopPropagation();
-              }
-            }}
-            onKeyDownCapture={(event) => {
-              if (!event.isTrusted || event.nativeEvent.isComposing) {
-                event.preventDefault();
-                event.stopPropagation();
-              }
-            }}
-          >
-            {(['proposal', 'reading', 'answer', 'review'] as const).map((kind) => {
-              const rows = items.filter((item) => item.kind === kind);
-              if (!rows.length) return null;
-              const label = text.needsYouGroup(kind, rows.length);
-              return (
-                <Fragment key={kind}>
-                  <DropdownMenuLabel className="needs-you-header-group">{label}</DropdownMenuLabel>
-                  <DropdownMenuGroup aria-label={label}>
-                    {rows.map((item) => (
-                      <DropdownMenuItem
-                        asChild
-                        key={item.id}
-                        data-needs-you-id={item.id}
-                        data-needs-you-kind={item.kind}
-                        onSelect={(event) => {
-                          event.preventDefault();
-                          choose(item);
-                        }}
-                      >
-                        <a
-                          href={href(item)}
-                          onClickCapture={(event) => {
-                            // Radix selection must not consume a modified anchor activation.
-                            if (!plainPageClick(event)) event.stopPropagation();
-                          }}
-                          onClick={(event) => {
-                            if (!plainPageClick(event)) return;
-                            event.preventDefault();
-                            choose(item);
-                          }}
-                          onKeyDownCapture={(event) => {
-                            if (openModifiedPage(event.nativeEvent, href(item))) {
+              <DropdownMenuTrigger asChild>
+                <button
+                  type="button"
+                  className={`${c.countChip} needs-you-header-trigger`}
+                  data-tone="attention"
+                  aria-label={text.needsYouLabel(items.length)}
+                  onPointerDownCapture={(event) => {
+                    if (!event.isTrusted) {
+                      event.preventDefault();
+                      event.stopPropagation();
+                    }
+                  }}
+                  onKeyDownCapture={(event) => {
+                    if (!event.isTrusted || event.nativeEvent.isComposing) {
+                      event.preventDefault();
+                      event.stopPropagation();
+                    }
+                  }}
+                >
+                  <span className="needs-you-wide" aria-hidden="true">
+                    {text.needsYouWord}
+                  </span>
+                  <span className={c.count} aria-hidden="true">
+                    {countText(items.length)}
+                  </span>
+                  <ChevronDown className="tmt-ui-icon" aria-hidden="true" />
+                </button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent
+                className="needs-you-header-menu"
+                align="end"
+                onFocusCapture={() => {
+                  menuFocus.current = true;
+                }}
+                onCloseAutoFocus={(event) => {
+                  const id = pending.current;
+                  pending.current = undefined;
+                  const item = items.find((value) => value.id === id);
+                  if (!item) return;
+                  event.preventDefault();
+                  onPick(item);
+                }}
+                onClickCapture={(event) => {
+                  if (!event.isTrusted) {
+                    event.preventDefault();
+                    event.stopPropagation();
+                  }
+                }}
+                onKeyDownCapture={(event) => {
+                  if (!event.isTrusted || event.nativeEvent.isComposing) {
+                    event.preventDefault();
+                    event.stopPropagation();
+                  }
+                }}
+              >
+                {(['proposal', 'reading', 'answer', 'review'] as const).map((kind) => {
+                  const rows = items.filter((item) => item.kind === kind);
+                  if (!rows.length) return null;
+                  const label = text.needsYouGroup(kind, rows.length);
+                  return (
+                    <Fragment key={kind}>
+                      <DropdownMenuLabel className="needs-you-header-group">
+                        {label}
+                      </DropdownMenuLabel>
+                      <DropdownMenuGroup aria-label={label}>
+                        {rows.map((item) => (
+                          <DropdownMenuItem
+                            asChild
+                            key={item.id}
+                            data-needs-you-id={item.id}
+                            data-needs-you-kind={item.kind}
+                            onSelect={(event) => {
                               event.preventDefault();
-                              event.stopPropagation();
-                            } else if (
-                              (event.key === 'Enter' || event.key === ' ') &&
-                              !event.repeat &&
-                              !event.altKey &&
-                              !event.ctrlKey &&
-                              !event.metaKey &&
-                              !event.shiftKey
-                            ) {
-                              event.preventDefault();
-                              event.stopPropagation();
                               choose(item);
-                            }
-                          }}
-                        >
-                          <span className="needs-you-header-row" title={item.title}>
-                            {agentNames(item).length > 0 ? (
-                              <BrowserAvatar
-                                name={agentNames(item)[0]!}
-                                kind="agent"
-                                size="s"
-                                decorative
-                              />
-                            ) : (
-                              <span className="needs-you-header-avatar-gap" aria-hidden="true" />
-                            )}
-                            <span className="needs-you-header-text">
-                              <span className="needs-you-header-title">{item.title}</span>
-                              {(agentNames(item).length > 0 ||
-                                (item.kind === 'answer' && item.questionCount)) && (
-                                <span className="needs-you-header-agent">
-                                  {agentNames(item).length > 0 && (
-                                    <>
-                                      <span className="tmt-ui-visually-hidden"> · </span>
-                                      <AgentList names={agentNames(item)} mark={false} />
-                                    </>
-                                  )}
-                                  {item.kind === 'answer' && item.questionCount && (
-                                    <>
-                                      {agentNames(item).length > 0 ? ' · ' : null}
-                                      <span
-                                        className="question-line-mark"
-                                        data-state="waiting"
-                                        aria-hidden="true"
-                                      >
-                                        ◆
-                                      </span>{' '}
-                                      {item.questionCount.waiting} of {item.questionCount.total}{' '}
-                                      questions waiting
-                                    </>
+                            }}
+                          >
+                            <a
+                              href={href(item)}
+                              onClickCapture={(event) => {
+                                // Radix selection must not consume a modified anchor activation.
+                                if (!plainPageClick(event)) event.stopPropagation();
+                              }}
+                              onClick={(event) => {
+                                if (!plainPageClick(event)) return;
+                                event.preventDefault();
+                                choose(item);
+                              }}
+                              onKeyDownCapture={(event) => {
+                                if (openModifiedPage(event.nativeEvent, href(item))) {
+                                  event.preventDefault();
+                                  event.stopPropagation();
+                                } else if (
+                                  (event.key === 'Enter' || event.key === ' ') &&
+                                  !event.repeat &&
+                                  !event.altKey &&
+                                  !event.ctrlKey &&
+                                  !event.metaKey &&
+                                  !event.shiftKey
+                                ) {
+                                  event.preventDefault();
+                                  event.stopPropagation();
+                                  choose(item);
+                                }
+                              }}
+                            >
+                              <span className="needs-you-header-row" title={item.title}>
+                                {agentNames(item).length > 0 ? (
+                                  <BrowserAvatar
+                                    name={agentNames(item)[0]!}
+                                    kind="agent"
+                                    size="s"
+                                    decorative
+                                  />
+                                ) : (
+                                  <span
+                                    className="needs-you-header-avatar-gap"
+                                    aria-hidden="true"
+                                  />
+                                )}
+                                <span className="needs-you-header-text">
+                                  <span className="needs-you-header-title">{item.title}</span>
+                                  {(agentNames(item).length > 0 ||
+                                    (item.kind === 'answer' && item.questionCount)) && (
+                                    <span className="needs-you-header-agent">
+                                      {agentNames(item).length > 0 && (
+                                        <>
+                                          <span className="tmt-ui-visually-hidden"> · </span>
+                                          <AgentList names={agentNames(item)} mark={false} />
+                                        </>
+                                      )}
+                                      {item.kind === 'answer' && item.questionCount && (
+                                        <>
+                                          {agentNames(item).length > 0 ? ' · ' : null}
+                                          <span
+                                            className="question-line-mark"
+                                            data-state="waiting"
+                                            aria-hidden="true"
+                                          >
+                                            ◆
+                                          </span>{' '}
+                                          {item.questionCount.waiting} of {item.questionCount.total}{' '}
+                                          questions waiting
+                                        </>
+                                      )}
+                                    </span>
                                   )}
                                 </span>
-                              )}
-                            </span>
-                          </span>
-                        </a>
-                      </DropdownMenuItem>
-                    ))}
-                  </DropdownMenuGroup>
-                </Fragment>
-              );
-            })}
-          </DropdownMenuContent>
-        </DropdownMenu>
-      </UiTheme>
-    </span>
+                              </span>
+                            </a>
+                          </DropdownMenuItem>
+                        ))}
+                      </DropdownMenuGroup>
+                    </Fragment>
+                  );
+                })}
+                {onClear && (
+                  <DropdownMenuItem
+                    onSelect={() => {
+                      setClearItems([...items]);
+                      setClearError(false);
+                      setOpen(false);
+                    }}
+                  >
+                    {text.needsYouClear}
+                  </DropdownMenuItem>
+                )}
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </UiTheme>
+        </span>
+      ) : (
+        empty
+      )}
+      <BrowserDialog
+        open={clearItems !== undefined}
+        title={text.needsYouClearTitle}
+        onDismiss={() => {
+          if (!clearBusy.current) setClearItems(undefined);
+        }}
+        focusFallback={() =>
+          document.querySelector<HTMLElement>('.needs-you-header-empty, .needs-you-header-trigger')
+        }
+        actions={
+          <>
+            <BrowserAction
+              type="button"
+              variant="secondary"
+              label={text.reviewCancel}
+              disabled={clearing}
+              onActivate={() => setClearItems(undefined)}
+            />
+            <BrowserAction
+              type="button"
+              variant="primary"
+              label={text.needsYouClear}
+              busy={clearing}
+              onActivate={(event) => {
+                if (event.isTrusted) void clearAll();
+              }}
+            />
+          </>
+        }
+      >
+        <p>{text.needsYouClearBody(clearItems?.length ?? 0)}</p>
+        {clearError && <p role="alert">{text.needsYouClearFailed}</p>}
+      </BrowserDialog>
+    </>
   );
 }

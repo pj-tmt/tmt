@@ -8,11 +8,11 @@ import { readFile } from 'node:fs/promises';
 
 // The injected page UI CSS cap, in bytes, the one figure the build and the runtime check share: the exact
 // measured size, no headroom (GUI lead, #5794): 119,949 -> 125,075 bytes for the type ramp and the
-// editorial layer, -> 125,199 for the #5820 work-panel tokens (row-height, subheader-height,
-// control-size-l, dialog-narrow-width; GUI lead approved). A change that grows it re-measures and asks
-// again; #5809 cuts the injected static.css to what an author page can use and lowers this to its new
-// exact figure.
-export const PAGE_UI_LIMIT = 125_199;
+// editorial layer. A change that grows it re-measures and asks again; #5809 cuts the injected static.css
+// to what an author page can use and lowers this to its new exact figure.
+// #5815 PR B over #5839: 125,199 -> 127,214 (+2,015), exact Linux measurement.
+// https://github.com/tmt-ninja/tmt/actions/runs/41228247377/job/124616827384.
+export const PAGE_UI_LIMIT = 127_214;
 
 export async function buildPageUi() {
   // The design system the frame injects into every page (#5057): the leaf's static.css, whole, in the

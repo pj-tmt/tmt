@@ -10,6 +10,7 @@ export interface ReadingOutcome {
   state: 'working' | 'failed' | 'uncertain' | 'settled';
   step: 'recording' | 'closing';
   warnings?: string[];
+  advance?: false;
 }
 export interface ReadingActionsOptions {
   thread(id: string): ThreadView | undefined;
@@ -45,7 +46,7 @@ export class ReadingActions {
     return this.#actionable(reading) !== undefined;
   }
 
-  async mark(reading: Reading) {
+  async mark(reading: Reading, advance = true) {
     if (this.#inFlight.has(reading.id)) return;
     const binding = this.#actionable(reading);
     const status = this.options.status();
@@ -56,7 +57,7 @@ export class ReadingActions {
       return;
     }
     const currentThread = this.options.thread(reading.id);
-    if (readingState(reading, currentThread).kind === 'read') return;
+    if (readingState(reading, currentThread).kind === 'read') return true;
     this.#inFlight.add(reading.id);
     const anchor = structuredClone(selector);
     const changed = (outcome: ReadingOutcome) => {
@@ -104,7 +105,13 @@ export class ReadingActions {
           ? result.warnings?.map((warning) => warning.name)
           : undefined;
       this.#recorded.delete(reading.id);
-      changed({ state: 'settled', step, ...(warnings?.length ? { warnings } : {}) });
+      changed({
+        state: 'settled',
+        step,
+        ...(advance ? {} : { advance: false }),
+        ...(warnings?.length ? { warnings } : {}),
+      });
+      return true;
     } catch {
       changed({ state: step === 'recording' ? 'uncertain' : 'failed', step });
     } finally {

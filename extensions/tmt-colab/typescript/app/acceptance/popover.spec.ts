@@ -60,7 +60,9 @@ test('the annotation popover closes by its × , Escape anywhere in it, an outsid
         // The × closes, returns focus to the page frame and the selection (and its Annotate
         // control) is still there; clearing the selection then removes the control.
         await open(touch);
-        await page.screenshot({ path: `/tmp/1713-native-${width}-${theme}-popover.png` });
+        await page.screenshot({
+          path: test.info().outputPath(`1713-native-${width}-${theme}-popover.png`),
+        });
         if (touch) await tap(page, close);
         else await close.click();
         await expect(popover).toHaveCount(0);

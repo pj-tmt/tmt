@@ -28,5 +28,5 @@ export async function openModuleNavigation(page: Page, scope: Locator = page.loc
 /** Back through the same All pages row in the wide rail or phone drawer. */
 export async function backToPageList(page: Page) {
   const menu = await openModuleNavigation(page);
-  await menu.getByRole('link', { name: 'All pages', exact: true }).click();
+  await menu.getByRole('link', { name: /^All pages(?: · .+)?$/ }).click();
 }

@@ -7,6 +7,7 @@ import type { PreviewAttempt } from '../src/ask-preview.js';
 import type { OwnState } from '../src/fold-protocol.js';
 import { deviceKeys } from '../src/keyring.js';
 import { record } from '../src/storage.js';
+import { readAskRecords, type AskLedgerView } from '../src/ask-records.js';
 import { RemoteDouble } from './ask-fixtures.js';
 
 export async function fixtureAttempt(
@@ -14,6 +15,7 @@ export async function fixtureAttempt(
   destination: AskDestination,
   options: {
     unavailable?: boolean;
+    published?(views: readonly AskLedgerView[]): Promise<void>;
     mode?: RemoteDouble['mode'];
     operationId?: string;
     issuedAt?: number;
@@ -64,6 +66,7 @@ export async function fixtureAttempt(
       writer[root][key] = structuredClone(value);
       await record(storageKey, latest);
       own = latest;
+      await options.published?.(await readAskRecords(own, captured, () => keys.signPublic));
     },
   });
   const controller = new AskController({

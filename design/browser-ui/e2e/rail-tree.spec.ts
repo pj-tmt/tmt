@@ -40,6 +40,8 @@ for (const renderer of ['native', 'react'])
         await expect(unread).toHaveCSS('color', ink);
         await expect(link('gui-3')).toHaveCSS('font-weight', '400');
         await expect(unread.locator('.tmt-ui-shell-count')).toHaveText('2');
+        await expect(unread.locator('.tmt-ui-attention-dot')).toHaveCount(0);
+        await expect(unread).toHaveAccessibleName('gui-2 unread · 2 total');
 
         // Children hang one rule and the 8px sub-indent beyond their parent's label.
         const label = async (id: string) =>

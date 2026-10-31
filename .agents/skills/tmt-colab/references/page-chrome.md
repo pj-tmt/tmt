@@ -94,14 +94,17 @@ leaving the page or Close clears it; at 480px and wider the existing header aler
 Each moved action keeps its accessible name and handler. Icons are centralized inline SVG;
 labels supply hover and keyboard-focus tooltips. Counts come from the existing page projection.
 The selection control, the Chat action and the Comments action are one capsule, the dock, in the page's
-corner (one border, radius and the design system's overlay shadow, a hairline between the actions), in
+corner (one border, radius and the design system's overlay shadow, token gaps between equal
+`floating-action-size` buttons), in
 that order. Each button's hover and keyboard tooltip is centered above the whole capsule,
 with at least the shared tooltip's `--tmt-ui-toggle-gap` spacing outside the painted label;
 `BrowserIconAction.tooltipPlacement` owns that geometry without changing names or activation.
 Chat and Discussion open in the same retained non-modal floating frame above the measured dock.
-At wide widths it is 360 × 470 px; narrow screens use 12 px side gutters and a maximum
-470 px height. The dock remains visible and highlights the open action; the page remains
-interactive. Chat keeps its existing messages, composer, audience and mode. Comments shows
+Its width uses `dock-width`; narrow screens use `space-m` side gutters. Its height fills the
+available viewport from `space-m` below the top bar to the measured clearance above the dock. The dock remains visible and highlights the open action; the page remains
+interactive. Chat keeps its existing messages, composer, audience and mode. Unread is a decorative waiting
+dot at the action's upper-right corner; `Chat · Unread` remains its accessible name and tooltip,
+and opening clears it without resizing the dock. Comments shows
 the open-thread count (`.dock-count`, held while threads verify), as plain text; unseen status
 stays in the action's accessible name. The dock motion clips the window to the dock and is
 suppressed under reduced motion; a panel already open on mount has no opening motion.
@@ -419,8 +422,9 @@ substitutes for writer admission.
 The Comments region (one selected Discussion or an empty filter) and Chat use non-modal
 `BrowserPanel` windows: no scrim, focus trap or page inertness. Both float above the dock,
 share one position and size, and remain mutually exclusive with the other panel surfaces.
-The page does not reflow. At wide widths the window is 360 × 470 px; narrow screens have
-12 px side gutters, at most 470 px height, and the window stays above the measured dock.
+The page does not reflow. The width uses `dock-width` on wide screens and `space-m` side
+gutters on narrow screens; height fills the available viewport between the top-bar clearance
+and measured dock clearance. History scrolls internally above the pinned composer.
 The dock opens a single Discussion,
 initially the first Needs-you thread or the first matching thread by number.
 `comments-listing.ts` owns the Open / Needs you / All sequence from the verified
