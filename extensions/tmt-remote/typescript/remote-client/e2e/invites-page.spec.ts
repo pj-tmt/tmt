@@ -97,6 +97,10 @@ async function capture(page: Page, state: string) {
   // Design review pairs each state in both schemes; the test continues in light.
   for (const colorScheme of ['light', 'dark'] as const) {
     await page.emulateMedia({ colorScheme });
+    // Capture the settled look, never a dialog or theme transition in flight.
+    await page.evaluate(() =>
+      Promise.all(document.getAnimations().map((a) => a.finished.catch(() => undefined))),
+    );
     await page.screenshot({ path: join(directory, `${state}-${colorScheme}.png`), fullPage: true });
   }
   await page.emulateMedia({ colorScheme: 'light' });
@@ -195,6 +199,34 @@ test('a created code is shown once in the dialog and never kept after it closes'
   );
   await expect(dialog.getByRole('button', { name: 'Copy code' })).toBeVisible();
   await expect(dialog.getByRole('button', { name: 'Copy link' })).toBeVisible();
+  // Copy code, Copy link and Done are enabled and legible on their own fills in both themes.
+  for (const colorScheme of ['light', 'dark'] as const) {
+    await page.emulateMedia({ colorScheme });
+    for (const name of ['Copy code', 'Copy link', 'Done']) {
+      const control = dialog.getByRole('button', { name, exact: true });
+      await expect(control).toBeEnabled();
+      await expect
+        .poll(() =>
+          control.evaluate((node) => {
+            const rgb = (value: string) =>
+              value
+                .match(/[\d.]+/g)!
+                .slice(0, 3)
+                .map(Number);
+            const lum = (channels: number[]) =>
+              channels
+                .map((v) => v / 255)
+                .map((v) => (v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4))
+                .reduce((sum, v, i) => sum + v * [0.2126, 0.7152, 0.0722][i]!, 0);
+            const style = getComputedStyle(node);
+            const [a, b] = [lum(rgb(style.color)), lum(rgb(style.backgroundColor))];
+            return (Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05);
+          }),
+        )
+        .toBeGreaterThanOrEqual(4.5);
+    }
+  }
+  await page.emulateMedia({ colorScheme: 'light' });
   await capture(page, 'dialog-1440');
   await page.setViewportSize({ width: 390, height: 844 });
   await expect(dialog.getByRole('button', { name: 'Copy link' })).toBeInViewport();
@@ -259,7 +291,10 @@ test('create refusals use the contract reasons and cancel reports a no-longer-op
   for (const [reason, text] of [
     ['REMOTE_INVITATION_BUSY', 'Another invitation request is in progress'],
     ['REMOTE_INVITATION_CAPACITY', 'too many open invitations'],
-    ['REMOTE_INVITATION_STOPPED', 'Invitations are stopped on this machine'],
+    [
+      'REMOTE_INVITATION_STOPPED',
+      'The invitation request stopped before it finished. Nothing was created. Try again.',
+    ],
     ['REMOTE_INVITATION_UNAVAILABLE', 'Invitations are unavailable right now'],
     ['REMOTE_MANAGEMENT_READ_ONLY', 'read-only for this Remote'],
     ['REMOTE_INTENT_CONFLICT', 'conflicts with an earlier one'],
@@ -299,8 +334,8 @@ test('empty, loading and error states use the shared list presentation', async (
     return value.refresh();
   });
   await expect(page.getByText('No invitations in the last 7 days.')).toBeVisible();
-  await expect(page.locator('.invites-list-footer')).toContainText('0 invitations · newest first');
-  // An empty list is its one line; the column header appears with the first row.
+  // An empty list is its one line: no column header, count or row hint.
+  await expect(page.locator('.invites-list-footer')).toBeHidden();
   await expect(page.getByRole('table', { name: 'Invitations' })).toBeHidden();
   await capture(page, 'empty');
   await page.evaluate(() => {

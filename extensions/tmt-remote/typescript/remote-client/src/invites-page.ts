@@ -24,8 +24,9 @@ const REFUSALS: Record<string, string> = {
   REMOTE_INVITATION_BUSY:
     'Another invitation request is in progress on this machine. Try again when it finishes.',
   REMOTE_INVITATION_CAPACITY: 'This Remote has too many open invitations. Cancel one first.',
+  // The request itself stopped (cancelled or past its deadline); invitations are not disabled.
   REMOTE_INVITATION_STOPPED:
-    'Invitations are stopped on this machine. Start them with tmt remote invite.',
+    'The invitation request stopped before it finished. Nothing was created. Try again.',
   REMOTE_INVITATION_UNAVAILABLE:
     'Invitations are unavailable right now. Check this Remote on this machine.',
   REMOTE_MANAGEMENT_READ_ONLY: 'This browser is read-only for this Remote.',
@@ -287,7 +288,8 @@ export function mountInvitesPage(
       ),
       node('span', 'Cancel an open invitation in the row menu'),
     );
-    footer.hidden = !view;
+    // An empty list is its one status line, without a count or row hint.
+    footer.hidden = !view?.invitations.length;
     menus.forEach((menu) => menu.dispose());
     menus = [];
     table.body.replaceChildren(

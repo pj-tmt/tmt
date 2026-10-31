@@ -18,6 +18,7 @@ import { accessRefused, ManagementPage, type PageIntent } from './management-pag
 import { MembersPage, mountMembersPage } from './members-page.js';
 import { IssuedInvitationsPage } from './issued-invitations-page.js';
 import { mountInvitesPage } from './invites-page.js';
+import { createIcon } from '@tmt/browser-ui/glyph';
 import { browserUiClasses, createActionMark } from '@tmt/browser-ui/static';
 import { createBusyMarkGate } from '@tmt/browser-ui/busy-mark';
 
@@ -95,6 +96,9 @@ export async function settingsPage(
   let invitesView: ReturnType<typeof mountInvitesPage> | undefined;
   let invitesUnread = false;
   const inviteButton = shell ? document.getElementById('remote-invite') : null;
+  // The page can mount again in the same shell; the button keeps one leading icon.
+  if (inviteButton && !inviteButton.querySelector(':scope > svg'))
+    inviteButton.prepend(createIcon('link'));
   /** Only the connected owner browser reads or changes issued invitations. */
   const mayInvite = (): boolean =>
     !!page && page.access === 'live' && people?.roster?.administrator === true;
@@ -976,6 +980,9 @@ export async function settingsPage(
             if (page) render();
           },
           confirm: () => {
+            // Mock D's Invites tab is only the list: confirming happens where People keeps it.
+            if (remoteItem(location.pathname)?.id !== 'members')
+              shell?.navigate(new URL('/remote/members', location.href).href);
             const section = document.getElementById('owner-invitation');
             section?.scrollIntoView({ block: 'start' });
             (

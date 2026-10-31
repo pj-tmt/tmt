@@ -163,7 +163,7 @@ is created. The verified landing Session initializes management once; unavailabl
 initializes read-only without another discovery. Manual connection rechecks do not trigger an
 extra management admission; later management reads retain their bounded identity-checked recovery. Member admin-only tabs stay visible with lock word/mark, reason and a copy-only request.
 Unknown access has its own text. The existing composed-shell observation supplies Needs-you counts.
-`invitation-page.ts` retains the invitation decision model (People and Invites) under that verified Session.
+`invitation-page.ts` retains the invitation decision model on People under that verified Session; an Invites row awaiting the owner opens it there.
 Entry/explicit refresh reads the shared current candidate; it creates no offer or poller.
 Comparison and sending start unchecked and are separate choices. An explicit decision
 uses the SDK's existing signing lane and one original operation ID. Uncertainty keeps
@@ -175,7 +175,7 @@ late painting; native designation and Session checks remain the authority owner.
 A document-level registry modal remains visible from every tab and is removed on route abort;
 late validation cannot write or reopen it.
 Invites (`invites-page.ts` over `issued-invitations-page.ts`) reads `remote.invites.list` only
-for the connected owner, on entry or explicit refresh; members see the locked tab. Invite sends one
+for the connected owner, on entry and after its own effects; members see the locked tab. Invite sends one
 `remote.invites.create`; the first response's code and link exist only in its dialog and model memory
 and are cleared on close, never stored or re-read. Uncertain creation keeps its operation ID for a
 metadata-only lookup. Cancel is offered only for active rows; refusals map to the contract reasons. `/p/<id>` still answers 308 to `/colab/p/<id>`.

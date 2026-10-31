@@ -4244,7 +4244,7 @@ var ACTIVE = ["open", "awaiting-owner"];
 var REFUSALS = {
 	REMOTE_INVITATION_BUSY: "Another invitation request is in progress on this machine. Try again when it finishes.",
 	REMOTE_INVITATION_CAPACITY: "This Remote has too many open invitations. Cancel one first.",
-	REMOTE_INVITATION_STOPPED: "Invitations are stopped on this machine. Start them with tmt remote invite.",
+	REMOTE_INVITATION_STOPPED: "The invitation request stopped before it finished. Nothing was created. Try again.",
 	REMOTE_INVITATION_UNAVAILABLE: "Invitations are unavailable right now. Check this Remote on this machine.",
 	REMOTE_MANAGEMENT_READ_ONLY: "This browser is read-only for this Remote.",
 	REMOTE_INTENT_CONFLICT: "This request conflicts with an earlier one. Refresh, then try again."
@@ -4443,7 +4443,7 @@ function mountInvitesPage(root, page, signal, options) {
 		more.hidden = !view?.nextCursor;
 		first.disabled = more.disabled = !available();
 		footer.replaceChildren(node("span", view ? `${view.invitations.length} ${view.invitations.length === 1 ? "invitation" : "invitations"} · newest first` : ""), node("span", "Cancel an open invitation in the row menu"));
-		footer.hidden = !view;
+		footer.hidden = !view?.invitations.length;
 		menus.forEach((menu) => menu.dispose());
 		menus = [];
 		table.body.replaceChildren(...(view?.invitations ?? []).map((invitation) => {
@@ -4633,6 +4633,7 @@ async function settingsPage(shell, registry, initial) {
 	let invitesView;
 	let invitesUnread = false;
 	const inviteButton = shell ? document.getElementById("remote-invite") : null;
+	if (inviteButton && !inviteButton.querySelector(":scope > svg")) inviteButton.prepend(createIcon("link"));
 	/** Only the connected owner browser reads or changes issued invitations. */
 	const mayInvite = () => !!page && page.access === "live" && people?.roster?.administrator === true;
 	let invitationSession;
@@ -5271,6 +5272,7 @@ async function settingsPage(shell, registry, initial) {
 						if (page) render();
 					},
 					confirm: () => {
+						if (remoteItem(location.pathname)?.id !== "members") shell?.navigate(new URL("/remote/members", location.href).href);
 						const section = document.getElementById("owner-invitation");
 						section?.scrollIntoView({ block: "start" });
 						(section?.querySelector("#invitation-candidate:not([hidden]) input") ?? section?.querySelector("#invitation-refresh"))?.focus();

@@ -6382,7 +6382,12 @@ test('Remote tab frame keeps unknown, Member locks and designated Admin separate
       'Invitations from the last 7 days',
     );
     await expect(page.locator('#remote-invite')).toBeVisible();
-    await expect(page.locator('#owner-invitation')).toBeVisible();
+    await expect(page.locator('#remote-invite > svg')).toHaveCount(1);
+    // Mock D: the tab is only the list; confirming stays on People, and so does the access block.
+    await expect(page.locator('#owner-invitation')).toBeHidden();
+    await expect(page.locator('#access-notice')).toBeHidden();
+    await expect(page.locator('.invites-list-footer')).toBeHidden();
+    await expect(page.getByRole('table', { name: 'Invitations' })).toBeHidden();
     const lists = () => operations.filter((op) => op === 'remote.invites.list').length;
     await expect.poll(lists).toBe(1);
     // Each entry reads again; leaving and returning keeps the same Session.
