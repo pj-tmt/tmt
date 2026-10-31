@@ -510,18 +510,29 @@ mod tests {
         let mut setup = Storage::open(&path).unwrap();
         setup.close().unwrap();
         let writer = rusqlite::Connection::open(&path).unwrap();
-        // Test-only read fault: an ordinary WAL writer does not block open_hook's
-        // schema read. DELETE plus EXCLUSIVE forces that exact boundary to wait.
-        writer
-            .execute_batch("PRAGMA journal_mode=DELETE; BEGIN EXCLUSIVE")
-            .unwrap();
-        let error = match Storage::open_hook(&path, Instant::now() + Duration::from_millis(50)) {
+        // Test-only read fault: WAL readers do not block on an ordinary writer.
+        // Keep the same journal mode and allowance for the clean/fault/clean calls.
+        // The allowance covers open_hook's existing 100 ms completion reserve;
+        // otherwise an early budget refusal would be a false-positive lock control.
+        writer.execute_batch("PRAGMA journal_mode=DELETE").unwrap();
+        let hook_open = || Storage::open_hook(&path, Instant::now() + Duration::from_secs(5));
+        let mut before = hook_open().unwrap();
+        before.close().unwrap();
+        writer.execute_batch("BEGIN EXCLUSIVE").unwrap();
+        let error = match hook_open() {
             Ok(mut storage) => {
                 storage.close().unwrap();
                 panic!("exclusive schema-read fault must prevent hook open");
             }
             Err(error) => error,
         };
+        assert!(
+            matches!(
+                std::error::Error::source(&error).and_then(|source| source.downcast_ref::<rusqlite::Error>()),
+                Some(rusqlite::Error::SqliteFailure(sqlite, _)) if sqlite.code == rusqlite::ErrorCode::DatabaseBusy
+            ),
+            "the fault must reach SQLite, not stop at the hook's budget precheck"
+        );
         let refusal = worker_storage_failure(WorkerStorageStage::Open, &error);
         assert_eq!(refusal, DigestStop::WorkerOpenBusy);
         assert_eq!(
@@ -534,13 +545,15 @@ mod tests {
             ),
             Some(DigestStop::WorkerOpenBusy)
         );
-        writer
-            .execute_batch("ROLLBACK; PRAGMA journal_mode=WAL")
-            .unwrap();
-        writer.close().unwrap();
-        let mut restored =
-            Storage::open_hook(&path, Instant::now() + Duration::from_secs(5)).unwrap();
+        assert_eq!(
+            tmt_core::binding::session::launch::SessionLearningDetail::DigestStop(refusal).as_str(),
+            "digest_stop:worker:open:busy"
+        );
+        writer.execute_batch("ROLLBACK").unwrap();
+        let mut restored = hook_open().unwrap();
         restored.close().unwrap();
+        writer.execute_batch("PRAGMA journal_mode=WAL").unwrap();
+        writer.close().unwrap();
         assert_eq!(worker_refusal(None, b""), None);
         std::fs::remove_dir_all(root).unwrap();
     }
