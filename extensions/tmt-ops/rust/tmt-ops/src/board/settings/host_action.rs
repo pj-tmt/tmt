@@ -136,7 +136,7 @@ impl HostAction {
                 template: crate::board::picker_surface::compile(super::FILE, &markup, schema),
             });
         }
-        overlay.prompt.borrow_mut().render_modal(super::FILE, &cache.as_ref().unwrap().template, json!({"rows":[],"query":format!("{text}▏"),"meaning":meaning,"command":command,"parameters":parameters.into_iter().map(|text| json!({"text":text})).collect::<Vec<_>>(),"status":error,"footer":if readonly {"s save · Tab scope · PgUp/PgDn scroll · Esc cancel"} else {"Enter save · Tab scope · PgUp/PgDn scroll · Esc cancel"}}), frame, look, body);
+        overlay.prompt.borrow_mut().render_modal(super::FILE, &cache.as_ref().unwrap().template, json!({"rows":[],"query":format!("{text}▏"),"meaning":meaning,"command":command,"parameters":parameters.into_iter().map(|text| json!({"text":text})).collect::<Vec<_>>(),"status":error,"footer":if readonly {"s save · ←→ scope · PgUp/PgDn scroll · Esc close"} else {"Enter save · ←→ scope · PgUp/PgDn scroll · Esc keep"}}), frame, look, body);
     }
 
     pub fn settings(&mut self, config: &Config) -> Result<BoardSettings, SquadError> {
@@ -226,12 +226,20 @@ impl HostAction {
             .or(Some(crate::config::BindingLocation::Global));
     }
 
-    pub fn cycle_destination(&mut self, config: &Config) {
+    /// ←→ step through the write scopes; `forward` is →.
+    pub fn cycle_destination(&mut self, config: &Config, forward: bool) {
         let locations = self.locations(config).expect("validated locations");
+        let count = locations.len();
         let next = locations
             .iter()
             .position(|location| Some(location) == self.destination.as_ref())
-            .map_or(0, |index| (index + 1) % locations.len());
+            .map_or(0, |index| {
+                if forward {
+                    (index + 1) % count
+                } else {
+                    (index + count - 1) % count
+                }
+            });
         self.destination = Some(locations[next].clone());
     }
 
@@ -254,7 +262,7 @@ impl HostAction {
                     .position(|location| location == destination)
         });
         format!(
-            "Save to {}{} · Tab scope · opening sample",
+            "Save to {}{} · ←→ scope · opening sample",
             destination.label(event),
             masked
                 .map(|owner| format!("; still masked by {}", owner.label(event)))

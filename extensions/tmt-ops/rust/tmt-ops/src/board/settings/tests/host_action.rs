@@ -504,8 +504,20 @@ fn typed_destination_keeps_host_masking_visible_and_conflict_keeps_the_draft() {
     overlay.key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
     assert_eq!(
         overlay.host_action.as_ref().unwrap().destination,
-        Some(crate::config::BindingLocation::Global)
+        Some(crate::config::BindingLocation::Host("tmux".into())),
+        "Tab does nothing in the dialog"
     );
+    // ← and → step through the write scopes both ways.
+    overlay.key(KeyEvent::new(KeyCode::Right, KeyModifiers::NONE));
+    let next = overlay.host_action.as_ref().unwrap().destination.clone();
+    overlay.key(KeyEvent::new(KeyCode::Left, KeyModifiers::NONE));
+    assert_eq!(
+        overlay.host_action.as_ref().unwrap().destination,
+        Some(crate::config::BindingLocation::Host("tmux".into()))
+    );
+    overlay.key(KeyEvent::new(KeyCode::Right, KeyModifiers::NONE));
+    assert_eq!(overlay.host_action.as_ref().unwrap().destination, next);
+    assert_eq!(next, Some(crate::config::BindingLocation::Global));
     assert!(
         overlay
             .notice
@@ -644,7 +656,7 @@ pub(in crate::board) fn capture_case(
             }
             .into();
             if state == "bindings-masked" {
-                overlay.key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
+                overlay.key(KeyEvent::new(KeyCode::Right, KeyModifiers::NONE));
             }
             overlay.preview();
         }

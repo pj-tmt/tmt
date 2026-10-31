@@ -159,9 +159,16 @@ pub(super) struct Overlay {
     /// `keys.*` rows whose key is not the default; keys are global, so they are not squad overrides.
     rebound: BTreeSet<String>,
     host_action: Option<host_action::HostAction>,
-    /// Opened for one squad from the Workspace settings menu: Esc returns there, and a
-    /// refresh does not close it for showing another tab.
+    /// Opened for one squad from the `?` panel's settings rows: a refresh does not close it
+    /// for showing another tab.
     pub(in crate::board) from_menu: bool,
+    /// Edit text Esc kept, by setting key, with the value it was typed over: Enter on the same
+    /// key reopens it while that value is unchanged; Ctrl-U clears.
+    kept: BTreeMap<String, (String, String)>,
+    /// The text the open edit started from, so an unchanged edit is not kept.
+    edit_start: Option<String>,
+    /// The open edit came back from `kept`: its footer says so.
+    edit_kept: bool,
     /// Scroll the idle alert group (its rows and hint) into view once the list has painted.
     pub(in crate::board) reveal_idle: Cell<bool>,
 }
@@ -199,6 +206,9 @@ impl Overlay {
             host_action: None,
             from_menu: false,
             reveal_idle: Cell::new(false),
+            kept: BTreeMap::new(),
+            edit_start: None,
+            edit_kept: false,
         }
     }
     pub fn open(
@@ -526,10 +536,10 @@ impl Overlay {
             return Input::Preview;
         }
         if self.editing.is_some()
-            && key.code == KeyCode::Tab
+            && matches!(key.code, KeyCode::Left | KeyCode::Right)
             && let Some(host) = &mut self.host_action
         {
-            host.cycle_destination(self.config.as_ref().unwrap());
+            host.cycle_destination(self.config.as_ref().unwrap(), key.code == KeyCode::Right);
             self.preview();
             return Input::Preview;
         }
@@ -555,8 +565,19 @@ impl Overlay {
         }
         if let Some((_, text)) = &mut self.editing {
             match key.code {
+                // Esc closes the edit and keeps changed text for that key.
                 KeyCode::Esc => {
-                    self.editing = None;
+                    let (name, text) = self.editing.take().expect("an open edit");
+                    match self.edit_start.take() {
+                        Some(start) if start != text => {
+                            self.kept.insert(name, (text, start));
+                        }
+                        _ => {
+                            self.kept.remove(&name);
+                        }
+                    }
+                    self.edit_start = None;
+                    self.edit_kept = false;
                     self.draft = None;
                     if self.host_action.is_some() {
                         self.notice = None;
@@ -608,6 +629,8 @@ impl Overlay {
                     if let Some(line) =
                         host.pick(self.selected_pick().expect("selected pick").id, current)
                     {
+                        self.edit_start = Some(line.clone());
+                        self.edit_kept = false;
                         self.editing = Some(("bind.j".into(), line));
                         self.begin_binding("j");
                         self.preview();
@@ -644,7 +667,26 @@ impl Overlay {
                     if self.host_action.is_some() {
                         self.begin_binding(key.strip_prefix("bind.").unwrap());
                     }
-                    self.editing = Some((key, text));
+                    // Kept text only comes back over the value it was typed over; a value changed
+                    // since (another board, a config set, a reset) drops it.
+                    let kept = match self.kept.remove(&key) {
+                        Some((kept, base)) if base == text => Some(kept),
+                        Some(_) => {
+                            self.edit_start = Some(text.clone());
+                            self.edit_kept = false;
+                            self.editing = Some((key, text));
+                            self.preview();
+                            self.notice = Some(SettingNotice {
+                                message: "kept text dropped: value changed".into(),
+                                mark: Mark::Warning,
+                            });
+                            return Input::Preview;
+                        }
+                        None => None,
+                    };
+                    self.edit_start = Some(text.clone());
+                    self.edit_kept = kept.is_some();
+                    self.editing = Some((key, kept.unwrap_or(text)));
                     self.preview();
                 }
                 return Input::Preview;
@@ -747,6 +789,7 @@ impl Overlay {
                 Some(&text),
             ) {
                 Ok(_) => {
+                    self.kept.remove(&name);
                     self.editing = None;
                     self.draft = None;
                     self.refresh();
@@ -770,6 +813,7 @@ impl Overlay {
             .set_setting(scope.as_deref(), &name, &text)
         {
             Ok(_) => {
+                self.kept.remove(&name);
                 self.refresh();
                 self.editing = None;
                 self.draft = None;
@@ -1051,7 +1095,7 @@ pub(super) fn render(frame: &mut Frame, overlay: &Overlay, look: Look, body: Rec
             });
         }
         let template = &cache.as_ref().unwrap().template;
-        overlay.prompt.borrow_mut().render_modal(FILE, template, json!({"rows":[], "query":format!("{name}: {text}▏"), "status":status, "footer":"Enter save · Esc cancel · Ctrl-U clear", "height":height, "width":body.width}), frame, look, body);
+        overlay.prompt.borrow_mut().render_modal(FILE, template, json!({"rows":[], "query":format!("{name}: {text}▏"), "status":status, "footer":if overlay.edit_kept {"kept text · Enter save · Esc keep · Ctrl-U clear"} else {"Enter save · Esc keep · Ctrl-U clear"}, "height":height, "width":body.width}), frame, look, body);
         return;
     }
     let width = usize::from(body.width.saturating_sub(4));
@@ -1298,6 +1342,89 @@ pub(in crate::board) mod tests {
             std::fs::read_to_string(&f.path).unwrap(),
             f.original,
             "nothing is written"
+        );
+    }
+
+    #[test]
+    fn esc_keeps_the_edit_text_for_its_key_and_the_reopened_prompt_says_so() {
+        use ratatui::{Terminal, backend::TestBackend};
+        let mut f = fixture("esc-keeps-edit", "");
+        let overlay = f.app.settings.as_mut().unwrap();
+        overlay.surface.borrow_mut().select("board.refresh");
+        overlay.key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+        let start = overlay.editing.as_ref().unwrap().1.clone();
+        overlay.key(KeyEvent::new(KeyCode::Char('9'), KeyModifiers::NONE));
+        let typed = format!("{start}9");
+        overlay.key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
+        assert!(!overlay.editing(), "Esc closes the prompt");
+        overlay.key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+        assert_eq!(
+            overlay.editing.as_ref().unwrap().1,
+            typed,
+            "the same key reopens the kept text"
+        );
+        let mut terminal = Terminal::new(TestBackend::new(120, 30)).unwrap();
+        terminal
+            .draw(|frame| {
+                super::render(
+                    frame,
+                    f.app.settings.as_ref().unwrap(),
+                    crate::look::Look::default(),
+                    frame.area(),
+                )
+            })
+            .unwrap();
+        let text: String = terminal
+            .backend()
+            .buffer()
+            .content
+            .iter()
+            .map(|cell| cell.symbol())
+            .collect();
+        assert!(text.contains("kept text · Enter save · Esc keep · Ctrl-U clear"));
+        let overlay = f.app.settings.as_mut().unwrap();
+        // Ctrl-U clears it; Esc on the starting text keeps nothing.
+        overlay.key(KeyEvent::new(KeyCode::Char('u'), KeyModifiers::CONTROL));
+        assert_eq!(overlay.editing.as_ref().unwrap().1, "");
+        overlay.editing.as_mut().unwrap().1 = start.clone();
+        overlay.key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
+        overlay.key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+        assert_eq!(overlay.editing.as_ref().unwrap().1, start);
+        assert!(!overlay.edit_kept);
+        assert_eq!(
+            std::fs::read_to_string(&f.path).unwrap(),
+            f.original,
+            "nothing is written"
+        );
+    }
+
+    #[test]
+    fn kept_text_is_dropped_when_the_value_changed_under_it() {
+        let mut f = fixture("kept-stale", "");
+        let overlay = f.app.settings.as_mut().unwrap();
+        overlay.surface.borrow_mut().select("board.refresh");
+        overlay.key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+        overlay.key(KeyEvent::new(KeyCode::Char('9'), KeyModifiers::NONE));
+        overlay.key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
+        // Another board or a config set changes the saved value meanwhile.
+        let entry = overlay
+            .settings
+            .entries
+            .iter_mut()
+            .find(|entry| entry.key == "board.refresh")
+            .unwrap();
+        entry.value = serde_json::json!("7s");
+        let fresh = crate::settings::display(&entry.value);
+        overlay.key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+        assert_eq!(
+            overlay.editing.as_ref().unwrap().1,
+            fresh,
+            "the prompt opens on the new value"
+        );
+        assert!(!overlay.edit_kept);
+        assert_eq!(
+            overlay.notice.as_ref().unwrap().message,
+            "kept text dropped: value changed"
         );
     }
 
