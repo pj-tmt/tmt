@@ -418,7 +418,7 @@ for (const width of [1440, 390])
       expect(geometry.actionTop).toBeLessThan(geometry.searchBottom);
       expect(geometry.overflow).toBe(false);
       await expect(controls.locator('.page-scope-filters')).toHaveCount(0);
-      await expect(controls.locator('.page-list-sort')).toBeVisible({ visible: width <= 650 });
+      await expect(controls.locator('.page-list-sort')).toBeVisible({ visible: width <= 760 });
       await search.focus();
       await expect(search).toBeFocused();
       const create = home.getByRole('button', { name: 'New page', exact: true });

@@ -6,7 +6,10 @@ import {
   shellAddress,
   shellCount,
   shellRail,
+  visibleCurrent,
   type ShellAnswer,
+  type ShellMenu,
+  type ShellMenuItem,
   type ShellModule,
 } from '../src/shell.js';
 import { moduleIcon } from '../src/shell-icons.js';
@@ -197,4 +200,40 @@ it('reads one module mount shape for the mount and for pages under it', async ()
   fetch.mockResolvedValue({ status: 404 });
   await expect(shellAddress()).resolves.toBeUndefined();
   expect(fetch).toHaveBeenCalledOnce();
+});
+
+it('selects one visible row: a current child while its parent is open, else the parent', () => {
+  const tree = (current: string, expanded: boolean): ShellMenu => {
+    const entry = (id: string, extra: Partial<ShellMenuItem> = {}): ShellMenuItem => ({
+      id,
+      label: id,
+      href: `/ops/${id}`,
+      current: id === current,
+      ...extra,
+    });
+    return {
+      title: 'Ops',
+      groups: [
+        {
+          items: [
+            entry('squad', { expanded, children: [entry('lead'), entry('member')] }),
+            entry('other'),
+          ],
+        },
+      ],
+      settings: entry('settings'),
+    };
+  };
+  for (const expanded of [true, false]) {
+    expect(visibleCurrent(tree('squad', expanded))?.id).toBe('squad');
+    expect(visibleCurrent(tree('member', expanded))?.id).toBe(expanded ? 'member' : 'squad');
+    expect(visibleCurrent(tree('other', expanded))?.id).toBe('other');
+    expect(visibleCurrent(tree('settings', expanded))?.id).toBe('settings');
+  }
+  const menu = tree('member', true);
+  // Both a parent and its child marked current: the deeper row wins.
+  menu.groups[0]!.items[0]!.current = true;
+  expect(visibleCurrent(menu)?.id).toBe('member');
+  expect(visibleCurrent(tree('none', true))).toBeUndefined();
+  expect(visibleCurrent(undefined)).toBeUndefined();
 });

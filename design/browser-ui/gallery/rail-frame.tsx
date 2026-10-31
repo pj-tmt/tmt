@@ -56,7 +56,9 @@ function NativeRail({
 /** Sample domain data; only the shared rail is under review, not a product menu adoption. */
 export function RailFrame({ params }: { params: URLSearchParams }) {
   const interactive = params.get('interactive') === 'true';
-  const [selected, setSelected] = useState(interactive ? 'project' : 'all');
+  const tree = params.get('tree') === 'true';
+  const [selected, setSelected] = useState(interactive ? 'project' : tree ? 'night-1' : 'all');
+  const [open, setOpen] = useState(['tmt-gui']);
   const [order, setOrder] = useState(['project', 'empty', 'notes']);
   const [holdMoves, setHoldMoves] = useState(false);
   const [reorderEnabled, setReorderEnabled] = useState(true);
@@ -157,6 +159,51 @@ export function RailFrame({ params }: { params: URLSearchParams }) {
         },
       },
     };
+    if (tree) {
+      for (const item of result.rail.main) item.current = item.id === 'ops';
+      const entry = (id: string, label: string, extra: Partial<ShellMenuItem> = {}) => ({
+        id,
+        label,
+        href: `/ops/${id}`,
+        current: selected === id,
+        ...extra,
+      });
+      const squad = (id: string, members: ShellMenuItem[], extra: Partial<ShellMenuItem> = {}) =>
+        entry(id, id, {
+          children: members,
+          expanded: open.includes(id),
+          toggle: () =>
+            setOpen((before) =>
+              before.includes(id) ? before.filter((name) => name !== id) : [...before, id],
+            ),
+          ...extra,
+        });
+      result.menu = {
+        title: 'Ops',
+        groups: [
+          {
+            label: 'This machine',
+            items: [
+              squad(
+                'tmt-gui',
+                [
+                  entry('tmt-gui-lead', 'tmt-gui-lead'),
+                  entry('gui-2', 'gui-2', { emphasis: 'unread', count: shellCount(2, 'plain') }),
+                  entry('gui-3', 'gui-3'),
+                ],
+                { emphasis: 'unread', count: shellCount(2, 'plain') },
+              ),
+              squad('night', [entry('night-lead', 'night-lead'), entry('night-1', 'night-1')]),
+              entry('tmt-remote', 'tmt-remote', {
+                emphasis: 'unread',
+                count: shellCount(1, 'plain'),
+              }),
+            ],
+          },
+        ],
+        settings: entry('ops-settings', 'Ops settings'),
+      };
+    }
     if (interactive) {
       const group = result.menu!.groups[1]!;
       group.label = 'Shortcuts';
@@ -219,7 +266,7 @@ export function RailFrame({ params }: { params: URLSearchParams }) {
         : undefined;
     }
     return result;
-  }, [selected, revision, interactive, order, holdMoves, reorderEnabled]);
+  }, [selected, revision, interactive, tree, open, order, holdMoves, reorderEnabled]);
   const select = (id: string) => {
     setSelected(id);
     return true;
@@ -233,6 +280,7 @@ export function RailFrame({ params }: { params: URLSearchParams }) {
       <p role="status" data-host-status>
         {status}
       </p>
+      {tree && <p data-host-open={open.join(',')}>Host expanded: {open.join(', ') || 'none'}</p>}
       {interactive && (
         <>
           <p

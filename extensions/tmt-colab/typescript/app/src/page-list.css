@@ -997,7 +997,7 @@
   min-width: 0;
   flex: 1;
 }
-@media (max-width: 650px) {
+@media (max-width: 760px) {
   .page-list-shortcut-wide {
     display: none;
   }
@@ -1056,7 +1056,7 @@
 .page-list-filter-menu .tmt-ui-menu-trigger {
   padding-inline-start: 32px;
 }
-@media (max-width: 650px) {
+@media (max-width: 760px) {
   .page-list-filter-menu > svg {
     display: none;
   }
@@ -1079,7 +1079,7 @@
     overflow-x: auto;
   }
 }
-@media (max-width: 650px) {
+@media (max-width: 760px) {
   :is(.page-list-filter-menu, .page-list-sort) .tmt-ui-icon-action-control[data-variant='text'] {
     border: 1px solid var(--tmt-ui-surface-rule);
     background: var(--tmt-ui-surface-sheet);

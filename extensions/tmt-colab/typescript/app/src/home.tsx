@@ -257,7 +257,7 @@ function StageEmpty({
 }
 
 export function Home() {
-  const phone = useMedia('(max-width: 650px)');
+  const phone = useMedia('(max-width: 760px)');
   const space = homeRoute.useLoaderData();
   const { transport, space: spaceId } = rootRoute.useRouteContext();
   const shortcutRequest = useContext(ShortcutMenuRequestSlot);

@@ -706,6 +706,14 @@ export function ShellSection() {
         width={1080}
         params={{ menu: 'none' }}
       />
+      <FramePair
+        title="Rail tree · squads with member children"
+        note="One nested level with a host-owned disclosure. The collapsed night squad holds the current member, so it shows as the selected row. Unread is bold, never a colour."
+        frame="rail"
+        height={560}
+        width={1080}
+        params={{ tree: 'true' }}
+      />
       <FramePair title="Phone (390 px, ≤900 px layout)" frame="shell" width={390} height={560} />
       <FramePair
         title="Phone with the navigation drawer open"
