@@ -40,7 +40,11 @@
       <section id="people" class="tmt-ui-section" data-view="members" aria-label="People">
         <div id="people-content">Checking people…</div>
       </section>
-      <section id="owner-invitation" class="sheet tmt-ui-notice" data-tone="neutral" data-view="members" aria-labelledby="invitation-heading">
+      <section id="invites" class="tmt-ui-section" data-view="invites" aria-label="Invites">
+        <div id="invites-content">Checking invitations…</div>
+      </section>
+      <button id="remote-invite" class="tmt-ui-action" data-variant="primary" type="button" hidden><span class="tmt-ui-action-label">Invite</span></button>
+      <section id="owner-invitation" class="sheet tmt-ui-notice" data-tone="neutral" data-view="members invites" aria-labelledby="invitation-heading">
         <div class="sheet-body tmt-ui-notice-body">
           <h2 id="invitation-heading" class="tmt-ui-section-heading">Confirm an invitation</h2>
           <p>Start <code>tmt remote invite</code> on this machine, then share its private link or code. To confirm in a browser, use the owner browser set up on this machine.</p>
@@ -68,7 +72,7 @@
         id="access-notice"
         class="tmt-ui-notice"
         data-tone="waiting"
-        data-view="members my-devices settings service"
+        data-view="members invites my-devices settings service"
         aria-labelledby="access"
       >
         <p class="eyebrow tmt-ui-notice-eyebrow">Settings access</p>

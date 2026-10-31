@@ -255,6 +255,8 @@ export function mountMembersPage(
     value.className = 'tmt-ui-action';
     return value;
   };
+  const compact = window.matchMedia('(max-width: 760px)');
+  compact.addEventListener('change', () => render(), { signal });
   const status = node('p', 'Checking people…');
   status.setAttribute('role', 'status');
   const facts = node('p');
@@ -268,7 +270,7 @@ export function mountMembersPage(
       { id: 'actions', label: '' },
     ],
     'People',
-    'remote-people-table',
+    'remote-people-table remote-phone-rows',
   );
   const list = table.body;
   const footer = node('p');
@@ -433,6 +435,7 @@ export function mountMembersPage(
     const summary = node('p');
     summary.className = 'tmt-ui-visually-hidden';
     const nameText = node('span', name);
+    nameText.dataset.phone = 'name';
     const person = node('span');
     person.className = 'tmt-ui-list-leading';
     person.append(createIcon('user'));
@@ -475,20 +478,25 @@ export function mountMembersPage(
     revoke.dataset.variant = 'destructive';
     const expand = button('Show machines');
     expand.dataset.variant = 'ghost';
+    // Phones reach this action through the row menu.
+    expand.dataset.phone = 'hidden';
     const machines = node('div');
     const confirmText = node('p');
     confirmText.setAttribute('role', 'status');
     const cancel = button('Cancel');
     const menuHost = node('div');
+    menuHost.dataset.phone = 'menu';
     const menuOptions = () => ({
       label: `Actions for ${nameText.textContent}`,
       items: [
+        ...(compact.matches ? [{ key: 'machines', label: 'Show machines' }] : []),
         { key: 'rename', label: 'Rename' },
         { key: 'sending', label: send.textContent ?? 'Enable sending', disabled: send.disabled },
         { key: 'revoke', label: 'Remove person', disabled: revoke.disabled, separated: true },
       ],
       onSelect(key: string) {
-        if (key === 'rename') {
+        if (key === 'machines') expand.click();
+        else if (key === 'rename') {
           nameActions.hidden = false;
           input.focus();
         } else if (key === 'sending' || key === 'revoke') {
@@ -825,6 +833,15 @@ export function mountMembersPage(
       row.menu.update({
         label: `Actions for ${member.displayName}`,
         items: [
+          ...(compact.matches
+            ? [
+                {
+                  key: 'machines',
+                  label: row.expand.textContent ?? 'Show machines',
+                  disabled: row.expand.disabled,
+                },
+              ]
+            : []),
           { key: 'rename', label: 'Rename', disabled: row.input.disabled },
           {
             key: 'sending',
@@ -834,7 +851,8 @@ export function mountMembersPage(
           { key: 'revoke', label: 'Remove person', disabled: row.revoke.disabled, separated: true },
         ],
         onSelect(key) {
-          if (key === 'rename') {
+          if (key === 'machines') row.expand.click();
+          else if (key === 'rename') {
             row.nameActions.hidden = false;
             row.input.focus();
           } else if (key === 'sending' || key === 'revoke') {

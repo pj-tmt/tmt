@@ -7,6 +7,7 @@ export type RemoteView =
   | 'join'
   | 'overview'
   | 'members'
+  | 'invites'
   | 'my-devices'
   | 'settings'
   | 'service';
@@ -42,6 +43,14 @@ export const REMOTE_ITEMS: readonly RemoteItem[] = [
     page: 'landing',
   },
   { id: 'members', path: '/remote/members', label: 'People', title: 'People', page: 'settings' },
+  {
+    id: 'invites',
+    path: '/remote/invites',
+    label: 'Invites',
+    title: 'Invites',
+    page: 'settings',
+    adminOnly: true,
+  },
   {
     id: 'my-devices',
     path: '/remote/my-devices',
@@ -92,10 +101,17 @@ export function remoteTabAccess(
       reason: 'Access is not confirmed. Check again before making changes.',
       request: '',
     };
-  return {
-    locked: true,
-    reason:
-      "Only an admin can manage this Remote's service and upgrade steps. Ask the person who manages this Remote.",
-    request: "Please review this Remote's service and upgrade options with me.",
-  };
+  return item.id === 'invites'
+    ? {
+        locked: true,
+        reason:
+          'Only an admin can invite people to this Remote. Ask the person who manages this Remote.',
+        request: 'Please invite a person to this Remote for me.',
+      }
+    : {
+        locked: true,
+        reason:
+          "Only an admin can manage this Remote's service and upgrade steps. Ask the person who manages this Remote.",
+        request: "Please review this Remote's service and upgrade options with me.",
+      };
 }

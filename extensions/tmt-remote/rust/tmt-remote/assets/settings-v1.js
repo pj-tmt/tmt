@@ -1,4 +1,4 @@
-import { ClientError, RefusalError, ReopenSessionError, budget, invitationPage, management, members, reopenSession } from "/sdk/remote-v1.js";
+import { ClientError, RefusalError, ReopenSessionError, budget, invitationPage, invitations, management, members, reopenSession } from "/sdk/remote-v1.js";
 //#region src/remote-routes.ts
 var REMOTE_ITEMS = [
 	{
@@ -35,6 +35,14 @@ var REMOTE_ITEMS = [
 		label: "People",
 		title: "People",
 		page: "settings"
+	},
+	{
+		id: "invites",
+		path: "/remote/invites",
+		label: "Invites",
+		title: "Invites",
+		page: "settings",
+		adminOnly: true
 	},
 	{
 		id: "my-devices",
@@ -2089,7 +2097,7 @@ function remoteRegistryPage(initialBlocked = () => "", shell) {
 			id: "actions",
 			label: ""
 		}
-	], "My Remotes", "remote-registry-table");
+	], "My Remotes", "remote-registry-table remote-phone-rows");
 	const list = table.body;
 	list.id = "remote-list";
 	oldList.replaceWith(table.root);
@@ -2348,6 +2356,7 @@ function remoteRegistryPage(initialBlocked = () => "", shell) {
 			leading.append(createIcon(entry.backend === "Local" ? "terminal" : "box"));
 			const title = node$2("div");
 			title.className = browserUiClasses.listTitle;
+			title.dataset.phone = "name";
 			const label = node$2("span");
 			label.className = `${browserUiClasses.listLabel} remote-label`;
 			const open = node$2("a", entry.name);
@@ -2398,6 +2407,7 @@ function remoteRegistryPage(initialBlocked = () => "", shell) {
 			paintConnection(state, entry.connection);
 			const actions = node$2("div");
 			actions.className = browserUiClasses.listActions;
+			actions.dataset.phone = "menu";
 			if (entry.reference) {
 				const reference = entry.reference;
 				const destructive = node$2("span", "Forget");
@@ -3555,6 +3565,8 @@ function mountMembersPage(root, page, signal, otherBusy, changed = () => {}, obs
 		value.className = "tmt-ui-action";
 		return value;
 	};
+	const compact = window.matchMedia("(max-width: 760px)");
+	compact.addEventListener("change", () => render(), { signal });
 	const status = node("p", "Checking people…");
 	status.setAttribute("role", "status");
 	const facts = node("p");
@@ -3584,7 +3596,7 @@ function mountMembersPage(root, page, signal, otherBusy, changed = () => {}, obs
 			id: "actions",
 			label: ""
 		}
-	], "People", "remote-people-table");
+	], "People", "remote-people-table remote-phone-rows");
 	const list = table.body;
 	const footer = node("p");
 	footer.className = "people-list-footer";
@@ -3695,6 +3707,7 @@ function mountMembersPage(root, page, signal, otherBusy, changed = () => {}, obs
 		const summary = node("p");
 		summary.className = "tmt-ui-visually-hidden";
 		const nameText = node("span", name);
+		nameText.dataset.phone = "name";
 		const person = node("span");
 		person.className = "tmt-ui-list-leading";
 		person.append(createIcon("user"));
@@ -3737,14 +3750,20 @@ function mountMembersPage(root, page, signal, otherBusy, changed = () => {}, obs
 		revoke.dataset.variant = "destructive";
 		const expand = button("Show machines");
 		expand.dataset.variant = "ghost";
+		expand.dataset.phone = "hidden";
 		const machines = node("div");
 		const confirmText = node("p");
 		confirmText.setAttribute("role", "status");
 		const cancel = button("Cancel");
 		const menuHost = node("div");
+		menuHost.dataset.phone = "menu";
 		const menuOptions = () => ({
 			label: `Actions for ${nameText.textContent}`,
 			items: [
+				...compact.matches ? [{
+					key: "machines",
+					label: "Show machines"
+				}] : [],
 				{
 					key: "rename",
 					label: "Rename"
@@ -3762,7 +3781,8 @@ function mountMembersPage(root, page, signal, otherBusy, changed = () => {}, obs
 				}
 			],
 			onSelect(key) {
-				if (key === "rename") {
+				if (key === "machines") expand.click();
+				else if (key === "rename") {
 					nameActions.hidden = false;
 					input.focus();
 				} else if (key === "sending" || key === "revoke") {
@@ -3996,6 +4016,11 @@ function mountMembersPage(root, page, signal, otherBusy, changed = () => {}, obs
 			row.menu.update({
 				label: `Actions for ${member.displayName}`,
 				items: [
+					...compact.matches ? [{
+						key: "machines",
+						label: row.expand.textContent ?? "Show machines",
+						disabled: row.expand.disabled
+					}] : [],
 					{
 						key: "rename",
 						label: "Rename",
@@ -4014,7 +4039,8 @@ function mountMembersPage(root, page, signal, otherBusy, changed = () => {}, obs
 					}
 				],
 				onSelect(key) {
-					if (key === "rename") {
+					if (key === "machines") row.expand.click();
+					else if (key === "rename") {
 						row.nameActions.hidden = false;
 						row.input.focus();
 					} else if (key === "sending" || key === "revoke") {
@@ -4042,6 +4068,455 @@ function mountMembersPage(root, page, signal, otherBusy, changed = () => {}, obs
 	return {
 		render,
 		refresh,
+		heldBy
+	};
+}
+//#endregion
+//#region src/issued-invitations-page.ts
+/** One view's observations and original effect. The signed service owns authority and storage. */
+var IssuedInvitationsPage = class {
+	client;
+	reopen;
+	history;
+	outcome;
+	secret;
+	intent;
+	access = "checking";
+	busy = false;
+	generation = 0;
+	disposed = false;
+	cursor = null;
+	constructor(client, reopen) {
+		this.client = client;
+		this.reopen = reopen;
+	}
+	get onFirstPage() {
+		return this.cursor === null;
+	}
+	get canRecover() {
+		return !!this.intent && this.outcome?.state === "unknown" && !this.busy && !this.disposed;
+	}
+	async refresh(cursor = this.cursor) {
+		if (this.busy || this.disposed) return;
+		const turn = ++this.generation;
+		this.busy = true;
+		try {
+			const page = await this.client.list({ cursor });
+			if (!this.current(turn)) return;
+			this.history = page;
+			this.cursor = cursor;
+			this.access = "live";
+		} catch {
+			if (this.current(turn)) {
+				this.history = void 0;
+				this.access = "unconfirmed";
+			}
+		} finally {
+			if (this.current(turn)) this.busy = false;
+		}
+	}
+	async create(operationId) {
+		await this.submit(Object.freeze({
+			kind: "create",
+			operationId
+		}));
+	}
+	async cancel(operationId, offerId) {
+		await this.submit(Object.freeze({
+			kind: "cancel",
+			operationId,
+			offerId
+		}));
+	}
+	async submit(intent) {
+		if (this.disposed || this.busy || this.access !== "live" || this.outcome?.state === "unknown") throw new Error("Invitation controls are unavailable.");
+		this.secret = void 0;
+		this.intent = intent;
+		this.outcome = void 0;
+		this.busy = true;
+		const turn = ++this.generation;
+		try {
+			const result = intent.kind === "create" ? await this.client.create({ operationId: intent.operationId }) : await this.client.cancel({
+				operationId: intent.operationId,
+				offerId: intent.offerId
+			});
+			if (!this.current(turn)) return;
+			const creation = intent.kind === "create" ? result : void 0;
+			const createdSecret = creation?.state === "committed" ? creation.secret : void 0;
+			if (!this.matches(result, intent)) {
+				this.outcome = this.unknown(intent.operationId);
+				return;
+			}
+			if (intent.kind === "create" && result.state === "committed") {
+				this.outcome = {
+					operationId: result.operationId,
+					state: result.state,
+					sessionEnded: result.sessionEnded,
+					result: result.result
+				};
+				if (createdSecret) this.secret = Object.freeze({ ...createdSecret });
+			} else this.outcome = result;
+		} catch {
+			if (this.current(turn)) this.outcome = this.unknown(intent.operationId);
+		} finally {
+			if (this.current(turn)) this.busy = false;
+		}
+	}
+	/** Recovery reads the original metadata only; it never sends a new effect or recovers a secret. */
+	async recover() {
+		if (!this.canRecover) return;
+		const intent = this.intent;
+		this.secret = void 0;
+		this.busy = true;
+		const turn = ++this.generation;
+		try {
+			const client = await this.reopen();
+			if (!this.current(turn)) return;
+			this.client = client;
+			const result = await client.operation(intent.operationId);
+			if (!this.current(turn)) return;
+			this.outcome = this.matches(result, intent) ? result : this.unknown(intent.operationId);
+		} catch {
+			if (this.current(turn)) this.access = "unconfirmed";
+		} finally {
+			if (this.current(turn)) this.busy = false;
+		}
+	}
+	/** The create result is shown only until its dialog is closed. */
+	clearSecret() {
+		this.secret = void 0;
+	}
+	dispose() {
+		this.disposed = true;
+		this.generation++;
+		this.busy = false;
+		this.clearSecret();
+		this.history = void 0;
+	}
+	current(turn) {
+		return !this.disposed && this.generation === turn;
+	}
+	unknown(operationId) {
+		return {
+			operationId,
+			state: "unknown",
+			reason: "effect_outcome_unconfirmed"
+		};
+	}
+	matches(result, intent) {
+		if (result.operationId !== intent.operationId) return false;
+		if (result.state !== "committed") return true;
+		const invitation = result.result.invitation;
+		return intent.kind === "create" ? invitation.state === "created" : (invitation.state === "cancelled" || invitation.state === "not-active") && invitation.offerId === intent.offerId;
+	}
+};
+//#endregion
+//#region src/invites-page.ts
+var STATES = {
+	open: {
+		label: "Open",
+		tone: "working"
+	},
+	"awaiting-owner": {
+		label: "Awaiting you",
+		tone: "waiting"
+	},
+	confirmed: { label: "Confirmed" },
+	refused: { label: "Refused" },
+	cancelled: { label: "Cancelled" },
+	expired: {
+		label: "Expired",
+		tone: "blocked"
+	},
+	interrupted: {
+		label: "Interrupted",
+		tone: "waiting"
+	},
+	unconfirmed: {
+		label: "Unconfirmed",
+		tone: "waiting"
+	}
+};
+var ACTIVE = ["open", "awaiting-owner"];
+/** Bounded copy for the contract's create and cancel refusal reasons. */
+var REFUSALS = {
+	REMOTE_INVITATION_BUSY: "Another invitation request is in progress on this machine. Try again when it finishes.",
+	REMOTE_INVITATION_CAPACITY: "This Remote has too many open invitations. Cancel one first.",
+	REMOTE_INVITATION_STOPPED: "Invitations are stopped on this machine. Start them with tmt remote invite.",
+	REMOTE_INVITATION_UNAVAILABLE: "Invitations are unavailable right now. Check this Remote on this machine.",
+	REMOTE_MANAGEMENT_READ_ONLY: "This browser is read-only for this Remote.",
+	REMOTE_INTENT_CONFLICT: "This request conflicts with an earlier one. Refresh, then try again."
+};
+/** The short label names an invitation; the full offer ID stays in its title and copy action. */
+function invitationLabel(offerId) {
+	return `inv-${offerId.slice(0, 4)}`;
+}
+function ago(at, now) {
+	const minutes = Math.max(0, Math.floor((now - at) / 6e4));
+	if (minutes < 1) return "Just now";
+	if (minutes < 60) return `${minutes} min ago`;
+	if (minutes < 1440) return `${Math.floor(minutes / 60)} h ago`;
+	return minutes < 2880 ? "Yesterday" : `${Math.floor(minutes / 1440)} days ago`;
+}
+/** Mount Invites around the retained issued-invitations model. The created code lives only in
+* the open dialog and the model's memory; closing the dialog clears both. */
+function mountInvitesPage(root, page, signal, options) {
+	const now = options.now ?? Date.now;
+	const node = (tag, text = "") => {
+		const value = document.createElement(tag);
+		value.textContent = text;
+		return value;
+	};
+	const button = (text) => {
+		const value = node("button", text);
+		value.type = "button";
+		value.className = browserUiClasses.action;
+		return value;
+	};
+	const status = node("p", "Checking invitations…");
+	status.setAttribute("role", "status");
+	const facts = node("p");
+	const refreshButton = button("Refresh invitations");
+	const table = createListTable([
+		{
+			id: "icon",
+			label: "",
+			hideBelow: "phone"
+		},
+		{
+			id: "invitation",
+			label: "Invitation"
+		},
+		{
+			id: "status",
+			label: "Status"
+		},
+		{
+			id: "issued",
+			label: "Issued",
+			hideBelow: "phone"
+		},
+		{
+			id: "expires",
+			label: "Expires"
+		},
+		{
+			id: "actions",
+			label: ""
+		}
+	], "Invitations", "remote-invites-table remote-phone-rows");
+	const footer = node("p");
+	footer.className = "invites-list-footer";
+	const first = button("First invitations");
+	const more = button("Next invitations");
+	const original = node("p");
+	const recover = button("Check original outcome");
+	root.replaceChildren(status, facts, refreshButton, table.root, footer, first, more, original, recover);
+	let menus = [];
+	let localNotice = "";
+	let dialog;
+	function heldBy() {
+		if (page.busy) return "An invitation request is in progress. Wait for its outcome.";
+		if (page.outcome?.state === "unknown") return "An invitation change is unconfirmed. Check its original outcome first.";
+		return "";
+	}
+	function available() {
+		return page.access === "live" && !page.busy && !options.otherBusy() && page.outcome?.state !== "unknown";
+	}
+	async function run(action) {
+		const pending = action();
+		render();
+		options.changed();
+		try {
+			await pending;
+		} catch {
+			localNotice = "This action could not start. Review current access and try again.";
+		}
+		if (!signal.aborted) {
+			render();
+			options.changed();
+		}
+	}
+	async function refresh(cursor) {
+		if (page.busy || options.otherBusy()) return;
+		localNotice = "";
+		await run(() => page.refresh(cursor));
+	}
+	async function invite() {
+		if (!available()) return;
+		localNotice = "";
+		await run(() => page.create(crypto.randomUUID()));
+		if (page.secret) showSecret(page.secret);
+		if (page.outcome?.state === "committed") await refresh(null);
+	}
+	async function cancel(offerId) {
+		if (!available()) return;
+		localNotice = "";
+		await run(() => page.cancel(crypto.randomUUID(), offerId));
+		if (page.outcome?.state === "committed") await refresh(null);
+	}
+	function copyRow(text, label) {
+		const row = node("div");
+		row.className = "invite-secret-row";
+		const value = node("code", text);
+		value.className = "invite-secret";
+		const copy = button(label);
+		const feedback = node("span");
+		feedback.setAttribute("role", "status");
+		copy.addEventListener("click", async () => {
+			try {
+				await navigator.clipboard.writeText(text);
+				feedback.textContent = "Copied.";
+			} catch {
+				feedback.textContent = "Copy failed. Select the text and copy it manually.";
+			}
+		});
+		row.append(value, copy, feedback);
+		return row;
+	}
+	function showSecret(secret) {
+		dialog?.close();
+		const box = node("dialog");
+		box.className = `${browserUiClasses.dialog} invite-dialog`;
+		const header = node("header");
+		header.className = browserUiClasses.dialogHeader;
+		const heading = node("h2", "Invitation created");
+		heading.id = "invite-dialog-heading";
+		box.setAttribute("aria-labelledby", heading.id);
+		const close = node("button");
+		close.type = "button";
+		close.className = "tmt-ui-icon-action";
+		close.setAttribute("aria-label", "Close");
+		close.append(createIcon("x"));
+		header.append(heading, close);
+		const body = node("div");
+		body.className = browserUiClasses.dialogBody;
+		const expiry = page.outcome?.state === "committed" && "expiresAtMs" in page.outcome.result.invitation ? Math.max(1, Math.round((page.outcome.result.invitation.expiresAtMs - now()) / 6e4)) : void 0;
+		body.append(node("p", `Give this code or link to one person. It works once${expiry ? ` and expires in ${expiry} min` : ""}.`), copyRow(secret.code, "Copy code"), ...secret.link ? [copyRow(secret.link, "Copy link")] : [], node("p", "This code is shown only now. After you close this, it can't be shown again."));
+		const actions = node("footer");
+		actions.className = browserUiClasses.dialogActions;
+		const done = button("Done");
+		done.dataset.variant = "primary";
+		actions.append(done);
+		box.append(header, body, actions);
+		for (const end of [close, done]) end.addEventListener("click", () => box.close());
+		box.addEventListener("close", () => {
+			box.remove();
+			page.clearSecret();
+			if (dialog === box) dialog = void 0;
+			render();
+		}, { once: true });
+		dialog = box;
+		document.body.append(box);
+		box.showModal();
+	}
+	signal.addEventListener("abort", () => dialog?.close(), { once: true });
+	recover.addEventListener("click", () => void run(() => page.recover()), { signal });
+	refreshButton.addEventListener("click", () => void refresh(null), { signal });
+	first.addEventListener("click", () => void refresh(null), { signal });
+	more.addEventListener("click", () => void refresh(page.history?.nextCursor ?? null), { signal });
+	function outcomeText() {
+		const outcome = page.outcome;
+		if (!outcome || !page.intent) return "";
+		if (outcome.state === "unknown") return page.intent.kind === "create" ? "Creating this invitation is unconfirmed. Check its original outcome before inviting again." : "Cancelling this invitation is unconfirmed. Check its original outcome first.";
+		if (outcome.state === "refused") return REFUSALS[outcome.reason] ?? "The request was refused. Review current access or use tmt remote invite on this machine.";
+		const invitation = outcome.result.invitation;
+		if (invitation.state === "created") return page.secret ? "Invitation created." : "Invitation created. Its code is no longer shown; invite again for a new one.";
+		if (invitation.state === "not-active") return "That invitation was no longer open. Nothing changed.";
+		if (invitation.state === "cancelled") return "Invitation cancelled. Anyone who already joined keeps access.";
+		return "";
+	}
+	function render() {
+		if (signal.aborted) return;
+		const view = page.history;
+		status.textContent = localNotice || outcomeText() || (page.access === "live" ? "Invitations from the last 7 days. A status describes the invitation, not whether the person is online." : page.access === "checking" ? "Checking invitations…" : "Invitations could not be confirmed. Use tmt remote invite on this machine.");
+		facts.textContent = view && !view.invitations.length ? "No invitations in the last 7 days." : "";
+		facts.hidden = !facts.textContent;
+		original.textContent = page.outcome?.state === "unknown" && page.intent ? `Original change ${page.intent.operationId}` : "";
+		original.hidden = !original.textContent;
+		recover.hidden = page.outcome?.state !== "unknown";
+		recover.disabled = !page.canRecover || options.otherBusy();
+		refreshButton.disabled = page.busy || options.otherBusy();
+		first.hidden = page.onFirstPage;
+		more.hidden = !view?.nextCursor;
+		first.disabled = more.disabled = !available();
+		footer.replaceChildren(node("span", view ? `${view.invitations.length} ${view.invitations.length === 1 ? "invitation" : "invitations"} · newest first` : ""), node("span", "Cancel an open invitation in the row menu"));
+		footer.hidden = !view;
+		menus.forEach((menu) => menu.dispose());
+		menus = [];
+		table.body.replaceChildren(...(view?.invitations ?? []).map((invitation) => {
+			const leading = node("span");
+			leading.className = browserUiClasses.listLeading;
+			leading.append(createIcon("link"));
+			const title = node("div");
+			title.className = browserUiClasses.listTitle;
+			title.dataset.phone = "name";
+			const label = node("span", invitationLabel(invitation.offerId));
+			label.className = `${browserUiClasses.listLabel} invite-id`;
+			label.title = invitation.offerId;
+			title.append(label);
+			if (invitation.state === "awaiting-owner") {
+				const hint = node("span", "Someone used this code · confirm or refuse in the row menu");
+				hint.className = browserUiClasses.listDescription;
+				title.append(hint);
+			}
+			const state = STATES[invitation.state];
+			const chip = node("span");
+			chip.className = `${browserUiClasses.chip} remote-stage`;
+			if (state.tone) chip.dataset.tone = state.tone;
+			const mark = node("span");
+			mark.className = browserUiClasses.stateMark;
+			mark.dataset.shape = "dot";
+			mark.setAttribute("aria-hidden", "true");
+			const text = node("span", state.label);
+			text.className = browserUiClasses.chipLabel;
+			chip.append(mark, text);
+			const active = ACTIVE.includes(invitation.state) && invitation.expiresAtMs > now();
+			const expires = node("span", active ? `in ${Math.max(1, Math.ceil((invitation.expiresAtMs - now()) / 6e4))} min` : "—");
+			const actions = node("div");
+			actions.className = browserUiClasses.listActions;
+			actions.dataset.phone = "menu";
+			menus.push(mountBrowserMenu(actions, {
+				label: `Actions for ${label.textContent}`,
+				items: [
+					...invitation.state === "awaiting-owner" ? [{
+						key: "confirm",
+						label: "Confirm or refuse…"
+					}] : [],
+					{
+						key: "copy",
+						label: "Copy invitation ID"
+					},
+					...ACTIVE.includes(invitation.state) ? [{
+						key: "cancel",
+						label: "Cancel invitation",
+						disabled: !available(),
+						separated: true
+					}] : []
+				],
+				onSelect(key) {
+					if (key === "confirm") options.confirm();
+					else if (key === "cancel") cancel(invitation.offerId);
+					else navigator.clipboard.writeText(invitation.offerId).catch(() => {});
+				}
+			}));
+			const row = table.row([
+				leading,
+				title,
+				chip,
+				node("span", ago(invitation.issuedAtMs, now())),
+				expires,
+				actions
+			]);
+			row.dataset.offer = invitation.offerId;
+			return row;
+		}));
+	}
+	render();
+	return {
+		render,
+		refresh: () => refresh(null),
+		invite,
 		heldBy
 	};
 }
@@ -4152,6 +4627,12 @@ async function settingsPage(shell, registry, initial) {
 	let people;
 	let peopleView;
 	let invitationAttached = false;
+	let invites;
+	let invitesView;
+	let invitesUnread = false;
+	const inviteButton = shell ? document.getElementById("remote-invite") : null;
+	/** Only the connected owner browser reads or changes issued invitations. */
+	const mayInvite = () => !!page && page.access === "live" && people?.roster?.administrator === true;
 	let invitationSession;
 	const registryState = registry ?? remoteRegistryPage(void 0, shell);
 	const invitationRoot = shell && document.getElementById("owner-invitation");
@@ -4160,7 +4641,7 @@ async function settingsPage(shell, registry, initial) {
 		render();
 		if (remoteItem(location.pathname)?.id === "members" && page.access === "live" && peopleView && !people?.roster && !people?.busy && !ownerInvitations?.heldBy()) peopleView.refresh();
 	}) : void 0;
-	const otherHold = () => ownerInvitations?.heldBy() || (people?.busy ? "A People request is in progress." : people?.outcome?.state === "unknown" ? "A People change is unconfirmed. Check its original outcome first." : "");
+	const otherHold = () => ownerInvitations?.heldBy() || invitesView?.heldBy() || (people?.busy ? "A People request is in progress." : people?.outcome?.state === "unknown" ? "A People change is unconfirmed. Check its original outcome first." : "");
 	const guideTarget = shell && document.getElementById("remote-create");
 	const guide = shell && guideTarget ? createPage(guideTarget, {
 		signal: shell.signal,
@@ -4177,7 +4658,7 @@ async function settingsPage(shell, registry, initial) {
 		if (!page) return "";
 		if (page.busy) return "A request is in progress. Wait for its outcome.";
 		if (page.outcome?.state === "unknown") return "Another change is still unconfirmed. Check the saved value first.";
-		const peopleReason = peopleView?.heldBy() || ownerInvitations?.heldBy();
+		const peopleReason = peopleView?.heldBy() || ownerInvitations?.heldBy() || invitesView?.heldBy();
 		if (peopleReason) return peopleReason;
 		for (const device of page.devices?.devices ?? []) {
 			const name = rows.get(device.clientId)?.querySelector("input");
@@ -4301,20 +4782,28 @@ async function settingsPage(shell, registry, initial) {
 	function render() {
 		if (people && page.access === "lost" && people.access !== "lost") people.invalidateAccess(true);
 		else if (people && page.access !== "live" && ["checking", "live"].includes(people.access)) people.invalidateAccess();
-		const mayInvite = page.access === "live" && people?.roster?.administrator === true;
-		if (!mayInvite && invitationAttached) {
+		const owner = mayInvite();
+		if (!owner && invitationAttached) {
 			invitationAttached = false;
 			ownerInvitations?.();
-		} else if (mayInvite && !invitationAttached && invitationSession) {
+		} else if (owner && !invitationAttached && invitationSession) {
 			invitationAttached = true;
 			ownerInvitations?.(invitationSession);
 		}
-		if (!mayInvite && invitationRoot && !ownerInvitations?.heldBy()) {
+		if (!owner && invitationRoot && !ownerInvitations?.heldBy()) {
 			const status = invitationRoot.querySelector("#invitation-status");
 			if (status) status.textContent = page.access === "live" && people?.access === "live" && people.roster?.administrator === false ? "To confirm an invitation in a browser, use the owner browser set up on this machine. Use tmt remote members on this machine." : "Invitation access is unconfirmed. Use tmt remote members on this machine.";
 		}
 		ownerInvitations?.update();
 		peopleView?.render();
+		invitesView?.render();
+		readInvites();
+		const invitesContent = document.getElementById("invites-content");
+		if (invitesContent) invitesContent.hidden = people?.roster?.administrator === false;
+		if (inviteButton) {
+			inviteButton.hidden = !owner;
+			fence(inviteButton, !owner || !!invites?.busy || !!otherHold());
+		}
 		registryState(page.access === "live" ? "Connected" : page.access === "lost" ? "Access ended" : page.access === "checking" ? "Checking" : "Unconfirmed", void 0, managementRole(page.access, page.settings?.capabilities.settingsWrite) ?? null);
 		if (confirmation) {
 			const target = page.devices?.devices.find((device) => device.clientId === confirmation.clientId);
@@ -4723,7 +5212,30 @@ async function settingsPage(shell, registry, initial) {
 		if (!page) return;
 		render();
 		if (remoteItem(location.pathname)?.id === "members" && page.access === "live" && peopleView && !people?.roster && !people?.busy && !ownerInvitations?.heldBy()) peopleView.refresh();
+		enterInvites();
 	}, { signal: shell?.signal });
+	/** Invites reads once per entry or explicit refresh, after People confirms this browser is the
+	* owner. An entry that meets another request in flight reads when that request settles. */
+	async function enterInvites() {
+		invitesUnread = remoteItem(location.pathname)?.id === "invites";
+		await readInvites();
+	}
+	async function readInvites() {
+		if (!invitesUnread || remoteItem(location.pathname)?.id !== "invites") return;
+		if (!page || page.access !== "live") return;
+		if (!people?.roster && !people?.busy && !otherHold()) await peopleView?.refresh();
+		if (!mayInvite() || !invites || invites.busy || otherHold()) return;
+		invitesUnread = false;
+		await invitesView?.refresh();
+	}
+	inviteButton?.addEventListener("click", () => {
+		if (!invitesView || !mayInvite()) return;
+		if (remoteItem(location.pathname)?.id !== "invites") {
+			shell?.navigate(new URL("/remote/invites", location.href).href);
+			if (remoteItem(location.pathname)?.id !== "invites") return;
+		}
+		invitesView.invite();
+	});
 	async function initialize(session) {
 		if (page) return;
 		shell?.observedSession?.(session);
@@ -4748,10 +5260,26 @@ async function settingsPage(shell, registry, initial) {
 			peopleView = mountMembersPage(peopleRoot, people, shell.signal, () => page.access !== "live" || page.busy || page.outcome?.state === "unknown" || !!ownerInvitations?.heldBy(), () => {
 				if (page) render();
 			}, document.getElementById("people-observation"));
+			const invitesRoot = document.getElementById("invites-content");
+			if (invitesRoot) {
+				invites = new IssuedInvitationsPage(invitations(session), async () => invitations(await reopen()));
+				invitesView = mountInvitesPage(invitesRoot, invites, shell.signal, {
+					otherBusy: () => !mayInvite() || page.busy || page.outcome?.state === "unknown" || !!people?.busy || people?.outcome?.state === "unknown" || !!ownerInvitations?.heldBy(),
+					changed: () => {
+						if (page) render();
+					},
+					confirm: () => {
+						const section = document.getElementById("owner-invitation");
+						section?.scrollIntoView({ block: "start" });
+						(section?.querySelector("#invitation-candidate:not([hidden]) input") ?? section?.querySelector("#invitation-refresh"))?.focus();
+					}
+				});
+			}
 		}
 		await run(() => refreshView());
 		if (page.access === "live") {
 			if (remoteItem(location.pathname)?.id === "members") await peopleView?.refresh();
+			await enterInvites();
 		}
 	}
 	function unavailable(error, report = true) {

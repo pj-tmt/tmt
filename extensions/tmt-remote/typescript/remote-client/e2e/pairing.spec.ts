@@ -98,27 +98,53 @@ async function feedbackBounds(page: Page, selector: string) {
   return measurement;
 }
 
-/** At phone width the visible cells share the host's two aligned tracks. */
+/** At phone width People keeps the menu beside the name and both badges below. */
 async function assertPhoneTable(page: Page, selector: string, width = 390) {
   const previous = page.viewportSize()!;
   await page.setViewportSize({ width, height: 900 });
   const table = page.locator(selector);
   await expect(table).not.toHaveAttribute('style');
-  const positions = await table
-    .locator('.tmt-ui-list-table-row')
-    .first()
-    .evaluate((row) =>
-      Array.from(row.children)
-        .filter((node) => getComputedStyle(node).display !== 'none')
-        .map((node) => {
-          const box = node.getBoundingClientRect();
-          return { left: box.left, center: box.top + box.height / 2 };
-        }),
-    );
-  expect(positions.length).toBeGreaterThanOrEqual(4);
-  expect(positions[0]!.center).toBeCloseTo(positions[1]!.center, 0);
-  expect(positions[2]!.left).toBeCloseTo(positions[0]!.left, 0);
-  expect(positions[3]!.left).toBeCloseTo(positions[1]!.left, 0);
+  const row = table.locator('.tmt-ui-list-table-row').first();
+  const box = async (index: number) =>
+    (await row.locator('[role="cell"]').nth(index).boundingBox())!;
+  const name = await box(1);
+  const role = await box(2);
+  const sending = await box(3);
+  const menu = await box(5);
+  expect(Math.abs(name.y - menu.y)).toBeLessThanOrEqual(1);
+  expect(role.y).toBeGreaterThan(name.y);
+  expect(Math.abs(role.y - sending.y)).toBeLessThanOrEqual(1);
+  expect(sending.x).toBeGreaterThan(role.x);
+  await expect(page.locator('html')).toHaveJSProperty('scrollWidth', width);
+  await page.setViewportSize(previous);
+}
+
+/** The phone registry keeps the name and menu above the adjacent status badges. */
+async function assertPhoneRegistry(page: Page, width = 390) {
+  const previous = page.viewportSize()!;
+  await page.setViewportSize({ width, height: 900 });
+  const row = page.locator('.remote-registry-table .tmt-ui-list-table-row').first();
+  const box = async (index: number) =>
+    (await row.locator('[role="cell"]').nth(index).boundingBox())!;
+  const name = await box(1);
+  const connection = await box(2);
+  const role = await box(3);
+  const menu = await box(6);
+  expect(Math.abs(name.y - menu.y)).toBeLessThanOrEqual(1);
+  expect(connection.y).toBeGreaterThan(name.y);
+  expect(Math.abs(connection.y - role.y)).toBeLessThanOrEqual(1);
+  expect(role.x).toBeGreaterThan(connection.x);
+  // Backend, project and address follow as a muted, truncated third line.
+  const detail = row.locator('.tmt-ui-list-description');
+  const line = (await detail.boundingBox())!;
+  expect(line.y).toBeGreaterThanOrEqual(connection.y + connection.height);
+  expect(line.x + line.width).toBeLessThanOrEqual(width);
+  await expect(detail).toHaveCSS('white-space', 'nowrap');
+  await expect(detail).toHaveCSS('text-overflow', 'ellipsis');
+  const footer = page.locator('.remote-list-footer');
+  const lines = await footer.locator('span').all();
+  expect(lines).toHaveLength(2);
+  expect((await lines[1]!.boundingBox())!.y).toBeGreaterThan((await lines[0]!.boundingBox())!.y);
   await expect(page.locator('html')).toHaveJSProperty('scrollWidth', width);
   await page.setViewportSize(previous);
 }
@@ -5264,8 +5290,8 @@ test('landing registry keeps two origins independent and confirms public-only ha
         'data-remote',
         'studio',
       );
-      await assertPhoneTable(page, '.remote-registry-table');
-      await assertPhoneTable(page, '.remote-registry-table', 700);
+      await assertPhoneRegistry(page);
+      await assertPhoneRegistry(page, 700);
       await expect(page.locator('#remote-head .tmt-ui-shell-count')).toHaveCount(0);
       await expect(page.locator('#remote-head .tmt-ui-subheader-text p')).toContainText(
         '2 remotes',
@@ -6243,12 +6269,20 @@ test('Remote tab frame keeps unknown, Member locks and designated Admin separate
     );
     const current = await identity();
     const tabs = page.getByRole('tablist', { name: 'This Remote' });
-    await expect(tabs.getByRole('tab')).toHaveCount(5);
+    await expect(tabs.getByRole('tab')).toHaveCount(6);
+    await tabs.getByRole('tab', { name: 'Locked · Invites', exact: true }).click();
+    await expect(page).toHaveURL(`${origin}/remote/invites`);
+    await expect(page.locator('#remote-locked')).toContainText(
+      'Only an admin can invite people to this Remote.',
+    );
+    await expect(page.locator('#remote-invite')).toBeHidden();
     await tabs.getByRole('tab', { name: /^People(?: · \d+ (?:person|people))?$/ }).click();
     await expect(page).toHaveURL(`${origin}/remote/members`);
     await expect(page.locator('#invitation-status')).toContainText(
       'To confirm an invitation in a browser, use the owner browser',
     );
+    // Only the connected owner browser reads or changes issued invitations.
+    expect(operations.filter((op) => op.startsWith('remote.invites.'))).toEqual([]);
     await expect(page.locator('#invitation-confirm')).toBeDisabled();
     await context.grantPermissions(['clipboard-read', 'clipboard-write']);
     await tabs.getByRole('tab', { name: 'Locked · Service & upgrade', exact: true }).click();
@@ -6330,6 +6364,33 @@ test('Remote tab frame keeps unknown, Member locks and designated Admin separate
       page,
       'remote-people-admin',
       'People and the existing invitation presenter in the designated browser.',
+      [1440, 390],
+      ['light', 'dark'],
+      undefined,
+      capture,
+    );
+    await expect(page.locator('#remote-invite')).toBeVisible();
+    await tabs.getByRole('tab', { name: 'Invites', exact: true }).click();
+    await expect(page).toHaveURL(`${origin}/remote/invites`);
+    await expect(page.locator('#remote-locked')).toBeHidden();
+    await expect(page.getByText('No invitations in the last 7 days.')).toBeVisible();
+    await expect(page.locator('.remote-tab-content .tmt-ui-subheader p:visible')).toContainText(
+      'Invitations from the last 7 days',
+    );
+    await expect(page.locator('#remote-invite')).toBeVisible();
+    await expect(page.locator('#owner-invitation')).toBeVisible();
+    const lists = () => operations.filter((op) => op === 'remote.invites.list').length;
+    await expect.poll(lists).toBe(1);
+    // Each entry reads again; leaving and returning keeps the same Session.
+    await tabs.getByRole('tab', { name: 'Overview', exact: true }).click();
+    await tabs.getByRole('tab', { name: 'Invites', exact: true }).click();
+    await expect(page.getByText('No invitations in the last 7 days.')).toBeVisible();
+    await expect.poll(lists).toBe(2);
+    expect(operations).not.toContain('remote.invites.create');
+    await captureState(
+      page,
+      'remote-invites-admin',
+      'Invites in the designated browser with no invitations yet.',
       [1440, 390],
       ['light', 'dark'],
       undefined,

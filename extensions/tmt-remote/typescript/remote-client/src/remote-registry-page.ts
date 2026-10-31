@@ -119,7 +119,7 @@ export function remoteRegistryPage(
       { id: 'actions', label: '' },
     ],
     'My Remotes',
-    'remote-registry-table',
+    'remote-registry-table remote-phone-rows',
   );
   const list = table.body;
   list.id = 'remote-list';
@@ -464,6 +464,7 @@ export function remoteRegistryPage(
         leading.append(createIcon(entry.backend === 'Local' ? 'terminal' : 'box'));
         const title = node('div');
         title.className = browserUiClasses.listTitle;
+        title.dataset.phone = 'name';
         const label = node('span');
         label.className = `${browserUiClasses.listLabel} remote-label`;
         const open = node('a', entry.name);
@@ -521,6 +522,7 @@ export function remoteRegistryPage(
         paintConnection(state, entry.connection);
         const actions = node('div');
         actions.className = browserUiClasses.listActions;
+        actions.dataset.phone = 'menu';
         if (entry.reference) {
           const reference = entry.reference;
           const destructive = node('span', 'Forget');

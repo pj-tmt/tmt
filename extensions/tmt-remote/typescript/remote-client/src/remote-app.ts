@@ -115,14 +115,29 @@ export async function remoteApp(
   const panels = new Map<string, HTMLElement>();
   const globalPanel = document.createElement('div');
   const subheaders = new Map<RemoteItem['id'], HTMLElement>();
+  // People and Invites share the one Invite action; layout moves it into the shown subheader.
+  const invite = main.querySelector<HTMLElement>('#remote-invite');
+  const inviteSlots = new Map<RemoteItem['id'], HTMLElement>();
   for (const item of REMOTE_ITEMS) {
-    if (!['create', 'join', 'members', 'my-devices', 'service', 'settings'].includes(item.id))
+    if (
+      !['create', 'join', 'members', 'invites', 'my-devices', 'service', 'settings'].includes(
+        item.id,
+      )
+    )
       continue;
+    const slot = ['members', 'invites'].includes(item.id)
+      ? document.createElement('span')
+      : undefined;
+    if (slot) inviteSlots.set(item.id, slot);
     subheaders.set(
       item.id,
       createPageSubheader({
         title: item.title,
         ...(item.id === 'members' ? { subtitle: 'Sending is off until an admin enables it.' } : {}),
+        ...(item.id === 'invites'
+          ? { subtitle: 'Invitations from the last 7 days · a code works once and expires' }
+          : {}),
+        ...(slot ? { actions: slot } : {}),
       }),
     );
   }
@@ -275,6 +290,8 @@ export async function remoteApp(
       peopleSubtitle.textContent = `${total == null ? '' : `${total} ${total === 1 ? 'person' : 'people'} · `}Sending is off until an admin enables it.`;
     }
     for (const [id, value] of subheaders) value.hidden = id !== shown.id;
+    const inviteSlot = inviteSlots.get(shown.id);
+    if (invite && inviteSlot && invite.parentElement !== inviteSlot) inviteSlot.append(invite);
     if (header && header.parentElement !== panel) panel.prepend(header);
     // Move the same retained models, never clone/restart their forms or original outcomes.
     for (const model of models) {

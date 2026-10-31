@@ -35,7 +35,7 @@ export function invitationPage(
   const here = () =>
     !lifetime?.aborted &&
     root.isConnected &&
-    location.pathname.replace(/\/$/, '') === '/remote/members';
+    ['/remote/members', '/remote/invites'].includes(location.pathname.replace(/\/$/, ''));
   const controls = (notify = true) => {
     const held = heldElsewhere();
     refresh.disabled = busy || !client || held;
