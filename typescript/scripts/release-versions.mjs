@@ -4,6 +4,23 @@ import { productOfTag, releasePolicy } from './native-release-policy.mjs';
 
 const VERSION = /^(\d+)\.(\d+)\.(\d+)(?:-([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?$/;
 
+// Published beta/rc versions are valid minima too; preparation -dev is not a publication floor.
+export function isMinimumReleaseVersion(version) {
+  const match =
+    /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?$/.exec(
+      version ?? ''
+    );
+  return Boolean(
+    match &&
+    match[4] !== 'dev' &&
+    match.slice(1, 4).every((part) => Number.isSafeInteger(Number(part))) &&
+    (!match[4] ||
+      match[4]
+        .split('.')
+        .every((part) => !/^\d+$/.test(part) || part === '0' || !part.startsWith('0')))
+  );
+}
+
 function parseVersion(text) {
   const match = VERSION.exec(text);
   if (!match) throw new Error(`${text} is not a version.`);

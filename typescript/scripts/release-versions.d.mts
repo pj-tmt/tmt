@@ -1,3 +1,5 @@
+/** Published minimum version without build metadata or the preparation-only -dev suffix. */
+export function isMinimumReleaseVersion(version: string): boolean;
 /** Synthetic version for non-publishing rehearsals and installation fixtures. */
 export function syntheticAlphaVersion(committedVersion: string): string;
 export interface PublishedRelease {
