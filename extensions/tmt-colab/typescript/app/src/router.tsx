@@ -2308,7 +2308,6 @@ function OpenPage({
                 title={view.title || snapshot.title}
                 asks={view.asks ?? []}
                 active={activeThread}
-                select={openThread}
                 close={closeComments}
                 headerSlot={resolveSlot}
                 batchStatus={

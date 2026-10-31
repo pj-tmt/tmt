@@ -161,83 +161,6 @@ export function discussionResolvedLabel(
   return Number.isFinite(at) ? `${label} · ${compactRelativeTime(at, now)}` : label;
 }
 
-function Composer({
-  label,
-  quote,
-  submit,
-  cancel,
-  blocked,
-  archived = false,
-}: {
-  label: string;
-  quote?: string;
-  submit(body: string): Promise<void>;
-  cancel?(): void;
-  blocked: boolean;
-  archived?: boolean;
-}) {
-  const [resetKey, setResetKey] = useState(0);
-  const [body, setBody] = useState(''),
-    [busy, setBusy] = useState(false),
-    [error, setError] = useState(false);
-  if (archived) return <ArchivedDraft value={body} />;
-  return (
-    <form
-      className="comment-compose"
-      onSubmit={(event) => {
-        event.preventDefault();
-        if (!event.isTrusted || busy || blocked || !body.trim()) return;
-        setBusy(true);
-        setError(false);
-        void submit(body)
-          .then(
-            () => {
-              setBody('');
-              setResetKey((key) => key + 1);
-              cancel?.();
-            },
-            () => setError(true),
-          )
-          .finally(() => setBusy(false));
-      }}
-    >
-      {quote && <blockquote>{quote}</blockquote>}
-      <p>{label}</p>
-      <MessageComposer
-        label={label}
-        edit={{ value: body }}
-        resetKey={resetKey}
-        disabled={busy || blocked}
-        busy={busy && !blocked}
-        onChange={(next) => setBody(next.value)}
-      />
-      <div className="comment-actions">
-        <BrowserAction
-          type="submit"
-          variant="primary"
-          label={label}
-          busy={busy}
-          busyMark={<BusyMark />}
-          disabled={blocked || !body.trim()}
-          onActivate={() => {}}
-        />
-        {cancel && (
-          <BrowserAction
-            type="button"
-            variant="text"
-            label={text.commentCancel}
-            busy={busy}
-            onActivate={(event) => {
-              if (event.isTrusted) cancel();
-            }}
-          />
-        )}
-      </div>
-      {error && <p role="alert">{text.commentFailed}</p>}
-    </form>
-  );
-}
-
 export function DiscussionComment({
   comment,
   binding,
@@ -954,7 +877,6 @@ export function ThreadPanel({
   connectionPresentation,
   archived = false,
   active,
-  select,
   close,
   draft,
   onDraft,
@@ -982,7 +904,6 @@ export function ThreadPanel({
   connectionPresentation?: ComposerConnectionPresentation;
   archived?: boolean;
   active: string | null;
-  select(ref: DiscussionRef): void;
   close(): void;
   draft?(ref: DiscussionRef): ComposerEdit | undefined;
   onDraft?(ref: DiscussionRef, edit: ComposerEdit): void;
@@ -998,38 +919,9 @@ export function ThreadPanel({
   batchStatus?: ReactNode;
 }) {
   const numbers = suppliedNumbers ?? threadNumbers(threads);
-  const [compose, setCompose] = useState(false);
   const [pending, setPending] = useState<Record<string, boolean>>({});
   const discussed = threads.find(
     (thread) => !thread.deleted && `${thread.ref.writer}:${thread.threadId}` === active,
-  );
-  const pageComment = (
-    <>
-      {!archived && (
-        <BrowserAction
-          type="button"
-          variant="text"
-          label={`+ ${text.commentPage}`}
-          disabled={!binding || blocked || compose}
-          onActivate={(event) => {
-            if (event.isTrusted) setCompose(true);
-          }}
-        />
-      )}
-      {compose && binding && (
-        <Composer
-          label={text.commentPost}
-          submit={async (body) => {
-            const context = await binding.create(body, null);
-            setCompose(false);
-            select(context.thread);
-          }}
-          cancel={() => setCompose(false)}
-          blocked={blocked}
-          archived={archived}
-        />
-      )}
-    </>
   );
   if (discussed) {
     const thread = discussed;
@@ -1046,7 +938,6 @@ export function ThreadPanel({
         data-view="discussion"
         data-thread-id={thread.threadId}
       >
-        {pageComment}
         {/* The reserved state line keeps the quote and composer still through Resolve. */}
         <div className="discussion-status">
           {batchStatus && <span role="status">{batchStatus}</span>}
@@ -1114,7 +1005,6 @@ export function ThreadPanel({
         <h3>{threads.length ? text.commentsEmptyTitle : text.commentsEmptyNone}</h3>
         <p>{threads.length ? text.commentsEmptyCaughtUp : text.commentsEmptyNoneHint}</p>
       </div>
-      {pageComment}
     </aside>
   );
 }

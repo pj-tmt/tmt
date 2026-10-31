@@ -101,11 +101,9 @@ for (const drawer of ['Comments', 'Chat'] as const)
     await expect(panel.getByTestId('comment-thread')).toHaveCount(0);
     await run(page, 'verifyDiscussion');
     await expect(panel.getByText('Loading comments…')).toHaveCount(0);
-    await expect(
-      drawer === 'Chat'
-        ? panel.getByRole('combobox', { name: 'Message' })
-        : panel.getByRole('button', { name: '+ Comment on page' }),
-    ).toBeVisible();
+    if (drawer === 'Chat')
+      await expect(panel.getByRole('combobox', { name: 'Message' })).toBeVisible();
+    else await expect(panel.getByRole('button', { name: '+ Comment on page' })).toHaveCount(0);
   });
 
 test('the document does not move when verification arrives', async ({ page }) => {

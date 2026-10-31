@@ -438,9 +438,8 @@ the dock count remains the canonical pending count. A selected thread stays in
 its sequence through resolution or acknowledgement until explicit navigation.
 Resolve/Reopen never collapse or advance the Discussion. The same mounted window
 retains its draft, input node and Not-notified warning. A reserved status line
-keeps the quote, messages and composer still through a status change. The existing
-page-comment action sits above the selected conversation, leaving the reply
-composer last and pinned. An empty filter retains page-comment creation.
+keeps the quote, messages and composer still through a status change. The reply composer stays last and pinned. Page-level comments are sent from Chat;
+Discussion does not offer a separate creation action, including in an empty filter.
 Escape closes the panel from inside it; on the page it still falls through to the
 annotation window and selection mode. `Show in the page` scrolls to the passage
 and leaves the panel open. Opening the dock or changing its filter keeps the page offset; arrows and explicit

@@ -3995,8 +3995,7 @@ The selected thread stays selected while Comments is closed and reopened. A marg
 marker and a Thread notification select the same Discussion view; a route fragment
 restores that selection without acknowledging new status. An anchored window exists
 only for a new selection and the first thread it creates. Page-owned drafts survive
-switching threads and closing the panel. Existing page-comment creation remains
-available above the selected conversation and in an empty view.
+switching threads and closing the panel. Page-level comments are sent from Chat; the Discussion window does not offer a separate creation action.
 In Discussion, Resolve and Reopen retain the conversation, quote, messages, composer
 and unsent draft in the same mounted window. Resolving does not collapse it or
 advance to another thread, even under Open. The header action changes to Reopen;

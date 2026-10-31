@@ -45,6 +45,13 @@ for (const width of [1440, 390])
       await page.screenshot({ path: test.info().outputPath(`discussion-${width}-${theme}.png`) });
     });
 
+test('Discussion never offers page-level comment creation', async ({ page }) => {
+  const { panel } = await openFirst(page);
+  await expect(panel.getByRole('button', { name: '+ Comment on page' })).toHaveCount(0);
+  await chooseThreadFilter(page, 'Needs you');
+  await expect(panel.getByRole('button', { name: '+ Comment on page' })).toHaveCount(0);
+});
+
 const highlights = (frame: ReturnType<Page['frameLocator']>) =>
   frame.locator('html').evaluate(() => ({
     quiet: CSS.highlights.has('colab-quiet'),
