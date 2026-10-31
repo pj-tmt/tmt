@@ -989,6 +989,7 @@ for (const theme of ['light', 'dark'] as const) {
     // At rest: open settings so All pages is not the selected row.
     await moduleMenu(page).locator('a[data-id="colab-settings"]').click();
     await expect(row).not.toHaveAttribute('aria-current', 'page');
+    // #5826: the shared attention dot replaces the former rail-specific indicator.
     const colors = await row.evaluate((element) => {
       const color = (target: Element) => getComputedStyle(target).color;
       const role = (name: string) => {
@@ -1001,7 +1002,7 @@ for (const theme of ['light', 'dark'] as const) {
       };
       return {
         total: color(element.querySelector('.tmt-ui-shell-count:not([data-kind])')!),
-        attention: getComputedStyle(element.querySelector('.tmt-ui-shell-attention')!)
+        attention: getComputedStyle(element.querySelector('.tmt-ui-attention-dot')!)
           .backgroundColor,
         name: color(element.querySelector('.tmt-ui-module-menu-label')!),
         primary: role('text'),

@@ -355,7 +355,11 @@ for (const width of [1440, 390]) {
       await page.setViewportSize({ width, height: 900 });
       await showResolvedOn(page);
       await page.goto('/');
-      await run(page, 'mount');
+      // #5815: the send handoff requires the fixture's admitted Ask publication, like native.
+      await page.evaluate(
+        async (fixture) => (await import(fixture)).mount({ observeSend: true }),
+        fixture,
+      );
       await expect(page.locator('#ask-page-fixture .status')).toContainText('Live');
       await change(page, source);
       await page.evaluate((theme) => {

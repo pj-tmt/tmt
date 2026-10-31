@@ -1,5 +1,4 @@
 import { expect, test } from '@playwright/test';
-import { commentsRegion } from '../test/comments-region.js';
 import vectors from '../../../contracts/vectors/needs-you-v1.json' with { type: 'json' };
 
 for (const vector of vectors.cases) {
@@ -12,14 +11,21 @@ for (const vector of vectors.cases) {
       app.pendingVector(vector);
     }, vector);
     const host = page.locator('#ask-page-fixture');
-    const expected = vector.expected;
+    // #5814: this owner corpus case retains a proposal record without an authored target.
+    const expected =
+      vector.name === 'standalone question counts once'
+        ? vector.expected.filter((item) => item.kind !== 'proposal')
+        : vector.expected;
     const count = expected.length;
     if (count) {
       const trigger = host.getByRole('button', { name: `Needs you: ${count}`, exact: true });
       await expect(trigger).toBeVisible();
       await trigger.click();
-      const items = page.getByRole('menu').getByRole('menuitem');
+      const items = page.getByRole('menu').locator('[role=menuitem][data-needs-you-kind]');
       await expect(items).toHaveCount(count);
+      // #5814 adds one command, not another pending target or another header count.
+      await expect(page.getByRole('menu').getByRole('menuitem')).toHaveCount(count + 1);
+      await expect(page.getByRole('menuitem', { name: 'Clear all', exact: true })).toHaveCount(1);
       expect(
         await items.evaluateAll((nodes) =>
           nodes.map((node) => ({
@@ -36,7 +42,7 @@ for (const vector of vectors.cases) {
 }
 
 for (const detached of [false, true]) {
-  test(`proposal navigation keeps records unchanged (${detached ? 'comments fallback' : 'inline'})`, async ({
+  test(`proposal navigation keeps records unchanged (${detached ? 'omitted without target' : 'inline'})`, async ({
     page,
   }) => {
     const vector = structuredClone(vectors.cases[0]);
@@ -54,18 +60,26 @@ for (const detached of [false, true]) {
         const app = await import(/* @vite-ignore */ fixture);
         return { records: app.discussionProof(), sends: app.proof() };
       });
-    await expect(page.getByRole('button', { name: 'Needs you: 4', exact: true })).toBeVisible();
+    const count = detached ? 3 : 4;
+    const trigger = page.getByRole('button', { name: `Needs you: ${count}`, exact: true });
+    await expect(trigger).toBeVisible();
     const before = await proof();
-    await page.getByRole('button', { name: 'Needs you: 4', exact: true }).click();
-    await expect(page.getByRole('menu').getByText('Please decide · 1')).toBeVisible();
-    await page.getByRole('menuitem', { name: 'Choose release · Agent 1' }).click();
-    await expect(page.getByRole('menu')).toHaveCount(0);
-    const target = detached ? commentsRegion(page) : page.locator('[data-inline-proposal]');
-    await expect(target).toBeVisible();
-    if (!detached)
+    await trigger.click();
+    const proposal = page.getByRole('menuitem', { name: 'Choose release · Agent 1' });
+    if (detached) {
+      await expect(proposal).toHaveCount(0);
+      await expect(page.getByRole('menu').getByText('Please decide · 1')).toHaveCount(0);
+      await page.keyboard.press('Escape');
+    } else {
+      await expect(page.getByRole('menu').getByText('Please decide · 1')).toBeVisible();
+      await proposal.click();
+      await expect(page.getByRole('menu')).toHaveCount(0);
+      const target = page.locator('[data-inline-proposal]');
+      await expect(target).toBeVisible();
       await expect
         .poll(() => target.evaluate((node) => node.contains(document.activeElement)))
         .toBe(true);
+    }
     expect(await proof()).toEqual(before);
   });
 }

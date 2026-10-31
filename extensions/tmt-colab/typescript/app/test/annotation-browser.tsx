@@ -359,6 +359,7 @@ export function mount(
                   issuedAt: view.intent.issuedAt,
                   machine: view.intent.machine,
                   state: view.state,
+                  reason: view.reason,
                   canTrack: true,
                 })),
               );

@@ -21,7 +21,7 @@ async function open(page: Page) {
   await page.setViewportSize({ width: Number(width), height: 900 });
   await page.emulateMedia({ colorScheme: scheme === 'dark' ? 'dark' : 'light' });
   await page.goto('/');
-  await run(page, 'mount');
+  await run(page, 'mount', { observeSend: true });
   await page
     .frameLocator('#ask-page-fixture iframe')
     .locator('#selected')
@@ -76,6 +76,8 @@ test('a reply that arrives grows the thread above a composer that stays where it
     Math.abs(after.window.y + after.window.height - (before.window.y + before.window.height)),
   ).toBeLessThanOrEqual(1);
   expect(after.window.height).toBeGreaterThan(before.window.height);
+  const reply = await thread.getByText('Exact associated agent reply.').boundingBox();
+  expect(reply!.y + reply!.height).toBeLessThanOrEqual(after.composer.y);
   await expect(input).toBeFocused();
   await expect(input).toHaveText('A draft', { useInnerText: true });
 });

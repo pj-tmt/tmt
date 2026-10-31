@@ -464,7 +464,8 @@ test('sidebar shortcut exposes honest counts and row controls without navigation
   const link = row.getByRole('link', { name: /^All work/ });
   await expect(link.locator('.tmt-ui-shell-count')).toHaveText(['75']);
   await expect(link).toHaveAccessibleName('All work · 75 total, 1 need you');
-  await expect(link.locator('.tmt-ui-shell-attention')).toHaveAttribute('aria-hidden', 'true');
+  // #5826 uses the shared decorative dot; the count stays in the accessible name.
+  await expect(link.locator('.tmt-ui-attention-dot')).toHaveAttribute('aria-hidden', 'true');
   await row.hover();
   await expect(row.getByRole('button', { name: 'Edit All work' })).toBeVisible();
   await expect(row.getByRole('button', { name: 'Delete All work' })).toBeVisible();

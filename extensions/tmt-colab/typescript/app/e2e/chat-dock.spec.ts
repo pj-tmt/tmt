@@ -67,9 +67,7 @@ for (const width of [1440, 390])
     test.describe(`${width} ${theme}`, () => {
       test.use({ viewport: { width, height: 900 }, colorScheme: theme });
 
-      test('one capsule holds Comments, Chat and Select, divided by visible hairlines', async ({
-        page,
-      }) => {
+      test('one capsule holds Comments, Chat and Select with token spacing', async ({ page }) => {
         await mount(page);
         const group = await dock(page).evaluate((node) => {
           const style = getComputedStyle(node);
@@ -77,6 +75,10 @@ for (const width of [1440, 390])
           return {
             count: actions.length,
             radius: style.borderTopLeftRadius,
+            radiusRole: style.getPropertyValue('--tmt-ui-radius-pill').trim(),
+            gap: style.gap,
+            padding: style.padding,
+            space: style.getPropertyValue('--tmt-ui-space-xs').trim(),
             background: style.backgroundColor,
             line: actions.slice(1).map((action) => getComputedStyle(action).borderLeftColor),
             lineWidth: actions.slice(1).map((action) => getComputedStyle(action).borderLeftWidth),
@@ -87,14 +89,12 @@ for (const width of [1440, 390])
           };
         });
         expect(group.count).toBe(3);
-        expect(group.radius).toBe('22px');
-        expect(group.lineWidth).toEqual(['1px', '1px']);
+        // #5813 mock replaces the old divided capsule with token spacing and a pill surface.
+        expect(group.radius).toBe(group.radiusRole);
+        expect(group.gap).toBe(group.space);
+        expect(group.padding).toBe(group.space);
+        expect(group.lineWidth).toEqual(['0px', '0px']);
         expect(group.frames).toEqual(['0px', '0px', '0px']);
-        // Each hairline is a real colour that is not the capsule's own surface, in both themes.
-        for (const line of group.line) {
-          expect(line).not.toBe('rgba(0, 0, 0, 0)');
-          expect(line).not.toBe(group.background);
-        }
         await page.screenshot({
           path: capturePath(`dock-closed-${width}-${theme}.png`),
           clip: { x: Math.max(0, width - 360), y: 780, width: Math.min(360, width), height: 120 },

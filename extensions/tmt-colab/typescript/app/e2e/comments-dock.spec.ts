@@ -204,10 +204,14 @@ for (const width of [320, 390, 1440])
     const boxes = await actions.evaluateAll((nodes) =>
       nodes.map((node) => node.getBoundingClientRect().toJSON()),
     );
-    // One row: the same top and height, left to right in the order Annotate, Chat, Comments.
+    // #5813: equal dock actions use the approved floating-action-size role.
+    const actionSize = await dock(page).evaluate((node) =>
+      parseFloat(getComputedStyle(node).getPropertyValue('--tmt-ui-floating-action-size')),
+    );
+    // One row: the same token-sized actions, left to right: Annotate, Chat, Comments.
     for (const box of boxes) {
       expect(box.top).toBe(boxes[0].top);
-      expect(box.height).toBe(44);
+      expect(box.height).toBe(actionSize);
     }
     expect(boxes[0].right).toBeLessThanOrEqual(boxes[1].left + 1);
     expect(boxes[1].right).toBeLessThanOrEqual(boxes[2].left + 1);
@@ -231,10 +235,23 @@ test('dock keeps the mock-sized round icons and highlights its open Discussion a
   await mount(page);
   const actions = dock(page).getByRole('button');
   await expect(actions).toHaveCount(3);
+  const roles = await dock(page).evaluate((node) => {
+    const css = getComputedStyle(node);
+    const probe = document.createElement('span');
+    probe.style.background = 'var(--tmt-ui-surface-selection)';
+    node.append(probe);
+    const selection = getComputedStyle(probe).backgroundColor;
+    probe.remove();
+    return {
+      icon: css.getPropertyValue('--tmt-ui-header-icon-size').trim(),
+      stroke: `${parseFloat(css.getPropertyValue('--tmt-ui-header-icon-stroke'))}px`,
+      selection,
+    };
+  });
   for (const icon of await dock(page).locator('button svg').all()) {
-    await expect(icon).toHaveCSS('width', '16px');
-    await expect(icon).toHaveCSS('height', '16px');
-    await expect(icon).toHaveCSS('stroke-width', '1.75px');
+    await expect(icon).toHaveCSS('width', roles.icon);
+    await expect(icon).toHaveCSS('height', roles.icon);
+    await expect(icon).toHaveCSS('stroke-width', roles.stroke);
     await expect(icon).toHaveCSS('stroke-linecap', 'round');
     await expect(icon).toHaveCSS('stroke-linejoin', 'round');
   }
@@ -242,5 +259,5 @@ test('dock keeps the mock-sized round icons and highlights its open Discussion a
   await comments.click();
   await expect(dock(page)).toBeVisible();
   await expect(comments).toHaveAttribute('aria-expanded', 'true');
-  await expect(comments).toHaveCSS('background-color', 'rgb(211, 235, 221)');
+  await expect(comments).toHaveCSS('background-color', roles.selection);
 });
