@@ -262,10 +262,10 @@ export const components: ComponentDoc[] = [
     description: 'A multi-line field for messages and notes.',
     preview: () => (
       <div className="docs-stack">
-        <Textarea aria-label="Message" placeholder="Message #tmt-gui" />
+        <Textarea aria-label="Message" placeholder="Message #sample-squad" />
       </div>
     ),
-    usage: `${importLine('Textarea')}<Textarea aria-label="Message" placeholder="Message #tmt-gui" />`,
+    usage: `${importLine('Textarea')}<Textarea aria-label="Message" placeholder="Message #sample-squad" />`,
     variants: [],
   },
   {
@@ -489,8 +489,8 @@ export const components: ComponentDoc[] = [
               <CommandItem>Design system docs</CommandItem>
             </CommandGroup>
             <CommandGroup heading="Members">
-              <CommandItem>gui-2</CommandItem>
-              <CommandItem>tmt-gui-lead</CommandItem>
+              <CommandItem>sample-1</CommandItem>
+              <CommandItem>sample-lead</CommandItem>
             </CommandGroup>
           </CommandList>
         </Command>
@@ -521,11 +521,11 @@ export const components: ComponentDoc[] = [
     preview: () => (
       <Card className="docs-card-demo">
         <CardHeader>
-          <CardTitle>#tmt-gui</CardTitle>
-          <CardDescription>Lead tmt-gui-lead · 3 members · 2 working</CardDescription>
+          <CardTitle>#sample-squad</CardTitle>
+          <CardDescription>Lead sample-lead · 3 members · 2 working</CardDescription>
         </CardHeader>
         <CardContent>
-          <p className="docs-muted">Spec revision is waiting on Ben.</p>
+          <p className="docs-muted">Spec revision is waiting on you.</p>
         </CardContent>
         <CardFooter>
           <Button type="button" size="sm">
@@ -537,7 +537,7 @@ export const components: ComponentDoc[] = [
         </CardFooter>
       </Card>
     ),
-    usage: `${importLine('Card', 'CardHeader', 'CardTitle', 'CardContent')}<Card>\n  <CardHeader><CardTitle>#tmt-gui</CardTitle></CardHeader>\n  <CardContent>…</CardContent>\n</Card>`,
+    usage: `${importLine('Card', 'CardHeader', 'CardTitle', 'CardContent')}<Card>\n  <CardHeader><CardTitle>#sample-squad</CardTitle></CardHeader>\n  <CardContent>…</CardContent>\n</Card>`,
     variants: [],
     dos: [['dont', 'Add a shadow to a resting card; only floating layers cast one.']],
   },

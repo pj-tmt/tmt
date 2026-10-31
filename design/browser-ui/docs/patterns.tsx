@@ -127,4 +127,28 @@ export const patterns: { slug: string; title: string; lead: string; render(): Re
       </div>
     ),
   },
+  {
+    slug: 'planned',
+    title: 'Planned parts',
+    lead: 'Parts the Colab mock still builds from stand-ins. Each is planned; the rich inputs and the collection list are #5830.',
+    render: () => (
+      <ul className="docs-planned">
+        <li>
+          <b>ToggleGroup</b> — a set of pressed buttons, for the list's project filters. Today:
+          ghost and secondary Buttons with aria-pressed.
+        </li>
+        <li>
+          <b>Tabs count slot</b> — a muted count inside a tab trigger. Today: plain text in the
+          label.
+        </li>
+        <li>
+          <b>Avatar</b> — initials or a picture in the pill radius. Today: initials in a span.
+        </li>
+        <li>
+          <b>List row</b> — the title, tags, time and unread row as one part. Today: the List row
+          pattern above.
+        </li>
+      </ul>
+    ),
+  },
 ];

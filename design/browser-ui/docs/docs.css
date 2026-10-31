@@ -72,7 +72,7 @@ code {
 .docs-segment > button,
 .docs-theme,
 .docs-menu-button {
-  padding: var(--tmt-ui-ref-space-1) var(--tmt-ui-ref-space-3);
+  padding: var(--tmt-ui-ref-space-1) var(--tmt-ui-ref-space-4);
   border: 0;
   background: transparent;
   color: var(--tmt-ui-color-secondary);
@@ -537,4 +537,91 @@ code {
   .pattern-row-tags {
     display: none;
   }
+}
+
+/* Motion, elevation and brand pages (#5821) */
+.docs-replay {
+  display: grid;
+  justify-items: center;
+  gap: var(--tmt-ui-ref-space-4);
+}
+.docs-reduced {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--tmt-ui-ref-space-3);
+}
+.docs-motion-demos {
+  display: grid;
+  gap: var(--tmt-ui-ref-space-3);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.docs-motion-demo {
+  display: grid;
+  grid-template-columns: 160px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: var(--tmt-ui-ref-space-3);
+}
+.docs-motion-track {
+  position: relative;
+  height: 24px;
+  border-bottom: var(--tmt-ui-rule-width) solid var(--tmt-ui-surface-rule);
+}
+.docs-motion-box {
+  position: absolute;
+  left: 0;
+  width: 24px;
+  height: 20px;
+  border-radius: var(--tmt-ui-radius-s);
+  background: var(--tmt-ui-color-text);
+  transition-property: left;
+}
+.docs-motion-box[data-moved] {
+  left: calc(100% - 24px);
+}
+/* The reduced-motion simulation: the same 0ms the media query sets, for this page only. */
+:root[data-tmt-reduced-motion] {
+  --tmt-ui-motion-fast: 0ms;
+  --tmt-ui-motion-base: 0ms;
+}
+:root[data-tmt-reduced-motion] [data-tmt-ui] {
+  --tmt-foundation-motion-fast: 0ms;
+  --tmt-foundation-motion-base: 0ms;
+  --tmt-foundation-motion-pulse: 0ms;
+}
+.docs-elevation {
+  display: grid;
+  gap: var(--tmt-ui-ref-space-4);
+  padding: var(--tmt-ui-ref-space-6);
+  background: var(--tmt-ui-surface-paper);
+}
+.docs-elevation-level {
+  display: grid;
+  gap: var(--tmt-ui-ref-space-1);
+  max-width: 360px;
+  padding: var(--tmt-ui-ref-space-4);
+}
+.docs-brand-row {
+  display: flex;
+  align-items: end;
+  gap: var(--tmt-ui-ref-space-6);
+}
+.docs-brand-size {
+  display: grid;
+  justify-items: center;
+  gap: var(--tmt-ui-ref-space-2);
+}
+/* Option B: a red prompt on a black panel. */
+[data-tmt-mark='b'] {
+  --tmt-ui-brand-mark-panel-top: var(--tmt-ui-ref-ink-800);
+  --tmt-ui-brand-mark-panel-bottom: var(--tmt-ui-ref-ink-950);
+  --tmt-ui-brand-mark-prompt: var(--tmt-ui-ref-red-500);
+}
+.docs-motion-line {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--tmt-ui-ref-space-3);
 }

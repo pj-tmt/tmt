@@ -60,8 +60,10 @@ it('publishes only a separate scoped namespace, without preflight, global variab
   expect(() => assertUiUtilities(css)).not.toThrow();
   expect(css).toContain(':where([data-tmt-ui]) {');
   expect(css).toContain('.tmt\\:bg-background');
-  // The one shadow is the overlay token, from the `shadow-overlay` utility alone.
-  expect([...css.matchAll(/\.tmt\\:shadow[^\s{]*/g)].map((match) => match[0])).toEqual([
+  // Shadows are the elevation levels alone (#5821): a card, the floating layers and a modal.
+  expect([...css.matchAll(/\.tmt\\:shadow[^\s{]*/g)].map((match) => match[0]).sort()).toEqual([
+    '.tmt\\:shadow-elevation-1',
+    '.tmt\\:shadow-elevation-3',
     '.tmt\\:shadow-overlay',
   ]);
   expect(css).toMatch(/--tmt-foundation-tw-shadow:\s*var\(--tmt-foundation-shadow-overlay\)/);

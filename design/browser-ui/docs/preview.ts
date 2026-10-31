@@ -37,9 +37,12 @@ const allRadiusProperties = [
 let theme: Theme = stored('tmt-docs-theme') === 'light' ? 'light' : 'dark';
 let radius: Radius =
   (['2', '4', 'current'] as const).find((r) => r === stored('tmt-docs-radius')) ?? '2';
+let reduced = false;
 function apply() {
   root.dataset.theme = theme;
   root.dataset.tmtPalette = 'b';
+  if (reduced) root.dataset.tmtReducedMotion = '';
+  else delete root.dataset.tmtReducedMotion;
   for (const name of allRadiusProperties) root.style.removeProperty(name);
   for (const [name, value] of Object.entries(radiusStyle[radius]))
     root.style.setProperty(name, value);
@@ -62,12 +65,17 @@ export const radiusLabel: Record<Radius, string> = {
   '4': '4 / 6',
   current: 'Current',
 };
-export function usePreview(): { theme: Theme; radius: Radius } {
+/** The Motion page's reduced-motion simulation; never stored, so a reload restores real motion. */
+export function setReducedMotion(next: boolean) {
+  reduced = next;
+  apply();
+}
+export function usePreview(): { theme: Theme; radius: Radius; reduced: boolean } {
   const subscribe = (notify: () => void) => {
     listeners.add(notify);
     return () => listeners.delete(notify);
   };
-  const snapshot = useSyncExternalStore(subscribe, () => `${theme}|${radius}`);
-  const [t, r] = snapshot.split('|') as [Theme, Radius];
-  return { theme: t, radius: r };
+  const snapshot = useSyncExternalStore(subscribe, () => `${theme}|${radius}|${reduced}`);
+  const [t, r, m] = snapshot.split('|') as [Theme, Radius, string];
+  return { theme: t, radius: r, reduced: m === 'true' };
 }

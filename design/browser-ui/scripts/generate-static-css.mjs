@@ -53,10 +53,10 @@ const fromRefs = (value) =>
 /** Palette B's role mapping for one theme, plus its theme-free metric roles when `metrics` is set. */
 const paletteB = (theme, indent, metrics = false) =>
   [
-    ...['color', 'surface', 'shadow'].flatMap((group) =>
-      Object.entries(tokens.browser['palette-b'][group]).map(
-        ([role, value]) => `${indent}--tmt-ui-${group}-${role}: ${fromRefs(value[theme])};`,
-      ),
+    ...['color', 'surface', 'shadow', 'brand-mark'].flatMap((group) =>
+      Object.entries(tokens.browser['palette-b'][group])
+        .filter(([role]) => !role.startsWith('$'))
+        .map(([role, value]) => `${indent}--tmt-ui-${group}-${role}: ${fromRefs(value[theme])};`),
     ),
     ...(metrics
       ? Object.entries(tokens.browser['palette-b'].metric).map(

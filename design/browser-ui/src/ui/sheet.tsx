@@ -100,7 +100,7 @@ export function SheetContent({
           side === 'top' && 'tmt:top-[calc(var(--tmt-layer-top,0px)+var(--tmt-layer-gutter,0px))]',
           side === 'bottom' &&
             'tmt:top-[calc(var(--tmt-layer-top,0px)+var(--tmt-layer-height,100dvh)-var(--tmt-layer-gutter,0px))] tmt:-translate-y-full',
-          'tmt:rounded-surface tmt:shadow-overlay',
+          'tmt:rounded-surface tmt:shadow-elevation-3',
           slideMotion[side],
           className,
         )}

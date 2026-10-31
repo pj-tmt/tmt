@@ -2,6 +2,7 @@
 import type { ComponentProps } from 'react';
 import { DropdownMenu as Primitive } from 'radix-ui';
 import { CheckIcon, ChevronRightIcon, CircleIcon } from 'lucide-react';
+import { listItem } from './item.js';
 import { cn } from './utils.js';
 import { useUiPortalContainer } from './theme.js';
 import {
@@ -107,8 +108,7 @@ export function DropdownMenuContent({
 export function DropdownMenuGroup(props: ComponentProps<typeof Primitive.Group>) {
   return <Primitive.Group data-slot="dropdown-menu-group" {...props} />;
 }
-const itemClasses =
-  'tmt:relative tmt:flex tmt:cursor-default tmt:items-center tmt:gap-2 tmt:px-2 tmt:py-1.5 tmt:outline-ring tmt:focus:outline-solid tmt:focus:outline-(length:--tmt-foundation-focus-width) tmt:select-none tmt:focus:bg-accent tmt:focus:text-accent-foreground tmt:data-[disabled]:pointer-events-none tmt:data-[disabled]:text-muted-foreground';
+const itemClasses = listItem;
 export function DropdownMenuItem({
   className,
   inset,
@@ -186,7 +186,11 @@ export function DropdownMenuLabel({
   return (
     <Primitive.Label
       data-slot="dropdown-menu-label"
-      className={cn('tmt:px-2 tmt:py-1.5 tmt:font-medium', inset && 'tmt:pl-8', className)}
+      className={cn(
+        'tmt:px-(--tmt-foundation-item-padding) tmt:py-1.5 tmt:font-medium',
+        inset && 'tmt:pl-8',
+        className,
+      )}
       {...props}
     />
   );

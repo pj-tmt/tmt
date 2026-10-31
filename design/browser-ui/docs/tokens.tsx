@@ -1,5 +1,6 @@
 import { useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import tokens from '../../tokens/tokens.json';
+import { BrandPage, ElevationPage, MotionPage } from './motion.js';
 import { usePreview } from './preview.js';
 
 const names = (group: Record<string, unknown>) =>
@@ -195,18 +196,34 @@ export const tokenPages: { slug: string; title: string; lead: string; render(): 
   {
     slug: 'motion',
     title: 'Motion',
-    lead: 'Two durations and two easings. Under reduced motion every duration is 0ms.',
+    lead: 'Two durations and two easings, from the motion tokens only. Under reduced motion every duration is 0ms.',
     render: () => (
-      <ul className="docs-motion">
-        {names(tokens.browser.motion).map((name) => (
-          <li key={name}>
-            <code>{name}</code>
-            <Measured variable={`--tmt-ui-motion-${name}`}>
-              {(value) => <span>{value}</span>}
-            </Measured>
-          </li>
-        ))}
-      </ul>
+      <>
+        <MotionPage />
+        <h2>Tokens</h2>
+        <ul className="docs-motion">
+          {names(tokens.browser.motion).map((name) => (
+            <li key={name}>
+              <code>{name}</code>
+              <Measured variable={`--tmt-ui-motion-${name}`}>
+                {(value) => <span>{value}</span>}
+              </Measured>
+            </li>
+          ))}
+        </ul>
+      </>
     ),
+  },
+  {
+    slug: 'elevation',
+    title: 'Elevation',
+    lead: 'Surface levels on one elevation scale, from the page to a modal.',
+    render: () => <ElevationPage />,
+  },
+  {
+    slug: 'brand',
+    title: 'Brand',
+    lead: 'The mark under palette B, at the sizes the product draws it.',
+    render: () => <BrandPage />,
   },
 ];

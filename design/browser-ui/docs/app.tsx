@@ -3,6 +3,7 @@ import { BrandMark } from '../src/brand-mark.js';
 import { UiTheme } from '../src/ui/index.js';
 import { components, type ComponentDoc } from './catalog.js';
 import { patterns } from './patterns.js';
+import { motionNotes, Replay } from './motion.js';
 import { tokenPages } from './tokens.js';
 import { radiusLabel, setRadius, setTheme, usePreview, type Radius } from './preview.js';
 import { follow } from './router.js';
@@ -266,7 +267,14 @@ function Principles() {
 function ComponentPage({ doc }: { doc: ComponentDoc }) {
   return (
     <Article title={doc.name} lead={doc.description}>
-      <div className="docs-canvas docs-canvas-hero">{doc.preview()}</div>
+      <div className="docs-canvas docs-canvas-hero">
+        {motionNotes[doc.slug] ? <Replay>{doc.preview()}</Replay> : doc.preview()}
+      </div>
+      {motionNotes[doc.slug] && (
+        <p className="docs-motion-line">
+          <b>Motion</b> {motionNotes[doc.slug]}
+        </p>
+      )}
       <h2>Usage</h2>
       <Snippet code={doc.usage} />
       {doc.variants.length > 0 && <h2>Variants and states</h2>}

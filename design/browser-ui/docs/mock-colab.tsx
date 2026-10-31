@@ -492,32 +492,36 @@ const comments = [
   {
     quote: 'Corners are small: 2px on controls, 4px on surfaces.',
     thread: [
-      ['tmt-gui-lead', 'Agree on 2/4. Counts keep the same radius, no pills.'],
-      ['Ben', 'Yes. Try 4/6 once on the gallery before we lock it.'],
+      ['sample-lead', 'Agree on 2/4. Counts keep the same radius, no pills.'],
+      ['sample-1', 'Yes. Try 4/6 once on the gallery before we lock it.'],
     ],
   },
   {
     quote: 'The selected tab is the only red line on the page.',
     thread: [
-      ['gui-3', 'Line tabs only? Segmented tabs stay neutral?'],
-      ['gui-2', 'Yes, segmented stays neutral.'],
+      ['sample-2', 'Line tabs only? Segmented tabs stay neutral?'],
+      ['sample-2', 'Yes, segmented stays neutral.'],
     ],
   },
 ];
 const chat = [
-  ['Ben', '10:12', 'Looks much calmer. What happens to the amber counts?'],
+  ['sample-1', '10:12', 'Looks much calmer. What happens to the amber counts?'],
   [
-    'gui-2',
+    'sample-2',
     '10:14',
     'They stay amber: status is never the accent. Only “needs you” counts are amber.',
   ],
-  ['tmt-gui-lead', '10:15', 'Ship B as the default once the Colab pages are swept.'],
+  ['sample-lead', '10:15', 'Ship B as the default once the Colab pages are swept.'],
 ];
 
 function Initials({ name }: { name: string }) {
   return (
     <span className="mock-initials" aria-hidden="true">
-      {name.replace(/^tmt-/, '').slice(0, 2).toUpperCase()}
+      {name
+        .split('-')
+        .map((part) => part[0])
+        .join('')
+        .toUpperCase()}
     </span>
   );
 }
@@ -545,7 +549,7 @@ function PageDetail() {
           <div className="mock-meta">
             <Badge variant="outline">design</Badge>
             <Badge variant="outline">spec</Badge>
-            <span className="mock-quiet">by gui-2 · updated 2 min ago</span>
+            <span className="mock-quiet">by sample-2 · updated 2 min ago</span>
           </div>
           <div className="tmt-ui-prose">
             <h1>Theme B review</h1>
@@ -592,7 +596,7 @@ function PageDetail() {
           </div>
           <Card className="mock-question">
             <CardHeader>
-              <CardTitle>Question for Ben</CardTitle>
+              <CardTitle>Question for you</CardTitle>
               <CardDescription>Which radius ships with B?</CardDescription>
             </CardHeader>
             <CardContent className="mock-question-body">

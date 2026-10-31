@@ -2,6 +2,7 @@
 import type { ComponentProps } from 'react';
 import { Select as Primitive } from 'radix-ui';
 import { CheckIcon, ChevronDownIcon, ChevronUpIcon } from 'lucide-react';
+import { listItem } from './item.js';
 import { cn, nativeFieldReset } from './utils.js';
 import { useUiPortalContainer } from './theme.js';
 import { popMotion } from './motion.js';
@@ -76,7 +77,7 @@ export function SelectContent({
         <Primitive.ScrollUpButton className="tmt:flex tmt:cursor-default tmt:items-center tmt:justify-center tmt:py-1">
           <ChevronUpIcon aria-hidden="true" className="tmt:size-4" />
         </Primitive.ScrollUpButton>
-        <Primitive.Viewport className="tmt:p-1 tmt:w-full tmt:min-w-(--radix-select-trigger-width)">
+        <Primitive.Viewport className="tmt:box-border tmt:p-1 tmt:w-full tmt:min-w-(--radix-select-trigger-width)">
           {children}
         </Primitive.Viewport>
         <Primitive.ScrollDownButton className="tmt:flex tmt:cursor-default tmt:items-center tmt:justify-center tmt:py-1">
@@ -91,7 +92,7 @@ export function SelectLabel({ className, ...props }: ComponentProps<typeof Primi
     <Primitive.Label
       data-slot="select-label"
       className={cn(
-        'tmt:px-2 tmt:py-1.5 tmt:text-(length:--tmt-foundation-caption-size) tmt:text-muted-foreground',
+        'tmt:px-(--tmt-foundation-item-padding) tmt:py-1.5 tmt:text-(length:--tmt-foundation-caption-size) tmt:text-muted-foreground',
         className,
       )}
       {...props}
@@ -106,10 +107,7 @@ export function SelectItem({
   return (
     <Primitive.Item
       data-slot="select-item"
-      className={cn(
-        'tmt:relative tmt:flex tmt:w-full tmt:cursor-default tmt:items-center tmt:gap-2 tmt:py-1.5 tmt:pr-8 tmt:pl-2 tmt:outline-ring tmt:focus:outline-solid tmt:focus:outline-(length:--tmt-foundation-focus-width) tmt:select-none tmt:focus:bg-accent tmt:focus:text-accent-foreground tmt:data-[disabled]:pointer-events-none tmt:data-[disabled]:text-muted-foreground',
-        className,
-      )}
+      className={cn(listItem, 'tmt:w-full tmt:pr-8', className)}
       {...props}
     >
       <span className="tmt:absolute tmt:right-2 tmt:flex tmt:size-3.5 tmt:items-center tmt:justify-center">

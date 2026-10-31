@@ -36,14 +36,18 @@ const roles = {
   indicator: ['color', 'edge'],
   ring: ['color', 'focus'],
   scrim: ['surface', 'scrim'],
-  // Not a colour utility: the one shadow, for floating layers only (`shadow-overlay`).
+  // Not colour utilities: the elevation scale (#5821). `shadow-overlay` is the floating layers' level.
   'shadow-overlay': ['shadow', 'overlay'],
+  'shadow-elevation-1': ['shadow', 'elevation-1'],
+  'shadow-elevation-3': ['shadow', 'elevation-3'],
 };
-const colourRoles = Object.keys(roles).filter((key) => key !== 'shadow-overlay');
+const colourRoles = Object.keys(roles).filter((key) => !key.startsWith('shadow-'));
 /** The motion tokens as foundation properties; `reduced` zeroes every duration. */
 function motion(reduced = false, indent = '  ') {
   return Object.entries(tokens.browser.motion)
-    .filter(([key]) => !key.startsWith('$') && (!reduced || ['fast', 'base'].includes(key)))
+    .filter(
+      ([key]) => !key.startsWith('$') && (!reduced || ['fast', 'base', 'pulse'].includes(key)),
+    )
     .map(([key, value]) => `${indent}--tmt-foundation-motion-${key}: ${reduced ? '0ms' : value};`);
 }
 const themed = (theme) =>
@@ -104,7 +108,14 @@ const source = (
 const candidates = uiCandidates(source);
 // Layer enter and exit as named animations (`animate-pop-in`, `animate-slide-out-right`, ...) over
 // the keyframes below, on the motion tokens: `pop-fast-*` is the fast duration, the rest the base.
+// #5821: entering takes the base duration with ease-out (a floating layer the fast one), leaving the
+// fast one with ease-in, and a floating layer leaves in two thirds of its entry, so exit is quicker.
 const motionVar = (token) => `var(--tmt-foundation-motion-${token})`;
+const durations = {
+  fast: motionVar('fast'),
+  base: motionVar('base'),
+  quick: `calc(${motionVar('fast')} * 2 / 3)`,
+};
 const animations = [
   ['pop-fast-in', 'pop-in', 'fast', 'ease-out'],
   ['pop-fast-out', 'pop-out', 'fast', 'ease-in'],
@@ -112,18 +123,28 @@ const animations = [
   ['pop-out', 'pop-out', 'base', 'ease-in'],
   ['fade-in', 'fade-in', 'base', 'ease-out'],
   ['fade-out', 'fade-out', 'base', 'ease-in'],
+  ['fade-fast-out', 'fade-out', 'fast', 'ease-in'],
+  ['fade-quick-out', 'fade-out', 'quick', 'ease-in'],
   ...['right', 'left', 'top', 'bottom'].flatMap((side) => [
     [`slide-in-${side}`, `slide-in-${side}`, 'base', 'ease-out'],
-    [`slide-out-${side}`, `slide-out-${side}`, 'base', 'ease-in'],
+    [`slide-out-${side}`, `slide-out-${side}`, 'fast', 'ease-in'],
+    [`rise-in-${side}`, `rise-in-${side}`, 'fast', 'ease-out'],
   ]),
-].map(
-  ([name, keyframes, duration, ease]) =>
-    `--animate-${name}: tmt-foundation-${keyframes} ${motionVar(duration)} ${motionVar(`ease-${ease.slice(5)}`)} both;`,
-);
+  ['rise-in', 'rise-in-top', 'base', 'ease-out'],
+]
+  .map(
+    ([name, keyframes, duration, ease]) =>
+      `--animate-${name}: tmt-foundation-${keyframes} ${durations[duration]} ${motionVar(`ease-${ease.slice(5)}`)} both;`,
+  )
+  .concat(
+    `--animate-pulse-calm: tmt-foundation-pulse ${motionVar('pulse')} ${motionVar('ease-in')} infinite alternate;`,
+  );
 const theme = [
   '--*: initial;',
   ...colourRoles.map((key) => `--color-${key}: var(--tmt-foundation-${key});`),
   '--shadow-overlay: var(--tmt-foundation-shadow-overlay);',
+  '--shadow-elevation-1: var(--tmt-foundation-shadow-elevation-1);',
+  '--shadow-elevation-3: var(--tmt-foundation-shadow-elevation-3);',
   '--radius-control: var(--tmt-foundation-radius);',
   '--radius-small: var(--tmt-foundation-radius-s);',
   '--radius-surface: var(--tmt-foundation-radius-l);',
@@ -164,12 +185,26 @@ const slides = ['right', 'left', 'top', 'bottom'].map((side) => {
   }[side];
   return `@keyframes tmt-foundation-slide-in-${side} {\n  from {\n    transform: ${from};\n  }\n}\n@keyframes tmt-foundation-slide-out-${side} {\n  to {\n    transform: ${from};\n  }\n}`;
 });
+// A floating layer rises a short way from the side it opens toward: a layer placed below its anchor
+// comes down to it, one placed above comes up, and so on.
+const rises = ['right', 'left', 'top', 'bottom'].map((side) => {
+  const rise = 'var(--tmt-foundation-motion-rise)';
+  const from = {
+    right: `calc(${rise} * -1) 0`,
+    left: `${rise} 0`,
+    top: `0 ${rise}`,
+    bottom: `0 calc(${rise} * -1)`,
+  }[side];
+  return `@keyframes tmt-foundation-rise-in-${side} {\n  from {\n    opacity: 0;\n    translate: ${from};\n  }\n}`;
+});
 const keyframes = [
   '@keyframes tmt-foundation-fade-in {\n  from {\n    opacity: 0;\n  }\n}',
   '@keyframes tmt-foundation-fade-out {\n  to {\n    opacity: 0;\n  }\n}',
   '@keyframes tmt-foundation-pop-in {\n  from {\n    opacity: 0;\n    scale: var(--tmt-foundation-motion-scale);\n  }\n}',
   '@keyframes tmt-foundation-pop-out {\n  to {\n    opacity: 0;\n    scale: var(--tmt-foundation-motion-scale);\n  }\n}',
   ...slides,
+  ...rises,
+  '@keyframes tmt-foundation-pulse {\n  to {\n    opacity: 0.55;\n  }\n}',
 ].join('\n');
 const css = `/* Generated by scripts/generate-ui-css.mjs; no preflight or global theme. */
 [data-tmt-ui] {\n${fixed}\n${themed('light')}\n  color-scheme: light;\n}

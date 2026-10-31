@@ -81,7 +81,24 @@ whole set (2/4 or 4/6). `radius-pill` stays for avatars, radios and status dots.
 theme and the knob. This is the only place `ui.css` reads `--tmt-ui-*`, and it needs `static.css`
 there. Outside the scope nothing changes. B becomes the default values, and the scope goes away,
 once Ben approves the look. The gallery's "Theme B" section (`?frame=theme-b`) shows the set with
-its theme and radius switches.
+its theme and radius switches. Under the scope the brand mark's roles (`palette-b.brand-mark`) turn
+it red, black and white.
+
+Shadows form one elevation scale, `browser.shadow.elevation-0` to `elevation-3`; `overlay` is level 2.
+The `ui` set reads them as `shadow-elevation-1` (Card), `shadow-overlay` (Popover, menus, Select,
+Tooltip) and `shadow-elevation-3` (Dialog, Sheet), and the `Surface` part names the levels: paper,
+sheet, raised, overlay and modal. The source policy rejects any other shadow. Select, the menus and
+Command share one row (`src/ui/item.ts`): a neutral highlighted fill inset from the list edge, the
+small radius and the `ui.item-padding` inline padding, never an accent ring.
+
+Motion reads the motion tokens only, and the source policy rejects a literal duration, delay or
+easing. Floating layers fade and rise from their Radix `data-side` on fast and leave in two thirds
+of it; a dialog pops in on base and leaves on fast; a sheet slides in on base and out on fast. The
+line Tabs underline slides between triggers; Switch, Checkbox, Button and Alert move on press or
+entry; Skeleton pulses calmly. Reduced motion zeroes every duration, the pulse included.
+
+`pnpm design-docs` serves the dev-only design-system docs and the Colab mock (`docs/`,
+`vite.docs.config.ts`) on `http://127.0.0.1:5100`.
 
 A mark's paint servers are prefixed by an id unique per document: `BrandMark` takes it from
 `useId`, and `mountShell` asks the live document (`freshMarkId`) so a second shell, such as a

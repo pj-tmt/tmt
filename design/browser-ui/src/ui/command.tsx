@@ -2,6 +2,7 @@
 import { useRef, type ComponentProps } from 'react';
 import { Command as Primitive } from 'cmdk';
 import { SearchIcon } from 'lucide-react';
+import { listItem } from './item.js';
 import { cn } from './utils.js';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from './dialog.js';
 
@@ -60,7 +61,7 @@ export function CommandInput({ className, ...props }: ComponentProps<typeof Prim
       <Primitive.Input
         data-slot="command-input"
         className={cn(
-          'tmt:appearance-none tmt:box-border tmt:m-0 tmt:h-10 tmt:w-full tmt:min-w-0 tmt:border-0 tmt:bg-transparent tmt:text-foreground tmt:font-body tmt:text-(length:--tmt-foundation-command-size) tmt:outline-none tmt:focus-visible:outline-solid tmt:focus-visible:outline-ring tmt:focus-visible:outline-(length:--tmt-foundation-focus-width) tmt:focus-visible:-outline-offset-(length:--tmt-foundation-focus-width) tmt:placeholder:text-muted-foreground',
+          'tmt:appearance-none tmt:box-border tmt:m-0 tmt:h-10 tmt:w-full tmt:min-w-0 tmt:border-0 tmt:bg-transparent tmt:text-foreground tmt:font-body tmt:text-(length:--tmt-foundation-command-size) tmt:outline-none tmt:placeholder:text-muted-foreground',
           className,
         )}
         {...props}
@@ -94,7 +95,7 @@ export function CommandGroup({ className, ...props }: ComponentProps<typeof Prim
     <Primitive.Group
       data-slot="command-group"
       className={cn(
-        'tmt:overflow-hidden tmt:p-1 tmt:text-foreground tmt:[&_[cmdk-group-heading]]:px-2 tmt:[&_[cmdk-group-heading]]:py-1 tmt:[&_[cmdk-group-heading]]:text-muted-foreground',
+        'tmt:overflow-hidden tmt:p-1 tmt:text-foreground tmt:[&_[cmdk-group-heading]]:px-(--tmt-foundation-item-padding) tmt:[&_[cmdk-group-heading]]:py-1 tmt:[&_[cmdk-group-heading]]:text-muted-foreground',
         className,
       )}
       {...props}
@@ -118,7 +119,9 @@ export function CommandItem({ className, ...props }: ComponentProps<typeof Primi
     <Primitive.Item
       data-slot="command-item"
       className={cn(
-        'tmt:relative tmt:flex tmt:cursor-default tmt:items-center tmt:gap-2 tmt:px-2 tmt:py-2 tmt:text-(length:--tmt-foundation-command-size) tmt:outline-none tmt:select-none tmt:data-[disabled=true]:text-muted-foreground tmt:data-[selected=true]:bg-accent tmt:data-[selected=true]:text-accent-foreground',
+        // cmdk marks its active row `data-selected` and a disabled one `data-disabled=true`.
+        listItem,
+        'tmt:py-2 tmt:text-(length:--tmt-foundation-command-size) tmt:data-[disabled=true]:text-muted-foreground tmt:data-[selected=true]:bg-accent tmt:data-[selected=true]:text-accent-foreground',
         className,
       )}
       {...props}
