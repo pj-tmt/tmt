@@ -49,9 +49,9 @@ is excluded from formatting; authored CSS remains formatted. Source-level policy
 the assembled source, byte checks inspect the distribution, and browser comparisons verify
 that compilation preserves computed paint and layout. The check compares expected bytes without writing. `test/byte-budget.test.ts` holds the gzip
 size (level 9) of `generated/static.css` plus `generated/ui.css` to the approved figure in that
-test, and `generated/editorial.css` to its own. The current shared cap is 22,985 bytes
-(22,657 + 260 for the shared rail, attention dot, metric roles and grip interaction), measured by
-[Linux CI](https://github.com/tmt-ninja/tmt/actions/runs/41226949092/job/124613045368).
+test, and `generated/editorial.css` to its own. The current shared cap is 23,006 bytes
+(22,685 + 321 for the shared rail, attention dot, metric roles and grip interaction), measured by
+[Linux CI](https://github.com/tmt-ninja/tmt/actions/runs/41228247407/job/124619513775).
 The test comment records the current owner-approved measurement without headroom;
 the editorial cap and UI foundation budget are unchanged. Overlapping changes rebase
 and re-measure rather than adding allowances.
