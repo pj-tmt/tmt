@@ -696,6 +696,15 @@ impl Storage {
         &mut self,
         event: &CaptureEvent,
     ) -> Result<CaptureResult, StorageError> {
+        if !event.valid() {
+            return Err(invalid("Invalid hook capture event"));
+        }
+        // The finite flusher may have committed main but not acknowledged the
+        // queue yet. An exact receipt is already durable: replay needs no main
+        // writer, even while another mutation or optional follow-up owns it.
+        if let Some(outcome) = responses::capture_receipt(self.connection()?, event.id())? {
+            return Ok(outcome);
+        }
         super::super::identities::commit_immediate_transaction(self, "queued capture", |db| {
             ingest(db, event)
         })
@@ -799,9 +808,7 @@ pub(super) fn read_publication_receipt(
 
 fn ingest(db: &Connection, event: &CaptureEvent) -> Result<CaptureResult, StorageError> {
     let transaction_now_ms = crate::request_runtime::wall_time_ms();
-    if !event.valid() {
-        return Err(invalid("Invalid hook capture event"));
-    }
+    // Another ingester may have committed after the pre-writer receipt read.
     if let Some(outcome) = responses::capture_receipt(db, event.id())? {
         return Ok(outcome);
     }

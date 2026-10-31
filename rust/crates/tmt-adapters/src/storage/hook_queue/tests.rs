@@ -1473,6 +1473,213 @@ fn malformed_pending_queue_work_cannot_veto_an_explicit_core_writer() {
     assert_eq!(w.phase(), ActivityPhase::Working);
 }
 
+// WAL readers remain available while another connection holds the writer.
+// Keep the queue claim so this storage-level control never spawns a process.
+fn assert_ingest_sqlite_busy(error: &StorageError, operation: &str) {
+    assert_eq!(error.code, StorageErrorCode::Busy);
+    assert!(error.to_string().contains(operation), "{error}");
+    assert!(
+        matches!(
+            std::error::Error::source(error).and_then(|source| source.downcast_ref::<rusqlite::Error>()),
+            Some(rusqlite::Error::SqliteFailure(sqlite, _)) if sqlite.code == rusqlite::ErrorCode::DatabaseBusy
+        ),
+        "the control must reach SQLite, not a budget or backlog precheck: {error}"
+    );
+}
+
+#[test]
+fn digest_ingest_waits_for_the_main_writer_only_for_an_uncommitted_capture() {
+    let mut w = World::new();
+    let event = w.event("pending through a main writer refusal", false);
+    let queue = HookQueue::open(&w.path, Duration::ZERO).unwrap();
+    let _guard = queue.claim().unwrap();
+    queue.enqueue(&event).unwrap();
+    w.storage.close().unwrap();
+    w.storage = Storage::open_hook(&w.path, Instant::now() + Duration::from_secs(2)).unwrap();
+    let writer = Connection::open(&w.path).unwrap();
+    assert_eq!(
+        writer
+            .query_row("PRAGMA journal_mode", [], |r| r.get::<_, String>(0))
+            .unwrap(),
+        "wal"
+    );
+    writer.execute_batch("BEGIN IMMEDIATE").unwrap();
+    let error = w
+        .storage
+        .ingest_pending_hook_captures_for_identity(&w.agent)
+        .unwrap_err();
+    assert_ingest_sqlite_busy(&error, "Begin queued capture transaction");
+    assert_eq!(w.final_count(), 0);
+    assert!(
+        super::super::responses::capture_receipt(w.storage.connection().unwrap(), event.id())
+            .unwrap()
+            .is_none()
+    );
+    assert_eq!(
+        queue
+            .next_uncommitted_for_identity(&w.agent)
+            .unwrap()
+            .unwrap()
+            .id(),
+        event.id()
+    );
+    writer.execute_batch("ROLLBACK").unwrap();
+    w.storage
+        .ingest_pending_hook_captures_for_identity(&w.agent)
+        .unwrap();
+    assert_eq!(w.final_count(), 1);
+    assert_eq!(w.phase(), ActivityPhase::Idle);
+    assert!(
+        queue
+            .next_uncommitted_for_identity(&w.agent)
+            .unwrap()
+            .is_none()
+    );
+}
+
+#[test]
+fn digest_ingest_queue_writer_refusal_does_not_roll_back_the_retained_final() {
+    let mut w = World::new();
+    let event = w.event("retained before queue mark", false);
+    let queue = HookQueue::open(&w.path, Duration::ZERO).unwrap();
+    let _guard = queue.claim().unwrap();
+    queue.enqueue(&event).unwrap();
+    let writer = Connection::open(HookQueue::path(&w.path)).unwrap();
+    assert_eq!(
+        writer
+            .query_row("PRAGMA journal_mode", [], |r| r.get::<_, String>(0))
+            .unwrap(),
+        "wal"
+    );
+    writer.execute_batch("BEGIN IMMEDIATE").unwrap();
+    let error = w
+        .storage
+        .ingest_pending_hook_captures_for_identity(&w.agent)
+        .unwrap_err();
+    assert_ingest_sqlite_busy(&error, "Mark queued capture committed");
+    assert_eq!(w.final_count(), 1);
+    assert_eq!(
+        super::super::responses::capture_receipt(w.storage.connection().unwrap(), event.id())
+            .unwrap(),
+        Some(CaptureResult::Committed)
+    );
+    assert_eq!(
+        queue
+            .next_uncommitted_for_identity(&w.agent)
+            .unwrap()
+            .unwrap()
+            .id(),
+        event.id()
+    );
+    writer.execute_batch("ROLLBACK").unwrap();
+    w.storage
+        .ingest_pending_hook_captures_for_identity(&w.agent)
+        .unwrap();
+    assert_eq!(
+        w.final_count(),
+        1,
+        "queue replay cannot append the final twice"
+    );
+    assert!(
+        queue
+            .next_uncommitted_for_identity(&w.agent)
+            .unwrap()
+            .is_none()
+    );
+}
+
+#[test]
+fn digest_ingest_of_a_flusher_committed_receipt_needs_no_main_writer() {
+    let mut w = World::new();
+    let event = w.event("already retained by the finite flusher", false);
+    let queue = HookQueue::open(&w.path, Duration::ZERO).unwrap();
+    let _guard = queue.claim().unwrap();
+    queue.enqueue(&event).unwrap();
+    // The real flusher commits main before optional follow-up and queue ack.
+    // Pause it in that durable window; a competing writer may now own main.
+    let mut flusher = Storage::open_hook_flusher(&w.path).unwrap();
+    assert_eq!(
+        flusher
+            .ingest_hook_capture(&queue.next().unwrap().unwrap())
+            .unwrap(),
+        CaptureResult::Committed
+    );
+    assert!(
+        queue
+            .next_uncommitted_for_identity(&w.agent)
+            .unwrap()
+            .is_some()
+    );
+    w.storage.close().unwrap();
+    w.storage = Storage::open_hook(&w.path, Instant::now() + Duration::from_secs(2)).unwrap();
+    let writer = Connection::open(&w.path).unwrap();
+    writer.execute_batch("BEGIN IMMEDIATE").unwrap();
+    let drained = w
+        .storage
+        .ingest_pending_hook_captures_for_identity(&w.agent);
+    // Release before asserting so an expected negative leaves no held writer.
+    writer.execute_batch("ROLLBACK").unwrap();
+    assert!(
+        drained.is_ok(),
+        "a retained exact-event receipt needs no new main writer: {drained:?}"
+    );
+    assert_eq!(w.final_count(), 1);
+    assert_eq!(w.phase(), ActivityPhase::Idle);
+    assert_eq!(
+        super::super::responses::capture_receipt(w.storage.connection().unwrap(), event.id())
+            .unwrap(),
+        Some(CaptureResult::Committed)
+    );
+    assert!(
+        queue
+            .next_uncommitted_for_identity(&w.agent)
+            .unwrap()
+            .is_none()
+    );
+    // The flusher can still finish its own row without changing the final.
+    queue.acknowledge(&event).unwrap();
+    flusher.close().unwrap();
+    assert!(!queue.has_entries().unwrap());
+}
+
+#[test]
+fn digest_ingest_replay_preserves_a_newer_turn_and_still_validates_the_event() {
+    let mut w = World::new();
+    let event = w.event("the earlier turn's retained final", false);
+    let queue = HookQueue::open(&w.path, Duration::ZERO).unwrap();
+    let _guard = queue.claim().unwrap();
+    queue.enqueue(&event).unwrap();
+    w.storage.ingest_hook_capture(&event).unwrap();
+    let newer = w.new_prompt();
+    let writer = Connection::open(&w.path).unwrap();
+    writer.execute_batch("BEGIN IMMEDIATE").unwrap();
+    let mut invalid_wire = serde_json::to_value(&event).unwrap();
+    invalid_wire["version"] = serde_json::json!(0);
+    let invalid: CaptureEvent = serde_json::from_value(invalid_wire).unwrap();
+    assert_eq!(
+        w.storage.ingest_hook_capture(&invalid).unwrap_err().message,
+        "Invalid hook capture event"
+    );
+    assert_eq!(
+        w.storage.ingest_hook_capture(&event).unwrap(),
+        CaptureResult::Committed
+    );
+    w.storage
+        .ingest_pending_hook_captures_for_identity(&w.agent)
+        .unwrap();
+    assert_eq!(w.final_count(), 1);
+    assert_eq!(w.phase(), ActivityPhase::Working);
+    assert_eq!(
+        current(w.storage.connection().unwrap(), &w.agent)
+            .unwrap()
+            .as_deref(),
+        Some(newer.as_str())
+    );
+    writer.execute_batch("ROLLBACK").unwrap();
+    queue.acknowledge(&event).unwrap();
+    assert!(!queue.has_entries().unwrap());
+}
+
 #[test]
 fn digest_drain_quarantines_bad_events_and_ignores_other_identity_backlog() {
     let mut w = World::new();
