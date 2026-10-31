@@ -2236,11 +2236,8 @@ fn a_composer_with_its_own_key_legend_does_not_advertise_list_shortcuts() {
         key(&mut app, KeyCode::Enter);
         let lines = paint(&app, width, 36);
         assert!(app.input_band.get().is_some());
-        assert!(
-            lines
-                .iter()
-                .any(|line| line.contains("Alt+⏎") && line.contains("tmt/"))
-        );
+        assert!(lines.iter().any(|line| line.contains("Alt+⏎")
+            && (line.trim_end().ends_with("@ mention") || line.trim_end().ends_with('@'))));
         assert_eq!(
             lines.last().unwrap().trim(),
             "",
