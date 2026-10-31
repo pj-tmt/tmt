@@ -5,6 +5,8 @@ use super::*;
 
 /// Talk limits count requests over this sliding window.
 pub const ORCH_TALK_WINDOW_MS: u64 = 3_600_000;
+/// How long a request held at its talk limit waits for a person.
+pub const ORCH_HOLD_MS: u64 = 7 * 86_400_000;
 /// The longest a route grant (`route allow`) may last.
 pub const ORCH_MAX_GRANT_MS: u64 = 86_400_000;
 

@@ -80,6 +80,13 @@ impl ReceivingCalendar {
             params![request_id, from, to, now as i64],
         )
         .map_err(|e| classify(e, "Hold request for a person"))?;
+        // It waits for a person up to 7 days, never past its retained text (#4892 ruling).
+        db.execute(
+            "UPDATE request_attempts SET expires_at_ms = MIN(?2, COALESCE(message_expires_at_ms, ?2)) \
+             WHERE request_id=?1",
+            params![request_id, now.saturating_add(ORCH_HOLD_MS) as i64],
+        )
+        .map_err(|e| classify(e, "Extend held request expiry"))?;
         let stored = read_snapshot(db, None, None)?;
         let zone = self.zone.as_ref().ok_or_else(corrupt)?;
         let source = effective(&stored.snapshot, from, now, zone)
