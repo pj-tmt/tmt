@@ -317,3 +317,20 @@ test('pending and unavailable access observations stay distinct without an idle 
   await page.getByRole('button', { name: 'Refresh people' }).click();
   await expect(observation).toHaveText('Access update status is unavailable.');
 });
+
+test('phone People rows keep the machines action in the row menu', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 900 });
+  await page.goto(`${origin}/remote/members`);
+  const row = page.locator('.people-person').first();
+  await expect(row.getByRole('button', { name: 'Show machines for Guest' })).toBeHidden();
+  await row.getByRole('button', { name: 'Actions for Guest' }).click();
+  await page.getByRole('menuitem', { name: 'Show machines' }).click();
+  await expect(row).toContainText('Laptop');
+  expect(
+    await page.evaluate(
+      () => (window as unknown as { peopleFixture: Fixture }).peopleFixture.machineReads,
+    ),
+  ).toBe(1);
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await expect(row.getByRole('button', { name: 'Show machines for Guest' })).toBeVisible();
+});

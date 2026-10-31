@@ -98,27 +98,23 @@ async function feedbackBounds(page: Page, selector: string) {
   return measurement;
 }
 
-/** At phone width the visible cells share the host's two aligned tracks. */
+/** At phone width People keeps the menu beside the name and both badges below. */
 async function assertPhoneTable(page: Page, selector: string, width = 390) {
   const previous = page.viewportSize()!;
   await page.setViewportSize({ width, height: 900 });
   const table = page.locator(selector);
   await expect(table).not.toHaveAttribute('style');
-  const positions = await table
-    .locator('.tmt-ui-list-table-row')
-    .first()
-    .evaluate((row) =>
-      Array.from(row.children)
-        .filter((node) => getComputedStyle(node).display !== 'none')
-        .map((node) => {
-          const box = node.getBoundingClientRect();
-          return { left: box.left, center: box.top + box.height / 2 };
-        }),
-    );
-  expect(positions.length).toBeGreaterThanOrEqual(4);
-  expect(positions[0]!.center).toBeCloseTo(positions[1]!.center, 0);
-  expect(positions[2]!.left).toBeCloseTo(positions[0]!.left, 0);
-  expect(positions[3]!.left).toBeCloseTo(positions[1]!.left, 0);
+  const row = table.locator('.tmt-ui-list-table-row').first();
+  const box = async (index: number) =>
+    (await row.locator('[role="cell"]').nth(index).boundingBox())!;
+  const name = await box(1);
+  const role = await box(2);
+  const sending = await box(3);
+  const menu = await box(5);
+  expect(Math.abs(name.y - menu.y)).toBeLessThanOrEqual(1);
+  expect(role.y).toBeGreaterThan(name.y);
+  expect(Math.abs(role.y - sending.y)).toBeLessThanOrEqual(1);
+  expect(sending.x).toBeGreaterThan(role.x);
   await expect(page.locator('html')).toHaveJSProperty('scrollWidth', width);
   await page.setViewportSize(previous);
 }

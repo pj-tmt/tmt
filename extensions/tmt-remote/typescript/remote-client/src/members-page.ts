@@ -255,6 +255,8 @@ export function mountMembersPage(
     value.className = 'tmt-ui-action';
     return value;
   };
+  const compact = window.matchMedia('(max-width: 760px)');
+  compact.addEventListener('change', () => render(), { signal });
   const status = node('p', 'Checking people…');
   status.setAttribute('role', 'status');
   const facts = node('p');
@@ -483,12 +485,14 @@ export function mountMembersPage(
     const menuOptions = () => ({
       label: `Actions for ${nameText.textContent}`,
       items: [
+        ...(compact.matches ? [{ key: 'machines', label: 'Show machines' }] : []),
         { key: 'rename', label: 'Rename' },
         { key: 'sending', label: send.textContent ?? 'Enable sending', disabled: send.disabled },
         { key: 'revoke', label: 'Remove person', disabled: revoke.disabled, separated: true },
       ],
       onSelect(key: string) {
-        if (key === 'rename') {
+        if (key === 'machines') expand.click();
+        else if (key === 'rename') {
           nameActions.hidden = false;
           input.focus();
         } else if (key === 'sending' || key === 'revoke') {
@@ -825,6 +829,15 @@ export function mountMembersPage(
       row.menu.update({
         label: `Actions for ${member.displayName}`,
         items: [
+          ...(compact.matches
+            ? [
+                {
+                  key: 'machines',
+                  label: row.expand.textContent ?? 'Show machines',
+                  disabled: row.expand.disabled,
+                },
+              ]
+            : []),
           { key: 'rename', label: 'Rename', disabled: row.input.disabled },
           {
             key: 'sending',
@@ -834,7 +847,8 @@ export function mountMembersPage(
           { key: 'revoke', label: 'Remove person', disabled: row.revoke.disabled, separated: true },
         ],
         onSelect(key) {
-          if (key === 'rename') {
+          if (key === 'machines') row.expand.click();
+          else if (key === 'rename') {
             row.nameActions.hidden = false;
             row.input.focus();
           } else if (key === 'sending' || key === 'revoke') {
