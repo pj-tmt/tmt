@@ -4278,7 +4278,6 @@ function mountInvitesPage(root, page, signal, options) {
 	const status = node("p", "Checking invitations…");
 	status.setAttribute("role", "status");
 	const facts = node("p");
-	const refreshButton = button("Refresh invitations");
 	const table = createListTable([
 		{
 			id: "icon",
@@ -4313,7 +4312,7 @@ function mountInvitesPage(root, page, signal, options) {
 	const more = button("Next invitations");
 	const original = node("p");
 	const recover = button("Check original outcome");
-	root.replaceChildren(status, facts, refreshButton, table.root, footer, first, more, original, recover);
+	root.replaceChildren(status, facts, table.root, footer, first, more, original, recover);
 	let menus = [];
 	let localNotice = "";
 	let dialog;
@@ -4362,6 +4361,7 @@ function mountInvitesPage(root, page, signal, options) {
 		row.className = "invite-secret-row";
 		const value = node("code", text);
 		value.className = "invite-secret";
+		value.title = text;
 		const copy = button(label);
 		const feedback = node("span");
 		feedback.setAttribute("role", "status");
@@ -4394,7 +4394,7 @@ function mountInvitesPage(root, page, signal, options) {
 		const body = node("div");
 		body.className = browserUiClasses.dialogBody;
 		const expiry = page.outcome?.state === "committed" && "expiresAtMs" in page.outcome.result.invitation ? Math.max(1, Math.round((page.outcome.result.invitation.expiresAtMs - now()) / 6e4)) : void 0;
-		body.append(node("p", `Give this code or link to one person. It works once${expiry ? ` and expires in ${expiry} min` : ""}.`), copyRow(secret.code, "Copy code"), ...secret.link ? [copyRow(secret.link, "Copy link")] : [], node("p", "This code is shown only now. After you close this, it can't be shown again."));
+		body.append(node("p", `Give this code or link to one person. It works once${expiry ? ` and expires in ${expiry} min` : ""}.`), copyRow(secret.code, "Copy code"), ...secret.link ? [copyRow(secret.link, "Copy link")] : [], Object.assign(node("p", "This code is shown only now. After you close this, it can't be shown again."), { className: "invite-secret-note" }));
 		const actions = node("footer");
 		actions.className = browserUiClasses.dialogActions;
 		const done = button("Done");
@@ -4414,7 +4414,6 @@ function mountInvitesPage(root, page, signal, options) {
 	}
 	signal.addEventListener("abort", () => dialog?.close(), { once: true });
 	recover.addEventListener("click", () => void run(() => page.recover()), { signal });
-	refreshButton.addEventListener("click", () => void refresh(null), { signal });
 	first.addEventListener("click", () => void refresh(null), { signal });
 	more.addEventListener("click", () => void refresh(page.history?.nextCursor ?? null), { signal });
 	function outcomeText() {
@@ -4431,14 +4430,15 @@ function mountInvitesPage(root, page, signal, options) {
 	function render() {
 		if (signal.aborted) return;
 		const view = page.history;
-		status.textContent = localNotice || outcomeText() || (page.access === "live" ? "Invitations from the last 7 days. A status describes the invitation, not whether the person is online." : page.access === "checking" ? "Checking invitations…" : "Invitations could not be confirmed. Use tmt remote invite on this machine.");
+		status.textContent = localNotice || outcomeText() || (page.access === "live" ? "" : page.access === "checking" ? "Checking invitations…" : "Invitations could not be confirmed. Use tmt remote invite on this machine.");
+		status.hidden = !status.textContent;
 		facts.textContent = view && !view.invitations.length ? "No invitations in the last 7 days." : "";
 		facts.hidden = !facts.textContent;
+		table.root.hidden = !view?.invitations.length;
 		original.textContent = page.outcome?.state === "unknown" && page.intent ? `Original change ${page.intent.operationId}` : "";
 		original.hidden = !original.textContent;
 		recover.hidden = page.outcome?.state !== "unknown";
 		recover.disabled = !page.canRecover || options.otherBusy();
-		refreshButton.disabled = page.busy || options.otherBusy();
 		first.hidden = page.onFirstPage;
 		more.hidden = !view?.nextCursor;
 		first.disabled = more.disabled = !available();

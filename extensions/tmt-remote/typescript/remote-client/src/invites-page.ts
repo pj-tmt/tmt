@@ -78,7 +78,6 @@ export function mountInvitesPage(
   const status = node('p', 'Checking invitations…');
   status.setAttribute('role', 'status');
   const facts = node('p');
-  const refreshButton = button('Refresh invitations');
   const table = createListTable(
     [
       { id: 'icon', label: '', hideBelow: 'phone' },
@@ -97,17 +96,7 @@ export function mountInvitesPage(
   const more = button('Next invitations');
   const original = node('p');
   const recover = button('Check original outcome');
-  root.replaceChildren(
-    status,
-    facts,
-    refreshButton,
-    table.root,
-    footer,
-    first,
-    more,
-    original,
-    recover,
-  );
+  root.replaceChildren(status, facts, table.root, footer, first, more, original, recover);
   let menus: BrowserMenuHost<string>[] = [];
   let localNotice = '';
   let dialog: HTMLDialogElement | undefined;
@@ -163,6 +152,8 @@ export function mountInvitesPage(
     row.className = 'invite-secret-row';
     const value = node('code', text);
     value.className = 'invite-secret';
+    // The full link stays selectable and is its own tooltip; one line shows its start.
+    value.title = text;
     const copy = button(label);
     const feedback = node('span');
     feedback.setAttribute('role', 'status');
@@ -205,7 +196,10 @@ export function mountInvitesPage(
       ),
       copyRow(secret.code, 'Copy code'),
       ...(secret.link ? [copyRow(secret.link, 'Copy link')] : []),
-      node('p', "This code is shown only now. After you close this, it can't be shown again."),
+      Object.assign(
+        node('p', "This code is shown only now. After you close this, it can't be shown again."),
+        { className: 'invite-secret-note' },
+      ),
     );
     const actions = node('footer');
     actions.className = browserUiClasses.dialogActions;
@@ -231,7 +225,6 @@ export function mountInvitesPage(
   }
   signal.addEventListener('abort', () => dialog?.close(), { once: true });
   recover.addEventListener('click', () => void run(() => page.recover()), { signal });
-  refreshButton.addEventListener('click', () => void refresh(null), { signal });
   first.addEventListener('click', () => void refresh(null), { signal });
   more.addEventListener('click', () => void refresh(page.history?.nextCursor ?? null), { signal });
 
@@ -265,13 +258,16 @@ export function mountInvitesPage(
       localNotice ||
       outcomeText() ||
       (page.access === 'live'
-        ? 'Invitations from the last 7 days. A status describes the invitation, not whether the person is online.'
+        ? ''
         : page.access === 'checking'
           ? 'Checking invitations…'
           : 'Invitations could not be confirmed. Use tmt remote invite on this machine.');
+    status.hidden = !status.textContent;
     facts.textContent =
       view && !view.invitations.length ? 'No invitations in the last 7 days.' : '';
     facts.hidden = !facts.textContent;
+    // Loading, error and empty states are one line; the table appears with its first row.
+    table.root.hidden = !view?.invitations.length;
     original.textContent =
       page.outcome?.state === 'unknown' && page.intent
         ? `Original change ${page.intent.operationId}`
@@ -279,7 +275,6 @@ export function mountInvitesPage(
     original.hidden = !original.textContent;
     recover.hidden = page.outcome?.state !== 'unknown';
     recover.disabled = !page.canRecover || options.otherBusy();
-    refreshButton.disabled = page.busy || options.otherBusy();
     first.hidden = page.onFirstPage;
     more.hidden = !view?.nextCursor;
     first.disabled = more.disabled = !available();

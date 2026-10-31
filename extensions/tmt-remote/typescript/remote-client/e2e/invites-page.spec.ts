@@ -94,12 +94,18 @@ async function capture(page: Page, state: string) {
   const directory = process.env.REMOTE_INVITES_CAPTURE_DIR;
   if (!directory) return;
   await mkdir(directory, { recursive: true });
-  await page.screenshot({ path: join(directory, `${state}.png`), fullPage: true });
+  // Design review pairs each state in both schemes; the test continues in light.
+  for (const colorScheme of ['light', 'dark'] as const) {
+    await page.emulateMedia({ colorScheme });
+    await page.screenshot({ path: join(directory, `${state}-${colorScheme}.png`), fullPage: true });
+  }
+  await page.emulateMedia({ colorScheme: 'light' });
 }
 
 test('Invites lists issued invitation metadata with Mock D labels and phone rows', async ({
   page,
 }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
   await page.goto(`${origin}/remote/invites`);
   const table = page.getByRole('table', { name: 'Invitations' });
   await expect(table.getByRole('row')).toHaveCount(7);
@@ -171,6 +177,7 @@ test('Invites lists issued invitation metadata with Mock D labels and phone rows
 test('a created code is shown once in the dialog and never kept after it closes', async ({
   page,
 }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
   await page.goto(`${origin}/remote/invites`);
   await expect(page.getByRole('table', { name: 'Invitations' }).getByRole('row')).toHaveCount(7);
   await page.evaluate(() =>
@@ -188,7 +195,10 @@ test('a created code is shown once in the dialog and never kept after it closes'
   );
   await expect(dialog.getByRole('button', { name: 'Copy code' })).toBeVisible();
   await expect(dialog.getByRole('button', { name: 'Copy link' })).toBeVisible();
-  await capture(page, 'dialog');
+  await capture(page, 'dialog-1440');
+  await page.setViewportSize({ width: 390, height: 844 });
+  await expect(dialog.getByRole('button', { name: 'Copy link' })).toBeInViewport();
+  await capture(page, 'dialog-390');
   await dialog.getByRole('button', { name: 'Done' }).click();
   await expect(dialog).toHaveCount(0);
   const after = await fixture(page);
@@ -290,6 +300,8 @@ test('empty, loading and error states use the shared list presentation', async (
   });
   await expect(page.getByText('No invitations in the last 7 days.')).toBeVisible();
   await expect(page.locator('.invites-list-footer')).toContainText('0 invitations · newest first');
+  // An empty list is its one line; the column header appears with the first row.
+  await expect(page.getByRole('table', { name: 'Invitations' })).toBeHidden();
   await capture(page, 'empty');
   await page.evaluate(() => {
     const value = (

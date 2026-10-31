@@ -70,7 +70,12 @@ async function captureExisting(page: import('@playwright/test').Page, state: str
   const directory = process.env.REMOTE_PEOPLE_CAPTURE_DIR;
   if (!directory) return;
   await mkdir(directory, { recursive: true });
-  await page.screenshot({ path: join(directory, `${state}.png`), fullPage: true });
+  // Design review pairs each state in both schemes; the test continues in light.
+  for (const colorScheme of ['light', 'dark'] as const) {
+    await page.emulateMedia({ colorScheme });
+    await page.screenshot({ path: join(directory, `${state}-${colorScheme}.png`), fullPage: true });
+  }
+  await page.emulateMedia({ colorScheme: 'light' });
 }
 
 async function openRename(page: import('@playwright/test').Page) {

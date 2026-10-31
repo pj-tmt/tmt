@@ -151,12 +151,16 @@
 /* ListTable's fixed tracks are host stylesheet values under the shell's style-src policy. */
 .remote-registry-table { --tmt-ui-list-tracks: 48px minmax(0, 2.4fr) minmax(0, 1.2fr) minmax(0, .9fr) minmax(0, 1fr) minmax(0, 1fr) 36px; }
 .remote-people-table { --tmt-ui-list-tracks: 48px minmax(0, 2.2fr) minmax(0, .9fr) minmax(0, 1fr) minmax(0, 1.2fr) 36px; }
-.remote-invites-table { --tmt-ui-list-tracks: minmax(0, 2fr) minmax(0, 1.4fr) minmax(0, 1fr) minmax(0, 1fr) 36px; }
+.remote-invites-table { --tmt-ui-list-tracks: 48px minmax(0, 2fr) minmax(190px, 1.2fr) minmax(0, 0.8fr) minmax(0, 0.8fr) 36px; }
 /* Invites shows a created code once, in its dialog. */
 .invite-id { font-family: var(--tmt-ui-font-mono); }
 .invite-secret-row { display: flex; flex-wrap: wrap; align-items: center; gap: var(--tmt-ui-space-s); margin-block: var(--tmt-ui-space-s); }
 .invite-secret { flex: 1 1 12rem; min-width: 0; overflow-wrap: anywhere; padding: var(--tmt-ui-space-s) var(--tmt-ui-space-m); border: var(--tmt-ui-rule-width) solid var(--tmt-ui-surface-rule); border-radius: var(--tmt-ui-radius-s); font-family: var(--tmt-ui-font-mono); }
 .invite-secret-row:first-of-type .invite-secret { font-size: var(--tmt-ui-page-subtitle-size); font-weight: 600; letter-spacing: .1em; }
+.invite-secret-row { flex-wrap: nowrap; }
+.invite-secret-row > button { flex: none; }
+.invite-secret-row + .invite-secret-row .invite-secret { overflow: hidden; overflow-wrap: normal; white-space: nowrap; text-overflow: ellipsis; font-family: var(--tmt-ui-font-body); font-size: var(--tmt-ui-caption-size); }
+.invite-secret-note { color: var(--tmt-ui-color-secondary); font-size: var(--tmt-ui-caption-size); }
 /* Phone rows: the name and the row menu share line 1; the badges share line 2. */
 .remote-registry-table, .remote-people-table, .remote-invites-table { --tmt-ui-list-tracks-compact: max-content minmax(0, 1fr) auto; }
 
