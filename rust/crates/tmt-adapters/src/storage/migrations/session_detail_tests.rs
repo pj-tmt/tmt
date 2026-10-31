@@ -299,7 +299,10 @@ fn the_digest_stop_list_keeps_every_stored_detail_and_accepts_its_tokens() {
 #[test]
 fn diagnostic_stages_preserve_schema_84_rows_and_reject_unbounded_details() {
     let directory = TestDirectory::new();
-    let path = directory.path.join("schema84.db");
+    // Applying schema 84 directly also provisions its owner-only hook queue.
+    let root = directory.path.join("store");
+    crate::private_file::ensure_private_directory(&root).unwrap();
+    let path = root.join("schema84.db");
     let mut old = Connection::open(&path).unwrap();
     old.pragma_update(None, "foreign_keys", true).unwrap();
     apply_through(&mut old, 84).unwrap();
