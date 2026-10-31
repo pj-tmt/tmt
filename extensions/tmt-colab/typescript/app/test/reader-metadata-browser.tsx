@@ -208,3 +208,9 @@ export function layout(next: PageView['layout']) {
     paint();
   });
 }
+
+/** Replace only authored source through the existing controlled reader view. */
+export function source(next: string) {
+  view = { ...view, source: next };
+  paint();
+}

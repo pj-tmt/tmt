@@ -56,7 +56,8 @@ export async function buildPageUi() {
   const quoted = (css) => css.match(/"(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*'/g) ?? [];
   if (quoted(compactCss(schemed)).join('\n') !== quoted(schemed).join('\n'))
     throw new Error('Compacting static.css would change a quoted string');
-  const pageUiStyle = `@layer colab-frame,tmt-starter,tmt-ui;${compactCss(baseCss)}@layer tmt-starter{${compactCss(editorialCss)}}@layer tmt-ui{${compactCss(schemed)}${compactCss(hostCss)}}`
+  // Reserve Tailwind's reset below the shared controls; author utilities still win.
+  const pageUiStyle = `@layer theme,base,colab-frame,tmt-starter,tmt-ui,components,utilities;${compactCss(baseCss)}@layer tmt-starter{${compactCss(editorialCss)}}@layer tmt-ui{${compactCss(schemed)}${compactCss(hostCss)}}`
     // Double quotes keep the formatter from rewriting the single-quoted literal that holds it.
     .replaceAll("'", '"');
   if (Buffer.byteLength(pageUiStyle) > PAGE_UI_LIMIT)

@@ -1,3 +1,4 @@
+import { mayUseBrowserElements } from '@tmt/browser-ui/elements-manifest';
 import { editLockTarget, type EditLockTarget } from './edit-locks.js';
 import { rendererBase } from './entry.js';
 import { loadRuntime, wantsRuntime, type PageRuntime } from './page-runtime.js';
@@ -156,6 +157,7 @@ export const SOURCE_UPDATE_MS = 2000;
  * fresh frame; any other page only by whether it uses the design system, which bind fixes. The text
  * test over-approximates the frame's parsed check: a false match only costs a remount. */
 export function sourceFrameKey(source: string): string {
+  if (mayUseBrowserElements(source)) return `widgets:${source}`;
   if (/<script|\bon[a-z]+\s*=|tmt-colab-runtime/i.test(source)) return `scripted:${source}`;
   return /tmt-ui-|<tmt-icon|tmt-starter/i.test(source) ? 'design' : 'plain';
 }
@@ -178,6 +180,8 @@ export async function mountRenderer(
   source: string,
   options: {
     signal: AbortSignal;
+    /** A bounded preview canvas can have a smaller minimum than a full page. */
+    minimumHeight?: number;
     onState(state: RenderState): void;
     /** Untrusted link request; activation proves recent interaction, never which link. */
     onLink?(request: PageLinkRequest, active: boolean): void;
@@ -250,6 +254,13 @@ export async function mountRenderer(
   release(): void;
   destroy(): void;
 }> {
+  if (
+    options.minimumHeight !== undefined &&
+    (!Number.isFinite(options.minimumHeight) ||
+      options.minimumHeight < 1 ||
+      options.minimumHeight > MAX_RENDER_HEIGHT)
+  )
+    throw new Error('Invalid renderer minimum height');
   // Keep the old layout while the replacement loads, so the browser does not
   // clamp the window offset to a temporary viewport-high document.
   const previousHeight = host.querySelector('iframe')?.getBoundingClientRect().height;
@@ -319,7 +330,8 @@ export async function mountRenderer(
   let waitingSlots: InlineSlot[] | undefined;
   const inset = () => Math.max(0, Math.min(window.innerHeight, options.viewportInset?.() ?? 0));
   const lead = () => Math.max(0, options.frameLead?.() ?? 0);
-  const viewportHeight = () => Math.max(1, window.innerHeight - inset() - lead());
+  const viewportHeight = () =>
+    options.minimumHeight ?? Math.max(1, window.innerHeight - inset() - lead());
   let reportedHeight = 0,
     pendingHeight: number | undefined,
     heightTimer: ReturnType<typeof setTimeout> | undefined,

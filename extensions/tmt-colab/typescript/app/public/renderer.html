@@ -105,6 +105,10 @@
             'text/html',
           );
         const usesDesign = (source) => /tmt-ui-|<tmt-icon|tmt-starter/i.test(source);
+        // BEGIN GENERATED UI ELEMENT NAMES
+        const widgetElementNames =
+          'tmt-ui-button tmt-ui-icon-button tmt-ui-field tmt-ui-toggle tmt-ui-checkbox tmt-ui-menu tmt-ui-tabs tmt-ui-dialog tmt-ui-chips tmt-ui-chip tmt-ui-notice';
+        // END GENERATED UI ELEMENT NAMES
         // What must stay the same for a source to update the page in place, or null when it never
         // may. A page with a script, an inline handler or the runtime marker owns DOM its source
         // does not describe, so any change to it gets a fresh frame, as before #5022. The root's
@@ -112,6 +116,9 @@
         function pageKey(source, doc) {
           if (
             doc.querySelector('script,meta[name="tmt-colab-runtime"]') ||
+            [...doc.querySelectorAll(widgetElementNames.split(' ').join(','))].some(
+              (node) => node instanceof HTMLElement,
+            ) ||
             [...doc.querySelectorAll('*')].some((el) =>
               [...el.attributes].some((a) => /^on/i.test(a.name)),
             )

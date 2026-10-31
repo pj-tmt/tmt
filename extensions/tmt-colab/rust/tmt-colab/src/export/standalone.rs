@@ -81,18 +81,19 @@ pub fn explanation(reason: &str) -> &'static str {
     }
 }
 
-/// Whether `source` asks for the runtime: the first `<meta name="tmt-colab-runtime">` in document
-/// order, found by parsing, has a `content` with a known token. The same cases run in the app
-/// (`vectors/runtime-marker-v1.json`).
+/// A registered HTML widget asks for the runtime automatically. Otherwise the first runtime
+/// meta's known token opts in. Browser and native selection share `runtime-marker-v1.json`.
 pub fn wants_runtime(source: &str) -> Result<bool, page_check::TooDeep> {
-    if !source.contains(MARKER) {
+    if !source.contains(MARKER) && !source.to_ascii_lowercase().contains("<tmt-ui-") {
         return Ok(false);
     }
-    Ok(page_check::runtime_marker(source)?.is_some_and(|content| {
-        content
-            .split_ascii_whitespace()
-            .any(|token| TOKENS.contains(&token))
-    }))
+    Ok(
+        page_check::runtime_requirement(source)?.is_some_and(|content| {
+            content
+                .split_ascii_whitespace()
+                .any(|token| TOKENS.contains(&token))
+        }),
+    )
 }
 
 pub use crate::page_check::uses_design;

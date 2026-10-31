@@ -1,15 +1,21 @@
+import { browserElements, mayUseBrowserElements } from '@tmt/browser-ui/elements-manifest';
 import { isHostedOrigin } from './hosted-location.js';
 
 /** The marker a page uses to ask for the bundled runtime (#1693): the first
  * `<meta name="tmt-colab-runtime" content="react tailwind">` in document order. */
 const MARKER = 'tmt-colab-runtime';
 const TOKENS = new Set(['react', 'tailwind']);
-/** The runtime is one bundle, so any known token loads all of it; unknown tokens are ignored. */
+/** A registered widget needs the same bundle without an author script or meta marker. Known meta tokens still opt in; unknown tokens are ignored. */
 export function wantsRuntime(source: string): boolean {
-  if (!source.includes(MARKER)) return false;
-  const meta = new DOMParser()
-    .parseFromString(source, 'text/html')
-    .querySelector(`meta[name="${MARKER}"]`);
+  if (!source.includes(MARKER) && !mayUseBrowserElements(source)) return false;
+  const document = new DOMParser().parseFromString(source, 'text/html');
+  if (
+    [...document.querySelectorAll(browserElements.map(({ tag }) => tag).join(','))].some(
+      (node) => node instanceof HTMLElement,
+    )
+  )
+    return true;
+  const meta = document.querySelector(`meta[name="${MARKER}"]`);
   return (meta?.getAttribute('content') ?? '')
     .split(/[ \t\n\f\r]+/)
     .some((token) => TOKENS.has(token));

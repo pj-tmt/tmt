@@ -399,5 +399,557 @@
   "user-round",
   "users",
   "x"
+ ],
+ "elements": [
+  {
+   "docs": "design/browser-ui/README.md#controlled-input-contracts",
+   "tokens": [
+    "--tmt-ui-font-body",
+    "--tmt-ui-color-text",
+    "--tmt-ui-control-size"
+   ],
+   "tag": "tmt-ui-button",
+   "name": "Action",
+   "component": "BrowserAction",
+   "category": "Input",
+   "purpose": "An action with the shared variants, busy timing and disabled explanation.",
+   "attributes": {
+    "label": {
+     "kind": "text"
+    },
+    "variant": {
+     "kind": "enum",
+     "values": [
+      "primary",
+      "secondary",
+      "text",
+      "ghost",
+      "destructive"
+     ]
+    },
+    "presentation": {
+     "kind": "enum",
+     "values": [
+      "compact"
+     ]
+    },
+    "busy": {
+     "kind": "boolean"
+    },
+    "disabled": {
+     "kind": "boolean"
+    },
+    "disabled-reason": {
+     "kind": "text"
+    },
+    "icon": {
+     "kind": "enum",
+     "values": [
+      "check",
+      "plus",
+      "pencil",
+      "trash-2",
+      "ellipsis",
+      "settings",
+      "info",
+      "x",
+      "link"
+     ]
+    }
+   },
+   "slots": [],
+   "textLabel": true,
+   "source": "action.tsx",
+   "gallery": "actions",
+   "examples": [
+    {
+     "state": "primary",
+     "html": "<tmt-ui-button variant=\"primary\">Save</tmt-ui-button>"
+    },
+    {
+     "state": "secondary",
+     "html": "<tmt-ui-button variant=\"secondary\">Save</tmt-ui-button>"
+    },
+    {
+     "state": "text",
+     "html": "<tmt-ui-button variant=\"text\">Save</tmt-ui-button>"
+    },
+    {
+     "state": "ghost",
+     "html": "<tmt-ui-button variant=\"ghost\">Save</tmt-ui-button>"
+    },
+    {
+     "state": "destructive",
+     "html": "<tmt-ui-button variant=\"destructive\">Save</tmt-ui-button>"
+    },
+    {
+     "state": "busy",
+     "html": "<tmt-ui-button busy>Saving</tmt-ui-button>"
+    },
+    {
+     "state": "disabled",
+     "html": "<tmt-ui-button disabled disabled-reason=\"Read only\">Save</tmt-ui-button>"
+    },
+    {
+     "state": "compact",
+     "html": "<tmt-ui-button presentation=\"compact\">Save</tmt-ui-button>"
+    }
+   ]
+  },
+  {
+   "docs": "design/browser-ui/README.md#controlled-input-contracts",
+   "tokens": [
+    "--tmt-ui-font-body",
+    "--tmt-ui-color-text",
+    "--tmt-ui-control-size"
+   ],
+   "tag": "tmt-ui-icon-button",
+   "name": "Icon action",
+   "component": "BrowserIconAction",
+   "category": "Input",
+   "purpose": "A named icon action with keyboard and pointer help.",
+   "attributes": {
+    "label": {
+     "kind": "text",
+     "required": true
+    },
+    "variant": {
+     "kind": "enum",
+     "values": [
+      "primary",
+      "secondary",
+      "text",
+      "destructive"
+     ]
+    },
+    "presentation": {
+     "kind": "enum",
+     "values": [
+      "compact"
+     ]
+    },
+    "busy": {
+     "kind": "boolean"
+    },
+    "disabled": {
+     "kind": "boolean"
+    },
+    "disabled-reason": {
+     "kind": "text"
+    },
+    "icon": {
+     "kind": "enum",
+     "values": [
+      "check",
+      "plus",
+      "pencil",
+      "trash-2",
+      "ellipsis",
+      "settings",
+      "info",
+      "x",
+      "link"
+     ]
+    }
+   },
+   "slots": [],
+   "source": "icon-action.tsx",
+   "gallery": "icon-actions",
+   "examples": [
+    {
+     "state": "default",
+     "html": "<tmt-ui-icon-button label=\"Edit\" icon=\"pencil\"></tmt-ui-icon-button>"
+    },
+    {
+     "state": "disabled",
+     "html": "<tmt-ui-icon-button label=\"Edit\" disabled disabled-reason=\"Read only\"></tmt-ui-icon-button>"
+    }
+   ]
+  },
+  {
+   "docs": "design/browser-ui/README.md#controlled-input-contracts",
+   "tokens": [
+    "--tmt-ui-font-body",
+    "--tmt-ui-color-text",
+    "--tmt-ui-control-size"
+   ],
+   "tag": "tmt-ui-field",
+   "name": "Field",
+   "component": "BrowserField",
+   "category": "Input",
+   "purpose": "A real text input with the shared label, description and error relationships.",
+   "attributes": {
+    "label": {
+     "kind": "text",
+     "required": true
+    },
+    "value": {
+     "kind": "text"
+    },
+    "placeholder": {
+     "kind": "text"
+    },
+    "description": {
+     "kind": "text"
+    },
+    "error": {
+     "kind": "text"
+    },
+    "disabled": {
+     "kind": "boolean"
+    }
+   },
+   "slots": [],
+   "source": "field.tsx",
+   "gallery": "fields",
+   "examples": [
+    {
+     "state": "default",
+     "html": "<tmt-ui-field label=\"Name\" value=\"Design\"></tmt-ui-field>"
+    },
+    {
+     "state": "error",
+     "html": "<tmt-ui-field label=\"Name\" error=\"Enter a name\"></tmt-ui-field>"
+    }
+   ]
+  },
+  {
+   "docs": "design/browser-ui/README.md#controlled-input-contracts",
+   "tokens": [
+    "--tmt-ui-font-body",
+    "--tmt-ui-color-text",
+    "--tmt-ui-control-size"
+   ],
+   "tag": "tmt-ui-toggle",
+   "name": "Toggle",
+   "component": "BrowserToggle",
+   "category": "Input",
+   "purpose": "A local on/off choice.",
+   "attributes": {
+    "label": {
+     "kind": "text",
+     "required": true
+    },
+    "pressed": {
+     "kind": "boolean"
+    },
+    "disabled": {
+     "kind": "boolean"
+    }
+   },
+   "slots": [],
+   "source": "toggle.tsx",
+   "gallery": "toggle",
+   "examples": [
+    {
+     "state": "off",
+     "html": "<tmt-ui-toggle label=\"Auto-open pages\"></tmt-ui-toggle>"
+    },
+    {
+     "state": "on",
+     "html": "<tmt-ui-toggle label=\"Auto-open pages\" pressed></tmt-ui-toggle>"
+    }
+   ]
+  },
+  {
+   "docs": "design/browser-ui/README.md#controlled-input-contracts",
+   "tokens": [
+    "--tmt-ui-font-body",
+    "--tmt-ui-color-text",
+    "--tmt-ui-control-size"
+   ],
+   "tag": "tmt-ui-checkbox",
+   "name": "Checkbox",
+   "component": "BrowserCheckbox",
+   "category": "Input",
+   "purpose": "A labelled native checkbox with the shared drawing.",
+   "attributes": {
+    "label": {
+     "kind": "text",
+     "required": true
+    },
+    "checked": {
+     "kind": "boolean"
+    },
+    "indeterminate": {
+     "kind": "boolean"
+    },
+    "disabled": {
+     "kind": "boolean"
+    }
+   },
+   "slots": [],
+   "source": "checkbox.tsx",
+   "gallery": "checkbox",
+   "examples": [
+    {
+     "state": "unchecked",
+     "html": "<tmt-ui-checkbox label=\"Include archived\"></tmt-ui-checkbox>"
+    },
+    {
+     "state": "checked",
+     "html": "<tmt-ui-checkbox label=\"Include archived\" checked></tmt-ui-checkbox>"
+    },
+    {
+     "state": "mixed",
+     "html": "<tmt-ui-checkbox label=\"Include archived\" indeterminate></tmt-ui-checkbox>"
+    }
+   ]
+  },
+  {
+   "docs": "design/browser-ui/README.md#drawer-and-menu",
+   "tokens": [
+    "--tmt-ui-font-body",
+    "--tmt-ui-color-text",
+    "--tmt-ui-control-size"
+   ],
+   "tag": "tmt-ui-menu",
+   "name": "Menu",
+   "component": "BrowserMenu",
+   "category": "Navigation",
+   "purpose": "A keyboard-operable local choice menu.",
+   "attributes": {
+    "label": {
+     "kind": "text",
+     "required": true
+    },
+    "value": {
+     "kind": "text"
+    },
+    "disabled": {
+     "kind": "boolean"
+    },
+    "presentation": {
+     "kind": "enum",
+     "values": [
+      "compact"
+     ]
+    }
+   },
+   "slots": [
+    "item"
+   ],
+   "itemSlot": "item",
+   "minimumItems": 1,
+   "source": "menu.tsx",
+   "gallery": "menus",
+   "examples": [
+    {
+     "state": "default",
+     "html": "<tmt-ui-menu label=\"Sort\" value=\"recent\"><span slot=\"item\" data-value=\"recent\">Recently updated</span><span slot=\"item\" data-value=\"title\">Title</span></tmt-ui-menu>"
+    }
+   ]
+  },
+  {
+   "docs": "design/browser-ui/README.md#controlled-input-contracts",
+   "tokens": [
+    "--tmt-ui-font-body",
+    "--tmt-ui-color-text",
+    "--tmt-ui-control-size"
+   ],
+   "tag": "tmt-ui-tabs",
+   "name": "Tabs",
+   "component": "BrowserTabs",
+   "category": "Navigation",
+   "purpose": "Local tab selection with panels kept mounted.",
+   "attributes": {
+    "label": {
+     "kind": "text",
+     "required": true
+    },
+    "value": {
+     "kind": "text"
+    },
+    "variant": {
+     "kind": "enum",
+     "values": [
+      "boxed",
+      "flush",
+      "flat"
+     ]
+    },
+    "wrap": {
+     "kind": "boolean"
+    }
+   },
+   "slots": [
+    "panel"
+   ],
+   "itemSlot": "panel",
+   "minimumItems": 1,
+   "source": "tabs.tsx",
+   "gallery": "tabs",
+   "examples": [
+    {
+     "state": "default",
+     "html": "<tmt-ui-tabs label=\"Tasks\"><section slot=\"panel\" data-value=\"all\" data-label=\"All\">All tasks</section><section slot=\"panel\" data-value=\"done\" data-label=\"Done\">Completed tasks</section></tmt-ui-tabs>"
+    }
+   ]
+  },
+  {
+   "docs": "design/browser-ui/README.md#dialog",
+   "tokens": [
+    "--tmt-ui-font-body",
+    "--tmt-ui-color-text",
+    "--tmt-ui-control-size"
+   ],
+   "tag": "tmt-ui-dialog",
+   "name": "Dialog",
+   "component": "BrowserDialog",
+   "category": "Overlay",
+   "purpose": "A local modal with its real focus and dismissal behavior.",
+   "attributes": {
+    "title": {
+     "kind": "text",
+     "required": true
+    },
+    "trigger": {
+     "kind": "text"
+    },
+    "size": {
+     "kind": "enum",
+     "values": [
+      "regular",
+      "wide"
+     ]
+    },
+    "presentation": {
+     "kind": "enum",
+     "values": [
+      "standard",
+      "confirm"
+     ]
+    }
+   },
+   "slots": [
+    "body",
+    "actions"
+   ],
+   "source": "dialog.tsx",
+   "gallery": "overlays",
+   "examples": [
+    {
+     "state": "default",
+     "html": "<tmt-ui-dialog title=\"Manage shortcuts\" trigger=\"Manage shortcuts\"><div slot=\"body\"><tmt-ui-field label=\"Name\" value=\"Design\"></tmt-ui-field></div><p slot=\"actions\">Press Escape to close and keep the draft.</p></tmt-ui-dialog>"
+    }
+   ]
+  },
+  {
+   "docs": "design/browser-ui/README.md#chips",
+   "tokens": [
+    "--tmt-ui-font-body",
+    "--tmt-ui-color-text",
+    "--tmt-ui-control-size"
+   ],
+   "tag": "tmt-ui-chips",
+   "name": "Chips",
+   "component": "BrowserChips",
+   "category": "Input",
+   "purpose": "A local searchable choice of removable chips.",
+   "attributes": {
+    "label": {
+     "kind": "text",
+     "required": true
+    },
+    "disabled": {
+     "kind": "boolean"
+    }
+   },
+   "slots": [
+    "option"
+   ],
+   "itemSlot": "option",
+   "minimumItems": 0,
+   "source": "chips.tsx",
+   "gallery": "chips",
+   "examples": [
+    {
+     "state": "default",
+     "html": "<tmt-ui-chips label=\"Tags\"><span slot=\"option\" data-value=\"design\" data-selected>Design</span><span slot=\"option\" data-value=\"spec\">Spec</span></tmt-ui-chips>"
+    }
+   ]
+  },
+  {
+   "docs": "design/browser-ui/README.md#chips",
+   "tokens": [
+    "--tmt-ui-font-body",
+    "--tmt-ui-color-text",
+    "--tmt-ui-control-size"
+   ],
+   "tag": "tmt-ui-chip",
+   "name": "Chip",
+   "component": "BrowserChip",
+   "category": "Input",
+   "purpose": "A removable chip; removal affects only this preview.",
+   "attributes": {
+    "label": {
+     "kind": "text"
+    },
+    "disabled": {
+     "kind": "boolean"
+    }
+   },
+   "slots": [],
+   "textLabel": true,
+   "source": "chips.tsx",
+   "gallery": "chips",
+   "examples": [
+    {
+     "state": "default",
+     "html": "<tmt-ui-chip>Design</tmt-ui-chip>"
+    }
+   ]
+  },
+  {
+   "docs": "design/browser-ui/README.md#controlled-input-contracts",
+   "tokens": [
+    "--tmt-ui-font-body",
+    "--tmt-ui-color-text",
+    "--tmt-ui-control-size"
+   ],
+   "tag": "tmt-ui-notice",
+   "name": "Notice",
+   "component": "BrowserNotice",
+   "category": "Feedback",
+   "purpose": "A shared notice with a state word and mark.",
+   "attributes": {
+    "title": {
+     "kind": "text",
+     "required": true
+    },
+    "tone": {
+     "kind": "enum",
+     "values": [
+      "waiting",
+      "blocked",
+      "working",
+      "review",
+      "muted"
+     ]
+    },
+    "variant": {
+     "kind": "enum",
+     "values": [
+      "neutral",
+      "tinted"
+     ]
+    },
+    "state-label": {
+     "kind": "text"
+    }
+   },
+   "slots": [
+    "body",
+    "actions"
+   ],
+   "source": "notice.tsx",
+   "gallery": "notice",
+   "examples": [
+    {
+     "state": "default",
+     "html": "<tmt-ui-notice title=\"Two answers needed\" tone=\"waiting\"><p slot=\"body\">Please review the open questions.</p></tmt-ui-notice>"
+    }
+   ]
+  }
  ]
 }

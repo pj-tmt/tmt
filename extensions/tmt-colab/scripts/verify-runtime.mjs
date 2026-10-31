@@ -1,3 +1,4 @@
+import { gzipSync } from 'node:zlib';
 // Checks the built page runtime against its reviewed pin (#1693), the way the Remote Firebase build
 // is pinned: exact bytes and versions, so a changed dependency or build output is a reviewed diff.
 // Usage: node verify-runtime.mjs <app dist directory> [--update]
@@ -91,3 +92,6 @@ if (failures.length) {
   process.exit(1);
 }
 console.log(`page runtime ok: ${bytes.length} bytes, theme ${themeBytes.length} bytes`);
+
+const measure = (content) => ({ raw: Buffer.byteLength(content), gzip6: gzipSync(content, { level: 6 }).length, gzip9: gzipSync(content, { level: 9 }).length });
+console.log(`design bytes: ${JSON.stringify({ runtime: measure(bytes), static: measure(readFileSync(new URL('../../../design/browser-ui/generated/static.css', import.meta.url))), ui: measure(readFileSync(new URL('../../../design/browser-ui/generated/ui.css', import.meta.url))) })}`);

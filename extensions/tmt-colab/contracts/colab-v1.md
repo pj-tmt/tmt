@@ -6939,6 +6939,10 @@ the choice-shape rules for a valid kind, so one defect is not reported twice):
 | `attachment-ref-unresolved` / `-ambiguous`                        | warning  | with `--page`, `page patch` or `page create`: no, or more than one, current document attachment of the page matches the reference (an 8-digit token is a prefix, a full ID must be equal) |
 | `unknown-ui-class`                                                | warning  | an element whose `class` holds a `tmt-ui-*` token the page frame's design system does not define (it styles nothing); one finding per element                                             |
 | `unknown-icon`                                                    | warning  | a `<tmt-icon>` whose `name` is missing, not lowercase kebab-case or not in the frame's icon set (it draws nothing)                                                                        |
+| `unknown-ui-element`                                              | warning  | an unknown `tmt-ui-*` element                                                                                                                                                             |
+| `unknown-ui-attribute`                                            | warning  | an attribute not declared by the shared element manifest or an ordinary HTML global/ARIA/data attribute                                                                                   |
+| `invalid-ui-attribute`                                            | warning  | a missing required label or an invalid closed enum/boolean attribute                                                                                                                      |
+| `invalid-ui-structure`                                            | warning  | a widget outside the HTML namespace, invalid slots, missing item labels, duplicate/empty item values, or a selected value absent from the items                                           |
 
 Groups (`tmt-questions`, a `<p data-title>` and up to 12 direct `tmt-question` children). A group
 reports the first structural rule it fails, in table order, and is then skipped whole: its
@@ -7570,3 +7574,21 @@ lead rule. Architecture guard and runtime CI-scope registration land with first
 code; private documentation ownership in the component map creates no release.
 Local implementation/developer command guidance lands in L2/L3. Official
 packaging and cloud deployment remain separate decisions; no gate authorizes them.
+
+### Shared author element runtime
+
+Known HTML author elements from `@tmt/browser-ui/elements-manifest` request the
+existing pinned React runtime without an author script or runtime meta marker.
+Browser and native export selection use parsed HTML; comments, escaped text and
+foreign-namespace lookalikes do not request registration. The generated page UI
+registry carries the same attributes and structural rules for the markup checker.
+These findings are authoring diagnostics, not a replacement for the existing
+opaque-frame sandbox and CSP. Widgets receive no parent/store/session capability.
+The page style owner reserves Tailwind's theme/base reset layers below the shared
+controls, with author component and utility layers above them. This keeps the
+shared controls styled when their runtime is loaded, while preserving author
+overrides.
+Widget-bearing source changes follow the runtime-bearing frame remount path;
+ordinary static-source morphing is unchanged. Local control state belongs to the
+frame and is discarded with it. The [element contract](../../../design/browser-ui/README.md#colab-author-elements)
+owns supported markup and lifecycle behavior.

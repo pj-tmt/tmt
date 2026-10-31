@@ -13,8 +13,7 @@ classes, and a page that uses them and sets no `body` background or text colour 
 viewer theme's paper and ink (a link takes the accent); set both or neither. The classes' colours
 follow the scheme the page paints: a page you paint light stays light under a dark viewer, and an
 unpainted one follows the viewer. `tmt colab page check` reports a `tmt-ui-*` class or an icon name the frame
-does not have (`unknown-ui-class`, `unknown-icon`). Tabs, menus and other parts that need a script are
-not in the subset.
+does not have (`unknown-ui-class`, `unknown-icon`). The author elements below provide interactive controls without an author script.
 
 Section label and card; a card runs its table edge to edge inside its padding:
 
@@ -54,11 +53,19 @@ row, side by side (a bare button fills its block). A page's own script gives the
 
 ```html
 <p>
-  <button class="tmt-ui-action" data-variant="primary"><span class="tmt-ui-action-label">Approve</span></button>
+  <button class="tmt-ui-action" data-variant="primary">
+    <span class="tmt-ui-action-label">Approve</span>
+  </button>
   <button class="tmt-ui-action"><span class="tmt-ui-action-label">Cancel</span></button>
-  <button class="tmt-ui-action" data-variant="text"><span class="tmt-ui-action-label">Details</span></button>
-  <button class="tmt-ui-count-chip"><span>Comments</span><span class="tmt-ui-count">3</span></button>
-  <button class="tmt-ui-count-chip" data-tone="attention"><span>Needs you</span><span class="tmt-ui-count">2</span></button>
+  <button class="tmt-ui-action" data-variant="text">
+    <span class="tmt-ui-action-label">Details</span>
+  </button>
+  <button class="tmt-ui-count-chip">
+    <span>Comments</span><span class="tmt-ui-count">3</span>
+  </button>
+  <button class="tmt-ui-count-chip" data-tone="attention">
+    <span>Needs you</span><span class="tmt-ui-count">2</span>
+  </button>
 </p>
 ```
 
@@ -267,3 +274,32 @@ not jump, and `max-width: 100%` so the image never overflows. Details:
   />
 </div>
 ```
+
+## Live author widgets and Design catalog
+
+Open Design in the Colab module menu, or visit `/colab/design/gui` in the composed
+app. The GUI catalog contains live cards, state examples, attributes, tokens and
+copyable embed markup. `/colab/design/tui` lists real terminal sources; painter
+previews are unavailable until the shared terminal exporter and frame land.
+
+Use `tmt-ui-button`, `tmt-ui-icon-button`, `tmt-ui-field`, `tmt-ui-toggle`,
+`tmt-ui-checkbox`, `tmt-ui-menu`, `tmt-ui-tabs`, `tmt-ui-dialog`, `tmt-ui-chips`,
+`tmt-ui-chip` and `tmt-ui-notice` as documented by the live catalog. The page runtime
+loads automatically for these HTML elements. No script, runtime marker, external
+library or second stylesheet is needed. They use the viewer/page theme and the same
+controls as the application. Existing classes and `tmt-icon` remain lightweight.
+
+```html
+<tmt-ui-toggle label="Include archived"></tmt-ui-toggle>
+<tmt-ui-tabs label="Tasks" value="open">
+  <section slot="panel" data-value="open" data-label="Open">Open tasks</section>
+  <section slot="panel" data-value="done" data-label="Done">Completed tasks</section>
+</tmt-ui-tabs>
+```
+
+Widget state is local to the renderer frame. It does not save a page, send a message
+or invoke a host command. Dialog dismissal retains its draft; replacing source or
+removing the element resets its local state. Replace the host to change child slots
+or item structure. The checker reports unknown tags/attributes, invalid enum or
+boolean values, missing labels, and invalid slot/item structure. See the
+[shared element contract](../../../../../design/browser-ui/README.md#colab-author-elements).

@@ -66,6 +66,11 @@ function violations(
         'class-variance-authority',
       ]
     : ['react', '@types/react', 'lucide-react'];
+  // The author-element adapter owns its frame-local React roots (#5783).
+  if (file === path.join(sourceRoot, 'elements.tsx')) {
+    admittedPeers.push('react-dom/client');
+    admittedPackages.push('react-dom', '@types/react-dom');
+  }
   if (shellPortal) {
     admittedPeers.push('react-dom');
     admittedPackages.push('react-dom', '@types/react-dom');
@@ -88,6 +93,12 @@ function violations(
         failures.push(edge);
       continue;
     }
+    // Build-generated manifest/test inventory, never a gallery or runtime load.
+    if (
+      file === path.join(sourceRoot, 'catalog.ts') &&
+      edge === '../generated/elements-catalog.json'
+    )
+      continue;
     const target = ts.resolveModuleName(
       edge,
       file,
@@ -165,6 +176,21 @@ it('admits the bare portal peer only in the exact shell React adapter', () => {
   ).toEqual(['react-dom']);
   expect(violations(file, "import('react-' + name);", false)).toContain('unproved runtime input');
   expect(violations(file, 'new URL(target);', false)).toContain('unproved runtime input');
+});
+it('limits element root ownership and generated catalog data to their exact entries', () => {
+  const element = path.join(production, 'elements.tsx');
+  const catalog = path.join(production, 'catalog.ts');
+  expect(violations(element, "import {createRoot} from 'react-dom/client';", false)).toEqual([]);
+  for (const file of [catalog, path.join(production, 'action.tsx')])
+    expect(violations(file, "import {createRoot} from 'react-dom/client';", false)).toEqual([
+      'react-dom/client',
+    ]);
+  const data = "import data from '../generated/elements-catalog.json';";
+  expect(violations(catalog, data, false)).toEqual([]);
+  expect(violations(element, data, false)).toEqual(['../generated/elements-catalog.json']);
+  expect(violations(catalog, "import fixture from '../test/fixtures/elements';", false)).toEqual([
+    '../test/fixtures/elements',
+  ]);
 });
 it('inspects nested local modules and CSS independently of the admitted first edge', () => {
   const fixture = mkdtempSync(path.join(tmpdir(), 'tmt-browser-ui-boundary-'));

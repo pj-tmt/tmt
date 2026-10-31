@@ -190,6 +190,41 @@
       "name": "tab and newline separate tokens",
       "source": "<meta name=\"tmt-colab-runtime\" content=\"unknown-part\treact\">",
       "optsIn": true
+    },
+    {
+      "name": "registered widget without marker",
+      "source": "<tmt-ui-button>Save</tmt-ui-button>",
+      "optsIn": true
+    },
+    {
+      "name": "HTML widget names are case insensitive",
+      "source": "<TMT-UI-TOGGLE label=\"Choice\"></TMT-UI-TOGGLE>",
+      "optsIn": true
+    },
+    {
+      "name": "unknown widget does not ask for runtime",
+      "source": "<tmt-ui-unknown>Text</tmt-ui-unknown>",
+      "optsIn": false
+    },
+    {
+      "name": "widget text is not markup",
+      "source": "<p>&lt;tmt-ui-button&gt;</p>",
+      "optsIn": false
+    },
+    {
+      "name": "widget comment is not markup",
+      "source": "<!-- <tmt-ui-button> -->",
+      "optsIn": false
+    },
+    {
+      "name": "SVG lookalike is not an HTML custom element",
+      "source": "<svg><tmt-ui-button>Save</tmt-ui-button></svg>",
+      "optsIn": false
+    },
+    {
+      "name": "HTML integration point inside SVG supports widgets",
+      "source": "<svg><foreignObject><tmt-ui-button>Save</tmt-ui-button></foreignObject></svg>",
+      "optsIn": true
     }
   ]
 }
