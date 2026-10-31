@@ -191,11 +191,19 @@ fn diagnostic_status_preserves_door_when_credential_writer_is_busy() {
         .open(path.with_extension("lock"))
         .unwrap();
     lock.try_lock().unwrap();
+    // Colab's door lookup gives `tmt remote status --json` 3 s (`tmt-colab` `door.rs`).
+    let colab_lookup = std::time::Duration::from_secs(3);
+    let started = std::time::Instant::now();
     let run = pilot
         .command()
         .args(["--remote", "tenant", "status", "--json"])
         .output()
         .unwrap();
+    assert!(
+        started.elapsed() < colab_lookup,
+        "a busy status must answer before Colab's lookup ends: {:?}",
+        started.elapsed()
+    );
     assert!(
         run.status.success(),
         "{}",
@@ -207,15 +215,19 @@ fn diagnostic_status_preserves_door_when_credential_writer_is_busy() {
         answer["signIn"],
         serde_json::json!({"state":"busy","expiresAtMs":null})
     );
+    let started = std::time::Instant::now();
     let human = pilot
         .command()
         .args(["--remote", "tenant", "status"])
         .output()
         .unwrap();
+    assert!(started.elapsed() < colab_lookup, "{:?}", started.elapsed());
     assert!(human.status.success());
+    let line = String::from_utf8_lossy(&human.stdout);
     assert!(
-        String::from_utf8_lossy(&human.stdout)
-            .contains("Firestore sign-in could not be confirmed.")
+        line.contains("held the Firestore sign-in lock under remote/firebase-auth for 1 second;")
+            && line.contains("REMOTE_STATE_UNAVAILABLE"),
+        "{line}"
     );
     assert_eq!(fs::read(path).unwrap(), bytes);
 }

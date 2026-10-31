@@ -1,7 +1,7 @@
 //! One owner-private file per project. Readers and compare/replace writers share
 //! its lock. Replacement follows Remote's deploy-record publication order.
 use super::{
-    AuthError, AuthErrorKind, CREDENTIAL_BYTES, CREDENTIAL_LIFETIME_MS, Credential,
+    AuthError, AuthErrorKind, CREDENTIAL_BYTES, CREDENTIAL_LIFETIME_MS, Cancellation, Credential,
     CredentialStore, StoreRead,
 };
 use crate::{state::Layout, store::uuid_v4};
@@ -10,15 +10,23 @@ use std::{
     fs::{self, File, OpenOptions},
     io::{Read, Write},
     os::unix::fs::{MetadataExt, OpenOptionsExt, PermissionsExt},
-    path::PathBuf,
-    sync::{Mutex, MutexGuard, TryLockError},
+    path::{Path, PathBuf},
+    sync::{Mutex, MutexGuard, TryLockError, atomic::AtomicBool},
+    time::Duration,
 };
+use tmt_extension_state::{WRITE_WAIT, WriteWait};
 
 pub struct FileStore {
     remote: PathBuf,
     project: String,
     handle: Mutex<Option<File>>,
+    // Tests shorten the shared write wait; production always uses WRITE_WAIT.
+    wait: Duration,
+    #[cfg(test)]
+    file_lock_waits: std::sync::atomic::AtomicUsize,
 }
+// Callers without their own budget wait the whole write wait.
+static NEVER: AtomicBool = AtomicBool::new(false);
 // The cached file description stays with FileStore. A guard releases flock
 // before its mutex, including error paths, even when a fork still has a copy.
 struct CredentialLock<'a> {
@@ -84,6 +92,9 @@ impl FileStore {
             remote: layout.directory.clone(),
             project: project.into(),
             handle: Mutex::new(None),
+            wait: WRITE_WAIT,
+            #[cfg(test)]
+            file_lock_waits: Default::default(),
         })
     }
     fn directory(&self, create: bool) -> Result<Option<tmt_extension_state::Layout>, AuthError> {
@@ -101,15 +112,26 @@ impl FileStore {
     fn path(&self, dir: &tmt_extension_state::Layout) -> PathBuf {
         dir.directory.join(format!("{}.json", self.project))
     }
-    fn lock(&self, dir: &tmt_extension_state::Layout) -> Result<CredentialLock<'_>, AuthError> {
-        let mut handle = match self.handle.try_lock() {
-            Ok(handle) => handle,
-            Err(TryLockError::WouldBlock) => return Err(unavailable()),
-            Err(TryLockError::Poisoned(poisoned)) => {
-                let mut handle = poisoned.into_inner();
-                *handle = None;
-                self.handle.clear_poison();
-                return Err(unavailable());
+    // Load, replace and remove read or change data, so they wait for another
+    // holder of the mutex or the file lock within one write wait, or until the
+    // caller's `cancel`. A poisoned mutex or a changed lock path still refuses
+    // at once and clears the handle.
+    fn lock(
+        &self,
+        dir: &tmt_extension_state::Layout,
+        cancel: &dyn Cancellation,
+    ) -> Result<CredentialLock<'_>, AuthError> {
+        let pending = WriteWait::start(self.wait);
+        let mut handle = loop {
+            match self.handle.try_lock() {
+                Ok(handle) => break handle,
+                Err(TryLockError::WouldBlock) => pause(&pending, cancel)?,
+                Err(TryLockError::Poisoned(poisoned)) => {
+                    let mut handle = poisoned.into_inner();
+                    *handle = None;
+                    self.handle.clear_poison();
+                    return Err(unavailable());
+                }
             }
         };
         let path = dir.directory.join(format!("{}.lock", self.project));
@@ -130,23 +152,28 @@ impl FileStore {
         let file = handle
             .as_ref()
             .expect("credential lock handle was initialized");
-        // A retained descriptor must never lock an old inode after its path is
-        // replaced. Any failed admission or metadata read also invalidates it.
-        let matches = match (
-            admit(file, false),
-            fs::symlink_metadata(path),
-            file.metadata(),
-        ) {
-            (Ok(_), Ok(current), Ok(opened)) => {
-                current.is_file() && current.dev() == opened.dev() && current.ino() == opened.ino()
-            }
-            _ => false,
-        };
-        if !matches {
+        if !same_lock(file, &path) {
             *handle = None;
             return Err(invalid());
         }
-        file.try_lock().map_err(|_| unavailable())?;
+        loop {
+            match file.try_lock() {
+                Ok(()) => break,
+                Err(fs::TryLockError::WouldBlock) => {
+                    #[cfg(test)]
+                    self.file_lock_waits
+                        .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                    pause(&pending, cancel)?
+                }
+                Err(fs::TryLockError::Error(_)) => return Err(unavailable()),
+            }
+        }
+        // The path can change during the wait; a lock on its old inode excludes nobody.
+        if !same_lock(file, &path) {
+            let _ = file.unlock();
+            *handle = None;
+            return Err(invalid());
+        }
         Ok(CredentialLock {
             handle: Some(handle),
         })
@@ -240,6 +267,31 @@ impl FileStore {
         Ok(())
     }
 }
+// A retained descriptor must never lock an old inode after its path is
+// replaced. Any failed admission or metadata read also invalidates it.
+fn same_lock(file: &File, path: &Path) -> bool {
+    match (
+        admit(file, false),
+        fs::symlink_metadata(path),
+        file.metadata(),
+    ) {
+        (Ok(_), Ok(current), Ok(opened)) => {
+            current.is_file() && current.dev() == opened.dev() && current.ino() == opened.ino()
+        }
+        _ => false,
+    }
+}
+// One pause between lock attempts: the caller's cancellation (a serving call's
+// deadline or stop) ends the wait early, and the write wait bounds it.
+fn pause(pending: &WriteWait, cancel: &dyn Cancellation) -> Result<(), AuthError> {
+    if cancel.cancelled() {
+        Err(AuthError::new(AuthErrorKind::Cancelled))
+    } else if pending.pause() {
+        Ok(())
+    } else {
+        Err(AuthError::lock_held())
+    }
+}
 fn admit_owner(owner: u32, current: u32) -> Result<(), AuthError> {
     if owner != current {
         Err(invalid())
@@ -272,24 +324,38 @@ fn admit(file: &File, repair: bool) -> Result<bool, AuthError> {
 }
 impl CredentialStore for FileStore {
     fn load(&self) -> Result<StoreRead, AuthError> {
+        self.load_within(&NEVER)
+    }
+    fn replace(&self, expected: Option<&Credential>, next: &Credential) -> Result<(), AuthError> {
+        self.replace_within(expected, next, &NEVER)
+    }
+    fn remove(&self, expected: &Credential) -> Result<(), AuthError> {
+        self.remove_within(expected, &NEVER)
+    }
+    fn load_within(&self, cancel: &dyn Cancellation) -> Result<StoreRead, AuthError> {
         let Some(dir) = self.directory(false)? else {
             return Ok(StoreRead {
                 credential: None,
                 permissions_repaired: false,
             });
         };
-        let lock = self.lock(&dir)?;
+        let lock = self.lock(&dir, cancel)?;
         self.clean_staging(&dir)?;
         let read = self.read(&dir)?;
         lock.release()?;
         Ok(read)
     }
-    fn replace(&self, expected: Option<&Credential>, next: &Credential) -> Result<(), AuthError> {
+    fn replace_within(
+        &self,
+        expected: Option<&Credential>,
+        next: &Credential,
+        cancel: &dyn Cancellation,
+    ) -> Result<(), AuthError> {
         if next.project_id != self.project {
             return Err(invalid());
         }
         let dir = self.directory(true)?.ok_or_else(unavailable)?;
-        let lock = self.lock(&dir)?;
+        let lock = self.lock(&dir, cancel)?;
         if self.read(&dir)?.credential.as_ref() != expected {
             return Err(AuthError::state_changed());
         }
@@ -333,11 +399,15 @@ impl CredentialStore for FileStore {
         dir.sync().map_err(|_| unavailable().uncertain())?;
         lock.release().map_err(AuthError::uncertain)
     }
-    fn remove(&self, expected: &Credential) -> Result<(), AuthError> {
+    fn remove_within(
+        &self,
+        expected: &Credential,
+        cancel: &dyn Cancellation,
+    ) -> Result<(), AuthError> {
         let Some(dir) = self.directory(false)? else {
             return Err(AuthError::state_changed());
         };
-        let lock = self.lock(&dir)?;
+        let lock = self.lock(&dir, cancel)?;
         if self.read(&dir)?.credential.as_ref() != Some(expected) {
             return Err(AuthError::state_changed());
         }
@@ -402,6 +472,9 @@ mod tests {
         store.replace(None, &credential).unwrap();
         (root, store, credential)
     }
+    // Keeps refusal tests fast; the contended success test keeps WRITE_WAIT.
+    const SHORT_WAIT: Duration = Duration::from_millis(200);
+
     struct HeldCopy(std::process::Child);
     impl HeldCopy {
         fn start(file: File) -> Self {
@@ -451,22 +524,24 @@ mod tests {
         ) {
             return;
         }
-        let (root, store, credential) = fixture();
+        let (root, mut store, credential) = fixture();
+        store.wait = SHORT_WAIT;
         let dir = store.directory(false).unwrap().unwrap();
-        let lock = store.lock(&dir).unwrap();
-        let other = FileStore::new(
+        let lock = store.lock(&dir, &NEVER).unwrap();
+        let mut other = FileStore::new(
             &Layout::open(root.0.as_path()).unwrap(),
             "demo-credential-lock",
         )
         .unwrap();
+        other.wait = SHORT_WAIT;
         assert_eq!(
-            other.load().err().unwrap().kind,
-            AuthErrorKind::Unavailable,
+            other.load().err(),
+            Some(AuthError::lock_held()),
             "a genuine live owner must still exclude another credential owner"
         );
         assert_eq!(
-            store.load().err().unwrap().kind,
-            AuthErrorKind::Unavailable,
+            store.load().err(),
+            Some(AuthError::lock_held()),
             "the retained description must not bypass another operation on the same store"
         );
         // Fork while the parent holds exclusion. The child's readiness barrier
@@ -490,6 +565,158 @@ mod tests {
             Some(credential),
             "standalone command access must resume while the duplicate still lives"
         );
+    }
+
+    /// Waits until `store` has found the file lock held at least once, so the
+    /// operation is waiting behind the holder. Returns false if it ended first.
+    fn waits_behind_holder(
+        store: &FileStore,
+        operation: &std::thread::ScopedJoinHandle<'_, impl Sized>,
+    ) -> bool {
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+        while std::time::Instant::now() < deadline {
+            if store
+                .file_lock_waits
+                .load(std::sync::atomic::Ordering::SeqCst)
+                > 0
+            {
+                return true;
+            }
+            if operation.is_finished() {
+                return false;
+            }
+            std::thread::yield_now();
+        }
+        panic!("the contended operation neither waited nor ended");
+    }
+
+    #[test]
+    fn contended_replace_waits_for_the_holder_and_then_succeeds() {
+        let (root, store, credential) = fixture();
+        let dir = store.directory(false).unwrap().unwrap();
+        let other =
+            FileStore::new(&Layout::open(&root.0).unwrap(), "demo-credential-lock").unwrap();
+        let next = Credential {
+            last_used_at_ms: 2,
+            ..credential.clone()
+        };
+        let holder = other.lock(&dir, &NEVER).unwrap();
+        std::thread::scope(|scope| {
+            let replace = scope.spawn(|| store.replace(Some(&credential), &next));
+            let waited = waits_behind_holder(&store, &replace);
+            drop(holder);
+            let result = replace.join().unwrap();
+            assert_eq!(
+                result,
+                Ok(()),
+                "a contended replace must wait for the holder"
+            );
+            assert!(waited, "the replace must have found the holder's lock");
+        });
+        assert_eq!(store.load().unwrap().credential, Some(next));
+    }
+
+    #[test]
+    fn a_lock_path_replaced_during_the_wait_refuses_after_the_lock() {
+        let (root, store, credential) = fixture();
+        let dir = store.directory(false).unwrap().unwrap();
+        let path = dir.directory.join("demo-credential-lock.lock");
+        let other =
+            FileStore::new(&Layout::open(&root.0).unwrap(), "demo-credential-lock").unwrap();
+        let holder = other.lock(&dir, &NEVER).unwrap();
+        std::thread::scope(|scope| {
+            let load = scope.spawn(|| store.load());
+            assert!(waits_behind_holder(&store, &load));
+            fs::rename(&path, dir.directory.join("previous.lock")).unwrap();
+            OpenOptions::new()
+                .create_new(true)
+                .write(true)
+                .mode(0o600)
+                .open(&path)
+                .unwrap();
+            drop(holder);
+            assert_eq!(
+                load.join().unwrap().err().unwrap().kind,
+                AuthErrorKind::InvalidCredential,
+                "a lock taken on the old inode must not admit the operation"
+            );
+        });
+        assert_eq!(store.load().unwrap().credential, Some(credential));
+    }
+
+    #[test]
+    fn a_cancelled_caller_stops_waiting_for_the_holder() {
+        let (root, store, credential) = fixture();
+        let dir = store.directory(false).unwrap().unwrap();
+        let other =
+            FileStore::new(&Layout::open(&root.0).unwrap(), "demo-credential-lock").unwrap();
+        let holder = other.lock(&dir, &NEVER).unwrap();
+        // A serving call whose deadline or stop has already come.
+        let started = std::time::Instant::now();
+        let error = store.load_within(&AtomicBool::new(true)).err().unwrap();
+        assert!(
+            started.elapsed() < WRITE_WAIT,
+            "the cancel must end the wait"
+        );
+        assert_eq!(error.kind, AuthErrorKind::Cancelled);
+        drop(holder);
+        assert_eq!(store.load().unwrap().credential, Some(credential));
+    }
+
+    #[test]
+    fn a_holder_past_the_write_wait_gets_a_named_refusal() {
+        let (root, mut store, credential) = fixture();
+        store.wait = SHORT_WAIT;
+        let dir = store.directory(false).unwrap().unwrap();
+        let other =
+            FileStore::new(&Layout::open(&root.0).unwrap(), "demo-credential-lock").unwrap();
+        let next = Credential {
+            last_used_at_ms: 2,
+            ..credential.clone()
+        };
+        // Another owner holds the file lock, then another operation on this
+        // store holds its process mutex. Both waits end in the same refusal.
+        for same_store in [false, true] {
+            let holder = if same_store {
+                store.lock(&dir, &NEVER).unwrap()
+            } else {
+                other.lock(&dir, &NEVER).unwrap()
+            };
+            let started = std::time::Instant::now();
+            let error = store.replace(Some(&credential), &next).unwrap_err();
+            let waited = started.elapsed();
+            drop(holder);
+            assert!(
+                waited >= SHORT_WAIT,
+                "refused after {waited:?}, before the wait"
+            );
+            assert!(
+                waited < WRITE_WAIT,
+                "the injected wait must bound the refusal"
+            );
+            assert_eq!(error, AuthError::lock_held());
+            assert_eq!(error.kind, AuthErrorKind::Unavailable);
+            assert!(!error.may_have_effect());
+            assert_eq!(
+                error.to_string(),
+                "Another tmt operation held the Firestore sign-in lock under remote/firebase-auth for 5 seconds; nothing changed. Run the same command again after it ends. (REMOTE_STATE_UNAVAILABLE)"
+            );
+            assert_eq!(
+                serde_json::to_value(super::super::presentation::diagnostic(&error)).unwrap(),
+                serde_json::json!({"state":"busy","expiresAtMs":null})
+            );
+        }
+        assert_eq!(store.load().unwrap().credential, Some(credential));
+    }
+
+    #[test]
+    fn a_lock_refusal_names_the_wait_in_whole_seconds() {
+        let line = |wait| AuthError::lock_held_for(wait).to_string();
+        assert!(line(Duration::from_secs(1)).contains(" for 1 second; "));
+        assert!(line(Duration::from_millis(200)).contains(" for 1 second; "));
+        assert!(line(Duration::from_millis(1500)).contains(" for 2 seconds; "));
+        assert!(line(WRITE_WAIT).contains(" for 5 seconds; "));
+        assert_eq!(AuthError::lock_held_for(WRITE_WAIT), AuthError::lock_held());
     }
 
     #[test]
@@ -533,7 +760,8 @@ mod tests {
 
     #[test]
     fn credential_handle_recovers_after_an_inode_mismatch_refusal() {
-        let (root, store, credential) = fixture();
+        let (root, mut store, credential) = fixture();
+        store.wait = SHORT_WAIT;
         let dir = store.directory(false).unwrap().unwrap();
         let path = dir.directory.join("demo-credential-lock.lock");
         fs::rename(&path, dir.directory.join("previous.lock")).unwrap();
@@ -549,10 +777,10 @@ mod tests {
         );
         let other =
             FileStore::new(&Layout::open(&root.0).unwrap(), "demo-credential-lock").unwrap();
-        let competing = other.lock(&dir).unwrap();
+        let competing = other.lock(&dir, &NEVER).unwrap();
         assert_eq!(
-            store.load().err().unwrap().kind,
-            AuthErrorKind::Unavailable,
+            store.load().err(),
+            Some(AuthError::lock_held()),
             "the reopened path must still respect a genuine competing owner"
         );
         drop(competing);
@@ -586,7 +814,7 @@ mod tests {
         let (_root, store, credential) = fixture();
         let dir = store.directory(false).unwrap().unwrap();
         let panic = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            let _lock = store.lock(&dir).unwrap();
+            let _lock = store.lock(&dir, &NEVER).unwrap();
             panic!("fixture poisons the credential operation guard");
         }));
         assert!(panic.is_err());

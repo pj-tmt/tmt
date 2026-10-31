@@ -28,6 +28,7 @@ pub use rest::{Http, Operation, Request, Response};
 use std::{
     fmt,
     sync::atomic::{AtomicBool, Ordering},
+    time::Duration,
 };
 pub use system::{RandomJitter, SystemClock};
 
@@ -59,6 +60,7 @@ pub enum AuthErrorKind {
 pub struct AuthError {
     pub kind: AuthErrorKind,
     possible_effect: bool,
+    lock_wait: Option<Duration>,
 }
 impl AuthError {
     pub fn unavailable() -> Self {
@@ -81,6 +83,19 @@ impl AuthError {
         Self {
             kind,
             possible_effect: false,
+            lock_wait: None,
+        }
+    }
+    /// Another holder kept the credential lock for the whole write wait. It
+    /// stays `Unavailable`, so callers keep their busy handling.
+    fn lock_held() -> Self {
+        Self::lock_held_for(tmt_extension_state::WRITE_WAIT)
+    }
+    /// The same refusal for a caller that gave up after its own shorter `wait`.
+    pub fn lock_held_for(wait: Duration) -> Self {
+        Self {
+            lock_wait: Some(wait),
+            ..Self::unavailable()
         }
     }
     fn uncertain(mut self) -> Self {
@@ -90,6 +105,16 @@ impl AuthError {
 }
 impl fmt::Display for AuthError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        if let Some(wait) = self.lock_wait {
+            // Whole seconds, rounded up, so a sub-second wait never reads "0 seconds".
+            let seconds = wait.as_millis().div_ceil(1000).max(1);
+            let unit = if seconds == 1 { "second" } else { "seconds" };
+            return write!(
+                f,
+                "Another tmt operation held the Firestore sign-in lock under remote/firebase-auth for {seconds} {unit}; nothing changed. Run the same command again after it ends. ({})",
+                self.code()
+            );
+        }
         let message = match self.kind {
             AuthErrorKind::ReSignInNeeded | AuthErrorKind::UserNotFound => {
                 presentation::SIGN_IN_ENDED
@@ -214,6 +239,26 @@ pub trait CredentialStore {
     /// Compare the captured generation under the writer lock before replacing.
     fn replace(&self, expected: Option<&Credential>, next: &Credential) -> Result<(), AuthError>;
     fn remove(&self, expected: &Credential) -> Result<(), AuthError>;
+    // The same operations for a caller with its own budget: a store that waits
+    // for a lock also stops waiting when `cancel` does. The lifecycle uses these.
+    fn load_within(&self, _cancel: &dyn Cancellation) -> Result<StoreRead, AuthError> {
+        self.load()
+    }
+    fn replace_within(
+        &self,
+        expected: Option<&Credential>,
+        next: &Credential,
+        _cancel: &dyn Cancellation,
+    ) -> Result<(), AuthError> {
+        self.replace(expected, next)
+    }
+    fn remove_within(
+        &self,
+        expected: &Credential,
+        _cancel: &dyn Cancellation,
+    ) -> Result<(), AuthError> {
+        self.remove(expected)
+    }
 }
 
 #[derive(Clone, Copy, Debug)]

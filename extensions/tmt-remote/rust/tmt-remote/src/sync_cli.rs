@@ -5,13 +5,14 @@ use serde_json::{Value, json};
 use std::{
     io::Write,
     sync::{Arc, atomic::AtomicBool},
+    time::{Duration, Instant},
 };
 use tmt_cli_style::{CommandSpec, Example, OutputModes};
 use tmt_remote::{
     error::RemoteError,
     firebase_auth::{
-        self as auth, AuthState, Client, Clock, FileStore, ProductionHttp, Project, RandomJitter,
-        Status, SystemClock, presentation,
+        self as auth, AuthErrorKind, AuthState, Cancellation, Client, Clock, FileStore,
+        ProductionHttp, Project, RandomJitter, Status, SystemClock, presentation,
     },
     remote_selector,
     state::Layout,
@@ -58,6 +59,18 @@ fn action(spec: &CommandSpec) -> Command {
             .long("project")
             .help("Assert the selected Firebase project id"),
     )
+}
+/// How long ordinary status waits for a held credential lock. Colab's door lookup gives the
+/// whole `tmt remote status --json` call 3 s (`tmt-colab` `door.rs` `TIMEOUT`), so this stays
+/// well below it and leaves 2 s for process start, the lease and the serve's control reply on a
+/// loaded host. Holders do only file I/O under the lock, so a normal holder ends long before.
+const STATUS_LOCK_WAIT: Duration = Duration::from_secs(1);
+/// Status has no caller budget of its own; this one ends its credential lock wait.
+struct Deadline(Instant);
+impl Cancellation for Deadline {
+    fn cancelled(&self) -> bool {
+        Instant::now() >= self.0
+    }
 }
 fn mapped(error: auth::AuthError, kind: remote_selector::ClientKind) -> RemoteError {
     RemoteError::new(error.code(), &presentation::error_line(&error, kind))
@@ -188,7 +201,7 @@ pub(crate) fn status(
         let loaded = (|| {
             let store = FileStore::new(layout.expect("selected layout"), &selection.project)?;
             let http = ProductionHttp::new(&project, clock.clone())?;
-            let cancel = AtomicBool::new(false);
+            let cancel = Deadline(Instant::now() + STATUS_LOCK_WAIT);
             let mut client = Client::load(
                 project,
                 &store,
@@ -198,7 +211,13 @@ pub(crate) fn status(
                 &cancel,
             )?;
             Ok::<_, auth::AuthError>((client.status(), client.take_permission_notice()))
-        })();
+        })()
+        // The store checks the deadline only while another holder has the lock, so a
+        // cancellation here is that holder outlasting the status wait: report it as busy.
+        .map_err(|error| match error.kind {
+            AuthErrorKind::Cancelled => auth::AuthError::lock_held_for(STATUS_LOCK_WAIT),
+            _ => error,
+        });
         match loaded {
             Ok((loaded_status, loaded_notice)) => {
                 status = loaded_status;

@@ -12,7 +12,32 @@ use std::{
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 
-pub(crate) const WRITE_WAIT: Duration = Duration::from_secs(5);
+/// How long a data writer waits for a held write lock. The budget starts at the
+/// first attempt and is never renewed.
+pub const WRITE_WAIT: Duration = Duration::from_secs(5);
+
+/// A data writer's bounded wait between nonblocking lock attempts. Consumers
+/// that own their lock handle use it instead of a second wait policy.
+pub struct WriteWait {
+    deadline: Instant,
+}
+impl WriteWait {
+    /// Start a wait of `budget`: [`WRITE_WAIT`], or a shorter one in a test.
+    pub fn start(budget: Duration) -> Self {
+        Self {
+            deadline: Instant::now() + budget,
+        }
+    }
+    /// Sleep before the next attempt, or return false when the budget is spent.
+    pub fn pause(&self) -> bool {
+        let remaining = self.deadline.saturating_duration_since(Instant::now());
+        if remaining.is_zero() {
+            return false;
+        }
+        std::thread::sleep(remaining.min(Duration::from_millis(10)));
+        true
+    }
+}
 
 pub(crate) fn try_file(file: File) -> Result<Flock<File>, (File, Errno)> {
     Flock::lock(file, FlockArg::LockExclusiveNonblock)
@@ -57,7 +82,7 @@ fn holder(file: &mut File) -> Option<Holder> {
 }
 
 pub(crate) fn acquire(path: &Path, wait: bool, retry: &str) -> Result<Flock<File>, StateError> {
-    let deadline = Instant::now() + WRITE_WAIT;
+    let pending = WriteWait::start(WRITE_WAIT);
     let mut file = private_file(path)?;
     loop {
         match try_file(file) {
@@ -78,8 +103,7 @@ pub(crate) fn acquire(path: &Path, wait: bool, retry: &str) -> Result<Flock<File
                         retry: retry.into(),
                     });
                 }
-                let remaining = deadline.saturating_duration_since(Instant::now());
-                if remaining.is_zero() {
+                if !pending.pause() {
                     return Err(StateError::Timeout {
                         path: path.into(),
                         operation: "acquire write lock",
@@ -88,7 +112,6 @@ pub(crate) fn acquire(path: &Path, wait: bool, retry: &str) -> Result<Flock<File
                         source: io::Error::from_raw_os_error(error as i32).into(),
                     });
                 }
-                std::thread::sleep(remaining.min(Duration::from_millis(10)));
             }
         }
     }

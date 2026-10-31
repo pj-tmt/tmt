@@ -88,7 +88,8 @@
 //!
 //! The new entries share one typed timeout carrying the store/path, operation,
 //! preserved cause and exact retry. Guard contention is a separate typed outcome.
-//! Five seconds bounds write-lock admission, not consumer computation. Callers
+//! Five seconds bounds write-lock admission, not consumer computation. A consumer
+//! that keeps its own lock handle waits with `WriteWait`, the same bound and poll. Callers
 //! retain their own CLI codes, formatting and schemas. Process-crash recovery
 //! tests prove old/new state; they do not simulate power loss.
 use nix::{
@@ -110,6 +111,7 @@ mod shared_error;
 mod store;
 pub use document::Document;
 pub use guard::Guard;
+pub use locking::{WRITE_WAIT, WriteWait};
 pub use shared_error::{Holder, StateError, UpdateError};
 pub use store::{Migration, Store};
 
