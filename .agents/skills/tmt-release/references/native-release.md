@@ -729,8 +729,9 @@ and `--tag-pr N` (repeatable) marks
 confounder PRs. Terminal job pages refresh once through complete acquisition before cache reuse;
 unqualified offline pages cannot prove completion. API source SHA/tree stay separate from each
 worker's checkout-log and immutable Git-tree proof; missing or ambiguous checkout evidence and
-legacy source-only snapshots are excluded from same-tested-tree candidates. Only relevant failed
-workers and subsequent successes acquire bounded logs within the REST budget. The script and
+legacy source-only snapshots are excluded from same-tested-tree candidates. Failed workers acquire
+bounded logs within the REST budget; a later success does only while a same-worker failure with a
+proven tree is unpaired and the success reruns that run or carries that API head tree. The script and
 report state their methodology limits. Verify with
 `pnpm exec vp test run --config vitest.config.ts test/tooling/merge-queue-metrics.test.ts` from
 `typescript/`.

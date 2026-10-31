@@ -1000,6 +1000,41 @@ describe('CI area selection', () => {
     expect(workflow).toContain('test:browser');
   });
 
+  it('derives the Remote pairing workflow paths from component ownership', () => {
+    const map = parseComponentMap(
+      readFileSync(new URL('../../../.github/components.json', import.meta.url), 'utf8')
+    );
+    const workflow = readFileSync(
+      new URL('../../../.github/workflows/remote-pairing.yml', import.meta.url),
+      'utf8'
+    );
+    expect(workflow).toMatch(/^on:\n  pull_request:\n    paths:/m);
+    // The smoke builds the door and drives the remote-client page, so it follows both owners.
+    const owned = ['tmt-remote', 'remote-client'].flatMap(
+      (name) => map.components.find((component) => component.name === name)?.owns ?? []
+    );
+    expect(owned).toHaveLength(2);
+    const shared = [
+      '.github/workflows/remote-pairing.yml',
+      '.github/actions/setup-tooling/**',
+      '.github/actions/install-chromium-deps/**',
+      '.github/actions/apt-install/**',
+      'scripts/retry-command.sh',
+      'typescript/package.json',
+      'typescript/pnpm-workspace.yaml',
+      'typescript/pnpm-lock.yaml',
+      'rust/Cargo.lock',
+    ];
+    const paths = [...workflow.matchAll(/^      - '([^']+)'$/gm)].map((m) => m[1]);
+    expect(paths.sort()).toEqual([...owned.map((root) => `${root}/**`), ...shared].sort());
+    const filters = paths.map((glob) => globToRegExp(glob));
+    const selected = (file: string) => filters.some((filter) => filter.test(file));
+    for (const root of owned) {
+      expect(selected(`${root}/src/lib.rs`), root).toBe(true);
+      expect(selected(`${root}-other/src/lib.rs`), root).toBe(false);
+    }
+  });
+
   it('selects native checks for shared design tokens without narrowing look-alikes', () => {
     const map = parseComponentMap(
       readFileSync(new URL('../../../.github/components.json', import.meta.url), 'utf8')

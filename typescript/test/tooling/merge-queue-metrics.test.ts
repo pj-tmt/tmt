@@ -695,63 +695,94 @@ describe('merge queue REST metrics', () => {
       true
     );
   });
-  it('collects checkout proof only for failed workers and temporally subsequent matching successes', () => {
+  it('collects later-success proof only while a proven failure tree can still pair', () => {
+    const a = 'a'.repeat(40);
+    const later = (minutes: number) => `2026-10-02T00:${minutes}:00Z`;
+    const worker = (id: number, name: string, conclusion: string, startedAt = later(12)) => ({
+      ...job(id, conclusion),
+      name,
+      started_at: startedAt,
+    });
+    // Run 1 reruns once; runs 2 and 3 are separate runs whose API head tree is or is not `a`.
+    const runs = [
+      { id: 1, attempts: 2, tree: 'f'.repeat(40) },
+      { id: 2, attempts: 1, tree: a },
+      { id: 3, attempts: 1, tree: a },
+      { id: 4, attempts: 1, tree: 'f'.repeat(40) },
+    ];
+    const jobs: Record<string, ReturnType<typeof worker>[]> = {
+      '1/1': [worker(1, 'Rerun', 'failure'), worker(2, 'Unknown', 'failure')],
+      '1/2': [
+        worker(3, 'Rerun', 'success', later(40)),
+        worker(10, 'Unknown', 'success', later(40)),
+      ],
+      '2/1': [
+        worker(4, 'Rerun', 'success', later(41)),
+        worker(5, 'Unknown', 'success', later(41)),
+        worker(6, 'Tree', 'failure'),
+        worker(7, 'Mismatch', 'failure'),
+      ],
+      '3/1': [worker(8, 'Tree', 'success', later(42))],
+      '4/1': [worker(9, 'Mismatch', 'success', later(43))],
+    };
     const selected: number[] = [];
     const api: Api = {
       get: (endpoint) => {
         if (endpoint.includes('/actions/workflows/'))
           return {
-            workflow_runs: endpoint.includes('event=pull_request')
-              ? [1, 2].map((id) => ({
+            workflow_runs: endpoint.includes('event=merge_group')
+              ? runs.map(({ id, attempts, tree }) => ({
                   id,
-                  event: 'pull_request',
-                  created_at: id === 1 ? since : boundary,
-                  run_attempt: 1,
+                  event: 'merge_group',
+                  created_at: later(10 + id),
+                  run_attempt: attempts,
                   status: 'completed',
-                  run_started_at: since,
+                  run_started_at: later(10 + id),
                   head_sha: 'e'.repeat(40),
-                  head_commit: { tree_id: 'f'.repeat(40) },
+                  head_commit: { tree_id: tree },
                 }))
               : [],
           };
         if (endpoint.includes('/pulls?')) return [];
-        if (endpoint.includes('/jobs?'))
-          return {
-            jobs: endpoint.includes('/runs/1/')
-              ? [job(1, 'failure'), { ...job(3), name: 'Unrelated' }]
-              : [
-                  { ...job(2), started_at: boundary },
-                  { ...job(4), name: 'Unrelated' },
-                ],
-          };
+        const attempt = /\/runs\/(\d+)\/attempts\/(\d+)/.exec(endpoint);
+        if (attempt && endpoint.includes('/jobs?'))
+          return { jobs: jobs[`${attempt[1]}/${attempt[2]}`] };
+        if (attempt) return { status: 'completed', conclusion: 'failure', run_started_at: since };
         throw new Error('Unexpected ' + endpoint);
       },
-      testedCheckout: (worker) => {
-        selected.push(worker.id);
-        return checkout(
-          worker.id,
-          'a'.repeat(40),
-          worker.id === 1 ? 'b'.repeat(40) : 'd'.repeat(40)
-        );
+      testedCheckout: (proved) => {
+        selected.push(proved.id);
+        return proved.id === 2
+          ? { sha: null, tree: null, reason: 'Checkout unknown' }
+          : checkout(proved.id);
       },
     };
     const result = collectMetrics(api, { repo: 'pj-tmt/tmt', since, until, tagPrs: [] });
-    expect(selected).toEqual([1, 2]);
-    expect(result.runs[0]).toMatchObject({ sourceSha: 'e'.repeat(40), sourceTree: 'f'.repeat(40) });
-    expect(result.runs[0]).not.toHaveProperty('tree');
-    expect(summarizeMetrics(result).flakes).toEqual([
-      {
-        job: 'Worker',
-        tree: 'a'.repeat(40),
-        failed: 'https://example.test/job/1',
-        passed: 'https://example.test/job/2',
-      },
-    ]);
-    api.testedCheckout = (worker) =>
-      checkout(worker.id, worker.id === 1 ? 'a'.repeat(40) : 'c'.repeat(40));
+    // 3: a rerun of run 1 although its API tree differs; 4: retired once 3 paired; 5 and 10:
+    // the failure's tree is unknown, even for its rerun; 8: a separate run carrying the failure's
+    // API tree; 9: a separate run whose API tree differs.
+    expect(selected).toEqual([1, 2, 3, 6, 7, 8]);
     expect(
-      summarizeMetrics(collectMetrics(api, { repo: 'pj-tmt/tmt', since, until, tagPrs: [] })).flakes
-    ).toEqual([]);
+      summarizeMetrics(result).flakes.map(({ failed, passed }) =>
+        [failed, passed].map((url) => url.split('/').at(-1))
+      )
+    ).toEqual([
+      ['1', '3'],
+      ['6', '8'],
+    ]);
+    // A candidate whose own proof shows another tree reads once and leaves the failure pending.
+    api.testedCheckout = (proved) => {
+      selected.push(proved.id);
+      if (proved.id === 2) return { sha: null, tree: null, reason: 'Checkout unknown' };
+      return checkout(proved.id, proved.id === 3 ? 'c'.repeat(40) : a);
+    };
+    selected.length = 0;
+    expect(
+      summarizeMetrics(
+        collectMetrics(api, { repo: 'pj-tmt/tmt', since, until, tagPrs: [] })
+      ).flakes.map(({ passed }) => passed.split('/').at(-1))
+    ).toEqual(['4', '8']);
+    expect(selected).toEqual([1, 2, 3, 4, 6, 7, 8]);
   });
   it('reads every bounded page instead of silently dropping runs after the first page', () => {
     const calls: string[] = [];
