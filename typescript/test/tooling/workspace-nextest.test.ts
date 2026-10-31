@@ -461,11 +461,15 @@ it('keeps recovery within the existing steps and gives only the collector the re
   );
   const downloads = workflow
     .split(/\n      - /)
-    .filter((step) => step.includes('uses: actions/download-artifact'));
+    .filter((step) => step.includes('uses: ./.github/actions/download-artifact-retry'));
   expect(downloads).toHaveLength(4);
-  for (const step of downloads) {
-    expect(step).toContain('uses: actions/download-artifact@v8');
-    expect(step).toContain('digest-mismatch: error');
+  const retry = readFileSync(
+    new URL('../../../.github/actions/download-artifact-retry/action.yml', import.meta.url),
+    'utf8'
+  );
+  for (const attempt of retry.split(/\n    - /).filter((step) => step.includes('uses:'))) {
+    expect(attempt).toContain('uses: actions/download-artifact@v8');
+    expect(attempt).toContain('digest-mismatch: error');
   }
   for (const step of downloads.filter(
     (step) => !step.includes('Download exact partition results')

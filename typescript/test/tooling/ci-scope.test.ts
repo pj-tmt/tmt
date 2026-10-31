@@ -3367,6 +3367,63 @@ describe('required CI gate', () => {
     expect(colab).toContain('save-if: false');
   });
 
+  // #5743: hosted blob storage failed every internal retry of an artifact download in a
+  // merge group and a release, while other jobs downloaded the same artifact minutes later.
+  it('retries each CI and release-manifest artifact download once, then fails closed', () => {
+    const read = (file: string) =>
+      readFileSync(fileURLToPath(new URL(`../../../${file}`, import.meta.url)), 'utf8');
+    const steps = (body: string, indent: string) =>
+      body
+        .split(`\n${indent}- `)
+        .slice(1)
+        .map((step) => ({ name: /^name: (.*)$/m.exec(step)?.[1] ?? '', body: step }));
+
+    const action = steps(read('.github/actions/download-artifact-retry/action.yml'), '    ');
+    expect(action.map((step) => step.name)).toEqual([
+      'Download artifacts',
+      'Wait before retrying the artifact download',
+      'Retry the artifact download once',
+    ]);
+    const [first, wait, retry] = action.map((step) => step.body);
+    expect(first).toMatch(/\n\s+id: first\n\s+continue-on-error: true\n/);
+    expect(wait).toMatch(/\n\s+if: steps\.first\.outcome == 'failure'\n[\s\S]*\n\s+run: sleep 45/);
+    // The retry keeps the default failure: a second failed download fails the job.
+    expect(retry).toMatch(/\n\s+if: steps\.first\.outcome == 'failure'\n/);
+    expect(retry).not.toContain('continue-on-error');
+    const inputs = (body: string) => body.split(/\n\s+with:\n/)[1].trimEnd();
+    expect(inputs(retry)).toBe(inputs(first));
+    for (const name of ['name', 'artifact-ids', 'pattern', 'path', 'merge-multiple'])
+      expect(inputs(first)).toContain(`${name}: \${{ inputs.${name} }}`);
+
+    for (const file of ['ci.yml', 'workspace-partitions.yml']) {
+      const workflow = read(`.github/workflows/${file}`);
+      expect(workflow, file).not.toMatch(/uses: actions\/download-artifact@/);
+      const callers = steps(workflow, '      ').filter((step) =>
+        step.body.includes('uses: ./.github/actions/download-artifact-retry')
+      );
+      expect(callers.length, file).toBeGreaterThan(0);
+      // Two failed attempts and the backoff took about 8.5 minutes on 10-30.
+      for (const caller of callers)
+        expect(caller.body, `${file}: ${caller.name}`).toMatch(/\n\s+timeout-minutes: 10\n/);
+    }
+
+    const prepare = read('.github/workflows/native-release-prepare.yml');
+    const assemble = steps(prepare.split('\n  assemble:\n')[1].split('\n  verify:\n')[0], '      ');
+    const download = assemble.findIndex((step) => step.body.includes('id: archives-download'));
+    expect(download).toBeGreaterThan(0);
+    const [manifestFirst, manifestWait, manifestRetry] = assemble
+      .slice(download, download + 3)
+      .map((step) => step.body);
+    expect(manifestFirst).toMatch(/\n\s+continue-on-error: true\n\s+timeout-minutes: 5\n/);
+    expect(manifestWait).toMatch(
+      /\n\s+if: steps\.archives-download\.outcome == 'failure'\n\s+run: sleep 45/
+    );
+    expect(manifestRetry).toMatch(/\n\s+if: steps\.archives-download\.outcome == 'failure'\n/);
+    expect(manifestRetry).not.toContain('continue-on-error');
+    expect(inputs(manifestRetry)).toBe(inputs(manifestFirst));
+    expect(manifestRetry).toContain('uses: actions/download-artifact@v4');
+  });
+
   it('gives every native step and job an explicit scope, and gates on exactly those results', () => {
     const workflow = readFileSync(
       fileURLToPath(new URL('../../../.github/workflows/ci.yml', import.meta.url)),

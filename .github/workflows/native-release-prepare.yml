@@ -265,7 +265,25 @@ jobs:
       - name: Install verification dependencies
         working-directory: release-source/typescript
         run: pnpm install --frozen-lockfile --ignore-scripts
-      - uses: actions/download-artifact@v4
+      # One retry after a backoff: hosted blob storage has failed every internal retry
+      # of this download while other jobs downloaded artifacts normally (#5743). A
+      # failed attempt took almost four minutes; a second failure fails closed.
+      - name: Download the target archives
+        id: archives-download
+        continue-on-error: true
+        timeout-minutes: 5
+        uses: actions/download-artifact@v4
+        with:
+          pattern: native-${{ inputs.product }}-*-${{ inputs.tag || 'main' }}
+          merge-multiple: true
+          path: release-source/target/distrib
+      - name: Wait before retrying the target archive download
+        if: steps.archives-download.outcome == 'failure'
+        run: sleep 45
+      - name: Retry the target archive download once
+        if: steps.archives-download.outcome == 'failure'
+        timeout-minutes: 5
+        uses: actions/download-artifact@v4
         with:
           pattern: native-${{ inputs.product }}-*-${{ inputs.tag || 'main' }}
           merge-multiple: true

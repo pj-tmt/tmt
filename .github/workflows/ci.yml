@@ -626,19 +626,22 @@ jobs:
         working-directory: rust
         run: cargo fetch --locked
       - name: Download the native executable for tooling tests
-        uses: actions/download-artifact@v4
+        uses: ./.github/actions/download-artifact-retry
+        timeout-minutes: 10
         with:
           name: runtime-x86_64-unknown-linux-musl
           path: rust/target/debug
       - name: Download the Rust TOML helper for injection fixtures
-        uses: actions/download-artifact@v4
+        uses: ./.github/actions/download-artifact-retry
+        timeout-minutes: 10
         with:
           name: release-version-fixture
           path: rust/target/debug
       - name: Make the Rust TOML helper executable
         run: chmod +x rust/target/debug/release-version
       - name: Download the native caller launcher for tooling tests
-        uses: actions/download-artifact@v4
+        uses: ./.github/actions/download-artifact-retry
+        timeout-minutes: 10
         with:
           name: native-caller-fixture-x86_64-unknown-linux-musl
           path: rust/target/debug/examples
@@ -929,7 +932,8 @@ jobs:
           node-version: 26.12.1
           architecture: ${{ matrix.target == 'x86_64-apple-darwin' && 'x64' || '' }}
       - name: Download the matching native executable
-        uses: actions/download-artifact@v4
+        uses: ./.github/actions/download-artifact-retry
+        timeout-minutes: 10
         with:
           name: runtime-${{ matrix.target }}
           path: runtime
