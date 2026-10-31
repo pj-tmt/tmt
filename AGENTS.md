@@ -118,8 +118,7 @@ ask when resolution would require an undecided product or authorization choice.
   one module, as one PR that closes several issues (one `Fixes #N` line each, or
   `Part of #N` for an issue it does not finish); a PR of a few thousand lines is fine.
   The reviewing lead decides the bundle and records the mapping on each issue. Split
-  a PR only when it would be too big to review, or when it crosses squad paths and
-  needs another owner.
+  a PR only when it crosses squad paths and needs another owner.
 - Keep decisions, progress, blockers, deferred work, branch/PR links and evidence
   synchronized in GitHub. Do not mark work done before its delivery state supports it.
 - Keep the issue's Project fields, tracker parentage and Status current as defined in
