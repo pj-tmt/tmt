@@ -710,10 +710,11 @@ check. A host with no template stays copy-only: Create becomes Copy commands and
 and, for Saved in a squad, a separately labelled add command to run after creation.
 Temporary copies only the launch line. Copy never creates an identity or membership.
 
-Comma Settings → **Bindings · j presets** lists every admitted key, including unassigned
+The `?` panel's **Bindings · j presets** row lists every admitted key, including unassigned
 keys, its effective command and winning global/host/section source. Enter edits the
-command; Tab chooses a write scope. A masked lower-scope edit names the binding
-that still wins. Save publishes through Config; Esc keeps the file unchanged;
+command; ←→ move the caret in the command field. ↓ reaches the Scope row below it,
+where ←→ choose the write scope; ↑ returns to the command (Tab does nothing). A masked lower-scope edit names the
+binding that still wins. Save publishes through Config; Esc keeps the file unchanged;
 `r` removes only the selected authored override and reveals inheritance. The `j`
 presets offer Focus agent, directional Swap beside board, or Custom command. A swap keeps the board focused and exchanges the
 neighbour into the selected agent's old slot; select the displaced agent to
@@ -750,8 +751,11 @@ host overrides, then section overrides. Compatible explicit bindings keep their
 meaning, including an explicit `f5 = "refresh"` binding. `C = "unbound"` removes the default
 binding of `C` (in `[bind]` it applies to every scope; in a host table, to that host); the footer,
 help and keycaps then show nothing for it. A key no scope binds by default gets a notice instead.
-The `,` settings page lists each action's key under `keys` and changes it for you (Enter edits, `r`
-restores the default): it writes `[bind] NEW = "<action>"` and, when OLD was a default key, `OLD = "unbound"` (an authored OLD entry is removed); `tmt ops sq config set keys.<action> NEW` does the same.
+The squad Settings sheet (the `?` panel's `Squad settings` row) lists each action's key under
+`keys` and changes it for you (Enter edits, `r` restores the default). In any Settings or
+Bindings edit, Esc closes the prompt and keeps its changed text for that setting: Enter on the
+same setting reopens it, its footer starts with `kept text`, and Ctrl-U clears it. Saving
+drops the kept text. Saving a new key writes `[bind] NEW = "<action>"` and, when OLD was a default key, `OLD = "unbound"` (an authored OLD entry is removed); `tmt ops sq config set keys.<action> NEW` does the same.
 Whole optional hints drop when space is short; help remains available.
 Menus, completion and editors own their keys and consume close without replay.
 Their Esc back action cannot be rebound. At the base list, Esc clears an active

@@ -16,7 +16,7 @@ use std::{
 use tmt_cli_style::{Role, grid::Align, mark::Mark, table::escape};
 use tmt_tui::{
     binding::Schema,
-    components::{ListRow, PickerField},
+    components::{Editor, ListRow, PickerField},
 };
 use unicode_width::UnicodeWidthStr;
 
@@ -148,7 +148,9 @@ pub(super) struct Overlay {
     display_path: String,
     config: Option<Config>,
     pub draft: Option<Config>,
-    editing: Option<(String, String)>,
+    editing: Option<(String, Editor)>,
+    /// The Scope row, below a binding command, holds the horizontal scope keys.
+    binding_scope: bool,
     notice: Option<SettingNotice>,
     section: Option<usize>,
     pub squad_keys: Vec<String>,
@@ -159,9 +161,16 @@ pub(super) struct Overlay {
     /// `keys.*` rows whose key is not the default; keys are global, so they are not squad overrides.
     rebound: BTreeSet<String>,
     host_action: Option<host_action::HostAction>,
-    /// Opened for one squad from the Workspace settings menu: Esc returns there, and a
-    /// refresh does not close it for showing another tab.
+    /// Opened for one squad from the `?` panel's settings rows: a refresh does not close it
+    /// for showing another tab.
     pub(in crate::board) from_menu: bool,
+    /// Edit text Esc kept, by setting key, with the value it was typed over: Enter on the same
+    /// key reopens it while that value is unchanged; Ctrl-U clears.
+    kept: BTreeMap<String, (String, String)>,
+    /// The text the open edit started from, so an unchanged edit is not kept.
+    edit_start: Option<String>,
+    /// The open edit came back from `kept`: its footer says so.
+    edit_kept: bool,
     /// Scroll the idle alert group (its rows and hint) into view once the list has painted.
     pub(in crate::board) reveal_idle: Cell<bool>,
 }
@@ -188,6 +197,7 @@ impl Overlay {
             config: None,
             draft: None,
             editing: None,
+            binding_scope: false,
             notice: None,
             section: None,
             squad_keys: Vec::new(),
@@ -199,6 +209,9 @@ impl Overlay {
             host_action: None,
             from_menu: false,
             reveal_idle: Cell::new(false),
+            kept: BTreeMap::new(),
+            edit_start: None,
+            edit_kept: false,
         }
     }
     pub fn open(
@@ -504,34 +517,71 @@ impl Overlay {
         }
     }
     pub fn key(&mut self, key: KeyEvent) -> Input {
-        if self.host_action.is_some()
-            && self.editing.is_some()
-            && matches!(
-                key.code,
-                KeyCode::Up
-                    | KeyCode::Down
-                    | KeyCode::PageUp
-                    | KeyCode::PageDown
-                    | KeyCode::Home
-                    | KeyCode::End
-            )
-            && self
-                .prompt
-                .borrow_mut()
-                .picker
-                .list
-                .scroll
-                .input(&Event::Key(key))
-        {
-            return Input::Preview;
-        }
-        if self.editing.is_some()
-            && key.code == KeyCode::Tab
-            && let Some(host) = &mut self.host_action
-        {
-            host.cycle_destination(self.config.as_ref().unwrap());
-            self.preview();
-            return Input::Preview;
+        if self.host_action.is_some() && self.editing.is_some() {
+            let readonly = self
+                .selected_pick()
+                .is_some_and(|pick| pick.id != "host-custom");
+            match key.code {
+                KeyCode::Down if !readonly => {
+                    self.binding_scope = true;
+                    self.prompt
+                        .borrow_mut()
+                        .picker
+                        .list
+                        .scroll
+                        .step(tmt_tui::components::Step::Top);
+                    return Input::Preview;
+                }
+                KeyCode::Up if !readonly => {
+                    self.binding_scope = false;
+                    self.prompt
+                        .borrow_mut()
+                        .picker
+                        .list
+                        .scroll
+                        .step(tmt_tui::components::Step::Top);
+                    return Input::Preview;
+                }
+                KeyCode::Left | KeyCode::Right if readonly || self.binding_scope => {
+                    self.host_action.as_mut().unwrap().cycle_destination(
+                        self.config.as_ref().unwrap(),
+                        key.code == KeyCode::Right,
+                    );
+                    self.preview();
+                    return Input::Preview;
+                }
+                KeyCode::PageUp | KeyCode::PageDown => {
+                    if self
+                        .prompt
+                        .borrow_mut()
+                        .picker
+                        .list
+                        .scroll
+                        .input(&Event::Key(key))
+                    {
+                        return Input::Preview;
+                    }
+                    return Input::None;
+                }
+                KeyCode::Home | KeyCode::End if readonly || self.binding_scope => {
+                    if self
+                        .prompt
+                        .borrow_mut()
+                        .picker
+                        .list
+                        .scroll
+                        .input(&Event::Key(key))
+                    {
+                        return Input::Preview;
+                    }
+                    return Input::None;
+                }
+                _ => {}
+            }
+            if !readonly && self.binding_scope && !matches!(key.code, KeyCode::Enter | KeyCode::Esc)
+            {
+                return Input::None;
+            }
         }
         if self.host_action.is_some()
             && self.editing.is_some()
@@ -555,8 +605,19 @@ impl Overlay {
         }
         if let Some((_, text)) = &mut self.editing {
             match key.code {
+                // Esc closes the edit and keeps changed text for that key.
                 KeyCode::Esc => {
-                    self.editing = None;
+                    let (name, text) = self.editing.take().expect("an open edit");
+                    match self.edit_start.take() {
+                        Some(start) if start != text.as_str() => {
+                            self.kept.insert(name, (text.into_string(), start));
+                        }
+                        _ => {
+                            self.kept.remove(&name);
+                        }
+                    }
+                    self.edit_start = None;
+                    self.edit_kept = false;
                     self.draft = None;
                     if self.host_action.is_some() {
                         self.notice = None;
@@ -571,17 +632,7 @@ impl Overlay {
                     };
                 }
                 KeyCode::Char('u') if key.modifiers.contains(KeyModifiers::CONTROL) => text.clear(),
-                KeyCode::Char(ch)
-                    if !key
-                        .modifiers
-                        .intersects(KeyModifiers::CONTROL | KeyModifiers::ALT)
-                        && !ch.is_control() =>
-                {
-                    text.push(ch)
-                }
-                KeyCode::Backspace => {
-                    text.pop();
-                }
+                _ if text.key(key, u16::MAX, usize::MAX) => {}
                 _ => return Input::None,
             }
             self.preview();
@@ -608,7 +659,9 @@ impl Overlay {
                     if let Some(line) =
                         host.pick(self.selected_pick().expect("selected pick").id, current)
                     {
-                        self.editing = Some(("bind.j".into(), line));
+                        self.edit_start = Some(line.clone());
+                        self.edit_kept = false;
+                        self.editing = Some(("bind.j".into(), line.into()));
                         self.begin_binding("j");
                         self.preview();
                         return Input::Preview;
@@ -618,7 +671,7 @@ impl Overlay {
             }
             KeyCode::Char(' ') if self.config.is_some() && self.selected_toggle().is_some() => {
                 let (key, on) = self.selected_toggle().expect("a toggle row");
-                self.editing = Some((key, (!on).to_string()));
+                self.editing = Some((key, (!on).to_string().into()));
                 self.preview();
                 return if self.draft.is_some() {
                     Input::Save
@@ -644,7 +697,26 @@ impl Overlay {
                     if self.host_action.is_some() {
                         self.begin_binding(key.strip_prefix("bind.").unwrap());
                     }
-                    self.editing = Some((key, text));
+                    // Kept text only comes back over the value it was typed over; a value changed
+                    // since (another board, a config set, a reset) drops it.
+                    let kept = match self.kept.remove(&key) {
+                        Some((kept, base)) if base == text => Some(kept),
+                        Some(_) => {
+                            self.edit_start = Some(text.clone());
+                            self.edit_kept = false;
+                            self.editing = Some((key, text.into()));
+                            self.preview();
+                            self.notice = Some(SettingNotice {
+                                message: "kept text dropped: value changed".into(),
+                                mark: Mark::Warning,
+                            });
+                            return Input::Preview;
+                        }
+                        None => None,
+                    };
+                    self.edit_start = Some(text.clone());
+                    self.edit_kept = kept.is_some();
+                    self.editing = Some((key, kept.unwrap_or(text).into()));
                     self.preview();
                 }
                 return Input::Preview;
@@ -657,6 +729,7 @@ impl Overlay {
         Input::None
     }
     fn begin_binding(&mut self, event: &str) {
+        self.binding_scope = false;
         self.host_action
             .as_mut()
             .unwrap()
@@ -747,6 +820,7 @@ impl Overlay {
                 Some(&text),
             ) {
                 Ok(_) => {
+                    self.kept.remove(&name);
                     self.editing = None;
                     self.draft = None;
                     self.refresh();
@@ -770,6 +844,7 @@ impl Overlay {
             .set_setting(scope.as_deref(), &name, &text)
         {
             Ok(_) => {
+                self.kept.remove(&name);
                 self.refresh();
                 self.editing = None;
                 self.draft = None;
@@ -1051,7 +1126,7 @@ pub(super) fn render(frame: &mut Frame, overlay: &Overlay, look: Look, body: Rec
             });
         }
         let template = &cache.as_ref().unwrap().template;
-        overlay.prompt.borrow_mut().render_modal(FILE, template, json!({"rows":[], "query":format!("{name}: {text}▏"), "status":status, "footer":"Enter save · Esc cancel · Ctrl-U clear", "height":height, "width":body.width}), frame, look, body);
+        overlay.prompt.borrow_mut().render_modal(FILE, template, json!({"rows":[], "query":format!("{name}: {}▏{}", &text[..text.cursor()], &text[text.cursor()..]), "status":status, "footer":if overlay.edit_kept {"kept text · Enter save · Esc keep · Ctrl-U clear"} else {"Enter save · Esc keep · Ctrl-U clear"}, "height":height, "width":body.width}), frame, look, body);
         return;
     }
     let width = usize::from(body.width.saturating_sub(4));
@@ -1298,6 +1373,89 @@ pub(in crate::board) mod tests {
             std::fs::read_to_string(&f.path).unwrap(),
             f.original,
             "nothing is written"
+        );
+    }
+
+    #[test]
+    fn esc_keeps_the_edit_text_for_its_key_and_the_reopened_prompt_says_so() {
+        use ratatui::{Terminal, backend::TestBackend};
+        let mut f = fixture("esc-keeps-edit", "");
+        let overlay = f.app.settings.as_mut().unwrap();
+        overlay.surface.borrow_mut().select("board.refresh");
+        overlay.key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+        let start = overlay.editing.as_ref().unwrap().1.as_str().to_owned();
+        overlay.key(KeyEvent::new(KeyCode::Char('9'), KeyModifiers::NONE));
+        let typed = format!("{start}9");
+        overlay.key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
+        assert!(!overlay.editing(), "Esc closes the prompt");
+        overlay.key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+        assert_eq!(
+            overlay.editing.as_ref().unwrap().1.as_str(),
+            typed,
+            "the same key reopens the kept text"
+        );
+        let mut terminal = Terminal::new(TestBackend::new(120, 30)).unwrap();
+        terminal
+            .draw(|frame| {
+                super::render(
+                    frame,
+                    f.app.settings.as_ref().unwrap(),
+                    crate::look::Look::default(),
+                    frame.area(),
+                )
+            })
+            .unwrap();
+        let text: String = terminal
+            .backend()
+            .buffer()
+            .content
+            .iter()
+            .map(|cell| cell.symbol())
+            .collect();
+        assert!(text.contains("kept text · Enter save · Esc keep · Ctrl-U clear"));
+        let overlay = f.app.settings.as_mut().unwrap();
+        // Ctrl-U clears it; Esc on the starting text keeps nothing.
+        overlay.key(KeyEvent::new(KeyCode::Char('u'), KeyModifiers::CONTROL));
+        assert_eq!(overlay.editing.as_ref().unwrap().1, "");
+        overlay.editing.as_mut().unwrap().1 = start.clone().into();
+        overlay.key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
+        overlay.key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+        assert_eq!(overlay.editing.as_ref().unwrap().1.as_str(), start);
+        assert!(!overlay.edit_kept);
+        assert_eq!(
+            std::fs::read_to_string(&f.path).unwrap(),
+            f.original,
+            "nothing is written"
+        );
+    }
+
+    #[test]
+    fn kept_text_is_dropped_when_the_value_changed_under_it() {
+        let mut f = fixture("kept-stale", "");
+        let overlay = f.app.settings.as_mut().unwrap();
+        overlay.surface.borrow_mut().select("board.refresh");
+        overlay.key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+        overlay.key(KeyEvent::new(KeyCode::Char('9'), KeyModifiers::NONE));
+        overlay.key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
+        // Another board or a config set changes the saved value meanwhile.
+        let entry = overlay
+            .settings
+            .entries
+            .iter_mut()
+            .find(|entry| entry.key == "board.refresh")
+            .unwrap();
+        entry.value = serde_json::json!("7s");
+        let fresh = crate::settings::display(&entry.value);
+        overlay.key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+        assert_eq!(
+            overlay.editing.as_ref().unwrap().1.as_str(),
+            fresh,
+            "the prompt opens on the new value"
+        );
+        assert!(!overlay.edit_kept);
+        assert_eq!(
+            overlay.notice.as_ref().unwrap().message,
+            "kept text dropped: value changed"
         );
     }
 

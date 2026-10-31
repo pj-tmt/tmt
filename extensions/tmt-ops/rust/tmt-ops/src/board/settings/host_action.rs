@@ -51,11 +51,27 @@ impl HostAction {
             .as_ref()
             .and_then(|(key, _)| key.strip_prefix("bind."))
             .unwrap_or("j");
-        let meaning = format!(
-            "{} · {}",
-            self.meaning(text),
-            self.destination_notice(overlay.config.as_ref().unwrap(), event)
+        let meaning = self.meaning(text);
+        let destination = self.destination_notice(overlay.config.as_ref().unwrap(), event);
+        let scope = format!(
+            "{} Scope · {}",
+            if readonly || overlay.binding_scope {
+                "›"
+            } else {
+                " "
+            },
+            destination
         );
+        let query_text = &overlay.editing.as_ref().unwrap().1;
+        let query_text = if overlay.binding_scope {
+            query_text.to_string()
+        } else {
+            format!(
+                "{}▏{}",
+                &query_text[..query_text.cursor()],
+                &query_text[query_text.cursor()..]
+            )
+        };
         let command = self
             .preview(text)
             .unwrap_or_else(|error| format!("Preview unavailable: {error}"));
@@ -81,7 +97,7 @@ impl HostAction {
             .unwrap_or_default();
         let width = body.width.saturating_sub(4);
         // Borders, scroll position and footer reserve four rows; Custom also has a query row.
-        let height = [&meaning, &command]
+        let height = [&scope, &meaning, &command]
             .into_iter()
             .chain(parameters.iter())
             .map(|line| tmt_tui::text::lines(line, width, tmt_tui::style::TextFlow::Wrap).len())
@@ -104,7 +120,7 @@ impl HostAction {
             r#"<tmt-text slot="status" bind="$.status" token="blocked" wrap="true"/>"#
         };
         let markup = format!(
-            r#"<tmt-view version="1"><tmt-modal id="settings-edit" title="{title}" placement="docked" class="w-{} h-{height}"><tmt-scroll id="body"><tmt-text bind="$.meaning" token="text" wrap="true"/><tmt-text bind="$.command" token="dim" wrap="true"/><tmt-text token="muted" wrap="true">Parameters · opening sample</tmt-text><tmt-repeat each="$.parameters" as="parameter"><tmt-text bind="parameter.text" token="dim" wrap="true"/></tmt-repeat></tmt-scroll>{query}{status}<tmt-text slot="footer" bind="$.footer" token="muted"/></tmt-modal></tmt-view>"#,
+            r#"<tmt-view version="1"><tmt-modal id="settings-edit" title="{title}" placement="docked" class="w-{} h-{height}"><tmt-scroll id="body"><tmt-text bind="$.scope" token="text" wrap="true"/><tmt-text bind="$.meaning" token="text" wrap="true"/><tmt-text bind="$.command" token="dim" wrap="true"/><tmt-text token="muted" wrap="true">Parameters · opening sample</tmt-text><tmt-repeat each="$.parameters" as="parameter"><tmt-text bind="parameter.text" token="dim" wrap="true"/></tmt-repeat></tmt-scroll>{query}{status}<tmt-text slot="footer" bind="$.footer" token="muted"/></tmt-modal></tmt-view>"#,
             body.width
         );
         let key = super::PromptStyle {
@@ -119,7 +135,7 @@ impl HostAction {
             let tmt_tui::binding::Schema::Object(root) = &mut schema else {
                 unreachable!()
             };
-            for name in ["meaning", "command"] {
+            for name in ["scope", "meaning", "command"] {
                 root.insert(name.into(), tmt_tui::binding::Schema::Scalar);
             }
             root.insert(
@@ -136,7 +152,14 @@ impl HostAction {
                 template: crate::board::picker_surface::compile(super::FILE, &markup, schema),
             });
         }
-        overlay.prompt.borrow_mut().render_modal(super::FILE, &cache.as_ref().unwrap().template, json!({"rows":[],"query":format!("{text}▏"),"meaning":meaning,"command":command,"parameters":parameters.into_iter().map(|text| json!({"text":text})).collect::<Vec<_>>(),"status":error,"footer":if readonly {"s save · Tab scope · PgUp/PgDn scroll · Esc cancel"} else {"Enter save · Tab scope · PgUp/PgDn scroll · Esc cancel"}}), frame, look, body);
+        let footer = if readonly {
+            "s save · ←→ scope · PgUp/PgDn scroll · Esc close"
+        } else if overlay.binding_scope {
+            "←→ scope · Enter save · ↑ command · Esc keep"
+        } else {
+            "Enter save · ↓ scope · Esc keep · Ctrl-U clear"
+        };
+        overlay.prompt.borrow_mut().render_modal(super::FILE, &cache.as_ref().unwrap().template, json!({"rows":[],"query":query_text,"scope":scope,"meaning":meaning,"command":command,"parameters":parameters.into_iter().map(|text| json!({"text":text})).collect::<Vec<_>>(),"status":error,"footer":footer}), frame, look, body);
     }
 
     pub fn settings(&mut self, config: &Config) -> Result<BoardSettings, SquadError> {
@@ -226,12 +249,20 @@ impl HostAction {
             .or(Some(crate::config::BindingLocation::Global));
     }
 
-    pub fn cycle_destination(&mut self, config: &Config) {
+    /// ←→ step through the write scopes; `forward` is →.
+    pub fn cycle_destination(&mut self, config: &Config, forward: bool) {
         let locations = self.locations(config).expect("validated locations");
+        let count = locations.len();
         let next = locations
             .iter()
             .position(|location| Some(location) == self.destination.as_ref())
-            .map_or(0, |index| (index + 1) % locations.len());
+            .map_or(0, |index| {
+                if forward {
+                    (index + 1) % count
+                } else {
+                    (index + count - 1) % count
+                }
+            });
         self.destination = Some(locations[next].clone());
     }
 
@@ -254,7 +285,7 @@ impl HostAction {
                     .position(|location| location == destination)
         });
         format!(
-            "Save to {}{} · Tab scope · opening sample",
+            "Save to {}{} · opening sample",
             destination.label(event),
             masked
                 .map(|owner| format!("; still masked by {}", owner.label(event)))

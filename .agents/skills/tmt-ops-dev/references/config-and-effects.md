@@ -250,13 +250,15 @@ membership target; unsupported legacy actions are reported rather than remapped.
 
 ## Settings inspection and editing
 
-The comma menu offers workspace layout, the Digest window, Bindings (with j presets),
+The `?` panel settings rows offer workspace layout, the Digest window, Bindings (with j presets),
 Theme, Token window and Actions. It does not expose the former general
 configuration-inspection overlay. Bindings reuses the Settings list, editor and
 Config CAS writer for every admitted event, including unassigned keys; j presets
 share that editor. Typed global/host/exact-section locations carry a literal event
-separately, so punctuation keys never pass through a split display label. Tab
-chooses the destination, masked writes name the winner, and reset removes only
+separately, so punctuation keys never pass through a split display label. The command
+uses the shared Editor for caret movement; ↓ reaches its separate Scope row, where
+←→ choose the destination, and ↑ returns to the command. Tab does nothing. Masked
+writes name the winner, and reset removes only
 the authored override. A valid unavailable preview may save with a warning; the
 execution resolver still refuses missing values. `workspace_keys` supplies the effective action; Config's shared provenance
 resolver identifies its global/host/selected-section write owner and preserves
