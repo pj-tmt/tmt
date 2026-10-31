@@ -75,11 +75,21 @@ pub(in crate::board::new_member) fn metadata(app: &App) -> Value {
     let edit = c.edit.as_ref().unwrap();
     let hits = edit.hits.borrow();
     let rect = |r: Rect| [r.x, r.y, r.width, r.height];
-    let fields = edit.fields(&c.draft, c.loaded.as_ref());
+    let fields = if c.list.is_some() {
+        hits.fields
+            .iter()
+            .map(|area| json!({"field": "Filter", "rect": rect(*area)}))
+            .collect::<Vec<_>>()
+    } else {
+        edit.fields(&c.draft, c.loaded.as_ref())
+            .iter()
+            .zip(&hits.fields)
+            .map(|(field, area)| json!({"field": field.debug_name(), "rect": rect(*area)}))
+            .collect()
+    };
     json!({
         "kind": "edit",
-        "fields": fields.iter().zip(&hits.fields).map(|(field, area)|
-            json!({"field": field.debug_name(), "rect": rect(*area)})).collect::<Vec<_>>(),
+        "fields": fields,
         "choices": c.fields.borrow().iter().map(|(field, area)| json!({"field": format!("{field:?}"), "rect": rect(*area)})).collect::<Vec<_>>(),
         "buttons": hits.buttons.iter().map(|r| r.map(rect)).collect::<Vec<_>>(),
         "outer": rect(hits.outer), "content": rect(hits.content),
