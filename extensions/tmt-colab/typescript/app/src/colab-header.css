@@ -289,6 +289,9 @@ body:not(:has(.tmt-ui-shell)) {
 .tmt-ui-topbar-title-prefix .colab-crumb-group {
   display: inline-flex;
 }
+.tmt-ui-topbar-title-prefix .colab-crumb-group + .colab-crumb-group {
+  margin-inline-start: var(--tmt-ui-header-gap);
+}
 .tmt-ui-topbar-title-prefix .colab-scope-crumb {
   color: inherit;
   font: inherit;

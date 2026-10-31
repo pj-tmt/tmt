@@ -2,16 +2,6 @@
   padding: var(--tmt-ui-space-l);
   color: var(--tmt-ui-color-text);
 }
-.design-navigation {
-  display: flex;
-  gap: var(--tmt-ui-space-m);
-  flex-wrap: wrap;
-  align-items: center;
-  margin-bottom: var(--tmt-ui-space-l);
-}
-.design-navigation [aria-current='page'] {
-  font-weight: 600;
-}
 .design-grid {
   display: grid;
   grid-template-columns: repeat(

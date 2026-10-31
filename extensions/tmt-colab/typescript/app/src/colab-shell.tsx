@@ -234,7 +234,10 @@ export function ColabShell({
             : {}),
         },
         ...(shells.length ? [{ label: text.colabSettings.shells, items: shells }] : []),
-        { items: [{ id: 'design', label: 'Design', href: href('/design'), current: design }] },
+        {
+          label: 'Design system',
+          items: [{ id: 'design', label: 'Design', href: href('/design'), current: design }],
+        },
       ],
       settings: {
         id: 'colab-settings',

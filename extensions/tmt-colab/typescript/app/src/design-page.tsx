@@ -1,15 +1,16 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Link, useParams } from '@tanstack/react-router';
-import { BrowserTable } from '@tmt/browser-ui/react';
+import { Link, useNavigate, useParams } from '@tanstack/react-router';
+import { BrowserPageSubheader, BrowserTable, BrowserTabs } from '@tmt/browser-ui/react';
 import { browserUiClasses as ui } from '@tmt/browser-ui/static';
 import { browserCatalog, browserPresentationInventory } from '@tmt/browser-ui/catalog';
 import { designSystems } from './design-systems.js';
+import { designDocument } from './design-document.js';
 import { mountRenderer, type RenderState } from './renderer.js';
 import { CopyCommand } from './copy-command.js';
 import './design-page.css';
 
 type CatalogEntry = (typeof browserCatalog)[number];
-const PREVIEW_HEIGHT = 320;
+const PREVIEW_HEIGHT = 72;
 function Preview({
   html,
   label,
@@ -23,7 +24,7 @@ function Preview({
   const [state, setState] = useState<RenderState>();
   const source = useMemo(
     () =>
-      `<style>body{margin:var(--tmt-ui-space-m);min-height:${PREVIEW_HEIGHT}px}body>section{padding:var(--tmt-ui-space-m);background:var(--tmt-ui-surface-paper);color:var(--tmt-ui-color-text)}</style>${html}`,
+      `<style>body{margin:var(--tmt-ui-space-m);font:15px/1.5 var(--tmt-ui-font-body)}body>section{padding:var(--tmt-ui-space-m);background:var(--tmt-ui-surface-paper);color:var(--tmt-ui-color-text)}</style>${html}`,
     [html],
   );
   useEffect(() => {
@@ -33,6 +34,7 @@ function Preview({
       signal: controller.signal,
       onState: setState,
       minimumHeight: PREVIEW_HEIGHT,
+      ...(document ? { layout: 'column' as const } : {}),
     })
       .then((renderer) => {
         if (controller.signal.aborted) renderer.destroy();
@@ -41,7 +43,7 @@ function Preview({
         if (!controller.signal.aborted) setState('failed');
       });
     return () => controller.abort();
-  }, [source]);
+  }, [source, document]);
   return (
     <section
       className={document ? 'design-document' : 'design-preview'}
@@ -84,7 +86,6 @@ function Detail({ entry }: { entry: CatalogEntry }) {
     .join('');
   return (
     <>
-      <p>{entry.purpose}</p>
       <Coverage entry={entry} />
       <Preview html={states} label={`${entry.name} states`} document />
       <h2>Attributes</h2>
@@ -176,13 +177,89 @@ const terminalInventory = [
   ],
   ['Markdown / Hyperlinks', 'Messages and clickable links', 'tmt-ops board'],
 ];
+function GuiIndex() {
+  const [category, setCategory] = useState('All');
+  const categories = ['All', ...new Set(browserCatalog.map((entry) => entry.category))];
+  return (
+    <>
+      <BrowserPageSubheader
+        title="Components"
+        count={browserCatalog.length}
+        subtitle="Live widgets you can embed in Colab. Preview changes stay in this page."
+      />
+      <BrowserTabs
+        label="Component categories"
+        tabs={categories.map((value) => ({
+          id: value,
+          label: value,
+          tabId: `design-category-${value}`,
+          panelId: `design-category-panel-${value}`,
+          count:
+            value === 'All'
+              ? browserCatalog.length
+              : browserCatalog.filter((entry) => entry.category === value).length,
+        }))}
+        selected={category}
+        onSelect={setCategory}
+        variant="flat"
+        presentation="compact"
+        wrap
+      >
+        {(tab) =>
+          tab.id !== category ? null : (
+            <div className="design-grid">
+              {browserCatalog
+                .filter((entry) => category === 'All' || entry.category === category)
+                .map((entry) => (
+                  <article key={entry.tag} className={ui.card}>
+                    <header>
+                      <h2>
+                        <Link
+                          to="/design/$system/$component"
+                          params={{ system: 'gui', component: entry.tag }}
+                        >
+                          {entry.name}
+                        </Link>
+                      </h2>
+                      <p>{entry.category}</p>
+                    </header>
+                    <Preview html={entry.examples[0]!.html} label={`${entry.name} live preview`} />
+                    <code>&lt;{entry.tag}&gt;</code>
+                    <Coverage entry={entry} />
+                  </article>
+                ))}
+            </div>
+          )
+        }
+      </BrowserTabs>
+      <h2>A script-free Colab document</h2>
+      <Preview label="Embedded widgets in a Colab document" document html={designDocument} />
+      <h2>Presentation inventory</h2>
+      <p>
+        Source exports, indexed documentation, gallery entries and discovered tests. An export
+        without a widget tag remains a presentation API, not an author element.
+      </p>
+      <BrowserTable
+        label="GUI presentation inventory"
+        columns={['Component', 'Author element', 'Docs', 'Gallery', 'Test']}
+        rows={browserPresentationInventory.map((entry) => [
+          entry.component,
+          entry.tag ?? '—',
+          entry.docs ? '✓' : '—',
+          entry.gallery ? '✓' : '—',
+          entry.test ? '✓' : '—',
+        ])}
+      />
+    </>
+  );
+}
 export function DesignPage() {
   const params = useParams({ strict: false });
+  const navigate = useNavigate();
   const system =
     designSystems.find((entry) => entry.id === params.system) ??
     (params.system ? undefined : designSystems[0]);
   const component = browserCatalog.find((entry) => entry.tag === params.component);
-  const [category, setCategory] = useState('All');
   if (!system || (params.component && (system.id !== 'gui' || !component)))
     return (
       <section className="design-page">
@@ -194,104 +271,56 @@ export function DesignPage() {
     );
   return (
     <section className="design-page">
-      <nav aria-label="Design systems" className="design-navigation">
-        {designSystems.map((entry) => (
-          <Link
-            key={entry.id}
-            to="/design/$system"
-            params={{ system: entry.id }}
-            aria-current={system.id === entry.id && !component ? 'page' : undefined}
-          >
-            {entry.name}
-          </Link>
-        ))}
-      </nav>
-      <h2 className={ui.pageTitle}>{component?.name ?? system.name}</h2>
-      <p>{component ? `${component.component} · <${component.tag}>` : system.description}</p>
-      {system.id === 'tui' ? (
-        <>
-          <h2>Terminal component inventory</h2>
-          <BrowserTable
-            label="TUI components"
-            columns={['Component', 'Purpose', 'Owner']}
-            rows={terminalInventory}
-          />
-          <p>
-            Real terminal previews will use the shared painter catalog. They are not available in
-            this build.
-          </p>
-          <p>
-            <a href="https://github.com/tmt-ninja/tmt/issues/5784">Painter catalog</a> ·{' '}
-            <a href="https://github.com/tmt-ninja/tmt/issues/5786">Terminal frame element</a>
-          </p>
-        </>
-      ) : component ? (
-        <Detail entry={component} />
-      ) : (
-        <>
-          <p>
-            {browserCatalog.length} live widgets. Preview state stays in this page; it does not
-            change your data.
-          </p>
-          <nav aria-label="Component categories" className="design-navigation">
-            {['All', ...new Set(browserCatalog.map((entry) => entry.category))].map((value) => (
-              <button
-                key={value}
-                type="button"
-                className={ui.action}
-                aria-pressed={category === value}
-                onClick={() => setCategory(value)}
-              >
-                {value}
-              </button>
-            ))}
-          </nav>
-          <div className="design-grid">
-            {browserCatalog
-              .filter((entry) => category === 'All' || entry.category === category)
-              .map((entry) => (
-                <article key={entry.tag} className={ui.card}>
-                  <header>
-                    <h2>
-                      <Link
-                        to="/design/$system/$component"
-                        params={{ system: 'gui', component: entry.tag }}
-                      >
-                        {entry.name}
-                      </Link>
-                    </h2>
-                    <p>{entry.category}</p>
-                  </header>
-                  <Preview html={entry.examples[0]!.html} label={`${entry.name} live preview`} />
-                  <code>&lt;{entry.tag}&gt;</code>
-                  <Coverage entry={entry} />
-                </article>
-              ))}
-          </div>
-          <h2>A script-free Colab document</h2>
-          <Preview
-            label="Embedded widgets in a Colab document"
-            document
-            html={`<h1>Shortcut dialog — proposal</h1><p>The same widgets are available in any Colab document.</p>${browserCatalog.find((entry) => entry.tag === 'tmt-ui-menu')!.examples[0]!.html}${browserCatalog.find((entry) => entry.tag === 'tmt-ui-tabs')!.examples[0]!.html}${browserCatalog.find((entry) => entry.tag === 'tmt-ui-dialog')!.examples[0]!.html}`}
-          />
-          <h2>Presentation inventory</h2>
-          <p>
-            Source exports, indexed documentation, gallery entries and discovered tests. An export
-            without a widget tag remains a presentation API, not an author element.
-          </p>
-          <BrowserTable
-            label="GUI presentation inventory"
-            columns={['Component', 'Author element', 'Docs', 'Gallery', 'Test']}
-            rows={browserPresentationInventory.map((entry) => [
-              entry.component,
-              entry.tag ?? '—',
-              entry.docs ? '✓' : '—',
-              entry.gallery ? '✓' : '—',
-              entry.test ? '✓' : '—',
-            ])}
-          />
-        </>
-      )}
+      <BrowserTabs
+        label="Design systems"
+        tabs={designSystems.map((entry) => ({
+          id: entry.id,
+          label: entry.name,
+          tabId: `design-system-${entry.id}`,
+          panelId: `design-system-panel-${entry.id}`,
+        }))}
+        selected={system.id}
+        onSelect={(id) => {
+          void navigate({ to: '/design/$system', params: { system: id } });
+        }}
+        variant="flush"
+      >
+        {(tab) =>
+          tab.id !== system.id ? null : system.id === 'tui' ? (
+            <>
+              <BrowserPageSubheader
+                title="Terminal components"
+                count={terminalInventory.length}
+                subtitle="Terminal widgets and styles from the real painters."
+              />
+              <BrowserTable
+                label="TUI components"
+                columns={['Component', 'Purpose', 'Owner']}
+                rows={terminalInventory}
+              />
+              <p>
+                Real terminal previews will use the shared painter catalog. They are not available
+                in this build.
+              </p>
+              <p>
+                <a href="https://github.com/tmt-ninja/tmt/issues/5784">Painter catalog</a> ·{' '}
+                <a href="https://github.com/tmt-ninja/tmt/issues/5786">Terminal frame element</a>
+              </p>
+            </>
+          ) : component ? (
+            <>
+              <BrowserPageSubheader
+                title="States"
+                count={component.examples.length}
+                subtitle={component.purpose}
+              />
+              <Detail entry={component} />
+            </>
+          ) : (
+            <GuiIndex />
+          )
+        }
+      </BrowserTabs>
     </section>
   );
 }

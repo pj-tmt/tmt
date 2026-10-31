@@ -277,9 +277,11 @@ not jump, and `max-width: 100%` so the image never overflows. Details:
 
 ## Live author widgets and Design catalog
 
-Open Design in the Colab module menu, or visit `/colab/design/gui` in the composed
-app. The GUI catalog contains live cards, state examples, attributes, tokens and
-copyable embed markup. `/colab/design/tui` lists real terminal sources; painter
+Open Design in the Colab menu’s separate **Design system** group, or visit
+`/colab/design/gui` in the composed app. The routes work independently of the menu
+entry. Shared GUI/TUI tabs select the system; counted category tabs filter the live
+cards. The GUI catalog contains content-sized previews, state examples, attributes,
+tokens, a script-free proposal document and copyable embed markup. `/colab/design/tui` lists real terminal sources; painter
 previews are unavailable until the shared terminal exporter and frame land.
 
 Use `tmt-ui-button`, `tmt-ui-icon-button`, `tmt-ui-field`, `tmt-ui-toggle`,
