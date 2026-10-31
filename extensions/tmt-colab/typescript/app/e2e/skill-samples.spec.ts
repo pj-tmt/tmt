@@ -183,7 +183,10 @@ for (const name of ['starter', 'gallery'])
           document.body.replaceChildren();
           document.body.style.margin = '0';
           const host = document.createElement('main');
+          host.className = 'frame-host';
           document.body.append(host);
+          const style = '/src/style.css';
+          await import(style);
           const path = '/src/renderer.ts';
           const { mountRenderer } = await import(path);
           await mountRenderer(host, source, {
@@ -195,6 +198,9 @@ for (const name of ['starter', 'gallery'])
           });
         }, sample);
         await expect(page.locator('main')).toHaveAttribute('data-state', 'ready');
+        expect(
+          await page.locator('iframe').evaluate((node) => node.getBoundingClientRect().width),
+        ).toBe(1440);
         await page
           .frameLocator('iframe')
           .locator('body')

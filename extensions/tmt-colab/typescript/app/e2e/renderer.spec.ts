@@ -2670,6 +2670,56 @@ test('focus restoration admits only a current rendered thread marker', async ({ 
   await expect(page.locator('body')).toBeFocused();
 });
 
+test('a synchronous highlight owns and cancels a queued marker repaint', async ({ page }) => {
+  await page.clock.install();
+  await page.goto('/');
+  await page.clock.pauseAt(await page.evaluate(() => new Date(Date.now() + 100)));
+  const id = 'queued-focus';
+  const renderId = await bindPort(page, id, '<p>A focus passage.</p>');
+  const anchors = [
+    { id: 'first', ordinal: 1, selector: { exact: 'A focus passage', prefix: '', suffix: '' } },
+  ];
+  await requestHighlight(page, id, renderId, '00000000-0000-4000-8000-0000000000b1', anchors);
+  // Drain initial frame sizing before controlling the next queued resize explicitly.
+  await page.clock.runFor(500);
+  const frame = page.frameLocator(`#${id}`);
+  await frame.locator('[data-colab-thread="first"]').focus();
+  await frame.locator('html').evaluate(() => {
+    Reflect.set(window, '__focusedMarker', document.activeElement);
+    window.dispatchEvent(new Event('resize'));
+  });
+  await requestHighlight(page, id, renderId, '00000000-0000-4000-8000-0000000000b2', anchors);
+  expect(
+    await frame.locator('html').evaluate(() => {
+      const previous = Reflect.get(window, '__focusedMarker') as Element;
+      const current = document.activeElement;
+      Reflect.set(window, '__focusedMarker', current);
+      return !previous.isConnected && current?.getAttribute('data-colab-thread') === 'first';
+    }),
+  ).toBe(true);
+  await page.clock.runFor(100);
+  // The already completed synchronous rebuild must not be replaced by its obsolete timer.
+  expect(
+    await frame
+      .locator('html')
+      .evaluate(() => document.activeElement === Reflect.get(window, '__focusedMarker')),
+  ).toBe(true);
+  await expect(frame.locator('[data-colab-thread="first"]')).toBeFocused();
+  await frame.locator('html').evaluate(() => window.dispatchEvent(new Event('resize')));
+  await page.clock.runFor(100);
+  // A later resize still rebuilds and restores the focused marker normally.
+  expect(
+    await frame.locator('html').evaluate(() => {
+      const previous = Reflect.get(window, '__focusedMarker') as Element;
+      return (
+        !previous.isConnected &&
+        document.activeElement?.getAttribute('data-colab-thread') === 'first'
+      );
+    }),
+  ).toBe(true);
+  await expect(frame.locator('[data-colab-thread="first"]')).toBeFocused();
+});
+
 test('a selection paints one passage in the selected look, and anything that is not a selection of the current request is refused', async ({
   page,
 }) => {
