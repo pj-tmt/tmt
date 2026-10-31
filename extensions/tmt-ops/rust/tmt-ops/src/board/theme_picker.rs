@@ -375,6 +375,48 @@ mod tests {
     }
 
     #[test]
+    fn theme_opens_over_the_help_panel_and_an_outside_press_closes_only_theme() {
+        let (path, config) = fixture("over-help", "");
+        let mut app = crate::board::app::workspace::tests::board();
+        app.workspace_settings();
+        let theme = app
+            .workspace_setting_entries()
+            .unwrap()
+            .iter()
+            .position(|entry| entry.label == "Theme")
+            .unwrap();
+        crate::board::app::workspace::tests::paint(&app, 160, 36);
+        while app.help_state.borrow().selected_setting() != Some(theme) {
+            app.key(key(KeyCode::Down));
+        }
+        assert_eq!(app.key(key(KeyCode::Enter)), Effect::PickTheme);
+        app.theme_picker = Some(Picker::open(config, None).unwrap());
+        assert!(app.help, "the ? panel stays beneath");
+        crate::board::app::workspace::tests::paint(&app, 160, 36);
+        // The board's top bar is outside both sheets.
+        let outside = MouseEvent {
+            kind: MouseEventKind::Down(MouseButton::Left),
+            column: 0,
+            row: 0,
+            modifiers: KeyModifiers::NONE,
+        };
+        app.mouse(outside, std::time::Instant::now());
+        assert!(app.theme_picker.is_none(), "the press closes Theme");
+        assert!(app.help, "and never closes the panel in the same event");
+        assert_eq!(app.help_state.borrow().selected_setting(), Some(theme));
+        crate::board::app::workspace::tests::paint(&app, 160, 36);
+        app.key(key(KeyCode::Enter));
+        app.theme_picker = Some(Picker::open(Config::read(path.clone()).unwrap(), None).unwrap());
+        app.key(key(KeyCode::Esc));
+        assert!(
+            app.theme_picker.is_none() && app.help,
+            "Esc returns to the panel too"
+        );
+        assert_eq!(app.help_state.borrow().selected_setting(), Some(theme));
+        std::fs::remove_dir_all(path.parent().unwrap()).unwrap();
+    }
+
+    #[test]
     fn picker_isolates_underlying_keys_mouse_and_scope_on_builtin_tabs() {
         let (path, config) = fixture("isolation", "");
         let mut app = App::new(Some(crate::board::ALL.into()));

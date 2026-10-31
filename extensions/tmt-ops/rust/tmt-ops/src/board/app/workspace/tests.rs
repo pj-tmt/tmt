@@ -546,7 +546,7 @@ fn key(app: &mut App, code: KeyCode) -> Effect {
     app.key(KeyEvent::new(code, KeyModifiers::NONE))
 }
 
-fn paint(app: &App, width: u16, height: u16) -> Vec<String> {
+pub(in crate::board) fn paint(app: &App, width: u16, height: u16) -> Vec<String> {
     let mut terminal = Terminal::new(TestBackend::new(width, height)).unwrap();
     terminal
         .draw(|frame| crate::board::view::render(frame, app))
@@ -2451,18 +2451,19 @@ fn workspace_settings_cancel_returns_to_the_exact_reader_without_factory_actions
         assert_eq!(app.focused_pane(), Some(Pane::Replies));
         let selected = app.workspace.selected.clone();
         key(&mut app, KeyCode::Char(','));
-        let menu = app.menu.as_ref().unwrap();
-        assert!(menu.entries.iter().all(|entry| match &entry.choice {
+        assert!(app.help && app.help_state.borrow().settings_focus());
+        let entries = app.workspace_setting_entries().unwrap();
+        assert!(entries.iter().all(|entry| match &entry.choice {
             Choice::Action(action) => action.verb != Verb::View,
             _ => true,
         }));
-        assert!(menu.entries.iter().any(|entry| matches!(
+        assert!(entries.iter().any(|entry| matches!(
             entry.choice,
             Choice::WorkspaceLayout(crate::config::OpsLayout::Auto)
         )));
         paint(&app, width, 36);
         key(&mut app, KeyCode::Esc);
-        assert!(app.menu.is_none());
+        assert!(!app.help && app.menu.is_none());
         assert_eq!(app.workspace.selected, selected);
         assert_eq!(app.focused_pane(), Some(Pane::Replies));
         assert_eq!(
