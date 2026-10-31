@@ -119,7 +119,10 @@ impl OrchJob {
             || self.schedule.zone().is_empty()
             || self.schedule.zone().len() > 128
             || self.pause.as_ref().is_some_and(|pause| {
-                pause.by.is_empty() || pause.at_ms.unsigned_abs() > MAX_JS_SAFE_INTEGER
+                pause.by.is_empty()
+                    || pause.by.len() > 128
+                    || pause.by.chars().any(char::is_control)
+                    || pause.at_ms.unsigned_abs() > MAX_JS_SAFE_INTEGER
             })
             || self.pending.is_some_and(|pending| {
                 !safe(pending.revision) || pending.at_ms.unsigned_abs() > MAX_JS_SAFE_INTEGER

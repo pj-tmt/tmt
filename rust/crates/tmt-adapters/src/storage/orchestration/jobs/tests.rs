@@ -471,3 +471,247 @@ fn job_definitions_share_configuration_revision_and_noops_write_nothing() {
         "configuration is not an execution outcome"
     );
 }
+
+const IMPORT: &str = "66666666-6666-4666-8666-666666666666";
+fn legacy_source(owner: &str) -> Vec<u8> {
+    serde_json::to_vec_pretty(&serde_json::json!({"version":2,
+        "counters":{(ROOM):7,"77777777-7777-4777-8777-777777777777":0},
+        "jobs":[
+            {"id":"c3","roomId":ROOM,"ownerId":owner,"message":"exact\0雪\r\nfirst","revision":4,"state":"on","pause":null,
+             "schedule":{"kind":"every","zone":"UTC","seconds":10,"anchorMs":0,"from":null}},
+            {"id":"c7","roomId":ROOM,"ownerId":owner,"message":"manual pause stays","revision":8,"state":"paused","pause":{"by":"user","atMs":100},
+             "schedule":{"kind":"at","zone":"UTC","at":"09:30","on":"weekdays"}}
+        ]})).unwrap()
+}
+#[test]
+fn immutable_import_preserves_messages_ids_counters_and_recovers_exact_receipt() {
+    let mut f = Fixture::new();
+    let existing = f
+        .storage
+        .create_orchestration_job(f.definition(None, "Pre-existing agent job"))
+        .unwrap();
+    let bytes = legacy_source(&f.owner);
+    let (digest, rows) = preview_job_import(&bytes).unwrap();
+    assert_eq!(rows, 2);
+    let accepted = f
+        .storage
+        .import_orchestration_jobs(IMPORT, &digest, &bytes, NOW as i64)
+        .unwrap();
+    assert_eq!(accepted.counters[ROOM], 7);
+    assert_eq!(accepted.counters["77777777-7777-4777-8777-777777777777"], 0);
+    assert_eq!(
+        accepted
+            .jobs
+            .iter()
+            .map(|job| job.cron_id)
+            .collect::<Vec<_>>(),
+        vec![3, 7]
+    );
+    let first = f
+        .storage
+        .orchestration_job(&accepted.jobs[0].job_id)
+        .unwrap()
+        .unwrap();
+    assert_eq!(first.message, "exact\0雪\r\nfirst");
+    assert_eq!(first.revision, 4);
+    assert!(first.number > existing.number);
+    assert_eq!(first.legacy.as_ref().unwrap().cron_id, 3);
+    let second = f
+        .storage
+        .orchestration_job(&accepted.jobs[1].job_id)
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        second.pause,
+        Some(JobPause {
+            by: "user".into(),
+            at_ms: 100
+        })
+    );
+    assert_eq!(second.revision, 8);
+    assert_eq!(
+        f.storage
+            .orchestration_snapshot(None)
+            .unwrap()
+            .snapshot
+            .revision,
+        2
+    );
+    let mut reopened = Storage::open(&f.storage.path).unwrap();
+    assert_eq!(
+        reopened.orchestration_job_import_receipt(IMPORT).unwrap(),
+        Some(accepted.clone())
+    );
+    assert_eq!(
+        reopened
+            .import_orchestration_jobs(IMPORT, &digest, &bytes, NOW as i64)
+            .unwrap(),
+        accepted
+    );
+    assert_eq!(count(&f, "orchestration_jobs"), 3);
+    assert_eq!(
+        f.storage
+            .orchestration_snapshot(None)
+            .unwrap()
+            .snapshot
+            .revision,
+        2
+    );
+    let mut changed: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+    changed["jobs"][0]["message"] = serde_json::json!("Different source");
+    let changed = serde_json::to_vec(&changed).unwrap();
+    let (changed_digest, _) = preview_job_import(&changed).unwrap();
+    assert!(matches!(
+        reopened.import_orchestration_jobs(IMPORT, &changed_digest, &changed, NOW as i64),
+        Err(JobStoreError::Job(JobError::Conflict))
+    ));
+    assert!(matches!(
+        reopened.import_orchestration_jobs(
+            "88888888-8888-4888-8888-888888888888",
+            &digest,
+            &bytes,
+            NOW as i64
+        ),
+        Err(JobStoreError::Job(JobError::Conflict))
+    ));
+    assert_eq!(count(&f, "orchestration_jobs"), 3);
+}
+#[test]
+fn import_receipt_failure_rolls_back_all_jobs_mappings_counters_and_configuration() {
+    let mut f = Fixture::new();
+    let bytes = legacy_source(&f.owner);
+    let (digest, _) = preview_job_import(&bytes).unwrap();
+    f.storage.connection().unwrap().execute_batch("CREATE TRIGGER fail_import BEFORE INSERT ON orchestration_job_imports BEGIN SELECT RAISE(ABORT,'injected import receipt failure'); END;").unwrap();
+    assert!(
+        f.storage
+            .import_orchestration_jobs(IMPORT, &digest, &bytes, NOW as i64)
+            .is_err()
+    );
+    for table in [
+        "orchestration_jobs",
+        "orchestration_job_legacy",
+        "orchestration_job_legacy_counters",
+        "orchestration_job_imports",
+    ] {
+        assert_eq!(count(&f, table), 0, "{table}");
+    }
+    assert_eq!(
+        f.storage
+            .orchestration_snapshot(None)
+            .unwrap()
+            .snapshot
+            .revision,
+        0
+    );
+    assert!(
+        f.storage
+            .orchestration_job_import_receipt(IMPORT)
+            .unwrap()
+            .is_none()
+    );
+}
+#[test]
+fn import_never_follows_a_retired_owners_reused_name() {
+    let mut f = Fixture::new();
+    let bytes = legacy_source(&f.owner);
+    let (digest, _) = preview_job_import(&bytes).unwrap();
+    f.storage
+        .connection()
+        .unwrap()
+        .execute(
+            "UPDATE identities SET retired_at_ms=? WHERE id=?",
+            params![NOW as i64, f.owner],
+        )
+        .unwrap();
+    let successor = create_or_resolve(&mut f.storage, "Member", Lifetime::Saved)
+        .unwrap()
+        .identity
+        .id;
+    assert_ne!(successor, f.owner);
+    let receipt = f
+        .storage
+        .import_orchestration_jobs(IMPORT, &digest, &bytes, NOW as i64)
+        .unwrap();
+    let first = f
+        .storage
+        .orchestration_job(&receipt.jobs[0].job_id)
+        .unwrap()
+        .unwrap();
+    assert!(first.owner_id.is_none());
+    assert_eq!(
+        first.pause,
+        Some(JobPause {
+            by: f.owner.clone(),
+            at_ms: NOW as i64
+        })
+    );
+    let second = f
+        .storage
+        .orchestration_job(&receipt.jobs[1].job_id)
+        .unwrap()
+        .unwrap();
+    assert!(second.owner_id.is_none());
+    assert_eq!(
+        second.pause,
+        Some(JobPause {
+            by: "user".into(),
+            at_ms: 100
+        })
+    );
+    assert_eq!(receipt.counters[ROOM], 7);
+}
+#[test]
+fn import_preflight_rejects_invalid_calendar_and_digest_before_any_write() {
+    let mut f = Fixture::new();
+    let bytes = legacy_source(&f.owner);
+    assert!(matches!(
+        f.storage
+            .import_orchestration_jobs(IMPORT, &"0".repeat(64), &bytes, NOW as i64),
+        Err(JobStoreError::Job(JobError::Conflict))
+    ));
+    let mut invalid: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+    invalid["jobs"][1]["schedule"]["at"] = serde_json::json!("29:99");
+    assert!(matches!(
+        preview_job_import(&serde_json::to_vec(&invalid).unwrap()),
+        Err(JobStoreError::Job(JobError::Invalid))
+    ));
+    assert_eq!(count(&f, "orchestration_jobs"), 0);
+    assert_eq!(count(&f, "orchestration_job_imports"), 0);
+    assert_eq!(
+        f.storage
+            .orchestration_snapshot(None)
+            .unwrap()
+            .snapshot
+            .revision,
+        0
+    );
+}
+
+#[test]
+fn calendar_replacement_validates_before_changing_the_definition() {
+    let mut f = Fixture::new();
+    let job = f
+        .storage
+        .create_orchestration_job(f.definition(None, "Before replacement"))
+        .unwrap();
+    let mut candidate = f.definition(None, "Must not commit");
+    candidate.schedule = JobSchedule::At {
+        zone: "UTC".into(),
+        at: "25:80".into(),
+        on: None,
+    };
+    assert!(matches!(
+        f.storage
+            .replace_orchestration_job(&job.id, job.revision, candidate),
+        Err(JobStoreError::Job(JobError::Invalid))
+    ));
+    assert_eq!(f.storage.orchestration_job(&job.id).unwrap(), Some(job));
+    assert_eq!(
+        f.storage
+            .orchestration_snapshot(None)
+            .unwrap()
+            .snapshot
+            .revision,
+        1
+    );
+}

@@ -8,7 +8,7 @@ CREATE TABLE orchestration_jobs (
  title TEXT CHECK (title IS NULL OR length(CAST(title AS BLOB)) BETWEEN 1 AND 200),
  message TEXT NOT NULL CHECK (length(CAST(message AS BLOB)) BETWEEN 1 AND 1048576),
  schedule TEXT NOT NULL CHECK (json_valid(schedule) AND length(CAST(schedule AS BLOB)) <= 4096),
- pause_by TEXT,
+ pause_by TEXT CHECK (pause_by IS NULL OR length(CAST(pause_by AS BLOB)) BETWEEN 1 AND 128),
  pause_ms INTEGER CHECK (pause_ms IS NULL OR (typeof(pause_ms) = 'integer' AND pause_ms BETWEEN -9007199254740991 AND 9007199254740991)),
  pending_revision INTEGER,
  pending_ms INTEGER,

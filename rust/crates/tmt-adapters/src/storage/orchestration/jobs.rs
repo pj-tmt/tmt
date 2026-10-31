@@ -1,5 +1,7 @@
 //! Canonical job definitions. Transport is never performed while this writer is held.
+mod import;
 mod run;
+pub use import::{JobImportReceipt, JobImportReference, preview_job_import};
 pub use run::{JobRunInput, JobRunResult};
 
 use super::{Storage, StorageError, StorageErrorCode, classify, unsigned};
@@ -141,6 +143,23 @@ fn owner_exists(db: &Connection, owner: Option<&str>) -> Result<bool, StorageErr
     }
 }
 
+fn insert_job(db: &Connection, mut job: OrchJob) -> Result<OrchJob, JobStoreError> {
+    job.validate()?;
+    let encoded = encode_schedule(&job.schedule)?;
+    db.execute("INSERT INTO orchestration_jobs(id,revision,owner_id,room_id,title,message,schedule,pause_by,pause_ms) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9)",
+        params![job.id,job.revision as i64,job.owner_id,job.room_id,job.title,job.message,encoded,job.pause.as_ref().map(|p|&p.by),job.pause.as_ref().map(|p|p.at_ms)])
+        .map_err(|error|classify(error,"Create job definition"))?;
+    job.number = unsigned(db.last_insert_rowid())?;
+    if let Some(legacy) = &job.legacy {
+        db.execute(
+            "INSERT INTO orchestration_job_legacy(room_id,cron_id,job_id) VALUES(?,?,?)",
+            params![legacy.room_id, legacy.cron_id as i64, job.id],
+        )
+        .map_err(|error| classify(error, "Map legacy job identity"))?;
+    }
+    Ok(job)
+}
+
 fn advance_configuration(db: &Connection) -> Result<(), JobStoreError> {
     let changed=db.execute("INSERT INTO orchestration_settings(id,revision,time_zone) VALUES(1,1,NULL) ON CONFLICT(id) DO UPDATE SET revision=revision+1 WHERE revision<9007199254740991",[])
         .map_err(|error|classify(error,"Advance job configuration revision"))?;
@@ -190,10 +209,9 @@ impl Storage {
         &mut self,
         definition: JobDefinition,
     ) -> Result<OrchJob, JobStoreError> {
-        let mut job = definition.with_identity(uuid::Uuid::new_v4().to_string(), 1);
+        let job = definition.with_identity(uuid::Uuid::new_v4().to_string(), 1);
         job.validate()?;
         crate::orchestration::jobs::calendar(&job.schedule)?;
-        let encoded = encode_schedule(&job.schedule)?;
         let tx = self
             .connection_mut()?
             .transaction_with_behavior(TransactionBehavior::Immediate)
@@ -201,18 +219,37 @@ impl Storage {
         if !owner_exists(&tx, job.owner_id.as_deref())? {
             return Err(JobError::NoOwner.into());
         }
-        tx.execute("INSERT INTO orchestration_jobs(id,revision,owner_id,room_id,title,message,schedule,pause_by,pause_ms) VALUES(?1,1,?2,?3,?4,?5,?6,?7,?8)",
-            params![job.id,job.owner_id,job.room_id,job.title,job.message,encoded,job.pause.as_ref().map(|p|&p.by),job.pause.as_ref().map(|p|p.at_ms)])
-            .map_err(|error| classify(error, "Create job definition"))?;
-        job.number = unsigned(tx.last_insert_rowid())?;
+        let job = insert_job(&tx, job)?;
         advance_configuration(&tx)?;
         tx.commit()
             .map_err(|error| classify(error, "Commit job creation"))?;
         Ok(job)
     }
+    /// Resolve/validate the candidate calendar before entering the writer.
+    /// The exact-row owner below still fences the current definition and owner.
+    pub fn replace_orchestration_job(
+        &mut self,
+        id: &str,
+        revision: u64,
+        definition: JobDefinition,
+    ) -> Result<OrchJob, JobStoreError> {
+        let candidate = definition.with_identity(id.to_owned(), 1);
+        candidate.validate()?;
+        crate::orchestration::jobs::calendar(&candidate.schedule)?;
+        self.change_orchestration_job(id, revision, |current| {
+            current.owner_id = candidate.owner_id;
+            current.room_id = candidate.room_id;
+            current.title = candidate.title;
+            current.message = candidate.message;
+            current.schedule = candidate.schedule;
+            current.pause = candidate.pause;
+            Ok(())
+        })
+    }
+
     /// The authority/preview owner executes its bounded mutation after the
     /// exact-row fence. No callback may perform transport or other external I/O.
-    pub fn change_orchestration_job(
+    pub(crate) fn change_orchestration_job(
         &mut self,
         id: &str,
         revision: u64,
