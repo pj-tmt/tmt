@@ -54,7 +54,7 @@ impl Controller {
         let mut lines = Vec::new();
         let mut field_rows = Vec::new();
         if self.stage == Stage::Form {
-            lines.push("↑↓ field · ←→ value · Enter choose · Esc keeps this draft".to_owned());
+            lines.push("↑↓ field · ←→ value · Enter choose · Esc keep".to_owned());
             lines.push(String::new());
             for _field in &fields {
                 field_rows.push(lines.len());
