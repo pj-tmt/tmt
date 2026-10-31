@@ -196,24 +196,26 @@ or `◌`; `◆` leads a decision row when the reader must act:
 | `~`        | approximate observed token total from incomplete coverage (board only)                    |
 | `▁▂▃▄▅▆▇█` | completed-request trend: ▁ measured zero, ▂–█ relative totals, blank no data (board only) |
 
-Structural glyphs are typography, not marks: they carry no state of their own,
-and `design/tokens/tokens.json` does not list them. The board's glyph guard
-(`STRUCTURAL_GLYPHS` in `extensions/tmt-ops/rust/tmt-ops/src/board/glyph_guard.rs`)
-owns the ambiguous-width ones it accepts, each with a reason, such as the
-box-drawing rules and frames; any other ambiguous-width or emoji glyph in a
-board label fails it.
+The board also uses the glyphs below outside the shared `Mark` set. They label
+controls and measurements or give contextual indications. In particular, `◷`
+labels Cron counts and marks an exceeded idle threshold beside a time or
+`idle`, in the attention colour. These glyphs are not listed in
+`design/tokens/tokens.json`. The board's test-only glyph guard
+(`extensions/tmt-ops/rust/tmt-ops/src/board/glyph_guard.rs`) accepts registered
+marks and the explicit structural exceptions in `STRUCTURAL_GLYPHS`, each with
+a reason; other ambiguous-width or emoji glyphs in checked labels fail.
 
-| Glyph        | Use                                              |
-| ------------ | ------------------------------------------------ |
-| `▪`          | saved agent or squad pin in the name-cell slot   |
-| `↩`          | reply direction in Recent exchanges              |
-| `↔` `↕`      | pane divider resize axes                         |
-| `▒` `░` `■`  | usage provider segments and legend keys          |
-| `›`          | the cursor row, or the Enter default in a menu   |
-| `▏`          | the text cursor in an input                      |
-| `⏎`          | the Enter key in key hints                       |
-| `◷`          | the Cron count (ASCII `CRON`) and the idle alert |
-| `⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏` | spinner frames                                   |
+| Glyph        | Use                                                                               |
+| ------------ | --------------------------------------------------------------------------------- |
+| `▪`          | saved agent or squad pin in the name-cell slot                                    |
+| `↩`          | reply direction in Recent exchanges                                               |
+| `↔` `↕`      | pane divider resize axes                                                          |
+| `▒` `░` `■`  | usage provider segments and legend keys                                           |
+| `›`          | the cursor row, or the Enter default in a menu                                    |
+| `▏`          | the text cursor in an input                                                       |
+| `⏎`          | the Enter key in key hints                                                        |
+| `◷`          | Cron counts (ASCII `CRON`); exceeded idle threshold (ASCII `!`, attention colour) |
+| `⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏` | spinner frames                                                                    |
 
 ## Lists
 
@@ -427,7 +429,8 @@ A view may add its own keys, but never reuses one of these for something else.
 An overlay built on the shared dialog keys its ↑↓ and ←→ differently; see
 [Dialogs](#dialogs). Two overlays still take Tab: a mention list in a prompt
 inserts the chosen mention, as Enter does, and a Settings binding edit cycles
-its scope.
+its scope. Esc has two exceptions too: in a Settings edit it cancels that edit
+and Settings stays open; in a mention list it dismisses the list.
 User bindings can change a key; help and footers always show the effective key.
 
 ### Footer and key help
