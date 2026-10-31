@@ -240,8 +240,9 @@ immutable one-comment send capture. Echo turns reserve their recipients' status 
 remain until the original send settles and its admitted outcomes replace them, so an intent
 awaiting its first state cannot flash recovery uncertainty. `use-annotations` owns the open annotation
 windows: each is a keyed composer, only one is visible, and a closed one stays mounted while its
-send runs. It is dropped once that send records, while a first comment that failed stays hidden
-with its draft until the same quote is annotated again. Only a status change fences opening,
+send runs. It is dropped once that send records. A first comment that failed stays hidden
+with its draft, and `unsentAnnotations` lists it for the page's alert row, whose Open (like the same
+quote) shows it again. Only a status change fences opening,
 closing and Resolve all. `message-send-refusal.ts` shares its button and
 explicit-submit presentation gates and classifies closed failure references. The
 composer keeps a visible, announced refusal below the field until a deliberate

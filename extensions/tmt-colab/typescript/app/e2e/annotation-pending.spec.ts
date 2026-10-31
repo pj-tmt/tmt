@@ -74,7 +74,7 @@ for (const close of ['×', 'Escape', 'outside'] as const)
     await expect.poll(async () => (await run(page, 'discussionProof')).length).toBe(2);
   });
 
-test('a send that fails after its window closed comes back with its draft and Retry records it once', async ({
+test('a send that fails after its window closed is said on the page; Open brings back its draft and Retry records it once', async ({
   page,
 }) => {
   await page.goto('/');
@@ -89,12 +89,27 @@ test('a send that fails after its window closed comes back with its draft and Re
   await annotate(page, SECOND, 'Draft of another quote.');
   await page.keyboard.press('Escape');
   await run(page, 'releaseReply');
-  // The same quote again shows the failed row with its exact draft; nothing was recorded.
-  await annotate(page, FIRST);
+  // The failure is said on the page without reopening anything; nothing was recorded.
+  const notice = page.locator('.page-unsent').getByRole('listitem');
+  await expect(page.locator('.page-unsent')).toHaveRole('alert');
+  await expect(notice).toHaveCount(1);
+  await expect(notice).toHaveText(/^Your comment on “Exact” was not sent\.\s*Open$/);
+  await expect(dialog(page)).toHaveCount(0);
+  expect(await run(page, 'discussionProof')).toHaveLength(0);
+  for (const width of [390, 1440])
+    for (const theme of ['light', 'dark'] as const) {
+      await page.setViewportSize({ width, height: 900 });
+      await page.emulateMedia({ colorScheme: theme });
+      await page.screenshot({
+        path: capturePath(`annotation-unsent-notice-${width}-${theme}.png`),
+      });
+    }
+  // Open shows that window with the failed row, its exact draft and Retry.
+  await notice.getByRole('button', { name: 'Open', exact: true }).click();
   const echo = dialog(page).getByTestId('comment-echo');
   await expect(echo).toHaveAttribute('data-echo', 'failed');
   await expect(echo).toContainText('Kept through a failure.');
-  expect(await run(page, 'discussionProof')).toHaveLength(0);
+  await expect(notice).toHaveCount(0);
   for (const width of [390, 1440])
     for (const theme of ['light', 'dark'] as const) {
       await page.setViewportSize({ width, height: 900 });
@@ -103,9 +118,15 @@ test('a send that fails after its window closed comes back with its draft and Re
         path: capturePath(`annotation-failed-after-close-${width}-${theme}.png`),
       });
     }
+  // Closing it again names it again, and the same quote opens it too.
+  await page.keyboard.press('Escape');
+  await expect(notice).toHaveCount(1);
+  await annotate(page, FIRST);
+  await expect(echo).toHaveAttribute('data-echo', 'failed');
   await echo.getByRole('button', { name: 'Retry', exact: true }).click();
   await expect(dialog(page).getByTestId('comment-entry')).toHaveCount(1);
   await expect.poll(async () => (await run(page, 'discussionProof')).length).toBe(1);
+  await expect(page.locator('.page-unsent')).toHaveCount(0);
   // The other quote's draft is still its own.
   await page.keyboard.press('Escape');
   await annotate(page, SECOND);

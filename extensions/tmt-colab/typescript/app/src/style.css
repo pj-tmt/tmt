@@ -2268,6 +2268,26 @@ button.discussion-quote:focus-visible {
   font-size: var(--tmt-ui-caption-size);
 }
 
+.page-unsent {
+  margin: 0;
+  padding: 4px 16px;
+  list-style: none;
+  font-size: var(--tmt-ui-caption-size);
+}
+.page-unsent > li {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px 8px;
+  min-height: 32px;
+}
+.page-unsent-mark {
+  flex: none;
+  width: 14px;
+  height: 14px;
+  color: var(--tmt-ui-color-blocked);
+}
+
 .agent-activity {
   color: var(--tmt-ui-color-secondary);
 }

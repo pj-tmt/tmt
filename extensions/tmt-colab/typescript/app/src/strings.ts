@@ -673,6 +673,8 @@ export const text = {
   product: 'Colab',
   shellPageNotice: 'This is a dashboard. Open it from the terminal:',
   anchorMissing: 'That passage is not on this page.',
+  annotationUnsent: (quote: string) => `Your comment on “${quote}” was not sent.`,
+  annotationUnsentOpen: 'Open',
   workBand: {
     label: 'Work on this page',
     stateUnavailable: 'State unavailable',

@@ -39,6 +39,7 @@ import {
   MessageSquarePlus,
   MessagesSquare,
   MousePointer2,
+  X,
 } from 'lucide-react';
 import { moreButtonRect, PageHeaderActions, type PageHeaderAction } from './page-header-actions.js';
 import { AppHeader } from './app-header.js';
@@ -701,6 +702,12 @@ function EndedBody({
       )}
     </>
   );
+}
+
+/** A quote short enough to name in one line: whitespace collapsed, at most 40 characters. */
+function quoteExcerpt(quote: string) {
+  const characters = [...quote.replace(/\s+/g, ' ').trim()];
+  return characters.length > 40 ? `${characters.slice(0, 39).join('')}…` : characters.join('');
 }
 
 function EndedLink({ action, primary = false }: { action: EndedAction; primary?: boolean }) {
@@ -1519,6 +1526,8 @@ function OpenPage({
     currentRectangle,
     annotation,
     annotations,
+    unsentAnnotations,
+    openUnsent,
     annotationRef,
     popover,
     drafts,
@@ -2217,6 +2226,26 @@ function OpenPage({
             <p className="page-anchor-missing" role="status">
               {text.anchorMissing}
             </p>
+          )}
+          {/* A first comment that failed after its window closed is said here, never only on the
+              quote: Open shows that window with the failed row, its draft and Retry (#5816). */}
+          {unsentAnnotations.length > 0 && (
+            <ul className="page-unsent" role="alert">
+              {unsentAnnotations.map((item) => (
+                <li key={item.key}>
+                  <X aria-hidden="true" className="page-unsent-mark" />
+                  <span>{text.annotationUnsent(quoteExcerpt(item.selector?.exact ?? ''))}</span>
+                  <BrowserAction
+                    type="button"
+                    variant="text"
+                    label={text.annotationUnsentOpen}
+                    onActivate={(event) => {
+                      if (event.isTrusted) openUnsent(item.key);
+                    }}
+                  />
+                </li>
+              ))}
+            </ul>
           )}
           <div className="frame-host" ref={host} />
           {editLockLayer.layer}
