@@ -690,8 +690,8 @@ suggests); Ops never installs, starts or pairs anything itself. The default `f` 
 Talk / Measure. An authored `overview`, `overview-view` or `overview-filter` binding gets a
 located retirement notice and is not applied.
 Default `j` jumps through the observed tmux binding only from a tmux invoker; on a
-built-in member it opens that member's Terminal view instead, and the Chat chip
-leads back. Herdr focus is unavailable. Standalone `j` opens the shared conversation and Esc returns.
+built-in member it opens that member's Terminal view instead, and `j` again (or the
+Chat chip) leads back. Herdr focus is unavailable. Standalone `j` opens the shared conversation and Esc returns.
 The header names the target and effective action; custom bindings retain their
 actual argv. `j` is not tree navigation.
 New member shows Name, AI tool, Model, Effort, Host, Session, Squad and Keep
@@ -719,7 +719,7 @@ and Digest and its program in Model; it has no chat (Enter and `j` open its term
 and receives no messages until an AI agent starts and binds in that terminal.
 A clean start on the built-in host closes the form, selects the member and shows
 its Terminal view, typing into it. The Terminal view is chosen per member (`j` or the
-Terminal chip; the Chat chip leads back, and in the view Enter types into the program);
+Terminal chip; `j` again or the Chat chip leads back, and in the view Enter types into the program);
 every other member opens on its chat, where Enter composes as for a tmux member. A left drag over the screen selects its text and copies it with the chat's Copy.
 While typing into a program that asked for the mouse, Ops ignores a plain drag (only
 the wheel reaches the program); drag with your terminal's selection bypass (often Shift,
@@ -1171,9 +1171,9 @@ No command accepts an actor override or uses a member filter as assignment.
 
 | Action                                                 | Explicit inputs besides `--room`                                                                                                                                |
 | ------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `ls`                                                   | Without `--room`, the caller's own list. Optional `--include-archived`, `--completion open\|complete`, `--assignee UUID`; reads create nothing                  |
-| `show`                                                 | `--checklist UUID --item UUID\|PREFIX`                                                                                                                          |
-| `add TITLE`                                            | Agent verb, no `--room` needed: optional `--body TEXT --reference HTTP(S)`; adds to the caller's own list and prints `#Title (3f2a)`                            |
+| `ls`                                                   | Without `--room`, the caller's own list. Optional `--include-archived`, `--completion open\|complete`, `--assignee UUID`; reads create nothing                                                           |
+| `show`                                                 | `--checklist UUID --item UUID\|PREFIX`                                                                                                                                  |
+| `add TITLE`                                            | Agent verb, no `--room` needed: optional `--body TEXT --reference HTTP(S)`; adds to the caller's own list and prints `#Title (3f2a)`                          |
 | `done ITEM`                                            | Agent verb, no `--room` needed: short id, UUID prefix or UUID; completes at the item's current revision                                                         |
 | `events`                                               | Optional `--member`, `--after CURSOR` (default 0), `--limit COUNT` (1 to 500, default 100); reads create nothing                                                |
 | `create TITLE`                                         | `--checklist UUID --item UUID --expect-inventory absent\|POSITIVE`; optional `--body TEXT --reference HTTP(S) --assignee UUID`                                  |

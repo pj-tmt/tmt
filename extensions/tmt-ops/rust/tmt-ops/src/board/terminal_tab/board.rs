@@ -82,11 +82,12 @@ impl App {
             .located(identity, located, crate::status::now_ms());
     }
 
-    /// `j` on a built-in member: its own screen is its Terminal view, not a host pane. `None`
-    /// for any other member, which keeps the host jump.
+    /// `j` on a built-in member: its own screen is its Terminal view, not a host pane, and `j`
+    /// again returns to the chat. `None` for any other member, which keeps the host jump.
     pub(in crate::board) fn jump_to_terminal(&mut self, row: &serde_json::Value) -> Option<Effect> {
         if self.terminal_available() && self.terminal_identity().as_deref() == row["id"].as_str() {
-            return Some(self.show_terminal(true));
+            // A second `j` leads back to the chat, so the keyboard alone moves both ways.
+            return Some(self.show_terminal(!self.terminal_showing()));
         }
         (row["pane"]["location"]["host"] == crate::board::new_member::model::BUILT_IN_HOST).then(|| {
             self.say("This built-in member's terminal is not available yet; select it on the Agents tab.")

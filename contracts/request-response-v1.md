@@ -464,7 +464,10 @@ the pane, the request stays queued, and nothing types around the agent. A
 recipient whose active binding runs a plain program rather than an agent
 (`plainProgram`, [identity status](identity-status-v1.md#plain-program)) refuses
 before anything is stored: `talk` returns `RECIPIENT_NOT_AGENT` (exit 1), no
-request is created and nothing is pasted. A person's own passthrough text is not a
+request is created and nothing is pasted. If the binding becomes a plain program
+after preparation stored the request, `talk` returns the same code with that
+request's ID: nothing is pasted, its wake settles as unavailable and the request
+stays queued until an agent binds there. A person's own passthrough text is not a
 request and is typed as written. Digest checklists, reply and result notices for
 that recipient are held, never pasted or dropped, until an agent binds there.
 Offline recipients with a recorded endpoint produce an

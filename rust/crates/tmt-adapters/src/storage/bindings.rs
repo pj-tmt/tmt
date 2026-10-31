@@ -631,6 +631,22 @@ impl Storage {
             .map_err(|error| classify(error, "Check identity binding"))
     }
 
+    /// The plain program an unretired identity's current binding runs, read without a write
+    /// transaction for polled projections. Detaching deletes the binding row, so only a binding
+    /// still attached to its pane reports one.
+    pub fn bound_plain_program(&self, identity_id: &str) -> Result<Option<String>, StorageError> {
+        self.connection()?
+            .query_row(
+                "SELECT b.plain_program FROM bindings AS b JOIN identities AS i ON i.id = b.identity_id \
+                 WHERE b.identity_id = ? AND i.retired_at_ms IS NULL",
+                [identity_id],
+                |row| row.get(0),
+            )
+            .optional()
+            .map(Option::flatten)
+            .map_err(|error| classify(error, "Read plain program"))
+    }
+
     /// Read an active identity's remembered preferences without a write
     /// transaction, for read-only projections such as show and list.
     pub fn session_preferences(

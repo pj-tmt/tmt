@@ -311,3 +311,31 @@ fn caller_host_input(sender: Option<&str>) -> Input {
         },
     }
 }
+
+#[test]
+fn a_binding_that_turned_plain_after_preparation_keeps_the_stored_request_queued() {
+    let mut correlation = correlation();
+    let outcome = Delivery::NotAgent("htop".into());
+    let mut seen = None;
+    settle_delivery(&mut correlation, &outcome, |state| {
+        seen = Some(state);
+        Ok(())
+    })
+    .unwrap();
+    assert_eq!(
+        seen,
+        Some(WakeState::Unavailable),
+        "never sent, never uncertain"
+    );
+    assert!(!correlation.delivery_uncertain);
+    let failed = not_agent_after_preparation(&correlation, "htop");
+    assert_eq!(failed.code, "RECIPIENT_NOT_AGENT");
+    assert_eq!(failed.status, 1);
+    let document = failed.document();
+    assert_eq!(document["requestId"], "request-talk");
+    assert!(failed.message.contains("htop"), "{}", failed.message);
+    assert!(
+        document.to_string().contains("the request stays queued"),
+        "{document}"
+    );
+}

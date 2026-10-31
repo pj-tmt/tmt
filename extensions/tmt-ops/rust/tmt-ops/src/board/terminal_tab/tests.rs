@@ -368,19 +368,33 @@ fn no_colour_leaves_the_program_colours_unpainted() {
 }
 
 #[test]
-fn j_on_the_list_opens_a_built_in_members_terminal_and_t_does_not() {
+fn j_on_the_list_opens_a_built_in_members_terminal_and_leads_back_and_t_does_not() {
     let mut app = reader();
     with_stream(&mut app);
     app.focus = 0;
-    text(&app);
+    let chips = |app: &App| {
+        text(app)
+            .lines()
+            .find(|line| line.contains("Chat"))
+            .expect("the chips row")
+            .to_owned()
+    };
+    assert!(
+        chips(&app).contains("Chat   j  Terminal"),
+        "{}",
+        chips(&app)
+    );
     app.key(KeyEvent::new(KeyCode::Char('t'), KeyModifiers::NONE));
     assert!(!app.terminal_showing(), "t has no default meaning here");
     app.key(KeyEvent::new(KeyCode::Char('j'), KeyModifiers::NONE));
     assert!(app.terminal_showing());
-    // A second j leaves it shown; the Chat chip is the way back.
+    // From the terminal, j sits on the Chat chip and leads back with the keyboard alone.
+    let shown = chips(&app);
+    assert!(
+        shown.contains(" j  Chat") && !shown.contains(" j  Terminal"),
+        "{shown}"
+    );
     app.key(KeyEvent::new(KeyCode::Char('j'), KeyModifiers::NONE));
-    assert!(app.terminal_showing());
-    app.show_terminal(false);
     assert!(!app.terminal_showing());
 }
 

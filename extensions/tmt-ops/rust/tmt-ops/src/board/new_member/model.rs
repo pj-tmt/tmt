@@ -105,9 +105,11 @@ pub(super) fn login_shell(value: Option<std::ffi::OsString>) -> String {
         .filter(|v| !v.is_empty())
         .unwrap_or_else(|| "/bin/sh".into())
 }
+/// One text field per slot that holds a value; Keep is a toggle, not a field.
+pub(super) const FIELDS: usize = 8;
 #[derive(Clone, Debug)]
 pub(super) struct Draft {
-    pub fields: [Editor; 8],
+    pub fields: [Editor; FIELDS],
     /// What a blank Command runs (see `login_shell`).
     pub shell: String,
     pub saved: bool,

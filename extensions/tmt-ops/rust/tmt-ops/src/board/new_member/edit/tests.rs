@@ -532,6 +532,27 @@ fn keep_current_choices_are_unique_so_arrows_can_reach_another_model() {
     );
 }
 #[test]
+fn edit_never_offers_the_plain_shell_tool_and_has_no_command_field() {
+    use super::super::model::{PLAIN_TOOL, Slot};
+    let f = Fixture::new();
+    let mut app = f.app();
+    let c = app.new_member.as_mut().unwrap();
+    let tools = c.edit_choices(Slot::Tool).unwrap();
+    assert!(!tools.is_empty());
+    assert!(
+        tools
+            .iter()
+            .all(|choice| choice.value.as_deref() != Some(PLAIN_TOOL)),
+        "an agent stays an agent under Edit"
+    );
+    let edit = c.edit.as_ref().unwrap();
+    assert!(
+        !edit
+            .fields(&c.draft, c.loaded.as_ref())
+            .contains(&Field::Member(Slot::Command))
+    );
+}
+#[test]
 fn a_missing_original_target_keeps_discard_accessible_but_save_disabled() {
     let f = Fixture::new();
     let mut app = f.app();

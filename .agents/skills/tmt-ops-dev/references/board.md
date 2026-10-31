@@ -659,10 +659,10 @@ member's, only while the Terminal tab shows); every open takes a new epoch and
 `BoardEvent::Terminal` carries it, so a late event of a replaced stream is dropped.
 
 The tab exists only for the selected member that has a stream. `j` on such a built-in member
-opens it (`App::jump_to_terminal`; a tmux member keeps the host jump), the Chat chip leads back,
-and the catalog action `terminal` (no default key) switches the two when bound. The chips are
-tab-header controls, key then word (`Chat  j Terminal  z Zoom`), each key from the effective
-bindings. The terminal view never offers the composer, whichever pane has focus; the terminal
+opens it (`App::jump_to_terminal`; a tmux member keeps the host jump) and `j` again or the Chat
+chip leads back; the catalog action `terminal` (no default key) switches the two when bound. The
+chips are tab-header controls, key then word (`Chat  j Terminal` from the chat, `j Chat  Terminal
+z Zoom` from the terminal), each key from the effective bindings and `j` on the view it switches to. The terminal view never offers the composer, whichever pane has focus; the terminal
 takes its rows. `paint` lays the cells on the pane with the program's own colours
 (`foreign::style`): a bigger screen is cut at the edge (a wide character that would straddle it is
 left out), a smaller one leaves the rest blank, and the screen is dimmed while the stream is not

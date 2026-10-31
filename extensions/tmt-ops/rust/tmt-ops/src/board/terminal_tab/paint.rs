@@ -32,8 +32,9 @@ type Chip = (
     Option<Span<'static>>,
 );
 
-/// The chips: the two views, and Zoom while the terminal is the one shown. Chat has a key only
-/// when the `terminal` action is bound; `j` opens the Terminal view and `z` zooms.
+/// The chips: the two views, and Zoom while the terminal is the one shown. `j` sits on the view
+/// it switches to: Terminal from the chat, Chat from the terminal (a bound `terminal` action
+/// keeps its own key on Chat). `z` zooms.
 fn options(app: &App) -> Vec<Chip> {
     use crate::action::{OpsUiAction, Verb};
     let (showing, zoomed) = (app.terminal_showing(), app.terminal_zoomed());
@@ -55,14 +56,14 @@ fn options(app: &App) -> Vec<Chip> {
             "Chat",
             Choice::TerminalView(false),
             !showing,
-            ui(OpsUiAction::Terminal, "t"),
+            ui(OpsUiAction::Terminal, "t").or_else(|| jump.clone().filter(|_| showing)),
         ),
         (
             "terminal",
             "Terminal",
             Choice::TerminalView(true),
             showing,
-            jump,
+            jump.filter(|_| !showing),
         ),
     ];
     if showing {

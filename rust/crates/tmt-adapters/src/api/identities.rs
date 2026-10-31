@@ -28,7 +28,7 @@ pub(super) fn decode(input: &[u8]) -> Result<Request, Fault> {
     })
 }
 
-pub(super) fn status(storage: &mut Storage, identities: Vec<String>) -> Result<Vec<u8>, Fault> {
+pub(super) fn status(storage: &Storage, identities: Vec<String>) -> Result<Vec<u8>, Fault> {
     // One directory read; expiry (`stale`) is applied here, by core.
     let statuses = storage
         .list_active_identity_statuses()
@@ -51,7 +51,10 @@ pub(super) fn status(storage: &mut Storage, identities: Vec<String>) -> Result<V
                         .unwrap_or(crate::passthrough::Can::no(crate::passthrough::Reason::NoPane))
                         .to_json()});
                     // The binding runs a plain program, not an agent: it receives nothing.
-                    if let Some(program) = plain_program(storage, id)? {
+                    if let Some(program) = storage
+                        .bound_plain_program(id)
+                        .map_err(|_| Fault::unavailable())?
+                    {
                         value["plainProgram"] = program.into();
                     }
                     value
@@ -60,16 +63,6 @@ pub(super) fn status(storage: &mut Storage, identities: Vec<String>) -> Result<V
         );
     }
     Ok(serde_json::to_vec(&json!({"identities": entries})).expect("identity statuses"))
-}
-
-fn plain_program(storage: &mut Storage, id: &str) -> Result<Option<String>, Fault> {
-    use tmt_core::binding::BindingRepository;
-    storage
-        .with_binding_transaction::<_, crate::storage::StorageError>(|records| {
-            records.entry_by_id(id)
-        })
-        .map(|entry| entry.and_then(|entry| entry.binding?.session.plain_program))
-        .map_err(|_| Fault::unavailable())
 }
 
 #[derive(Deserialize)]

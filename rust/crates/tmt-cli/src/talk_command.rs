@@ -93,6 +93,24 @@ fn settle_delivery(
     })
 }
 
+/// The binding became a plain program after preparation stored the request: nothing was
+/// pasted, the settled wake is unavailable, and the request stays queued under its ID.
+fn not_agent_after_preparation(correlation: &Correlation, program: &str) -> Failure {
+    let name = correlation
+        .identity
+        .as_ref()
+        .map_or(correlation.target.as_str(), |identity| {
+            identity.name.as_str()
+        });
+    let refused = preparation::not_agent(name, program);
+    correlation
+        .error("RECIPIENT_NOT_AGENT", refused.message, 1)
+        .suggestion(format!(
+            "Nothing was pasted; the request stays queued until an AI agent binds there. {}",
+            correlation.inspection()
+        ))
+}
+
 impl Correlation {
     fn error(&self, code: &'static str, message: impl Into<String>, status: u8) -> Failure {
         let failure = self.correlated(Failure::new(code, message, status));
@@ -413,15 +431,7 @@ fn deliver(
                         correlation.inspection()
                     )));
             } else if let crate::delivery::Delivery::NotAgent(program) = &outcome {
-                // The binding became a plain program after preparation; nothing was pasted.
-                let name = correlation
-                    .identity
-                    .as_ref()
-                    .map_or(correlation.target.as_str(), |identity| {
-                        identity.name.as_str()
-                    });
-                let refused = preparation::not_agent(name, program);
-                return Err(correlation.error("RECIPIENT_NOT_AGENT", refused.message, 1));
+                return Err(not_agent_after_preparation(correlation, program));
             } else if matches!(outcome, crate::delivery::Delivery::AwaitingApproval) {
                 // The agent refused the prompt while it waits on its user;
                 // nothing reached the pane and nothing types around it.
