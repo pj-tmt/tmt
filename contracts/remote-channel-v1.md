@@ -2051,7 +2051,8 @@ mount-space cookie. Missing or ended authority receives the generic 404. Display
 no page, operation or sending access.
 
 On demand, Remote asks each enabled extension on its admitted owner-only mount socket:
-`GET /.tmt/remote/describe`, with `tmt-describe: 1`, the actual `tmt-mount`, the door's
+`GET /.tmt/remote/describe`, with `tmt-describe: 1` and
+`tmt-describe-features: modules`, the actual `tmt-mount`, the door's
 `Host`, no body and `Connection: close`. Browser traffic cannot reach the `/.tmt` subtree
 or supply the callback marker. A callback has one second for connect/write/read and a
 16 KiB body cap; only HTTP 200 with `application/json` is admitted.
@@ -2069,19 +2070,33 @@ whole answer. Its fields are:
 - Optional `needsYou`: integer 0–9999, equal to the module's own in-app Needs-you
   number. Absent means unknown and shows no badge; explicit null is refused.
 - Optional `home`: up to eight `{id, title, path}` items, title 1–40 scalars.
+- Optional `modules`: at most one extra `{id, rail, menu, settings, entry?}`. It uses
+  the same field rules and bounds as the primary, including link-only fallback for
+  an invalid entry. It has no `version`, `needsYou` or `home`. An invalid extra or
+  explicit null refuses the entire answer; the combined body retains the 16 KiB cap.
+  An extension includes this field only when the request's `tmt-describe-features`
+  comma-separated tokens contain `modules`; otherwise it returns the exact old
+  primary-only answer, so older Remote versions continue to admit it. Older
+  extensions may ignore the header and return their unchanged primary-only answer.
 - Optional `entry`: the path of the module's web app script, ending in `.js`. An entry that is not
   a valid path or not a script is dropped and the rest of the description stands; the app then
   offers the module's link instead of mounting it.
 
 IDs match `[a-z0-9-]{1,32}` and are unique within their list. Labels contain no controls
 or bidi controls and are text, never markup. Icons are names from `house`, `file-text`,
-`monitor-smartphone`, `users`, `chart-column`, `search`, `settings`, `box`; an unknown
+`monitor-smartphone`, `users`, `chart-column`, `search`, `settings`, `box`, `palette`; an unknown
 lowercase alphanumeric/hyphen name falls back to `box`, never an SVG or URL. Paths match
 `^/[A-Za-z0-9._~/-]{0,255}$` with no `..` segment or `//`, query, fragment, URL or
 escape. The door resolves every path inside that module's own mount, never another module.
 
-The composed answer is `{version:1, modules:[{extension, rail, menu, settings, needsYou?,
-home?, entry?}]}`. Remote adds its own module and sorts by rail order, then extension name.
+The composed answer is `{version:1, modules:[{extension, module?, rail, menu, settings,
+needsYou?, home?, entry?}]}`. The primary has no `module` field; an extra has the
+same `extension` and `module` equal to its `id`. The pair is unique. Remote adds
+its own primary and sorts by rail order, extension name, then primary before extra.
+All paths stay inside the same extension mount. Extras share their extension's
+one callback, cache age and socket-incarnation fence; removal or expiry removes
+both. Primary-only composition stays byte-identical. Extension-wide consumers
+(Needs-you, Home cards and the Colab loader) select the primary, never an extra.
 After the existing authority checks, every due callback starts in parallel; composition
 waits within one 300 ms deadline, not one wait per extension. This budget covers module
 composition, not authority checks, which retain the blocking behavior of mounted routes. A successful answer is fresh for five seconds; a last good

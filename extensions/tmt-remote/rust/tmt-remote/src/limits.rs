@@ -286,6 +286,7 @@ pub const DESCRIBE_COUNT: u16 = 9999;
 pub const DESCRIBE_MENU: usize = 24;
 pub const DESCRIBE_SETTINGS: usize = 16;
 pub const DESCRIBE_HOME: usize = 8;
+pub const DESCRIBE_MODULES: usize = 1;
 
 /// One REST JSON document containing the maximum base64 carrier plus provider metadata.
 pub const CLOUD_PROVIDER_BYTES: usize = CLOUD_CARRIER_BYTES.div_ceil(3) * 4 + 2 * METADATA_BYTES;

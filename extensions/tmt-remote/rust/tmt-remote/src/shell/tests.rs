@@ -21,6 +21,120 @@ fn source(name: &'static str) -> Source {
     }
 }
 
+fn extra() -> Value {
+    json!({"id":"design","rail":{"label":"Design","icon":"palette","path":"/design/","order":100},"menu":[{"id":"library","label":"Library","path":"/design/library"}],"settings":[{"id":"preferences","label":"Preferences","path":"/design/settings"}],"entry":"/assets/design.js"})
+}
+fn with_extra() -> Value {
+    let mut v = value();
+    v["modules"] = json!([extra()]);
+    v
+}
+
+#[test]
+fn primary_only_composed_bytes_are_unchanged_and_extras_are_separate_mount_confined_entries() {
+    let baseline = parse(&value())
+        .unwrap()
+        .module("colab", "https://door/r/abc/x/colab/");
+    let expected = json!({"rail":{"label":"Colab","icon":"file-text","path":"https://door/r/abc/x/colab/","order":100},"menu":[{"id":"pages","label":"<b>Pages</b>","path":"https://door/r/abc/x/colab/pages","group":"Pages","count":{"value":2,"kind":"needs-you"}}],"settings":[],"needsYou":2,"home":[{"id":"latest","title":"Latest","path":"https://door/r/abc/x/colab/latest"}],"extension":"colab"});
+    assert_eq!(
+        serde_json::to_vec(&baseline).unwrap(),
+        serde_json::to_vec(&expected).unwrap()
+    );
+    let shell = Shell::with_reader(Arc::new(|_| parse(&with_extra())), Arc::new(Instant::now));
+    let answer = shell.snapshot(
+        vec![source("colab")],
+        "https://door",
+        Instant::now() + Duration::from_secs(1),
+    );
+    let rows = answer["modules"].as_array().unwrap();
+    assert_eq!(rows.len(), 3);
+    assert_eq!(rows[0], baseline);
+    assert!(rows[0].get("module").is_none());
+    assert_eq!(rows[1]["extension"], "colab");
+    assert_eq!(rows[1]["module"], "design");
+    assert_eq!(rows[1]["rail"]["icon"], "palette");
+    assert_eq!(
+        rows[1]["rail"]["path"],
+        "https://door/r/abc/x/colab/design/"
+    );
+    assert_eq!(
+        rows[1]["menu"][0]["path"],
+        "https://door/r/abc/x/colab/design/library"
+    );
+    assert_eq!(
+        rows[1]["settings"][0]["path"],
+        "https://door/r/abc/x/colab/design/settings"
+    );
+    assert_eq!(
+        rows[1]["entry"],
+        "https://door/r/abc/x/colab/assets/design.js"
+    );
+    for key in ["id", "version", "needsYou", "home", "modules"] {
+        assert!(rows[1].get(key).is_none(), "extra leaked {key}");
+    }
+    assert_eq!(rows[2]["extension"], "remote");
+    shell.shutdown();
+}
+
+#[test]
+fn invalid_extra_refuses_the_entire_description_and_reuses_primary_limits() {
+    let valid = with_extra();
+    for field in ["version", "needsYou", "home", "future"] {
+        let mut v = valid.clone();
+        v["modules"][0][field] = json!(1);
+        assert!(parse(&v).is_none(), "accepted extra {field}");
+    }
+    for (pointer, bad) in [
+        ("/modules", Value::Null),
+        ("/modules", json!([extra(), extra()])),
+        ("/modules/0", Value::Null),
+        ("/modules/0/id", json!("")),
+        ("/modules/0/id", json!("Design")),
+        ("/modules/0/id", json!("x".repeat(33))),
+        ("/modules/0/rail/path", json!("//elsewhere/")),
+        ("/modules/0/rail/path", json!("/../ops/")),
+        ("/modules/0/menu/0/path", json!("https://elsewhere/")),
+        ("/modules/0/settings/0/path", json!("/%2e%2e/")),
+        ("/modules/0/rail/label", json!("x".repeat(17))),
+        ("/modules/0/rail/order", json!(1000)),
+        ("/modules/0/menu/0/label", json!("bad\n")),
+        ("/modules/0/settings/0/label", json!("x".repeat(41))),
+        ("/modules/0/entry", Value::Null),
+    ] {
+        let mut v = valid.clone();
+        *v.pointer_mut(pointer).unwrap() = bad;
+        assert!(parse(&v).is_none(), "accepted {pointer}");
+    }
+    for (key, n, item) in [
+        (
+            "menu",
+            limits::DESCRIBE_MENU + 1,
+            extra()["menu"][0].clone(),
+        ),
+        (
+            "settings",
+            limits::DESCRIBE_SETTINGS + 1,
+            extra()["settings"][0].clone(),
+        ),
+    ] {
+        let mut v = valid.clone();
+        v["modules"][0][key] = json!(vec![item; n]);
+        assert!(parse(&v).is_none());
+    }
+    let mut oversized = serde_json::to_vec(&valid).unwrap();
+    oversized.resize(limits::DESCRIBE_BYTES + 1, b' ');
+    assert!(Description::parse(&oversized).is_none());
+    let mut v = valid;
+    v["modules"][0]["rail"]["icon"] = json!("future-icon");
+    v["modules"][0]["entry"] = json!("/../escape.js");
+    let d = parse(&v).unwrap();
+    assert_eq!(d.modules.as_ref().unwrap()[0].rail.icon, "box");
+    assert!(
+        d.modules.as_ref().unwrap()[0].entry.is_none(),
+        "invalid entry keeps primary link-only fallback"
+    );
+}
+
 #[test]
 fn remote_rail_opens_the_existing_my_remotes_list() {
     let shell = Shell::new();
@@ -126,7 +240,7 @@ fn failed_refresh_retains_last_good_but_never_renews_its_age() {
     let offset = Arc::clone(&seconds);
     let shell = Shell::with_reader(
         Arc::new(move |_| {
-            (counter.fetch_add(1, Ordering::SeqCst) == 0).then(|| parse(&value()).unwrap())
+            (counter.fetch_add(1, Ordering::SeqCst) == 0).then(|| parse(&with_extra()).unwrap())
         }),
         Arc::new(move || now + Duration::from_secs(offset.load(Ordering::SeqCst))),
     );
@@ -137,15 +251,15 @@ fn failed_refresh_retains_last_good_but_never_renews_its_age() {
             Instant::now() + Duration::from_secs(1),
         )
     };
-    assert_eq!(get(source("colab"))["modules"].as_array().unwrap().len(), 2);
+    assert_eq!(get(source("colab"))["modules"].as_array().unwrap().len(), 3);
     assert_eq!(get(source("colab"))["modules"][0]["extension"], "colab");
     assert_eq!(calls.load(Ordering::SeqCst), 1);
     seconds.store(5, Ordering::SeqCst);
     let mut missing = source("colab");
     missing.identity = None;
-    assert_eq!(get(missing.clone())["modules"].as_array().unwrap().len(), 2);
+    assert_eq!(get(missing.clone())["modules"].as_array().unwrap().len(), 3);
     seconds.store(30, Ordering::SeqCst);
-    assert_eq!(get(missing.clone())["modules"].as_array().unwrap().len(), 2);
+    assert_eq!(get(missing.clone())["modules"].as_array().unwrap().len(), 3);
     seconds.store(31, Ordering::SeqCst);
     assert_eq!(get(missing)["modules"].as_array().unwrap().len(), 1);
     shell.shutdown();
@@ -273,11 +387,16 @@ fn replaced_socket_fences_a_late_answer_and_shutdown_joins_the_worker() {
                     .recv_timeout(Duration::from_secs(3))
                     .unwrap();
             }
-            let mut v = value();
+            let mut v = with_extra();
             v["rail"]["label"] = json!(if s.identity == Some((1, 1)) {
                 "Old"
             } else {
                 "New"
+            });
+            v["modules"][0]["rail"]["label"] = json!(if s.identity == Some((1, 1)) {
+                "Old Design"
+            } else {
+                "New Design"
             });
             parse(&v)
         }),
@@ -319,6 +438,13 @@ fn replaced_socket_fences_a_late_answer_and_shutdown_joins_the_worker() {
     assert_eq!(
         starts.recv_timeout(Duration::from_secs(1)).unwrap(),
         Some((1, 2))
+    );
+    assert_eq!(answer["modules"][1]["rail"]["label"], "New Design");
+    let removed = shell.snapshot(vec![], "http://127.0.0.1:1", Instant::now());
+    assert_eq!(
+        removed["modules"].as_array().unwrap().len(),
+        1,
+        "removal drops primary and extra together"
     );
     shell.shutdown();
     assert!(shell.workers.lock().unwrap().is_empty());

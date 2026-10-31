@@ -150,6 +150,11 @@ member roster and an explicitly opened machine page under the verified Session. 
 retains its own original decision without replay. The public contract owns exact paths and locked-tab
 behavior.
 
+`shell` admits one capability-gated extra display module under the extension's same
+callback, cache age and socket fence. Composition keys extras by `(extension, module)`;
+Remote extension-wide lookups select only primaries. The describe contract owns
+validation, ordering and version-skew rules; the shared leaf owns rail rendering.
+
 `shell-app` owns common top-bar bindings and the global-search bridge. `root-search` keeps one
 confined Colab import per entry and a disposable route/session registry; Navigation comes from
 the same live composition as the rail. Colab's search-session entry owns its transport and dialog,

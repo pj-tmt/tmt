@@ -316,7 +316,9 @@ export async function remoteApp(
   });
   shell.described((answer) => {
     if (shell.signal.aborted) return;
-    reportedNeeds = answer?.modules.find((module) => module.extension === 'remote')?.needsYou;
+    reportedNeeds = answer?.modules.find(
+      (module) => module.extension === 'remote' && !('module' in module),
+    )?.needsYou;
     layout();
   });
   function observeSummary(): void {

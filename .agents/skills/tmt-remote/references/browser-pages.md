@@ -57,7 +57,9 @@ for each section, including loading and unavailable states. Content keeps its on
 and page actions, without a duplicate heading or hero sentence. The shell retains document titles,
 Back navigation and common controls; the GUI-owned leaf controls their order. The leaf owns the single trusted Command/Ctrl+K listener; Remote owns the
 confined module prefetch, registry and pending-open lifetime. Navigation is unavailable until the
-live composed shell describes its admitted modules and sections. Unconfirmed session counts stay
+live composed shell describes its admitted modules and sections. A capability-gated
+extra shares its extension mount and cache lifetime; extension-wide counts and
+the Colab loader use only the primary description. Unconfirmed session counts stay
 unconfirmed, rather than using a device count. Search uses Colab's `mountSearchSession` entry;
 Colab owns transport admission, the dialog and focus return. Prefetch imports code only after a
 live description admits the entry; an unpaired page acquires no extra session or read. Route or

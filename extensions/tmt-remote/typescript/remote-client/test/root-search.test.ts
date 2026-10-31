@@ -47,6 +47,40 @@ it('offers only described, admitted navigation and keeps unknown distinct from e
   });
 });
 
+it('selects the primary description even when an extra appears before it', () => {
+  const primary = answer.modules[0]!;
+  const extra = {
+    ...primary,
+    module: 'design',
+    menu: [{ id: 'wrong', label: 'Design only', path: '/colab/design/' }],
+    settings: [],
+  };
+  const snapshot = navigationSnapshot(
+    { version: 1, modules: [extra, primary] },
+    rail,
+    here,
+    (href) => href,
+  );
+  expect(snapshot.state).toBe('ready');
+  if (snapshot.state !== 'ready') throw new Error('Expected ready navigation');
+  expect(snapshot.items.map((item) => item.key)).toEqual([
+    'home',
+    'colab',
+    'colab:pages',
+    'colab:settings',
+    'settings',
+  ]);
+  const withoutPrimary = navigationSnapshot(
+    { version: 1, modules: [extra] },
+    rail,
+    here,
+    (href) => href,
+  );
+  expect(withoutPrimary.state).toBe('ready');
+  if (withoutPrimary.state !== 'ready') throw new Error('Expected ready navigation');
+  expect(withoutPrimary.items.map((item) => item.key)).toEqual(['home', 'settings']);
+});
+
 function deferred<T>() {
   let resolve!: (value: T) => void;
   const promise = new Promise<T>((done) => (resolve = done));

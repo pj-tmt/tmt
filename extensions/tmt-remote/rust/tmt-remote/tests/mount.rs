@@ -1368,6 +1368,10 @@ fn shell_callback_is_private_bounded_and_browser_markers_never_forward() {
     let seen = extension.seen.all();
     assert_eq!(seen.len(), 1);
     assert!(seen[0].contains("\r\ntmt-describe: 1\r\n"));
+    assert!(
+        seen[0].contains("\r\ntmt-describe-features: modules\r\n"),
+        "new Remote remains compatible with the old primary-only producer"
+    );
     assert!(seen[0].contains(&format!("\r\ntmt-mount: {}/x/colab/\r\n", door.prefix)));
     assert!(!seen[0].to_ascii_lowercase().contains("cookie:"));
     assert!(!seen[0].to_ascii_lowercase().contains("tmt-device-context:"));
@@ -1382,10 +1386,64 @@ fn shell_callback_is_private_bounded_and_browser_markers_never_forward() {
     }
     assert_eq!(extension.seen.all().len(), 1);
     assert_eq!(
-        door.status(&door.get(&door.at("/x/colab/"), "tmt-describe: 1\r\n")),
+        door.status(&door.get(
+            &door.at("/x/colab/"),
+            "tmt-describe: 1\r\ntmt-describe-features: modules\r\n"
+        )),
         200
     );
     assert!(!extension.seen.all()[1].contains("tmt-describe:"));
+    assert!(!extension.seen.all()[1].contains("tmt-describe-features:"));
+}
+
+#[test]
+fn shell_new_producer_omits_modules_for_old_remote_and_enables_them_only_with_capability() {
+    let door = Mounted::new(Arc::new(OneOwner));
+    let legacy = serde_json::json!({"version":1,"rail":{"label":"Colab","icon":"file-text","path":"/","order":100},"menu":[],"settings":[],"needsYou":7}).to_string();
+    let expected_legacy = legacy.clone();
+    let extension = door.extension(Arc::new(move |mut stream, seen| {
+        let head = request(&mut stream);
+        let text = String::from_utf8(head.clone()).unwrap();
+        seen.push(head);
+        let mut body: serde_json::Value = serde_json::from_str(&legacy).unwrap();
+        // Colab-shaped producer fixture: only the requested feature adds the optional field.
+        if text.contains("\r\ntmt-describe-features: modules\r\n") {
+            body["modules"] = serde_json::json!([{"id":"design","rail":{"label":"Design","icon":"palette","path":"/design/","order":100},"menu":[],"settings":[]}]);
+        }
+        let body = body.to_string();
+        write!(stream,"HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\n\r\n{body}",body.len()).unwrap();
+    }));
+    // An older Remote has no feature header and receives byte-for-byte the old answer.
+    let mut old_remote = UnixStream::connect(door.socket()).unwrap();
+    old_remote
+        .set_read_timeout(Some(Duration::from_secs(5)))
+        .unwrap();
+    write!(old_remote,"GET /.tmt/remote/describe HTTP/1.1\r\nHost: {}\r\ntmt-describe: 1\r\ntmt-mount: {}/x/colab/\r\nConnection: close\r\n\r\n",door.addr,door.prefix).unwrap();
+    let mut reply = String::new();
+    old_remote.read_to_string(&mut reply).unwrap();
+    assert_eq!(
+        reply.split_once("\r\n\r\n").unwrap().1.as_bytes(),
+        expected_legacy.as_bytes()
+    );
+    let reply = door.send(
+        door.get(&door.at("/x/-/shell"), &format!("Cookie: {OWNER}\r\n"))
+            .as_bytes(),
+    );
+    let answer: serde_json::Value =
+        serde_json::from_str(reply.split_once("\r\n\r\n").unwrap().1).unwrap();
+    assert_eq!(answer["modules"].as_array().unwrap().len(), 3);
+    assert_eq!(answer["modules"][0]["needsYou"], 7);
+    assert!(answer["modules"][0].get("module").is_none());
+    assert_eq!(answer["modules"][1]["module"], "design");
+    assert_eq!(
+        answer["modules"][1]["rail"]["path"],
+        format!("{}{}/x/colab/design/", door.origin, door.prefix)
+    );
+    assert_eq!(
+        extension.seen.all().len(),
+        2,
+        "one callback per extension, never one per module"
+    );
 }
 
 #[test]

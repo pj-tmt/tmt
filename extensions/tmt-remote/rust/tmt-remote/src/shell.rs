@@ -61,10 +61,26 @@ struct Home {
     path: String,
 }
 #[derive(Clone, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+struct ExtraModule {
+    id: String,
+    rail: Rail,
+    menu: Vec<Menu>,
+    settings: Vec<SettingsLink>,
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "present"
+    )]
+    entry: Option<String>,
+}
+#[derive(Clone, Deserialize, Serialize)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
 pub(crate) struct Description {
     #[serde(skip_serializing)]
     version: u8,
+    #[serde(default, skip_serializing, deserialize_with = "present")]
+    modules: Option<Vec<ExtraModule>>,
     rail: Rail,
     menu: Vec<Menu>,
     settings: Vec<SettingsLink>,
@@ -116,86 +132,146 @@ impl Description {
         }
         let mut d: Self = serde_json::from_slice(bytes).ok()?;
         if d.version != 1
-            || !label(&d.rail.label, limits::DESCRIBE_RAIL_LABEL)
-            || !path(&d.rail.path)
-            || d.rail.order > limits::DESCRIBE_ORDER
             || d.needs_you.is_some_and(|n| n > limits::DESCRIBE_COUNT)
-            || d.menu.len() > limits::DESCRIBE_MENU
-            || d.settings.len() > limits::DESCRIBE_SETTINGS
             || d.home
                 .as_ref()
                 .is_some_and(|h| h.len() > limits::DESCRIBE_HOME)
-            || !unique(d.menu.iter().map(|m| m.id.as_str()))
-            || !unique(d.settings.iter().map(|m| m.id.as_str()))
             || !unique(d.home.iter().flatten().map(|m| m.id.as_str()))
-            || d.menu.iter().any(|m| {
-                !label(&m.label, limits::DESCRIBE_LABEL)
-                    || !path(&m.path)
-                    || m.group
-                        .as_ref()
-                        .is_some_and(|g| !label(g, limits::DESCRIBE_GROUP))
-                    || m.count.as_ref().is_some_and(|c| {
-                        c.value > limits::DESCRIBE_COUNT
-                            || !matches!(c.kind.as_str(), "needs-you" | "plain")
-                    })
-            })
-            || d.settings
-                .iter()
-                .any(|s| !label(&s.label, limits::DESCRIBE_LABEL) || !path(&s.path))
             || d.home
                 .iter()
                 .flatten()
                 .any(|h| !label(&h.title, limits::DESCRIBE_LABEL) || !path(&h.path))
-            || d.rail.icon.is_empty()
-            || !d
-                .rail
-                .icon
-                .bytes()
-                .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-')
+            || !validate_module(&mut d.rail, &d.menu, &d.settings, &mut d.entry)
+            || d.modules
+                .as_ref()
+                .is_some_and(|m| m.len() > limits::DESCRIBE_MODULES)
         {
             return None;
         }
-        if ![
-            "house",
-            "file-text",
-            "monitor-smartphone",
-            "users",
-            "chart-column",
-            "search",
-            "settings",
-            "box",
-        ]
-        .contains(&d.rail.icon.as_str())
-        {
-            d.rail.icon = "box".into();
-        }
-        // An entry outside the module's mount, or not a module script, is dropped: the app then
-        // falls back to the module's link. The rest of the description stands.
-        if d.entry
-            .as_ref()
-            .is_some_and(|e| !path(e) || !e.ends_with(".js"))
-        {
-            d.entry = None;
+        for extra in d.modules.iter_mut().flatten() {
+            if !id(&extra.id)
+                || !validate_module(
+                    &mut extra.rail,
+                    &extra.menu,
+                    &extra.settings,
+                    &mut extra.entry,
+                )
+            {
+                return None;
+            }
         }
         Some(d)
     }
     fn module(mut self, extension: &str, base: &str) -> Value {
-        let resolve = |p: &mut String| *p = format!("{}{p}", base.trim_end_matches('/'));
-        resolve(&mut self.rail.path);
-        for m in &mut self.menu {
-            resolve(&mut m.path);
-        }
-        for s in &mut self.settings {
-            resolve(&mut s.path);
-        }
+        resolve_module(
+            &mut self.rail,
+            &mut self.menu,
+            &mut self.settings,
+            &mut self.entry,
+            base,
+        );
         for h in self.home.iter_mut().flatten() {
-            resolve(&mut h.path);
-        }
-        if let Some(entry) = &mut self.entry {
-            resolve(entry);
+            h.path = format!("{}{}", base.trim_end_matches('/'), h.path);
         }
         let mut v = serde_json::to_value(self).expect("bounded display fields");
         v["extension"] = json!(extension);
+        v
+    }
+}
+
+/// Primary and extra modules share every field rule and mount resolver.
+fn validate_module(
+    rail: &mut Rail,
+    menu: &[Menu],
+    settings: &[SettingsLink],
+    entry: &mut Option<String>,
+) -> bool {
+    if !label(&rail.label, limits::DESCRIBE_RAIL_LABEL)
+        || !path(&rail.path)
+        || rail.order > limits::DESCRIBE_ORDER
+        || menu.len() > limits::DESCRIBE_MENU
+        || settings.len() > limits::DESCRIBE_SETTINGS
+        || !unique(menu.iter().map(|m| m.id.as_str()))
+        || !unique(settings.iter().map(|m| m.id.as_str()))
+        || menu.iter().any(|m| {
+            !label(&m.label, limits::DESCRIBE_LABEL)
+                || !path(&m.path)
+                || m.group
+                    .as_ref()
+                    .is_some_and(|g| !label(g, limits::DESCRIBE_GROUP))
+                || m.count.as_ref().is_some_and(|c| {
+                    c.value > limits::DESCRIBE_COUNT
+                        || !matches!(c.kind.as_str(), "needs-you" | "plain")
+                })
+        })
+        || settings
+            .iter()
+            .any(|s| !label(&s.label, limits::DESCRIBE_LABEL) || !path(&s.path))
+        || rail.icon.is_empty()
+        || !rail
+            .icon
+            .bytes()
+            .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-')
+    {
+        return false;
+    }
+    if ![
+        "house",
+        "file-text",
+        "monitor-smartphone",
+        "users",
+        "chart-column",
+        "search",
+        "settings",
+        "box",
+        "palette",
+    ]
+    .contains(&rail.icon.as_str())
+    {
+        rail.icon = "box".into();
+    }
+    // Invalid script entries retain the existing link-only fallback for either module.
+    if entry
+        .as_ref()
+        .is_some_and(|e| !path(e) || !e.ends_with(".js"))
+    {
+        *entry = None;
+    }
+    true
+}
+fn resolve_module(
+    rail: &mut Rail,
+    menu: &mut [Menu],
+    settings: &mut [SettingsLink],
+    entry: &mut Option<String>,
+    base: &str,
+) {
+    let resolve = |p: &mut String| *p = format!("{}{p}", base.trim_end_matches('/'));
+    resolve(&mut rail.path);
+    for m in menu {
+        resolve(&mut m.path);
+    }
+    for s in settings {
+        resolve(&mut s.path);
+    }
+    if let Some(entry) = entry {
+        resolve(entry);
+    }
+}
+impl ExtraModule {
+    fn module(mut self, extension: &str, base: &str) -> Value {
+        resolve_module(
+            &mut self.rail,
+            &mut self.menu,
+            &mut self.settings,
+            &mut self.entry,
+            base,
+        );
+        let mut v = serde_json::to_value(self).expect("bounded display fields");
+        let fields = v.as_object_mut().expect("module object");
+        let id = fields.remove("id").expect("module id");
+        fields.insert("module".into(), id);
+        fields.insert("extension".into(), json!(extension));
         v
     }
 }
@@ -333,23 +409,29 @@ impl Shell {
         let mut modules = vec![(
             200,
             "remote",
+            None::<String>,
             json!({"extension":"remote","rail":{"label":"Remote","icon":"monitor-smartphone","path":format!("{origin}/remote/"),"order":200},"menu":[{"id":"remote","label":"Remote","path":format!("{origin}/remote/")}],"settings":[{"id":"settings","label":"My Remotes","path":format!("{origin}/remote/")}],"needsYou":0}),
         )];
         for (name, entry) in &state.entries {
             if let Some((answer, at, _)) = &entry.good
                 && now.saturating_duration_since(*at) <= limits::DESCRIBE_STALE
             {
-                modules.push((
-                    answer.rail.order,
-                    *name,
-                    answer
-                        .clone()
-                        .module(name, &format!("{origin}{}", entry.source.mount)),
-                ));
+                let mut primary = answer.clone();
+                let extras = primary.modules.take().unwrap_or_default();
+                let base = format!("{origin}{}", entry.source.mount);
+                modules.push((primary.rail.order, *name, None, primary.module(name, &base)));
+                for extra in extras {
+                    modules.push((
+                        extra.rail.order,
+                        *name,
+                        Some(extra.id.clone()),
+                        extra.module(name, &base),
+                    ));
+                }
             }
         }
-        modules.sort_by_key(|(order, name, _)| (*order, *name));
-        json!({"version":1,"modules":modules.into_iter().map(|(_,_,v)|v).collect::<Vec<_>>()})
+        modules.sort_by(|a, b| (&a.0, &a.1, &a.2).cmp(&(&b.0, &b.1, &b.2)));
+        json!({"version":1,"modules":modules.into_iter().map(|(_,_,_,v)|v).collect::<Vec<_>>()})
     }
     pub(crate) fn shutdown(&self) {
         {

@@ -200,7 +200,9 @@ const COLAB_ENTRY = 'assets/colab-module.js';
 
 /** Colab as the composed answer describes it: its own link, and its entry only if confined. */
 function colabLoad(answer: ShellAnswer | undefined): ModuleLoad | undefined {
-  const colab = answer?.modules.find((module) => module.extension === 'colab');
+  const colab = answer?.modules.find(
+    (module) => module.extension === 'colab' && !('module' in module),
+  );
   if (!colab) return undefined;
   return moduleLoad(
     colab.rail.path,
