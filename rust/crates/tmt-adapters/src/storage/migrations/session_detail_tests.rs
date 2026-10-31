@@ -17,9 +17,13 @@ fn the_missing_start_detail_preserves_schema_81_rows_and_change_cursor_triggers(
     old.pragma_update(None, "foreign_keys", true).unwrap();
     apply_through(&mut old, 81).unwrap();
     old.execute_batch(BINDING).unwrap();
-    let kept: Vec<&str> = SessionLearningDetail::ALL
-        .iter()
-        .map(|detail| detail.as_str())
+    let kept: Vec<&str> = include_str!("../schema/082.sql")
+        .lines()
+        .filter_map(|line| {
+            line.trim()
+                .strip_prefix('\'')
+                .and_then(|token| token.split('\'').next())
+        })
         .filter(|token| *token != NO_ADMITTED_START)
         .collect();
     assert_eq!(kept.len(), 55);
@@ -48,7 +52,7 @@ fn the_missing_start_detail_preserves_schema_81_rows_and_change_cursor_triggers(
     old.close().unwrap();
 
     let mut storage = Storage::open(&path).unwrap();
-    assert_eq!(storage.health().unwrap().schema_version, 84);
+    assert_eq!(storage.health().unwrap().schema_version, 85);
     storage.close().unwrap();
     let db = Connection::open(&path).unwrap();
     db.pragma_update(None, "foreign_keys", true).unwrap();
@@ -138,7 +142,7 @@ fn the_widened_detail_list_keeps_every_stored_detail_and_accepts_the_new_tokens(
     old.close().unwrap();
 
     let mut storage = Storage::open(&path).unwrap();
-    assert_eq!(storage.health().unwrap().schema_version, 84);
+    assert_eq!(storage.health().unwrap().schema_version, 85);
     storage.close().unwrap();
 
     let db = Connection::open(&path).unwrap();
@@ -227,7 +231,7 @@ fn the_digest_stop_list_keeps_every_stored_detail_and_accepts_its_tokens() {
     old.close().unwrap();
 
     let mut storage = Storage::open(&path).unwrap();
-    assert_eq!(storage.health().unwrap().schema_version, 84);
+    assert_eq!(storage.health().unwrap().schema_version, 85);
     storage.close().unwrap();
 
     let db = Connection::open(&path).unwrap();
@@ -253,7 +257,7 @@ fn the_digest_stop_list_keeps_every_stored_detail_and_accepts_its_tokens() {
         .map(|detail| detail.as_str())
         .filter(|token| token.starts_with("digest_stop:"))
         .collect();
-    assert_eq!(digest.len(), 21);
+    assert_eq!(digest.len(), 55);
     for (index, token) in digest.iter().enumerate() {
         db.execute(
             &observation(1_000 + index as u32, &format!("'{token}'")),
@@ -290,4 +294,112 @@ fn the_digest_stop_list_keeps_every_stored_detail_and_accepts_its_tokens() {
         })
         .unwrap();
     assert_eq!(after, before + 1);
+}
+
+#[test]
+fn diagnostic_stages_preserve_schema_84_rows_and_reject_unbounded_details() {
+    let directory = TestDirectory::new();
+    // Applying schema 84 directly also provisions its owner-only hook queue.
+    let root = directory.path.join("store");
+    crate::private_file::ensure_private_directory(&root).unwrap();
+    let path = root.join("schema84.db");
+    let mut old = Connection::open(&path).unwrap();
+    old.pragma_update(None, "foreign_keys", true).unwrap();
+    apply_through(&mut old, 84).unwrap();
+    old.execute_batch(BINDING).unwrap();
+    let previous: Vec<&str> = include_str!("../schema/082.sql")
+        .lines()
+        .filter_map(|line| {
+            line.trim()
+                .strip_prefix('\'')
+                .and_then(|token| token.split('\'').next())
+        })
+        .collect();
+    assert_eq!(previous.len(), 56);
+    for (index, token) in previous.iter().enumerate() {
+        old.execute(&observation(100 + index as u32, &format!("'{token}'")), [])
+            .unwrap();
+    }
+    old.execute(&observation(500, "NULL"), []).unwrap();
+    assert!(
+        old.execute(&observation(501, "'digest_stop:worker:open:busy'"), [])
+            .is_err()
+    );
+    let cursor: i64 = old
+        .query_row("SELECT value FROM change_cursor WHERE id=1", [], |row| {
+            row.get(0)
+        })
+        .unwrap();
+    let objects: Vec<String> = old.prepare("SELECT name FROM sqlite_schema WHERE tbl_name='launch_observations' AND type IN ('index','trigger') ORDER BY name").unwrap()
+        .query_map([], |row| row.get(0)).unwrap().map(Result::unwrap).collect();
+    old.close().unwrap();
+    let mut storage = Storage::open(&path).unwrap();
+    assert_eq!(storage.health().unwrap().schema_version, 85);
+    storage.close().unwrap();
+    let db = Connection::open(&path).unwrap();
+    db.pragma_update(None, "foreign_keys", true).unwrap();
+    let stored: Vec<Option<String>> = db
+        .prepare("SELECT detail FROM launch_observations ORDER BY owner_pid")
+        .unwrap()
+        .query_map([], |row| row.get(0))
+        .unwrap()
+        .map(Result::unwrap)
+        .collect();
+    assert_eq!(
+        stored,
+        previous
+            .iter()
+            .map(|token| Some((*token).to_owned()))
+            .chain([None])
+            .collect::<Vec<_>>()
+    );
+    let after: i64 = db
+        .query_row("SELECT value FROM change_cursor WHERE id=1", [], |row| {
+            row.get(0)
+        })
+        .unwrap();
+    assert_eq!(
+        after, cursor,
+        "constraint migration invents no conversation change"
+    );
+    let after_objects: Vec<String> = db.prepare("SELECT name FROM sqlite_schema WHERE tbl_name='launch_observations' AND type IN ('index','trigger') ORDER BY name").unwrap()
+        .query_map([], |row| row.get(0)).unwrap().map(Result::unwrap).collect();
+    assert_eq!(objects, after_objects);
+    for (index, detail) in SessionLearningDetail::ALL.iter().enumerate() {
+        db.execute(
+            &observation(1_000 + index as u32, &format!("'{}'", detail.as_str())),
+            [],
+        )
+        .unwrap();
+    }
+    for invalid in [
+        "digest_stop:worker:open:busy:payload",
+        "digest_stop:launch:caller:argv",
+        "digest_stop:worker_io\n",
+    ] {
+        assert!(
+            db.execute(&observation(9_000, &format!("'{invalid}'")), [])
+                .is_err()
+        );
+    }
+    let before: i64 = db
+        .query_row("SELECT value FROM change_cursor WHERE id=1", [], |row| {
+            row.get(0)
+        })
+        .unwrap();
+    db.execute(
+        "UPDATE launch_observations SET detail='digest_stop:worker:open:busy' WHERE owner_pid=500",
+        [],
+    )
+    .unwrap();
+    let after: i64 = db
+        .query_row("SELECT value FROM change_cursor WHERE id=1", [], |row| {
+            row.get(0)
+        })
+        .unwrap();
+    assert_eq!(
+        after,
+        before + 1,
+        "detail-only updates still publish one change"
+    );
 }

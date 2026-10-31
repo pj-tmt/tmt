@@ -17,7 +17,7 @@ use tmt_adapters::{
         RuntimeRegistry,
         hook_protocol::{DigestHandoff, HOOK_INPUT_LIMIT, HookLaunch},
     },
-    storage::Storage,
+    storage::{Storage, StorageError, StorageErrorCode},
 };
 use tmt_core::{
     binding::session::{HarnessId, launch::SessionLearningDigestStop as DigestStop},
@@ -69,8 +69,10 @@ pub fn execute(
                 deadline,
             )
             .map_err(&mut refuse)?;
-            let paths = ConfigPaths::discover().map_err(|_| ())?;
-            let mut storage = Storage::open_hook(&paths.database, deadline).map_err(|_| ())?;
+            let paths = ConfigPaths::discover().map_err(|_| refuse(DigestStop::WorkerConfig))?;
+            let mut storage = Storage::open_hook(&paths.database, deadline).map_err(|error| {
+                refuse(worker_storage_failure(WorkerStorageStage::Open, &error))
+            })?;
             let supplied = scope
                 .map(serde_json::from_str::<HookLaunch>)
                 .transpose()
@@ -86,16 +88,20 @@ pub fn execute(
             .map_err(&mut refuse)?;
             storage
                 .ingest_pending_hook_captures_for_identity(&launch.identity_id)
-                .map_err(|_| ())?;
+                .map_err(|error| {
+                    refuse(worker_storage_failure(WorkerStorageStage::Ingest, &error))
+                })?;
             let Some(through) = digest::fitting_through(
                 &mut storage,
                 &launch.identity_id,
                 DigestOpportunity::TurnBoundary,
                 false,
             )
-            .map_err(|_| ())?
+            .map_err(|error| refuse(worker_request_failure(WorkerStorageStage::Fitting, &error)))?
             else {
-                storage.close().map_err(|_| ())?;
+                storage.close().map_err(|error| {
+                    refuse(worker_storage_failure(WorkerStorageStage::Close, &error))
+                })?;
                 return Ok(());
             };
             let claimed = storage
@@ -105,12 +111,16 @@ pub fn execute(
                     tmt_core::operation::new_operation_id(),
                     Some(through),
                 )
-                .map_err(|_| ())?;
+                .map_err(|error| {
+                    refuse(worker_request_failure(WorkerStorageStage::Claim, &error))
+                })?;
             let batch = match claim_refusal(claimed) {
                 Ok(Some(batch)) => batch,
                 // Nothing to claim is not a refusal and names nothing.
                 Ok(None) => {
-                    storage.close().map_err(|_| ())?;
+                    storage.close().map_err(|error| {
+                        refuse(worker_storage_failure(WorkerStorageStage::Close, &error))
+                    })?;
                     return Ok(());
                 }
                 Err(stop) => {
@@ -121,7 +131,8 @@ pub fn execute(
             };
             let text = match digest::text(&mut storage, &batch) {
                 Ok(text) => text,
-                Err(_) => {
+                Err(error) => {
+                    refuse(worker_request_failure(WorkerStorageStage::Render, &error));
                     let _ = digest::release_unsent(&mut storage, &batch);
                     return Err(());
                 }
@@ -132,13 +143,16 @@ pub fn execute(
                 attempt_token: batch.attempt_token.clone(),
                 digest: text,
             };
-            storage.close().map_err(|_| ())?;
-            let bytes = serde_json::to_vec(&prepared).map_err(|_| ())?;
+            storage.close().map_err(|error| {
+                refuse(worker_storage_failure(WorkerStorageStage::Close, &error))
+            })?;
+            let bytes =
+                serde_json::to_vec(&prepared).map_err(|_| refuse(DigestStop::WorkerSerialize))?;
             // This is private worker output, never delivered evidence. A lost
             // response leaves the claim visible and grants no automatic retry.
             tmt_cli_style::stream::stdout(true)
                 .write_all(&bytes)
-                .map_err(|_| ())?;
+                .map_err(|_| refuse(DigestStop::WorkerOutput))?;
             return Ok(());
         }
         let worker_deadline = deadline
@@ -333,6 +347,48 @@ fn claim_refusal(
     }
 }
 
+/// Keep only an operation and a bounded cause class, never backend error text.
+#[derive(Clone, Copy)]
+enum WorkerStorageStage {
+    Open,
+    Ingest,
+    Fitting,
+    Claim,
+    Render,
+    Close,
+}
+
+fn worker_storage_failure(stage: WorkerStorageStage, error: &StorageError) -> DigestStop {
+    worker_stage_failure(stage, error.code == StorageErrorCode::Busy)
+}
+
+fn worker_request_failure(
+    stage: WorkerStorageStage,
+    error: &tmt_core::request::RequestError<StorageError>,
+) -> DigestStop {
+    worker_stage_failure(
+        stage,
+        matches!(error, tmt_core::request::RequestError::Repository(error) if error.code == StorageErrorCode::Busy),
+    )
+}
+
+fn worker_stage_failure(stage: WorkerStorageStage, busy: bool) -> DigestStop {
+    match (stage, busy) {
+        (WorkerStorageStage::Open, false) => DigestStop::WorkerOpen,
+        (WorkerStorageStage::Open, true) => DigestStop::WorkerOpenBusy,
+        (WorkerStorageStage::Ingest, false) => DigestStop::WorkerIngest,
+        (WorkerStorageStage::Ingest, true) => DigestStop::WorkerIngestBusy,
+        (WorkerStorageStage::Fitting, false) => DigestStop::WorkerFitting,
+        (WorkerStorageStage::Fitting, true) => DigestStop::WorkerFittingBusy,
+        (WorkerStorageStage::Claim, false) => DigestStop::WorkerClaim,
+        (WorkerStorageStage::Claim, true) => DigestStop::WorkerClaimBusy,
+        (WorkerStorageStage::Render, false) => DigestStop::WorkerRender,
+        (WorkerStorageStage::Render, true) => DigestStop::WorkerRenderBusy,
+        (WorkerStorageStage::Close, false) => DigestStop::WorkerClose,
+        (WorkerStorageStage::Close, true) => DigestStop::WorkerCloseBusy,
+    }
+}
+
 /// The supervisor's reading of its worker: `failure` is `None` for a worker that finished.
 /// A worker that ran and failed names its own refusal on stderr; a finished worker writes
 /// none, so any stderr byte from it is a refusal of its own.
@@ -342,11 +398,16 @@ fn worker_refusal(failure: Option<CommandFailure>, stderr: &[u8]) -> Option<Dige
         None => DigestStop::WorkerStderr,
         Some(CommandFailure::Spawn) => DigestStop::WorkerSpawn,
         Some(CommandFailure::Timeout) => DigestStop::WorkerTimeout,
-        Some(CommandFailure::Exit { .. }) => std::str::from_utf8(stderr)
+        Some(CommandFailure::Exit { signal, .. }) => std::str::from_utf8(stderr)
             .ok()
             .and_then(DigestStop::from_worker)
-            .unwrap_or(DigestStop::WorkerError),
-        Some(CommandFailure::OutputLimit | CommandFailure::Io) => DigestStop::WorkerError,
+            .unwrap_or(if signal.is_some() {
+                DigestStop::WorkerSignal
+            } else {
+                DigestStop::WorkerExit
+            }),
+        Some(CommandFailure::OutputLimit) => DigestStop::WorkerOutputLimit,
+        Some(CommandFailure::Io) => DigestStop::WorkerIo,
     })
 }
 
@@ -439,6 +500,151 @@ mod tests {
     }
 
     #[test]
+    fn an_exclusive_schema_read_fault_names_busy_and_restoring_it_opens_cleanly() {
+        let root = std::env::temp_dir().join(format!(
+            "tmt-digest-worker-fault-{}",
+            tmt_core::operation::new_operation_id()
+        ));
+        std::fs::create_dir(&root).unwrap();
+        let path = root.join("tmt.db");
+        let mut setup = Storage::open(&path).unwrap();
+        setup.close().unwrap();
+        let writer = rusqlite::Connection::open(&path).unwrap();
+        // Test-only read fault: WAL readers do not block on an ordinary writer.
+        // Keep the same journal mode and allowance for the clean/fault/clean calls.
+        // The allowance covers open_hook's existing 100 ms completion reserve;
+        // otherwise an early budget refusal would be a false-positive lock control.
+        writer.execute_batch("PRAGMA journal_mode=DELETE").unwrap();
+        let hook_open = || Storage::open_hook(&path, Instant::now() + Duration::from_secs(5));
+        let mut before = hook_open().unwrap();
+        before.close().unwrap();
+        writer.execute_batch("BEGIN EXCLUSIVE").unwrap();
+        let error = match hook_open() {
+            Ok(mut storage) => {
+                storage.close().unwrap();
+                panic!("exclusive schema-read fault must prevent hook open");
+            }
+            Err(error) => error,
+        };
+        assert!(
+            matches!(
+                std::error::Error::source(&error).and_then(|source| source.downcast_ref::<rusqlite::Error>()),
+                Some(rusqlite::Error::SqliteFailure(sqlite, _)) if sqlite.code == rusqlite::ErrorCode::DatabaseBusy
+            ),
+            "the fault must reach SQLite, not stop at the hook's budget precheck"
+        );
+        let refusal = worker_storage_failure(WorkerStorageStage::Open, &error);
+        assert_eq!(refusal, DigestStop::WorkerOpenBusy);
+        assert_eq!(
+            worker_refusal(
+                Some(CommandFailure::Exit {
+                    code: Some(1),
+                    signal: None
+                }),
+                refusal.name().as_bytes()
+            ),
+            Some(DigestStop::WorkerOpenBusy)
+        );
+        assert_eq!(
+            tmt_core::binding::session::launch::SessionLearningDetail::DigestStop(refusal).as_str(),
+            "digest_stop:worker:open:busy"
+        );
+        writer.execute_batch("ROLLBACK").unwrap();
+        let mut restored = hook_open().unwrap();
+        restored.close().unwrap();
+        writer.execute_batch("PRAGMA journal_mode=WAL").unwrap();
+        writer.close().unwrap();
+        assert_eq!(worker_refusal(None, b""), None);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn worker_storage_faults_keep_the_operation_and_busy_class_through_the_supervisor() {
+        use WorkerStorageStage as S;
+        let stages = [
+            (S::Open, DigestStop::WorkerOpen, DigestStop::WorkerOpenBusy),
+            (
+                S::Ingest,
+                DigestStop::WorkerIngest,
+                DigestStop::WorkerIngestBusy,
+            ),
+            (
+                S::Fitting,
+                DigestStop::WorkerFitting,
+                DigestStop::WorkerFittingBusy,
+            ),
+            (
+                S::Claim,
+                DigestStop::WorkerClaim,
+                DigestStop::WorkerClaimBusy,
+            ),
+            (
+                S::Render,
+                DigestStop::WorkerRender,
+                DigestStop::WorkerRenderBusy,
+            ),
+            (
+                S::Close,
+                DigestStop::WorkerClose,
+                DigestStop::WorkerCloseBusy,
+            ),
+        ];
+        for (stage, failed, busy) in stages {
+            for (code, expected) in [
+                (StorageErrorCode::Busy, busy),
+                (StorageErrorCode::Unknown, failed),
+            ] {
+                let error = StorageError::new(code, "private backend payload must not be reported");
+                assert_eq!(worker_storage_failure(stage, &error), expected);
+                let request = tmt_core::request::RequestError::Repository(error);
+                assert_eq!(worker_request_failure(stage, &request), expected);
+                assert_eq!(
+                    worker_refusal(
+                        Some(CommandFailure::Exit {
+                            code: Some(1),
+                            signal: None
+                        }),
+                        expected.name().as_bytes()
+                    ),
+                    Some(expected)
+                );
+            }
+            assert_eq!(
+                worker_request_failure(stage, &tmt_core::request::RequestError::StateInvalid),
+                failed
+            );
+        }
+        assert_eq!(
+            worker_refusal(None, b""),
+            None,
+            "restored clean worker emits no refusal"
+        );
+        for (failure, expected) in [
+            (CommandFailure::Io, DigestStop::WorkerIo),
+            (CommandFailure::OutputLimit, DigestStop::WorkerOutputLimit),
+            (
+                CommandFailure::Exit {
+                    code: Some(1),
+                    signal: None,
+                },
+                DigestStop::WorkerExit,
+            ),
+            (
+                CommandFailure::Exit {
+                    code: None,
+                    signal: Some(9),
+                },
+                DigestStop::WorkerSignal,
+            ),
+        ] {
+            assert_eq!(
+                worker_refusal(Some(failure), b"unclassified private stderr"),
+                Some(expected)
+            );
+        }
+    }
+
+    #[test]
     fn only_complete_publication_is_delivered() {
         assert_eq!(publication_state(Ok(())), DigestState::Delivered);
         assert_eq!(
@@ -472,7 +678,7 @@ mod tests {
         );
         assert_eq!(
             worker_refusal(Some(CommandFailure::Io), b"launch:owner"),
-            Some(DigestStop::WorkerError)
+            Some(DigestStop::WorkerIo)
         );
         // The worker's own name for its refusal, and nothing it cannot report.
         assert_eq!(
@@ -492,7 +698,7 @@ mod tests {
         ] {
             assert_eq!(
                 worker_refusal(exit, other),
-                Some(DigestStop::WorkerError),
+                Some(DigestStop::WorkerSignal),
                 "{other:?}"
             );
         }

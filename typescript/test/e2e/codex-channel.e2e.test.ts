@@ -12,6 +12,7 @@ import {
   type E2EFixture,
 } from './harness.js';
 import { sessionLearning } from './identity-state-oracle.js';
+import { digestStopDiagnostics } from './digest-stop-diagnostics.js';
 import { installTmuxTrace, type TmuxTrace } from './tmux-trace.js';
 import { waitForFileContent } from './wait-for-file.js';
 
@@ -1042,7 +1043,7 @@ describe('Codex native channel product routing', { concurrent: false }, () => {
             const continuations = events(s, 'digest-continuation');
             expect(
               continuations,
-              `Session learning: ${JSON.stringify(sessionLearning(f))}`
+              `Digest boundary: ${JSON.stringify(digestStopDiagnostics({ provider: 'codex', channel, setup, resume, legacy, step: 'boundary' }, sessionLearning(f), events(s, 'digest-handler')))}`
             ).toHaveLength(1);
             expect(notices()).toHaveLength(legacy && !resume ? 1 : 0);
             if (legacy && !resume)

@@ -211,9 +211,77 @@ pub enum SessionLearningDigestStop {
     HandoffInvalid,
     /// The claimed checklist changed before it could be published.
     ChecklistChanged,
+    /// The worker exited without a recognised refusal.
+    WorkerExit,
+    /// The worker was signalled without a recognised refusal.
+    WorkerSignal,
+    /// Worker command I/O failed.
+    WorkerIo,
+    /// The worker exceeded its existing output bound.
+    WorkerOutputLimit,
+    /// Worker configuration discovery failed.
+    WorkerConfig,
+    /// The sealed worker handoff could not be encoded.
+    WorkerSerialize,
+    /// The worker could not write its sealed handoff.
+    WorkerOutput,
+    /// The worker open operation failed.
+    WorkerOpen,
+    /// The worker open operation returned storage Busy.
+    WorkerOpenBusy,
+    /// The worker ingest operation failed.
+    WorkerIngest,
+    /// The worker ingest operation returned storage Busy.
+    WorkerIngestBusy,
+    /// The worker fitting operation failed.
+    WorkerFitting,
+    /// The worker fitting operation returned storage Busy.
+    WorkerFittingBusy,
+    /// The worker claim operation failed.
+    WorkerClaim,
+    /// The worker claim operation returned storage Busy.
+    WorkerClaimBusy,
+    /// The worker render operation failed.
+    WorkerRender,
+    /// The worker render operation returned storage Busy.
+    WorkerRenderBusy,
+    /// The worker close operation failed.
+    WorkerClose,
+    /// The worker close operation returned storage Busy.
+    WorkerCloseBusy,
+    /// Caller configuration discovery failed.
+    LaunchCallerConfig,
+    /// Caller host discovery failed.
+    LaunchCallerHost,
+    /// The caller pane observation failed.
+    LaunchCallerPane,
+    /// The caller storage observation failed.
+    LaunchCallerStorage,
+    /// The caller storage observation returned Busy.
+    LaunchCallerStorageBusy,
+    /// The caller process observation failed.
+    LaunchCallerProcess,
+    /// The awaiting-session owner probe failed.
+    LaunchContinuationOwnerProbe,
+    /// The awaiting-session open operation failed.
+    LaunchContinuationOpen,
+    /// The awaiting-session open operation returned Busy.
+    LaunchContinuationOpenBusy,
+    /// The awaiting-session write operation failed.
+    LaunchContinuationWrite,
+    /// The awaiting-session write operation returned Busy.
+    LaunchContinuationWriteBusy,
+    /// The awaiting-session close operation failed.
+    LaunchContinuationClose,
+    /// The awaiting-session close operation returned Busy.
+    LaunchContinuationCloseBusy,
+    /// The awaiting-session read operation failed.
+    LaunchContinuationRead,
+    /// The awaiting-session read operation returned Busy.
+    LaunchContinuationReadBusy,
 }
 impl SessionLearningDigestStop {
-    pub const ALL: [Self; 21] = [
+    pub const ALL: [Self; 55] = [
         Self::WorkerSpawn,
         Self::WorkerTimeout,
         Self::WorkerError,
@@ -235,6 +303,40 @@ impl SessionLearningDigestStop {
         Self::NoticeUnavailable,
         Self::HandoffInvalid,
         Self::ChecklistChanged,
+        Self::WorkerExit,
+        Self::WorkerSignal,
+        Self::WorkerIo,
+        Self::WorkerOutputLimit,
+        Self::WorkerConfig,
+        Self::WorkerSerialize,
+        Self::WorkerOutput,
+        Self::WorkerOpen,
+        Self::WorkerOpenBusy,
+        Self::WorkerIngest,
+        Self::WorkerIngestBusy,
+        Self::WorkerFitting,
+        Self::WorkerFittingBusy,
+        Self::WorkerClaim,
+        Self::WorkerClaimBusy,
+        Self::WorkerRender,
+        Self::WorkerRenderBusy,
+        Self::WorkerClose,
+        Self::WorkerCloseBusy,
+        Self::LaunchCallerConfig,
+        Self::LaunchCallerHost,
+        Self::LaunchCallerPane,
+        Self::LaunchCallerStorage,
+        Self::LaunchCallerStorageBusy,
+        Self::LaunchCallerProcess,
+        Self::LaunchContinuationOwnerProbe,
+        Self::LaunchContinuationOpen,
+        Self::LaunchContinuationOpenBusy,
+        Self::LaunchContinuationWrite,
+        Self::LaunchContinuationWriteBusy,
+        Self::LaunchContinuationClose,
+        Self::LaunchContinuationCloseBusy,
+        Self::LaunchContinuationRead,
+        Self::LaunchContinuationReadBusy,
     ];
     /// The name without the `digest_stop:` family prefix. A worker reports its own
     /// refusal to its supervisor with this name.
@@ -261,13 +363,49 @@ impl SessionLearningDigestStop {
             Self::NoticeUnavailable => "notice_unavailable",
             Self::HandoffInvalid => "handoff_invalid",
             Self::ChecklistChanged => "checklist_changed",
+            Self::WorkerExit => "worker_exit",
+            Self::WorkerSignal => "worker_signal",
+            Self::WorkerIo => "worker_io",
+            Self::WorkerOutputLimit => "worker_output_limit",
+            Self::WorkerConfig => "worker:config",
+            Self::WorkerSerialize => "worker:serialize",
+            Self::WorkerOutput => "worker:output",
+            Self::WorkerOpen => "worker:open:error",
+            Self::WorkerOpenBusy => "worker:open:busy",
+            Self::WorkerIngest => "worker:ingest:error",
+            Self::WorkerIngestBusy => "worker:ingest:busy",
+            Self::WorkerFitting => "worker:fitting:error",
+            Self::WorkerFittingBusy => "worker:fitting:busy",
+            Self::WorkerClaim => "worker:claim:error",
+            Self::WorkerClaimBusy => "worker:claim:busy",
+            Self::WorkerRender => "worker:render:error",
+            Self::WorkerRenderBusy => "worker:render:busy",
+            Self::WorkerClose => "worker:close:error",
+            Self::WorkerCloseBusy => "worker:close:busy",
+            Self::LaunchCallerConfig => "launch:caller:config",
+            Self::LaunchCallerHost => "launch:caller:host",
+            Self::LaunchCallerPane => "launch:caller:pane",
+            Self::LaunchCallerStorage => "launch:caller:storage",
+            Self::LaunchCallerStorageBusy => "launch:caller:storage_busy",
+            Self::LaunchCallerProcess => "launch:caller:process",
+            Self::LaunchContinuationOwnerProbe => "launch:continuation:owner_probe",
+            Self::LaunchContinuationOpen => "launch:continuation:open:error",
+            Self::LaunchContinuationOpenBusy => "launch:continuation:open:busy",
+            Self::LaunchContinuationWrite => "launch:continuation:write:error",
+            Self::LaunchContinuationWriteBusy => "launch:continuation:write:busy",
+            Self::LaunchContinuationClose => "launch:continuation:close:error",
+            Self::LaunchContinuationCloseBusy => "launch:continuation:close:busy",
+            Self::LaunchContinuationRead => "launch:continuation:read:error",
+            Self::LaunchContinuationReadBusy => "launch:continuation:read:busy",
         }
     }
-    /// A refusal the worker itself can report: the capture or one launch check.
+    /// A refusal the worker itself can report: capture, a worker operation or a launch check.
     pub fn from_worker(name: &str) -> Option<Self> {
         Self::ALL.into_iter().find(|stop| {
             stop.name() == name
-                && (*stop == Self::CaptureFailed || stop.name().starts_with("launch:"))
+                && (*stop == Self::CaptureFailed
+                    || stop.name().starts_with("launch:")
+                    || stop.name().starts_with("worker:"))
         })
     }
     /// The stored diagnostic: the step that refused, and the closest reason.
@@ -427,10 +565,10 @@ impl SessionLearningDetail {
         ]
     };
 
-    /// Every detail, in the order the latest `detail` migration (`schema/082.sql`) lists them.
-    pub const ALL: [Self; 56] = {
+    /// Every detail admitted by the current diagnostic constraint (`schema/085.sql`).
+    pub const ALL: [Self; 35 + SessionLearningDigestStop::ALL.len()] = {
         use SessionLearningEvent as E;
-        let mut all = [Self::HostUnsupported; 56];
+        let mut all = [Self::HostUnsupported; 35 + SessionLearningDigestStop::ALL.len()];
         let head = [
             Self::Refused(E::SessionStart),
             Self::Refused(E::SessionEnd),
@@ -507,7 +645,7 @@ impl SessionLearningDetail {
 }
 
 /// `digest_stop:` and the name, in `SessionLearningDigestStop` order.
-const DIGEST_STOP_TOKENS: [&str; 21] = [
+const DIGEST_STOP_TOKENS: [&str; 55] = [
     "digest_stop:worker_spawn",
     "digest_stop:worker_timeout",
     "digest_stop:worker_error",
@@ -529,6 +667,40 @@ const DIGEST_STOP_TOKENS: [&str; 21] = [
     "digest_stop:notice_unavailable",
     "digest_stop:handoff_invalid",
     "digest_stop:checklist_changed",
+    "digest_stop:worker_exit",
+    "digest_stop:worker_signal",
+    "digest_stop:worker_io",
+    "digest_stop:worker_output_limit",
+    "digest_stop:worker:config",
+    "digest_stop:worker:serialize",
+    "digest_stop:worker:output",
+    "digest_stop:worker:open:error",
+    "digest_stop:worker:open:busy",
+    "digest_stop:worker:ingest:error",
+    "digest_stop:worker:ingest:busy",
+    "digest_stop:worker:fitting:error",
+    "digest_stop:worker:fitting:busy",
+    "digest_stop:worker:claim:error",
+    "digest_stop:worker:claim:busy",
+    "digest_stop:worker:render:error",
+    "digest_stop:worker:render:busy",
+    "digest_stop:worker:close:error",
+    "digest_stop:worker:close:busy",
+    "digest_stop:launch:caller:config",
+    "digest_stop:launch:caller:host",
+    "digest_stop:launch:caller:pane",
+    "digest_stop:launch:caller:storage",
+    "digest_stop:launch:caller:storage_busy",
+    "digest_stop:launch:caller:process",
+    "digest_stop:launch:continuation:owner_probe",
+    "digest_stop:launch:continuation:open:error",
+    "digest_stop:launch:continuation:open:busy",
+    "digest_stop:launch:continuation:write:error",
+    "digest_stop:launch:continuation:write:busy",
+    "digest_stop:launch:continuation:close:error",
+    "digest_stop:launch:continuation:close:busy",
+    "digest_stop:launch:continuation:read:error",
+    "digest_stop:launch:continuation:read:busy",
 ];
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -671,10 +843,12 @@ mod tests {
     }
 
     #[test]
-    fn a_worker_reports_only_its_capture_or_a_launch_check() {
+    fn a_worker_reports_only_its_named_capture_operation_or_launch_check() {
         use SessionLearningDigestStop as D;
         for stop in D::ALL {
-            let expected = stop == D::CaptureFailed || stop.name().starts_with("launch:");
+            let expected = stop == D::CaptureFailed
+                || stop.name().starts_with("launch:")
+                || stop.name().starts_with("worker:");
             assert_eq!(
                 D::from_worker(stop.name()) == Some(stop),
                 expected,
