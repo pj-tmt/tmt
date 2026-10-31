@@ -18,26 +18,31 @@ export function useNeedsYouVersions(source: string, candidates: readonly NeedsYo
   }>();
   useEffect(() => {
     let current = true;
-    const template = document.createElement('template');
-    // The same inert-template boundary as inspectQuestions: never attach authored nodes.
-    template.innerHTML = source;
-    const fragments = new Map<string, string | undefined>();
-    const kinds: Record<string, NeedsYouCandidate['kind']> = {
-      'tmt-question': 'answer',
-      'tmt-questions': 'answer',
-      'tmt-review': 'review',
-      'tmt-read': 'reading',
-      'tmt-proposal': 'proposal',
-    };
-    for (const node of template.content.querySelectorAll(
-      'tmt-question,tmt-questions,tmt-review,tmt-read,tmt-proposal',
-    )) {
-      const id = node.getAttribute('data-id');
-      if (!id) continue;
-      const key = `${kinds[node.localName]}:${id}`;
-      fragments.set(key, fragments.has(key) ? undefined : node.outerHTML);
-    }
     const targets = JSON.parse(signature) as [NeedsYouCandidate['kind'], string, string][];
+    const wanted = new Set(targets.map(([kind, id]) => `${kind}:${id}`));
+    const fragments = new Map<string, string | undefined>();
+    if (wanted.size) {
+      const template = document.createElement('template');
+      // The same inert-template boundary as inspectQuestions: never attach authored nodes.
+      template.innerHTML = source;
+      const kinds: Record<string, NeedsYouCandidate['kind']> = {
+        'tmt-question': 'answer',
+        'tmt-questions': 'answer',
+        'tmt-review': 'review',
+        'tmt-read': 'reading',
+        'tmt-proposal': 'proposal',
+      };
+      for (const node of template.content.querySelectorAll(
+        'tmt-question,tmt-questions,tmt-review,tmt-read,tmt-proposal',
+      )) {
+        const id = node.getAttribute('data-id');
+        if (!id) continue;
+        const key = `${kinds[node.localName]}:${id}`;
+        // Unlisted authored tags cannot expand version work or materialize nested HTML.
+        if (!wanted.has(key)) continue;
+        fragments.set(key, fragments.has(key) ? undefined : node.outerHTML);
+      }
+    }
     const versions = new Map<string, string>();
     void Promise.all(
       targets.map(async ([kind, id, owner]) => {

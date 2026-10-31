@@ -1,0 +1,21 @@
+/* One decorative rest child and one revealed child share a slot. The host drives state. */
+.tmt-ui-swap {
+  --tmt-ui-swap-progress: 0;
+  --tmt-ui-swap-reveal-visibility: hidden;
+  display: inline-grid;
+  place-items: center;
+}
+.tmt-ui-swap > [data-swap] {
+  grid-area: 1 / 1;
+}
+.tmt-ui-swap > [data-swap='rest'] {
+  opacity: calc(1 - var(--tmt-ui-swap-progress));
+  transition: opacity var(--tmt-ui-motion-fast) var(--tmt-ui-motion-ease-out);
+}
+.tmt-ui-swap > [data-swap='reveal'] {
+  opacity: var(--tmt-ui-swap-progress);
+  visibility: var(--tmt-ui-swap-reveal-visibility);
+  transition:
+    opacity var(--tmt-ui-motion-fast) var(--tmt-ui-motion-ease-out),
+    visibility var(--tmt-ui-motion-fast);
+}

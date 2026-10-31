@@ -31,16 +31,26 @@ it('exports frozen static names and an exact non-writing generated stylesheet', 
   const busy =
     /\.tmt-ui-busy-dot[^{]*\{[^}]*\}|@keyframes tmt-ui-busy\s*\{(?:[^{}]*\{[^}]*\})*\s*\}/g;
   expect(structured.match(busy)?.length).toBeGreaterThan(1);
+  // tmt-ui-swap owns decorative icon/grip crossfades; ordinary content stays opaque.
   const overlay =
-    '\\.tmt-ui-(?:dialog|drawer|menu-surface|chips-surface|icon-action-tooltip|notification)';
+    '\\.tmt-ui-(?:dialog|drawer|menu-surface|chips-surface|icon-action-tooltip|notification|swap)(?![\\w-])';
   const motion = new RegExp(
     `@starting-style\\s*\\{(?:[^{}]*\\{[^}]*\\})*\\s*\\}|${overlay}[^{]*\\{[^}]*opacity:\\s*0[^}]*\\}`,
     'g',
   );
   expect(structured.match(motion)?.length).toBeGreaterThan(3);
-  expect(structured.replace(busy, '').replace(motion, '')).not.toMatch(
-    /rgba?\(|hsla?\(|(?:^|[;{])\s*opacity:\s*0/,
+  const colors = /rgba?\(|hsla?\(/;
+  const zeroOpacity = /(?:^|[;{])\s*opacity:\s*0/;
+  const contentWithoutMotion = (css: string) => css.replace(busy, '').replace(motion, '');
+  // Check colors before removing motion blocks, including inside the named helper.
+  expect(structured).not.toMatch(colors);
+  expect(contentWithoutMotion(structured)).not.toMatch(zeroOpacity);
+  expect(contentWithoutMotion('.tmt-ui-swap > [data-swap=reveal] { opacity: 0; }')).not.toMatch(
+    zeroOpacity,
   );
+  for (const rejected of ['.ordinary { opacity: 0; }', '.tmt-ui-swap-other { opacity: 0; }'])
+    expect(contentWithoutMotion(rejected)).toMatch(zeroOpacity);
+  expect('.tmt-ui-swap { opacity: 0; background: rgba(0,0,0,0.5); }').toMatch(colors);
   // The one shadow is the overlay token, and only floating layers draw it.
   const shadows = [...structured.matchAll(/([^{}]+)\{[^{}]*box-shadow:\s*([^;]+);/g)];
   for (const [, selector, value] of shadows) {

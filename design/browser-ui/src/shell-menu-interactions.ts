@@ -109,7 +109,22 @@ export function createShellMenuInteractions(
           listen,
         );
         handle.addEventListener('dragend', cancel, listen);
-        row.append(handle);
+        const slot = doc.createElement('span');
+        slot.className = 'tmt-ui-swap';
+        const leading = anchor.querySelector<SVGSVGElement>(':scope > svg.tmt-ui-shell-icon');
+        const rest = leading ?? doc.createElement('span');
+        if (leading) {
+          // The interactive grip is a sibling of the link, never a button nested inside it.
+          const placeholder = doc.createElement('span');
+          placeholder.className = 'tmt-ui-shell-icon';
+          placeholder.setAttribute('aria-hidden', 'true');
+          anchor.replaceChild(placeholder, leading);
+        }
+        rest.setAttribute('data-swap', 'rest');
+        rest.setAttribute('aria-hidden', 'true');
+        handle.setAttribute('data-swap', 'reveal');
+        slot.append(rest, handle);
+        row.append(slot);
       }
       row.addEventListener(
         'keydown',

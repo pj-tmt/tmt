@@ -3,10 +3,10 @@ import { readFileSync } from 'node:fs';
 import { gzipSync } from 'node:zlib';
 
 /** #5815 / #5840: GUI approved each PR's exact measured delta, without headroom.
- * Shared rail, attention dot and metric roles: 22,657 -> 22,826 bytes (+169), Linux CI:
- * https://github.com/tmt-ninja/tmt/actions/runs/41221551102/job/124597067029.
+ * Shared rail, attention dot and metric roles: 22,657 -> 22,917 bytes (+260), Linux CI:
+ * https://github.com/tmt-ninja/tmt/actions/runs/41224363278/job/124605385241.
  * A second-merging overlap rebases and re-measures; later growth requires owner approval. */
-const approvedGzipBytes = 22_826;
+const approvedGzipBytes = 22_917;
 /** #5794: the editorial layer is its own entry, loaded only by prose surfaces, so it has its own cap.
  * Pending GUI approval with the Linux CI measurement on its PR; no headroom. */
 const approvedEditorialGzipBytes = 951;

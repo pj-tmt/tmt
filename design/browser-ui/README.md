@@ -49,9 +49,9 @@ is excluded from formatting; authored CSS remains formatted. Source-level policy
 the assembled source, byte checks inspect the distribution, and browser comparisons verify
 that compilation preserves computed paint and layout. The check compares expected bytes without writing. `test/byte-budget.test.ts` holds the gzip
 size (level 9) of `generated/static.css` plus `generated/ui.css` to the approved figure in that
-test, and `generated/editorial.css` to its own. The current shared cap is 22,826 bytes
-(22,657 + 169 for the shared rail, attention dot and metric roles), measured by
-[Linux CI](https://github.com/tmt-ninja/tmt/actions/runs/41221551102/job/124597067029).
+test, and `generated/editorial.css` to its own. The current shared cap is 22,917 bytes
+(22,657 + 260 for the shared rail, attention dot, metric roles and grip interaction), measured by
+[Linux CI](https://github.com/tmt-ninja/tmt/actions/runs/41224363278/job/124605385241).
 The test comment records the current owner-approved measurement without headroom;
 the editorial cap and UI foundation budget are unchanged. Overlapping changes rebase
 and re-measure rather than adding allowances.
@@ -160,11 +160,16 @@ Callbacks update without rebuilding an otherwise unchanged view or losing keyboa
 A `ShellMenuItem.actions` list provides up to two labelled icon commands. They are siblings
 of the navigation link and never activate it. On hover or focus within the row, commands
 replace the visible total and attention dot in their reserved trailing area; their icons are 16px with 1.75
-stroke and the button targets are at least 28px. Labels and row geometry do not shift. The left reorder handle replaces a decorative leading icon on row hover, focus or drag,
-with an opacity crossfade on the fast motion token (instant under reduced motion).
-Its icon slot and full hit target stay centered, and labels do not move. Rows without
-reorder keep their icon. On coarse pointers the icon stays and the grip is hidden;
-Colab offers reorder through Manage.
+stroke and the button targets are at least 28px. Labels and row geometry do not shift. The left reorder handle uses the shared `.tmt-ui-swap` slot: its decorative leading
+icon is the `data-swap="rest"` child and the grip is the `data-swap="reveal"` child.
+The slot owns opacity/visibility transitions on the fast motion token, instant under
+reduced motion. Hosts set `--tmt-ui-swap-progress` (0/1) and
+`--tmt-ui-swap-reveal-visibility` (hidden/visible); ShellMenu drives them from row
+hover, focus or drag. The grip remains outside the navigation link, with its full
+hit target centered on the retained icon slot, so labels do not move. Rows without
+reorder keep their icon. Coarse pointers retain the icon, hide the grip, and use
+Colab's Manage for reorder. Rest children are decorative; accessible labels remain
+on their owners.
 
 A `ShellMenuItem` may carry `children`, one nested level only (for example squad → member
 rows); a child's own `children` are not drawn. Disclosure is host-owned: the item says

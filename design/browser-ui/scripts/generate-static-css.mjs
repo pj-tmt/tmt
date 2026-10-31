@@ -63,6 +63,7 @@ const fragments = await Promise.all(
     'header',
     'brand-mark',
     'shell',
+    'swap',
     'notice',
     'field',
     'action',

@@ -5290,7 +5290,21 @@ function createShellMenuInteractions(current, drawIcon, activate, announce) {
 					}
 				}, listen);
 				handle.addEventListener("dragend", cancel, listen);
-				row.append(handle);
+				const slot = doc.createElement("span");
+				slot.className = "tmt-ui-swap";
+				const leading = anchor.querySelector(":scope > svg.tmt-ui-shell-icon");
+				const rest = leading ?? doc.createElement("span");
+				if (leading) {
+					const placeholder = doc.createElement("span");
+					placeholder.className = "tmt-ui-shell-icon";
+					placeholder.setAttribute("aria-hidden", "true");
+					anchor.replaceChild(placeholder, leading);
+				}
+				rest.setAttribute("data-swap", "rest");
+				rest.setAttribute("aria-hidden", "true");
+				handle.setAttribute("data-swap", "reveal");
+				slot.append(rest, handle);
+				row.append(slot);
 			}
 			row.addEventListener("keydown", (event) => {
 				if (event.key === "Escape" && fromId !== void 0) {

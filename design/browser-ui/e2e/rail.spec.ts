@@ -147,7 +147,7 @@ for (const renderer of ['native', 'react'])
         if (width === 390) await page.getByRole('button', { name: 'Open navigation' }).click();
         const row = page.locator('li[data-menu-item="project"]');
         const link = row.locator(':scope > a');
-        const icon = link.locator(':scope > svg');
+        const icon = row.locator(':scope > .tmt-ui-swap > svg[data-swap=rest], :scope > a > svg');
         const grip = row.locator('[data-rail-part="drag"]');
         const label = link.locator('.tmt-ui-module-menu-label');
         const initial = (await label.boundingBox())!;
@@ -220,7 +220,10 @@ for (const renderer of ['native', 'react'])
       await page.getByRole('button', { name: 'Open navigation' }).click();
       const row = page.locator('li[data-menu-item="project"]');
       await row.locator(':scope > a').focus();
-      await expect(row.locator(':scope > a > svg')).toHaveCSS('opacity', '1');
+      await expect(row.locator(':scope > .tmt-ui-swap > svg[data-swap=rest]')).toHaveCSS(
+        'opacity',
+        '1',
+      );
       await expect(row.locator('[data-rail-part="drag"]')).toBeHidden();
       await page.getByRole('button', { name: 'Manage shortcuts', exact: true }).click();
       await expect(page.locator('[data-host-status]')).toHaveText('Manage 0');
