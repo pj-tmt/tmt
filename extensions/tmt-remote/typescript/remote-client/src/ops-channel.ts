@@ -19,12 +19,12 @@ export function channelView(pathname: string): {
   update(board: OpsBoard, place: ChannelPlace): void;
 } {
   const page = el('div', 'ops-channel');
-  const context = el('p', c.pageSubtitle, 'This machine · Read only');
-  const panel = el('details', `${c.disclosure} ${c.tabs} ops-channel-context`);
-  panel.open = true;
+  const context = el('p', c.pageSubtitle, 'This machine');
+  const panel = el('section', `${c.tabs} ops-channel-context`);
   panel.dataset.variant = 'flat';
   panel.dataset.presentation = 'compact';
-  const summary = el('summary');
+  const summary = el('p', `${c.sectionHeading} ops-channel-summary`);
+  summary.tabIndex = -1;
   const tabs = el('div', c.tabList);
   tabs.setAttribute('role', 'tablist');
   tabs.setAttribute('aria-label', 'Channel details');
@@ -95,8 +95,8 @@ export function channelView(pathname: string): {
     name.href = opsHref(pathname, { squad: agent.squad, memberId: agent.id });
     const detail = el('div', c.listMeta);
     detail.append(
-      el('span', c.listState, memberState(agent)),
       el('span', c.listUpdated, agent.role === 'lead' ? 'Lead' : 'Member'),
+      el('span', c.listState, memberState(agent)),
     );
     row.append(title, detail);
     return row;
@@ -121,10 +121,9 @@ export function channelView(pathname: string): {
         identity = key;
         memberRows.clear();
         memberList.replaceChildren();
-        panel.open = true;
         select(0);
       }
-      context.textContent = `This machine · ${place.squad} · Read only`;
+      context.textContent = `This machine · ${place.squad}`;
       panel.hidden = !known;
       history.hidden = !known;
       compose.hidden = !known;

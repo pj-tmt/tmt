@@ -87,7 +87,18 @@ for (const width of [1440, 390])
         'Offline',
       ]);
       await expect(page.locator('.ops-channel-context [data-tone]')).toHaveCount(0);
-      await expect(page.locator('.ops-channel-context summary')).toHaveText('Members 3 · Timers 1');
+      await expect(page.locator('.ops-channel-summary')).toHaveText('Members 3 · Timers 1');
+      await expect(page.locator('details.ops-channel-context')).toHaveCount(0);
+      await expect(page.locator('.tmt-ui-topbar-title-chips .tmt-ui-chip-label')).toHaveText([
+        'Idle alert 15 min',
+        'Timers 1',
+        'Read only',
+      ]);
+      await expect(page.locator('.tmt-ui-topbar-title-current')).toBeVisible();
+      if (width === 390) await expect(page.locator('.tmt-ui-topbar-title-chips')).toBeHidden();
+      else await expect(page.locator('.tmt-ui-topbar-title-chips')).toBeVisible();
+      const member = page.locator('.ops-channel-context .tmt-ui-list-title > a').first();
+      await expect(member).toHaveCSS('text-decoration-line', 'none');
       await shot(page, `channel-${width}-${theme}`);
       await page.getByRole('tab', { name: 'Members', exact: true }).focus();
       await page.keyboard.press('ArrowRight');
@@ -182,11 +193,14 @@ test('null and truncated timer reads stay unknown, and a stopped route fences la
   page,
 }) => {
   await open(page);
+  await page.getByRole('heading', { level: 1 }).focus();
   await page.evaluate(() => {
     window.channelBoard.schedules = null;
   });
   await refresh(page);
-  await expect(page.locator('.ops-channel-context summary')).toContainText('Timers unavailable');
+  await expect(page.locator('.ops-channel-summary')).toContainText('Timers unavailable');
+  await expect(page.locator('.tmt-ui-topbar-title-chips')).toContainText('Timers unavailable');
+  await expect(page.getByRole('heading', { level: 1 })).toBeFocused();
   await page.getByRole('tab', { name: 'Squad timers', exact: true }).click();
   await expect(page.getByRole('tabpanel', { name: 'Squad timers', exact: true })).toContainText(
     'Squad timers are unavailable',
@@ -196,7 +210,7 @@ test('null and truncated timer reads stay unknown, and a stopped route fences la
     window.channelBoard.truncated = true;
   });
   await refresh(page);
-  await expect(page.locator('.ops-channel-context summary')).toContainText('Members (partial)');
+  await expect(page.locator('.ops-channel-summary')).toContainText('Members (partial)');
   await expect(page.getByRole('tabpanel', { name: 'Squad timers', exact: true })).toContainText(
     'partial read',
   );

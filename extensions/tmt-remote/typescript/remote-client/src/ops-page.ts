@@ -44,7 +44,21 @@ export function opsPage(shell: RemoteShell, source: OpsSource = opsSource): void
               (agent) => agent.id === section.memberId && agent.squad === section.squad,
             )?.name ?? 'Member unavailable')
           : `#${section.squad}`;
-    shell.setTitle(label, ['Ops'], 'Ops');
+    const chips: string[] = [];
+    if (board && !board.unavailable && typeof section !== 'string') {
+      const squad = board.squads.find((item) => item.name === section.squad);
+      const timers = board.schedules?.filter((item) => item.squad === section.squad);
+      chips.push(
+        squad
+          ? squad.idleAlertMinutes
+            ? `Idle alert ${squad.idleAlertMinutes} min`
+            : 'Idle alert not configured'
+          : 'Idle alert unavailable',
+        timers && !board.truncated ? `Timers ${timers.length}` : 'Timers unavailable',
+        'Read only',
+      );
+    }
+    shell.setTitle(label, ['Ops'], 'Ops', chips);
     if (!board) main.replaceChildren(pageLoading());
     else if (board.unavailable) main.replaceChildren();
     else if (typeof section !== 'string') {

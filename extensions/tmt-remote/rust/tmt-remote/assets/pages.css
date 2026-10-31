@@ -939,7 +939,7 @@ body:not(:has(.tmt-ui-shell)) {
 }
 
 /* Local channel geometry; shared rail, tabs, lists and states retain their leaf owner. */
-.ops-channel-context > :not(summary) {
+.ops-channel-context > :not(.ops-channel-summary) {
   margin-top: var(--tmt-ui-space-m);
 }
 .ops-channel-history,
@@ -958,4 +958,8 @@ body:not(:has(.tmt-ui-shell)) {
 .ops-channel .tmt-ui-actions {
   flex-wrap: wrap;
   gap: var(--tmt-ui-space-s);
+}
+
+.ops-channel .tmt-ui-list-title > a {
+  text-decoration: none;
 }

@@ -17,7 +17,7 @@ declare global {
 window.channelReads = 0;
 window.channelHold = false;
 window.channelBoard = {
-  squads: [{ name: 'sample', lead: 'sample-lead' }],
+  squads: [{ name: 'sample', lead: 'sample-lead', idleAlertMinutes: 15 }],
   agents: [
     {
       id: '00000000-0000-4000-8000-000000000001',
@@ -74,7 +74,7 @@ opsPage(
   {
     signal: controller.signal,
     setMenu: (menu) => shell.update({ rail, menu }),
-    setTitle: (title, ancestors) =>
+    setTitle: (title, ancestors, documentTitle, chips) =>
       setRouteTitle(
         {
           ...shell,
@@ -84,6 +84,8 @@ opsPage(
         },
         title,
         ancestors,
+        documentTitle,
+        chips,
       ),
   } as RemoteShell,
   {

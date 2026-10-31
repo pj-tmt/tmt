@@ -216,7 +216,7 @@ to a member UUID. Failed timer reads and partial boards retain unavailable/parti
 DM history is explicitly unavailable with a terminal reference; unread is not shown. The
 browser never discovers request IDs or treats the Remote journal as conversation history.
 Sending and timer/idle-reminder writes remain disabled with their reason. Existing workspace
-sections remain reachable. Unchanged observations retain the selected tab and disclosure;
+sections remain reachable. Unchanged observations retain the selected tab in its always-open panel;
 removed members clear their old facts rather than selecting a namesake.
 
 `ops-page.ts` retains section selection and the read lifetime; `ops-agents.ts`,

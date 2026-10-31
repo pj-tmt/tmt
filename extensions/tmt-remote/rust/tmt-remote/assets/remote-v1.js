@@ -2871,26 +2871,41 @@ function remoteTabAccess(item, role) {
 //#endregion
 //#region src/remote-shell.ts
 /** Routes supply plain title segments; the shared leaf owns layout and phone truncation. */
-function setRouteTitle(slot, title, ancestors = [], documentTitle = title) {
+function setRouteTitle(slot, title, ancestors = [], documentTitle = title, chips = []) {
 	if (!slot.topBarReady()) return;
 	slot.setTitle(documentTitle);
 	const target = slot.setTopBar().title;
 	const label = [...ancestors, title].join(" / ");
-	if (target.querySelector("h1")?.getAttribute("aria-label") === label) return;
-	const heading = document.createElement("h1");
-	heading.setAttribute("aria-label", label);
-	heading.tabIndex = -1;
-	if (ancestors.length) {
-		const prefix = document.createElement("span");
-		prefix.className = "tmt-ui-topbar-title-prefix";
-		prefix.textContent = `${ancestors.join(" / ")} / `;
-		heading.append(prefix);
+	if (target.querySelector("h1")?.getAttribute("aria-label") === label && (target.querySelector(".tmt-ui-topbar-title-chips")?.textContent ?? "") === chips.join("")) return;
+	if (target.querySelector("h1")?.getAttribute("aria-label") !== label) {
+		const heading = document.createElement("h1");
+		heading.setAttribute("aria-label", label);
+		heading.tabIndex = -1;
+		if (ancestors.length) {
+			const prefix = document.createElement("span");
+			prefix.className = "tmt-ui-topbar-title-prefix";
+			prefix.textContent = `${ancestors.join(" / ")} / `;
+			heading.append(prefix);
+		}
+		const current = document.createElement("span");
+		current.className = "tmt-ui-topbar-title-current";
+		current.textContent = title;
+		heading.append(current);
+		target.replaceChildren(heading);
 	}
-	const current = document.createElement("span");
-	current.className = "tmt-ui-topbar-title-current";
-	current.textContent = title;
-	heading.append(current);
-	target.replaceChildren(heading);
+	const group = document.createElement("span");
+	group.className = "tmt-ui-topbar-title-chips";
+	for (const text of chips) {
+		const chip = document.createElement("span");
+		chip.className = "tmt-ui-chip";
+		const label = document.createElement("span");
+		label.className = "tmt-ui-chip-label";
+		label.textContent = text;
+		chip.append(label);
+		group.append(chip);
+	}
+	target.querySelector(".tmt-ui-topbar-title-chips")?.remove();
+	if (chips.length) target.append(group);
 }
 var current;
 /** The mounted route's part of the one shell, or undefined outside the app (unit tests). */
@@ -2902,7 +2917,7 @@ function hostRemote(slot, signal, observedSession, holdNavigation) {
 	current = slot && signal && {
 		setMenu: (menu, select) => slot.setMenu(menu, select),
 		navigate: (href) => slot.navigate(href),
-		setTitle: (title, ancestors, documentTitle) => setRouteTitle(slot, title, ancestors, documentTitle),
+		setTitle: (title, ancestors, documentTitle, chips) => setRouteTitle(slot, title, ancestors, documentTitle, chips),
 		describe: (address) => slot.describe(address),
 		described: (listener) => slot.described(listener),
 		observedSession: (session) => {
@@ -9179,12 +9194,12 @@ function memberState(agent) {
 }
 function channelView(pathname) {
 	const page = el("div", "ops-channel");
-	const context = el("p", browserUiClasses.pageSubtitle, "This machine · Read only");
-	const panel = el("details", `${browserUiClasses.disclosure} ${browserUiClasses.tabs} ops-channel-context`);
-	panel.open = true;
+	const context = el("p", browserUiClasses.pageSubtitle, "This machine");
+	const panel = el("section", `${browserUiClasses.tabs} ops-channel-context`);
 	panel.dataset.variant = "flat";
 	panel.dataset.presentation = "compact";
-	const summary = el("summary");
+	const summary = el("p", `${browserUiClasses.sectionHeading} ops-channel-summary`);
+	summary.tabIndex = -1;
 	const tabs = el("div", browserUiClasses.tabList);
 	tabs.setAttribute("role", "tablist");
 	tabs.setAttribute("aria-label", "Channel details");
@@ -9265,7 +9280,7 @@ function channelView(pathname) {
 			memberId: agent.id
 		});
 		const detail = el("div", browserUiClasses.listMeta);
-		detail.append(el("span", browserUiClasses.listState, memberState(agent)), el("span", browserUiClasses.listUpdated, agent.role === "lead" ? "Lead" : "Member"));
+		detail.append(el("span", browserUiClasses.listUpdated, agent.role === "lead" ? "Lead" : "Member"), el("span", browserUiClasses.listState, memberState(agent)));
 		row.append(title, detail);
 		return row;
 	}
@@ -9292,10 +9307,9 @@ function channelView(pathname) {
 				identity = key;
 				memberRows.clear();
 				memberList.replaceChildren();
-				panel.open = true;
 				select(0);
 			}
-			context.textContent = `This machine · ${place.squad} · Read only`;
+			context.textContent = `This machine · ${place.squad}`;
 			panel.hidden = !known;
 			history.hidden = !known;
 			compose.hidden = !known;
@@ -9395,7 +9409,13 @@ function opsPage(shell, source = opsSource) {
 		if (section !== "squads") views.squads.close();
 		shell.setMenu(opsMenu(section, board, location.pathname));
 		const label = typeof section === "string" ? OPS_SECTIONS.find((item) => item.id === section).label : section.memberId ? board?.agents.find((agent) => agent.id === section.memberId && agent.squad === section.squad)?.name ?? "Member unavailable" : `#${section.squad}`;
-		shell.setTitle(label, ["Ops"], "Ops");
+		const chips = [];
+		if (board && !board.unavailable && typeof section !== "string") {
+			const squad = board.squads.find((item) => item.name === section.squad);
+			const timers = board.schedules?.filter((item) => item.squad === section.squad);
+			chips.push(squad ? squad.idleAlertMinutes ? `Idle alert ${squad.idleAlertMinutes} min` : "Idle alert not configured" : "Idle alert unavailable", timers && !board.truncated ? `Timers ${timers.length}` : "Timers unavailable", "Read only");
+		}
+		shell.setTitle(label, ["Ops"], "Ops", chips);
 		if (!board) main.replaceChildren(pageLoading());
 		else if (board.unavailable) main.replaceChildren();
 		else if (typeof section !== "string") {
