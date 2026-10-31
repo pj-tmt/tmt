@@ -372,19 +372,25 @@ export function collectMetrics(
       });
     }
   }
-  const failedWorkers = new Map();
+  // Only a failure with a proven tested tree can pair, so only it waits for a later success. A
+  // success is a candidate when it reruns that run or its API head tree is that tree; the API tree
+  // only selects, and pairing still needs the success's own proof. A proven pair retires the tree.
+  const pending = new Map();
   for (const run of [...attempts].sort(
     (a, b) => a.createdAt.localeCompare(b.createdAt) || a.attempt - b.attempt
   )) {
     for (const job of run.jobs) {
       const key = `${run.event}\0${job.name}\0${runner(job)}`;
       const failed = FAILURE.has(job.conclusion) && !propagated(job);
-      const followsFailure =
+      const candidate =
         job.conclusion === 'success' &&
-        failedWorkers.has(key) &&
-        Date.parse(job.started_at) >= Date.parse(failedWorkers.get(key));
+        (pending.get(key) ?? []).some(
+          (failure) =>
+            Date.parse(job.started_at) >= Date.parse(failure.completedAt) &&
+            (failure.run === run.id || failure.tree === run.sourceTree)
+        );
       job.testedCheckout =
-        failed || followsFailure
+        failed || candidate
           ? (api.testedCheckout?.(job) ?? {
               sha: null,
               tree: null,
@@ -395,7 +401,17 @@ export function collectMetrics(
               tree: null,
               reason: 'No fail/pass comparison requires this worker checkout.',
             };
-      if (failed) failedWorkers.set(key, job.completed_at);
+      const tree = testedTree(job);
+      if (failed && tree)
+        pending.set(key, [
+          ...(pending.get(key) ?? []),
+          { tree, run: run.id, completedAt: job.completed_at },
+        ]);
+      else if (candidate && tree)
+        pending.set(
+          key,
+          pending.get(key).filter((failure) => failure.tree !== tree)
+        );
     }
   }
   return {
@@ -639,7 +655,7 @@ export function renderMetrics(snapshot, boundary, { details = false } = {}) {
     '',
     'Sole worker failures exclude aggregate-only checks and jobs whose only failed steps start with “Require ”. These counts require a completed attempt; totals retain all failed jobs. Costs/steps are available in the JSON snapshot/summary. Distinct PR count is queue-tip coverage, not full cumulative membership. Merged PRs require a queue-enqueue timeline event. Latency uses the last recorded enqueue; REST removal at merge does not establish interrupted residency. Missing enqueue events remain unknown.',
     '',
-    'Invalidation cause is not inferred from cancellation: REST removal reasons are reported when exposed; failure/conflict/dequeue-ahead attribution otherwise remains unknown. Pending PR inclusion is proven against observed queue-head ancestry; a missing anchor/incarnation remains unknown. A merged PR uses its merge commit ancestry. Every run retains API sourceSha/sourceTree separately. Exact-tested-tree candidates require per-worker checkout log SHA and immutable Git tree proof; missing/oversized/ambiguous checkout evidence and legacy source-only snapshots are excluded. Relevant failed workers and subsequent successes acquire logs within the same REST budget. Every run carries inclusion tags and job/step evidence in JSON. Reports are generated locally; posting is a separate requested action.',
+    'Invalidation cause is not inferred from cancellation: REST removal reasons are reported when exposed; failure/conflict/dequeue-ahead attribution otherwise remains unknown. Pending PR inclusion is proven against observed queue-head ancestry; a missing anchor/incarnation remains unknown. A merged PR uses its merge commit ancestry. Every run retains API sourceSha/sourceTree separately. Exact-tested-tree candidates require per-worker checkout log SHA and immutable Git tree proof; missing/oversized/ambiguous checkout evidence and legacy source-only snapshots are excluded. Failed workers acquire checkout logs; a later success does only while a same-worker failure with a proven tree is unpaired and the success reruns that run or carries that API head tree, within the same REST budget. Every run carries inclusion tags and job/step evidence in JSON. Reports are generated locally; posting is a separate requested action.',
     '',
     `REST requests this collection: ${snapshot.evidence.requests ?? 'fixture'}; evidence files: ${snapshot.evidence.files.length}.`
   );
