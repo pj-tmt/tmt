@@ -1065,15 +1065,10 @@ fn a_request_whose_time_is_spent_before_a_callback_is_unavailable_and_the_channe
 fn time_spent_between_acquire_and_disclose_is_unavailable_with_no_second_callback() {
     let env = Env::new();
     let peer = Peer::start(&env, "alpha", Answer::Expect);
-    let service = env
-        .service(
-            &ALPHA,
-            ServiceBounds {
-                request: Duration::from_millis(400),
-                ..bounds()
-            },
-        )
-        .unwrap();
+    let service = env.service(&ALPHA, bounds()).unwrap();
+    // Only the first request is spent; the follow-up keeps the contract bound, so a slow
+    // host cannot spend it as well (#2860).
+    service.set_first_request(Duration::from_millis(400));
     // Only the first request is held until its own deadline has passed.
     let first = Arc::new(AtomicBool::new(true));
     service.set_hook(Some(Arc::new(move |pause: Pause, deadline: Instant| {
