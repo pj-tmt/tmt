@@ -64,7 +64,7 @@ const settled = (page: Page) =>
   });
 
 const modes = [
-  { mode: 'column', width: 1440 },
+  { mode: 'card', width: 1440 },
   { mode: 'card', width: 1000 },
   { mode: 'sheet', width: 390 },
 ] as const;
@@ -85,7 +85,7 @@ for (const { mode, width } of modes)
         await action.click();
         const panel = commentsRegion(page);
         await expect(panel).toBeVisible();
-        await expect(panel).toHaveAttribute('data-mode', mode === 'column' ? 'card' : mode);
+        await expect(panel).toHaveAttribute('data-mode', mode);
         await expect(action).toHaveAttribute('aria-expanded', 'true');
         const [opening] = await started(page);
         expect(opening).toMatchObject({ panel: 'comments', fill: 'backwards', rendered: true });
@@ -107,36 +107,34 @@ for (const { mode, width } of modes)
         expect(await page.evaluate(() => !!document.activeElement?.closest('.tmt-ui-panel'))).toBe(
           true,
         );
-        await page.screenshot({ path: capturePath(`comments-dock-open-${mode}-${theme}.png`) });
-        // Escape from inside the panel closes it. A card and a sheet run the clip back on a panel that
-        // is hidden but still rendered; a column leaves the grid at once and has no closing motion.
+        await page.screenshot({
+          path: capturePath(`comments-dock-open-${mode}-${width}-${theme}.png`),
+        });
+        // Escape closes the panel; the retained surface clips back to the dock.
         await page.keyboard.press('Escape');
         await expect(panel).toHaveCount(0);
         await expect(action).toBeFocused();
         await expect(action).toHaveAttribute('aria-expanded', 'false');
-        if (mode === 'column') expect(await started(page)).toHaveLength(1);
-        else {
-          await expect.poll(async () => (await started(page)).length).toBe(2);
-          const closing = (await started(page))[1];
-          expect(closing).toMatchObject({ panel: 'comments', fill: 'forwards', hidden: true });
-          expect(closing.rendered).toBe(true);
-          expect(closing.clip[0]).toEqual(opening.clip[1]);
-          const [closeTop, closeRight, closeBottom, closeLeft] = closing.clip[1]
-            .match(/inset\((.+?) round/)![1]
-            .split(' ')
-            .map(parseFloat);
-          expect(closing.rect.x + closeLeft).toBeCloseTo(closing.dock.x, 0);
-          expect(closing.rect.y + closeTop).toBeCloseTo(closing.dock.y, 0);
-          expect(closing.rect.x + closing.rect.width - closeRight).toBeCloseTo(
-            closing.dock.x + closing.dock.width,
-            0,
-          );
-          expect(closing.rect.y + closing.rect.height - closeBottom).toBeCloseTo(
-            closing.dock.y + closing.dock.height,
-            0,
-          );
-          await settled(page);
-        }
+        await expect.poll(async () => (await started(page)).length).toBe(2);
+        const closing = (await started(page))[1];
+        expect(closing).toMatchObject({ panel: 'comments', fill: 'forwards', hidden: true });
+        expect(closing.rendered).toBe(true);
+        expect(closing.clip[0]).toEqual(opening.clip[1]);
+        const [closeTop, closeRight, closeBottom, closeLeft] = closing.clip[1]
+          .match(/inset\((.+?) round/)![1]
+          .split(' ')
+          .map(parseFloat);
+        expect(closing.rect.x + closeLeft).toBeCloseTo(closing.dock.x, 0);
+        expect(closing.rect.y + closeTop).toBeCloseTo(closing.dock.y, 0);
+        expect(closing.rect.x + closing.rect.width - closeRight).toBeCloseTo(
+          closing.dock.x + closing.dock.width,
+          0,
+        );
+        expect(closing.rect.y + closing.rect.height - closeBottom).toBeCloseTo(
+          closing.dock.y + closing.dock.height,
+          0,
+        );
+        await settled(page);
         await expect(page.locator('.selection-mode')).toHaveCSS('opacity', '1');
         // The close button does the same, and the dock's action opens it again.
         await action.click();
@@ -176,22 +174,26 @@ test('a panel that is already open when the page mounts does not play the dock m
   expect(await call('recorded')).toEqual(['chat', 'chat']);
 });
 
-test('the count stays plain while a thread with news remains accessible', async ({ page }) => {
-  await mount(page);
-  const action = commentsAction(page);
-  const count = page.locator('.dock-count').first();
-  await run(page, 'secondThread');
-  await expect(action).toHaveAccessibleName('Comments (2)');
-  await expect(count).toHaveText('2');
-  await expect(count).not.toHaveAttribute('data-unseen', /.*/);
-  const quiet = await count.evaluate((node) => getComputedStyle(node).color);
-  await run(page, 'agentResolves');
-  // One thread is open now and the resolution is news the viewer has not seen.
-  await expect(action).toHaveAccessibleName('Comments (1) · New');
-  await expect(count).toHaveText('1');
-  await expect(count).not.toHaveAttribute('data-unseen', /.*/);
-  await expect(count).toHaveCSS('color', quiet);
-});
+for (const width of [390, 1440])
+  for (const theme of ['light', 'dark'] as const)
+    test(`the count marks unseen thread news at ${width} ${theme}`, async ({ page }) => {
+      await page.setViewportSize({ width, height: 900 });
+      await page.emulateMedia({ colorScheme: theme });
+      await mount(page);
+      const action = commentsAction(page);
+      const count = page.locator('.dock-count').first();
+      await run(page, 'secondThread');
+      await expect(action).toHaveAccessibleName('Comments (2)');
+      await expect(count).toHaveText('2');
+      await expect(count).not.toHaveAttribute('data-unseen', /.*/);
+      const quiet = await count.evaluate((node) => getComputedStyle(node).color);
+      await run(page, 'agentResolves');
+      await expect(action).toHaveAccessibleName('Comments (1) · New');
+      await expect(count).toHaveText('1•');
+      await expect(count).toHaveAttribute('data-unseen', 'true');
+      await expect(count).toHaveCSS('color', quiet);
+      await page.screenshot({ path: capturePath(`comments-dock-unseen-${width}-${theme}.png`) });
+    });
 
 for (const width of [320, 390, 1440])
   test(`the three-action capsule fits at ${width}px without wrapping`, async ({ page }) => {

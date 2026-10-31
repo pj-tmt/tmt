@@ -359,7 +359,10 @@ function PageFloatingActions({
               <>
                 <MessagesSquare />
                 {comments !== undefined ? (
-                  <span className="dock-count">{comments}</span>
+                  <span className="dock-count" data-unseen={unseen || undefined}>
+                    {comments}
+                    {unseen && <span aria-hidden="true">•</span>}
+                  </span>
                 ) : (
                   <span className="dock-count" data-pending aria-hidden="true" />
                 )}
@@ -1353,7 +1356,7 @@ function OpenPage({
         if (panelsRef.current.panel === null) currentRenderer?.focusThread(marker);
       });
   };
-  useDockMotion(dockPanel(panel), panelMode);
+  useDockMotion(dockPanel(panel));
   const activateChat = useRef<() => boolean>(() => false);
 
   // The page's own projects: the picker opens from its chips and from Projects… in the More menu.
@@ -2218,7 +2221,7 @@ function OpenPage({
           keepMounted
           focusFallback={environment.focusFallback}
           open={panel === 'comments'}
-          mode={panelMode === 'column' ? 'card' : panelMode}
+          mode={panelMode}
           data-floating-discussion=""
           style={
             {
@@ -2570,7 +2573,7 @@ function OpenPage({
           keepMounted
           focusFallback={() => floatingChat.current ?? environment.focusFallback()}
           open={panel === 'chat'}
-          mode={panelMode === 'column' ? 'card' : panelMode}
+          mode={panelMode}
           data-floating-discussion=""
           data-panel="chat"
           style={

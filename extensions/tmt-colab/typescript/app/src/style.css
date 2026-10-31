@@ -940,8 +940,8 @@ body:has(.needs-you-header-menu):not(:has(.tmt-ui-shell)) {
   z-index: 1;
   background: var(--c-paper);
 }
-/* A card or a sheet is the sheet's surface; a column has none of its own and shows the page's. */
-.tmt-ui-panel:not([data-mode='column']) .comments-panel .conversation-composer {
+/* The floating Comments composer uses the sheet surface. */
+.tmt-ui-panel .comments-panel .conversation-composer {
   background: var(--tmt-ui-surface-sheet);
 }
 .comments-panel .conversation-composer:has(> .annotation-compose[data-connection='ended']) {
@@ -2026,10 +2026,8 @@ button.discussion-quote:focus-visible {
 .dock-count[data-pending] {
   min-width: 1ch;
 }
-/* The Comments panel as a card or a sheet is hidden, not unmounted, when it closes: its leaving
-   `display` transition keeps it rendered for the motion's length, so the clip runs back into the dock. A
-   column leaves the page grid at once and has no leaving motion. */
-.tmt-ui-panel[data-floating-discussion]:not([data-mode='column']) {
+/* Keep the closing floating panel rendered for its motion back to the dock. */
+.tmt-ui-panel[data-floating-discussion] {
   transition: display var(--tmt-ui-motion-base) allow-discrete;
 }
 .chat-unread {

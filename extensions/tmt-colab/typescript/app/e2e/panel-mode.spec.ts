@@ -23,7 +23,7 @@ async function open(page: Page, width: number, height = 900) {
   await expect(page.locator('#ask-page-fixture .status')).toContainText('Live');
 }
 
-// The mode follows the viewport at both sides of each width panel-mode.ts names.
+// The mode follows the viewport at the card/sheet breakpoint.
 for (const [width, mode] of [
   [1600, 'card'],
   [1180, 'card'],

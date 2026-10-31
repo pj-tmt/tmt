@@ -175,6 +175,9 @@ test('verified refusal reasons use actionable copy without exposing a resend', a
     await expect(mark).toHaveText('✗');
     await expect(page.getByRole('button', { name: 'Abandon tracking' })).toHaveCount(0);
     await expect(page.getByRole('button', { name: 'Check again' })).toHaveCount(0);
+    await expect(
+      page.getByTestId('ask-entry').first().locator('.conversation-status-actions'),
+    ).toHaveCount(0);
   }
   expect((await run(page, 'proof')).sends).toEqual([]);
   await page.screenshot({

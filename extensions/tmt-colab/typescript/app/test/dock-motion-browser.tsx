@@ -8,7 +8,7 @@ const started: (string | null)[] = [];
 const animate = Element.prototype.animate;
 
 function Harness({ open }: { open: DockPanel | null }) {
-  useDockMotion(open, 'card');
+  useDockMotion(open);
   return null;
 }
 

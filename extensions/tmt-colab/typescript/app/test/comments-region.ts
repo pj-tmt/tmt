@@ -1,7 +1,7 @@
 import type { Locator, Page } from '@playwright/test';
 
 /** The Comments surface while it is open: an empty filter and a selected Discussion share it. It is the
- * non-modal Comments panel (a column, card or sheet by width); closed, it stays mounted and hidden.
+ * non-modal Comments panel (a card or sheet by width); closed, it stays mounted and hidden.
  * Every spec reaches it through here, so a change of container is one edit. */
 const commentsSelector = '.tmt-ui-panel[data-panel="comments"]:not([hidden])';
 
