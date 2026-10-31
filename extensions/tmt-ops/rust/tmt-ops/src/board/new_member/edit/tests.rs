@@ -401,7 +401,13 @@ fn viewer_or_selection_drift_disables_the_painted_save_without_retargeting_the_d
     let c = app.new_member.as_ref().unwrap();
     let edit = c.edit.as_ref().unwrap();
     assert!(edit.current_error(&app).is_some());
-    assert!(!edit.buttons(c, false).last().unwrap().is_enabled());
+    assert_eq!(
+        edit.buttons(c, false)
+            .iter()
+            .map(|b| b.label)
+            .collect::<Vec<_>>(),
+        ["Cancel", "Discard"]
+    );
     assert_eq!(edit.target.name(), "worker");
     assert_eq!(c.draft.text(super::super::model::Slot::Name), "renamed");
 }
@@ -474,6 +480,37 @@ fn squad_after_uses_shared_presets_or_a_typed_duration_and_escape_closes_only_th
             .as_str(),
         "45m"
     );
+    paint(&app, 100, 36);
+    let area = app
+        .new_member
+        .as_ref()
+        .unwrap()
+        .edit
+        .as_ref()
+        .unwrap()
+        .hits
+        .borrow()
+        .fields[2];
+    let mouse = |column| {
+        Event::Mouse(ratatui::crossterm::event::MouseEvent {
+            kind: MouseEventKind::Down(MouseButton::Left),
+            column,
+            row: area.y,
+            modifiers: KeyModifiers::NONE,
+        })
+    };
+    app.overlay_event(&mouse(area.right() - 1));
+    assert!(
+        app.new_member.as_ref().unwrap().list.is_some(),
+        "the inline arrow opens the presets"
+    );
+    input(&mut app, KeyCode::Esc);
+    paint(&app, 100, 36);
+    app.overlay_event(&mouse(area.x));
+    assert!(
+        app.new_member.as_ref().unwrap().list.is_none(),
+        "the value keeps its text caret"
+    );
 }
 #[test]
 fn keep_current_choices_are_unique_so_arrows_can_reach_another_model() {
@@ -512,7 +549,13 @@ fn a_missing_original_target_keeps_discard_accessible_but_save_disabled() {
     paint(&app, 160, 36);
     let c = app.new_member.as_ref().unwrap();
     let edit = c.edit.as_ref().unwrap();
-    assert!(!edit.buttons(c, false).last().unwrap().is_enabled());
+    assert_eq!(
+        edit.buttons(c, false)
+            .iter()
+            .map(|b| b.label)
+            .collect::<Vec<_>>(),
+        ["Cancel", "Discard"]
+    );
     input(&mut app, KeyCode::Enter);
     assert!(app.new_member.is_none());
     app.open_member_edit();
@@ -588,4 +631,97 @@ fn painted_save_hover_uses_the_shared_board_button_owner() {
         ),
         "paint registered the Save with its actual overlay owner"
     );
+}
+
+#[test]
+fn reviewed_edit_scenes_keep_commands_errors_and_discard_visible_in_every_look() {
+    use tmt_cli_style::{Depth, Theme, theme::Base};
+    let _ui = crate::runner::forbid_commands();
+    for (base, depth) in [
+        (Base::Tmt, Depth::TrueColor),
+        (Base::TmtLight, Depth::TrueColor),
+        (Base::Terminal, Depth::Ansi16),
+        (Base::Tmt, Depth::None),
+    ] {
+        for width in [60, 100, 160] {
+            let look = crate::look::Look {
+                theme: Theme::new(base),
+                depth,
+            };
+            let app = captures::case("edit-member-changes", look);
+            let text = paint(&app, width, 36);
+            assert!(
+                text.contains(MEMBER),
+                "full relaunch target must be visible at {width}: {text}"
+            );
+            assert!(text.contains("--effort=high"), "{text}");
+            let app = captures::case("edit-member-stale", look);
+            let text = paint(&app, width, 36);
+            assert!(text.contains("Discard"), "{text}");
+            assert!(
+                !text.contains("Runs"),
+                "stale drafts have no executable preview: {text}"
+            );
+            assert!(
+                !text.contains("Save"),
+                "stale drafts offer only Cancel and Discard: {text}"
+            );
+            assert!(
+                text.contains("Discard to start") && text.contains("again."),
+                "complete wrapped notice: {text}"
+            );
+            let app = captures::case("edit-squad-invalid", look);
+            let text = paint(&app, width, 36);
+            assert!(
+                text.contains("later ▾"),
+                "selector follows its value: {text}"
+            );
+            assert!(text.contains("✗ After must be 5m–24h"), "{text}");
+            let words = text
+                .replace('│', " ")
+                .split_whitespace()
+                .collect::<Vec<_>>()
+                .join(" ");
+            assert!(words.contains("such as 30m."), "{text}");
+            assert!(!text.contains("squad.product.idle_alert.after"), "{text}");
+        }
+    }
+}
+
+#[test]
+fn a_short_edit_surface_explains_why_no_save_is_admitted_and_keeps_the_draft() {
+    let _ui = crate::runner::forbid_commands();
+    for scene in [
+        "edit-member-changes",
+        "edit-member-stale",
+        "edit-squad-invalid",
+    ] {
+        let mut app = captures::case(scene, crate::look::Look::default());
+        let before = app
+            .new_member
+            .as_ref()
+            .unwrap()
+            .draft
+            .fields
+            .each_ref()
+            .map(|field| field.as_str().to_owned());
+        let text = paint(&app, 60, 8);
+        assert!(text.contains("Enlarge to edit"), "{scene}: {text}");
+        let c = app.new_member.as_ref().unwrap();
+        assert!(!c.readable.get());
+        assert!(c.edit.as_ref().unwrap().hits.borrow().buttons.is_empty());
+        assert_eq!(input(&mut app, KeyCode::Enter), Effect::None);
+        input(&mut app, KeyCode::Esc);
+        app.open_member_edit();
+        assert_eq!(
+            app.new_member
+                .as_ref()
+                .unwrap()
+                .draft
+                .fields
+                .each_ref()
+                .map(|field| field.as_str().to_owned()),
+            before
+        );
+    }
 }

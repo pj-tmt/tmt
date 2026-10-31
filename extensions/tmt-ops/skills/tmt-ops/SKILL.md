@@ -1085,7 +1085,7 @@ form keys: ↑↓ fields/footer, ←→ choices/buttons or the text caret, Enter
 choice list or activates the selected button, and Tab does nothing. Esc closes a
 choice list first; Esc/Cancel on the form keeps it. Reopening offers Discard. A
 changed or missing original target never retargets the kept draft: it remains
-accessible for Discard, with Save disabled. Closing a running Save only hides it;
+accessible through Cancel and Discard, with no Save offered. Closing a running Save only hides it;
 reopening shows that same operation/result, never another launch. Explicit
 authored switch-tool bindings retain their review.
 Results retain per-item success/failure and explicit repair guidance, with no

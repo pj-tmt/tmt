@@ -1,8 +1,12 @@
 //! Edit fields use the same Editor and choice vocabulary as New member.
 use super::*;
 use ratatui::{Frame, text::Line};
-use tmt_cli_style::Role;
+use tmt_cli_style::{
+    Role,
+    grid::{self, Align, Truncate},
+};
 use tmt_tui::components::{Dialog, Focus as DialogFocus, Placement, strip};
+use unicode_width::UnicodeWidthStr;
 impl Controller {
     pub(in crate::board::new_member) fn render_edit(
         &self,
@@ -12,6 +16,17 @@ impl Controller {
         body: Rect,
     ) {
         let Some(edit) = &self.edit else { return };
+        let minimum = Dialog {
+            title: edit.title(),
+            kind: DialogKind::Form,
+            placement: Placement::Center,
+            buttons: vec![Button::primary("Cancel")],
+        }
+        .areas(body, [100, 30], false);
+        if body.width < 34 || minimum.content.height < 3 {
+            self.render_edit_compact(frame, app, look, body);
+            return;
+        }
         if self.list.is_some() {
             self.render_edit_list(frame, app, look, body);
             return;
@@ -29,7 +44,15 @@ impl Controller {
             placement: Placement::Center,
             buttons,
         };
-        let preview = if let Stage::Result(text) = &self.stage {
+        let has_runs = target_error.is_none()
+            && self.stage == Stage::Form
+            && self
+                .loaded
+                .as_ref()
+                .is_some_and(|l| edit.plan(&self.draft, l).is_ok_and(|p| !p.empty()));
+        let preview = if target_error.is_some() {
+            Vec::new()
+        } else if let Stage::Result(text) = &self.stage {
             text.lines().map(str::to_owned).collect::<Vec<_>>()
         } else if self.stage == Stage::Launching {
             vec![
@@ -46,29 +69,34 @@ impl Controller {
                 })
                 .unwrap_or_else(|| vec!["◌ Loading edit settings…".into()])
         };
-        let probe = dialog.areas(
-            body,
-            [100, 30],
-            self.notice.is_some() || target_error.is_some(),
-        );
+        let probe = dialog.areas(body, [100, 30], false);
         let mut lines = Vec::new();
         let mut field_rows = Vec::new();
         if self.stage == Stage::Form {
-            lines.push("↑↓ field · ←→ value · Enter choose · Esc keep".to_owned());
+            lines.extend(crate::board::notes::wrap(
+                "↑↓ field · ←→ value · Enter choose · Esc keep",
+                usize::from(probe.content.width),
+            ));
             lines.push(String::new());
             for _field in &fields {
                 field_rows.push(lines.len());
                 lines.push(String::new());
-                lines.push(String::new());
             }
+            lines.push(String::new());
             if let Target::Member { memberships, .. } = &edit.target {
-                lines.push(format!(
-                    "Host · {} (fixed)",
-                    self.draft.text(super::super::model::Slot::Host)
+                lines.extend(crate::board::notes::wrap(
+                    &format!(
+                        "Host · {} (fixed)",
+                        self.draft.text(super::super::model::Slot::Host)
+                    ),
+                    usize::from(probe.content.width),
                 ));
-                lines.push(format!(
-                    "Session · {} (fixed)",
-                    self.draft.text(super::super::model::Slot::Session)
+                lines.extend(crate::board::notes::wrap(
+                    &format!(
+                        "Session · {} (fixed)",
+                        self.draft.text(super::super::model::Slot::Session)
+                    ),
+                    usize::from(probe.content.width),
                 ));
                 if memberships.len() > 1 {
                     let Target::Member { source, .. } = &edit.target else {
@@ -116,7 +144,15 @@ impl Controller {
                 }
                 lines.push(String::new());
             }
-            lines.push("Runs".into());
+            if has_runs {
+                lines.push("Runs".into());
+            }
+        }
+        if let Some(notice) = target_error.as_ref().or(self.notice.as_ref()) {
+            lines.extend(crate::board::notes::wrap(
+                &crate::board::notes::sanitize(notice),
+                usize::from(probe.content.width),
+            ));
         }
         for line in preview {
             lines.extend(crate::board::notes::wrap(
@@ -125,12 +161,15 @@ impl Controller {
             ));
         }
         if self.reopened && self.stage == Stage::Form {
-            lines.push("Kept draft · Discard starts a fresh review".into());
+            lines.extend(crate::board::notes::wrap(
+                "Kept draft · Discard starts a fresh review",
+                usize::from(probe.content.width),
+            ));
         }
         let areas = dialog.areas(
             body,
             [100, (lines.len() + 4).min(u16::MAX as usize) as u16],
-            self.notice.is_some() || target_error.is_some(),
+            false,
         );
         let mut hits = crate::board::buttons::paint_dialog(
             app,
@@ -239,13 +278,6 @@ impl Controller {
                 } else {
                     value_area
                 };
-                if *field == Field::After && value_area.width >= 2 {
-                    strip::paint_left(
-                        frame.buffer_mut(),
-                        Rect::new(value_area.right() - 1, value_area.y, 1, 1),
-                        Line::styled("▾", look.role(Role::Muted)),
-                    );
-                }
                 let cursor = editor.layout(text_area.width).paint(
                     frame.buffer_mut(),
                     text_area,
@@ -254,6 +286,17 @@ impl Controller {
                     look.role(if focused { Role::Accent } else { Role::Text }),
                     look.selection(),
                 );
+                if *field == Field::After && value_area.width >= 2 {
+                    let arrow_x = (value_area.x + UnicodeWidthStr::width(text.as_str()) as u16 + 1)
+                        .min(value_area.right() - 1);
+                    strip::paint_left(
+                        frame.buffer_mut(),
+                        Rect::new(arrow_x, value_area.y, 1, 1),
+                        Line::styled("▾", look.role(Role::Muted)),
+                    );
+                    *hits.fields.last_mut().unwrap() =
+                        Rect::new(value_area.x, value_area.y, arrow_x - value_area.x + 1, 1);
+                }
                 if focused {
                     self.editor_width.set(text_area.width);
                     if let Some(cursor) = cursor {
@@ -265,7 +308,16 @@ impl Controller {
                     frame.buffer_mut(),
                     value_area,
                     Line::styled(
-                        format!("{text} ▾"),
+                        format!(
+                            "{} ▾",
+                            grid::fit(
+                                &text,
+                                usize::from(value_area.width.saturating_sub(2)),
+                                Align::Left,
+                                Truncate::End
+                            )
+                            .trim_end()
+                        ),
                         if focused {
                             look.selection()
                         } else {
@@ -278,16 +330,53 @@ impl Controller {
         self.readable.set(
             areas.content.width >= 34 && offset + usize::from(areas.content.height) >= lines.len(),
         );
-        if let Some(notice) = target_error.as_ref().or(self.notice.as_ref()) {
+        if let Some(position) = scroll.overflow_position() {
             strip::paint_left(
                 frame.buffer_mut(),
-                areas.status,
-                Line::styled(
-                    crate::board::notes::sanitize(notice),
-                    look.role(Role::Waiting),
-                ),
+                areas.position,
+                Line::styled(format!("Read · {position}"), look.role(Role::Muted)),
             );
         }
+        *edit.hits.borrow_mut() = hits;
+    }
+    fn render_edit_compact(
+        &self,
+        frame: &mut Frame,
+        app: &App,
+        look: crate::look::Look,
+        body: Rect,
+    ) {
+        let edit = self.edit.as_ref().unwrap();
+        let dialog = Dialog {
+            title: edit.title(),
+            kind: DialogKind::ReadOnly,
+            placement: Placement::Center,
+            buttons: Vec::new(),
+        };
+        let areas = dialog.areas(body, [100, 4], false);
+        let hits = crate::board::buttons::paint_dialog(
+            app,
+            frame.buffer_mut(),
+            &dialog,
+            areas,
+            &edit.dialog,
+            crate::board::app::Overlay::NewMember,
+        );
+        let note = if areas.content.is_empty() {
+            areas.position
+        } else {
+            areas.content
+        };
+        strip::paint_left(
+            frame.buffer_mut(),
+            note,
+            Line::styled("Enlarge to edit · Esc keep", look.role(Role::Muted)),
+        );
+        app.input_band.set(Some(areas.outer));
+        app.peek_areas
+            .set(crate::board::app::Overlay::NewMember, Some(areas.outer));
+        self.fields.borrow_mut().clear();
+        self.readable.set(false);
         *edit.hits.borrow_mut() = hits;
     }
     fn render_edit_list(&self, frame: &mut Frame, app: &App, look: crate::look::Look, body: Rect) {
@@ -364,7 +453,12 @@ impl Controller {
                 frame.buffer_mut(),
                 area,
                 Line::styled(
-                    format!("{} {}", if i == list.row { "›" } else { " " }, choice.label),
+                    grid::fit(
+                        &format!("{} {}", if i == list.row { "›" } else { " " }, choice.label),
+                        usize::from(area.width),
+                        Align::Left,
+                        Truncate::End,
+                    ),
                     if i == list.row {
                         look.selection()
                     } else {

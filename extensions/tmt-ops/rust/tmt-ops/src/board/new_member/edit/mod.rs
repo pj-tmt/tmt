@@ -90,18 +90,19 @@ impl Edit {
             .is_some_and(|r| r.outer.is_none());
         let enabled = current && plan.is_some_and(|p| !p.empty()) && c.stage == Stage::Form;
         let mut buttons = vec![Button::primary("Cancel")];
-        if c.reopened && c.stage == Stage::Form {
+        if (c.reopened || !current) && c.stage == Stage::Form {
             buttons.push(Button::secondary("Discard"));
         }
-        buttons.push(
-            Button::secondary(if copy_only { "Copy command" } else { "Save" }).enabled(enabled),
-        );
+        if current {
+            buttons.push(
+                Button::secondary(if copy_only { "Copy command" } else { "Save" }).enabled(enabled),
+            );
+        }
         buttons
     }
     fn current_error(&self, app: &App) -> Option<String> {
-        let changed = || {
-            Some("The target changed. This draft stays frozen; discard it or restore its original selection before saving.".into())
-        };
+        let changed =
+            || Some("The target changed. Draft kept; choose Discard to start again.".into());
         if app.view.as_ref().and_then(|v| v.me_id.as_ref()) != self.actor.as_ref() {
             return changed();
         }

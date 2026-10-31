@@ -106,9 +106,11 @@ same controller generation and ordered lane as New member. Shared `DialogState`
 and current `DialogHits` own field/button navigation and admission; the parent
 choice-list owner serves agent fields and After presets. Host and Session are
 fixed. A plan over held observations supplies both the changed-only Runs text
-and Save. No-op plans dispatch nothing. Viewer/selection drift disables Save,
-and a kept draft stays with its original target, accessible for Discard even
-when that row disappeared. Pending work can hide, never cancel or replay.
+and Save. No-op plans dispatch nothing. Viewer/selection drift offers only Cancel and Discard; no Save remains. A kept
+draft stays with its original target, accessible for Discard even when that row
+disappeared. Long review and notice lines wrap within the Dialog; overflow shows
+the shared scroll position. A surface too short to edit shows Enlarge to edit
+and admits no Save. Pending work can hide, never cancel or replay.
 
 Save preflights the held Config bytes, exact identity and room revisions,
 public runtime/session/container observation, recorded launch settings and host

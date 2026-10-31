@@ -337,7 +337,9 @@ impl super::Edit {
                 let validated = loaded
                     .config
                     .preview_setting(Some(&room.name), "idle_alert.after", after)
-                    .map_err(|e| e.message)?;
+                    .map_err(|_| {
+                        "After must be 5m–24h in whole s/m/h units, such as 30m.".to_owned()
+                    })?;
                 let after_setting = validated.idle_alert(&room.name).map_err(|e| e.message)?;
                 if self.enabled != original.enabled || after_setting.after != original.after {
                     plan.alert = Some((self.enabled, after.into()));
