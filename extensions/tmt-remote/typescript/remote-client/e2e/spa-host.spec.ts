@@ -553,15 +553,15 @@ test.describe('the app in a browser', () => {
     },
   ] as const;
   const litRow = (page: Page) =>
-    modulePages(page)
-      .locator('[aria-current="page"]')
+    page
+      .locator('nav.tmt-ui-rail [aria-current="page"]')
       .evaluateAll((items) => items.map((item) => item.getAttribute('data-id')));
   const expectView = async (page: Page, view: (typeof REMOTE_VIEWS)[number]) => {
     expect(new URL(page.url()).pathname, view.id).toBe(view.path);
     expect(new URL(page.url()).hash, view.id).toBe('');
     await expect
       .poll(() => litRow(page), view.id)
-      .toEqual([view.id === 'remotes' ? 'remotes' : 'overview']);
+      .toEqual([view.id === 'overview' ? 'remote' : view.id === 'service' ? 'settings' : view.id]);
     if (view.id !== 'remotes')
       await expect(page.locator(`#remote-tab-${view.id}`)).toHaveAttribute('aria-selected', 'true');
     await expect(page.locator('.tmt-ui-topbar-title-current'), view.id).toHaveText(view.h1);
@@ -575,7 +575,7 @@ test.describe('the app in a browser', () => {
     if (view.id === 'remotes') await menu.locator('a[data-id="remotes"]').click();
     else {
       if (new URL(page.url()).pathname === '/remote/')
-        await menu.locator('a[data-id="overview"]').click();
+        await page.locator('#remote-list [data-this-machine="true"] [data-action="open"]').click();
       await page.locator(`#remote-tab-${view.id}`).click();
     }
   }
