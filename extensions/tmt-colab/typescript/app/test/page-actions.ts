@@ -104,16 +104,6 @@ export async function pageAction(host: Page | Locator, name: string): Promise<Lo
   });
 }
 
-/** Reach the existing task controls through the v2 panel's two in-place disclosures. */
-export async function openWorkTasks(band: Locator): Promise<void> {
-  await band.waitFor({ state: 'visible' });
-  const expand = band.getByRole('button', { name: 'Expand status panel' });
-  if (await expand.isVisible()) await expand.click();
-  const tasks = band.getByRole('button', { name: /^Tasks \d+$/ });
-  if ((await tasks.count()) && (await tasks.getAttribute('aria-expanded')) !== 'true')
-    await tasks.click();
-}
-
 /** Open a shared reader's More menu and select a page action. */
 export async function readerAction(page: Page, name: string) {
   await page.locator('.tmt-ui-header').getByRole('button', { name: 'More', exact: true }).click();

@@ -112,3 +112,11 @@ main {
     width: calc(100vw - 32px);
   }
 }
+
+/* The reader's work band stays beneath its fixed header as the page scrolls (#5820). */
+.workspace > .work-band {
+  --work-band-top: var(--reader-bar-size);
+  position: sticky;
+  top: var(--reader-bar-size);
+  z-index: 2;
+}

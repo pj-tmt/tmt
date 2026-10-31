@@ -1,4 +1,5 @@
 import { WorkBand } from './work-band.js';
+import { subpageTree } from './work-tree.js';
 import { useEditLockLayer } from './edit-lock-layer.js';
 import { ShellNotice } from './shell-notice.js';
 import { usePageLinks } from './page-link-bar.js';
@@ -145,8 +146,9 @@ export function ReaderApp({
       },
       onLink: requestPageLink,
       onEditLocks: editLockLayer.onEditLocks,
-      viewportInset: () => toolbarInset(bar.current),
-      frameLead: () => noteHeight() + bandSize.current,
+      // The band is pinned under the bar like the signed-in route's, so it insets the viewport.
+      viewportInset: () => toolbarInset(bar.current) + bandSize.current,
+      frameLead: () => noteHeight(),
     })
       .then((handle) => {
         if (controller.signal.aborted) handle.destroy();
@@ -280,13 +282,12 @@ export function ReaderApp({
             <div className="workspace">
               <WorkBand
                 onSize={setWorkBandSize}
-                work={state.view.work ?? { version: 1, next: 1, order: [], tasks: {} }}
+                subpages={subpageTree(state.pageId ?? 'reader', state.view.work, undefined).top}
                 pageState={
                   state.view.state === undefined
                     ? (state.view.pageState ?? 'todo')
                     : state.view.state
                 }
-                progress={null}
               />
               <div className="canvas">
                 <div className="frame-host" ref={host} />

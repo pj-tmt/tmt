@@ -1,17 +1,47 @@
 import { browserUiClasses as ui } from '@tmt/browser-ui/static';
 import { BrowserMenu } from '@tmt/browser-ui/react';
+import { MoreHorizontal } from 'lucide-react';
 import { text } from './strings.js';
-import { SaveRefused, saveMessage } from './save.js';
+import { SaveNotApplied, SaveRefused, saveMessage, type MetadataAction } from './save.js';
 import type { PageState } from './bootstrap.js';
-import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { WorkBand, type WorkBandProps } from './work-band.js';
-import { AddTask, AttachSubpage, TaskControls, useWorkRun } from './work-controls.js';
+import { AddSubpageDialog, type AddChoice } from './work-add-dialog.js';
 import type { PageBinding, PageTransport } from './transport.js';
+import { rememberPages } from './quick-switcher-source.js';
 import { useLinkedPages } from './work-stages.js';
+import { subpageTree, type SubpageRow } from './work-tree.js';
 import type { Work } from './work.js';
 
-/** An ordinary page without work still has the manual state/progress line. */
-const NO_WORK: Work = { version: 1, next: 1, order: [], tasks: {} };
+const PAGE_STATES = ['todo', 'in-progress', 'done'] as const;
+const t = text.workBand;
+
+/** A refusal the serve explained, as opposed to an outcome nobody knows. */
+const explained = (failure: unknown) =>
+  failure instanceof SaveRefused || failure instanceof SaveNotApplied;
+
+/** Run one owner write on another page: open its binding, write, give the connection up. */
+async function onPage<T>(
+  transport: PageTransport,
+  pageId: string,
+  use: (binding: PageBinding, shown: PageState | null | undefined) => Promise<T>,
+): Promise<T> {
+  const snapshot = await transport.page(pageId);
+  try {
+    if (!snapshot.binding?.canWork?.()) throw new Error('This page cannot be changed here.');
+    return await use(snapshot.binding, snapshot.pageState ?? snapshot.state);
+  } finally {
+    snapshot.binding?.close();
+  }
+}
+
+/** Set a page's manual state through its expected-revision metadata route. */
+async function writeState(binding: PageBinding, shown: PageState | null | undefined, next: string) {
+  if (!binding.canMetadata?.() || !binding.metadata || !binding.metadataRevision)
+    throw new Error('Page state cannot be changed here.');
+  const revision = await binding.metadataRevision({ pageState: shown ?? 'todo' }, 'page-state');
+  await binding.metadata('page.state' satisfies MetadataAction, { state: next }, revision);
+}
 
 /** The page's band with the owner's controls, where this device may change the work; anywhere
  * else it is the read-only band. */
@@ -20,25 +50,23 @@ export function PageWorkBand({
   transport,
   space,
   pageId,
+  work,
+  title,
   ...band
-}: Omit<WorkBandProps, 'work' | 'parent'> & {
-  /** Absent for a page that never had work; its compact panel remains present. */
+}: Omit<WorkBandProps, 'subpages' | 'childrenOf' | 'counts' | 'stateControl'> & {
+  /** Absent for a page that never had work. */
   work?: Work;
+  title: string;
   binding?: PageBinding;
-  /** Where a followed page's stage and this page's parent are read: the owner list this viewer
+  /** Where sub-page titles, states and deeper levels are read: the owner list this viewer
    * already has. */
   transport: PageTransport;
   space?: string;
   pageId: string;
 }): ReactNode {
-  const run = useWorkRun(binding);
-  const { stageOf, parent, subpages, observed, pages, knownChild } = useLinkedPages(
-    transport,
-    space,
-    pageId,
-    band.work,
-  );
-  const childStates = JSON.stringify(subpages.map((child) => [child.id, child.state]));
+  const { observed, pages } = useLinkedPages(transport, space, work);
+  const tree = useMemo(() => subpageTree(pageId, work, pages), [pageId, work, pages]);
+  const childStates = JSON.stringify(tree.top.map((row) => [row.id, row.state]));
   const previousChildStates = useRef<string | undefined>(undefined);
   useEffect(() => {
     if (!observed) return;
@@ -46,44 +74,151 @@ export function PageWorkBand({
     previousChildStates.current = childStates;
     if (previous !== undefined && previous !== childStates) binding?.refreshProgress?.();
   }, [binding, childStates, observed]);
-  const work = band.work ?? NO_WORK;
+  const reload = useCallback(async () => {
+    try {
+      rememberPages(transport, space, (await transport.spaceHome()).pages);
+    } catch {
+      // The list stays as it was; the next read of it shows the change.
+    }
+  }, [transport, space]);
+  const owner = binding?.work !== undefined && binding.canWork?.() === true;
+  const [adding, setAdding] = useState(false);
   const stateControl = <PageStateMenu binding={binding} state={band.pageState} />;
-  if (!binding?.work || !binding.canWork?.())
-    return (
-      <WorkBand
-        {...band}
-        work={work}
-        stateControl={stateControl}
-        subpages={subpages}
-        stageOf={stageOf}
-        parent={parent}
-      />
-    );
-  return (
-    <WorkBand
-      {...band}
-      work={work}
-      stateControl={stateControl}
-      attachAction={
-        !knownChild ? (
-          <AttachSubpage pages={pages} pageId={pageId} work={work} run={run} />
-        ) : undefined
+  const shared = {
+    ...band,
+    stateControl,
+    subpages: tree.top,
+    childrenOf: tree.childrenOf,
+    counts: observed ? tree.counts : undefined,
+  };
+  if (!owner) return <WorkBand {...shared} />;
+  const add = async (choice: AddChoice): Promise<string | undefined> => {
+    const added = await binding.work!('task.add', {
+      task: { title: choice.kind === 'create' ? choice.title : choice.title.slice(0, 120) },
+    }).catch((failure: unknown) => ({ failure }));
+    if ('failure' in added)
+      return explained(added.failure) ? saveMessage(added.failure) : t.attachUnknown;
+    const taskId = added.taskId;
+    if (taskId === undefined) return t.attachUnknown;
+    try {
+      if (choice.kind === 'create') await binding.work!('task.convert', { taskId });
+      else await binding.work!('task.link', { taskId, pageId: choice.pageId });
+      void reload();
+      return undefined;
+    } catch (failure) {
+      if (!explained(failure)) return t.attachUnknown;
+      // The panel shows no tasks, so the task made only to hold the link goes with its refusal.
+      await binding.work!('task.remove', { taskId }).catch(() => undefined);
+      const made = (failure as SaveRefused | SaveNotApplied).childPage;
+      if (made !== undefined) {
+        void reload();
+        return t.madeNotLinked(choice.title);
       }
-      subpages={subpages}
-      parent={parent}
-      stageOf={stageOf}
-      actions={(task, id, state) => (
-        <TaskControls
-          key={id}
-          id={id}
-          task={task}
-          state={state}
-          work={run}
-          pageHref={band.pageHref}
+      return saveMessage(failure);
+    }
+  };
+  const detach = async (row: SubpageRow) => {
+    const remove = (on: PageBinding) => on.work!('task.remove', { taskId: row.carrier });
+    if (row.parent === pageId) await remove(binding);
+    else await onPage(transport, row.parent, remove);
+    void reload();
+  };
+  return (
+    <>
+      <WorkBand
+        {...shared}
+        onAdd={() => setAdding(true)}
+        rowState={(row) => (
+          <RowStateMenu
+            row={row}
+            write={async (next) => {
+              await onPage(transport, row.id, (on, shown) => writeState(on, shown, next));
+              await reload();
+            }}
+          />
+        )}
+        rowActions={(row) => (
+          <RowMenu row={row} href={band.pageHref?.(row.id)} detach={() => detach(row)} />
+        )}
+      />
+      {adding && (
+        <AddSubpageDialog
+          title={title}
+          pages={pages}
+          refusal={tree.refusal}
+          onClose={() => setAdding(false)}
+          onChoose={add}
         />
       )}
-      listActions={<AddTask work={run} />}
-    />
+    </>
+  );
+}
+
+function RowMenu({
+  row,
+  href,
+  detach,
+}: {
+  row: SubpageRow;
+  href?: string;
+  detach(): Promise<void>;
+}) {
+  const [error, setError] = useState<string>();
+  return (
+    <>
+      <BrowserMenu
+        label={t.more(row.title ?? t.unknownPage)}
+        icon={<MoreHorizontal aria-hidden="true" />}
+        items={[
+          ...(href ? [{ key: 'open', label: t.open }] : []),
+          { key: 'detach', label: t.detach },
+        ]}
+        onSelect={(key) => {
+          if (key === 'open' && href) window.location.assign(href);
+          if (key === 'detach')
+            detach().then(
+              () => setError(undefined),
+              (failure: unknown) => setError(saveMessage(failure)),
+            );
+        }}
+      />
+      {error && <span role="alert">{error}</span>}
+    </>
+  );
+}
+
+function RowStateMenu({ row, write }: { row: SubpageRow; write(next: string): Promise<void> }) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string>();
+  const label = row.state ? t.taskState[row.state] : t.unknown;
+  return (
+    <div className="work-state-control">
+      <BrowserMenu
+        label={t.rowState(row.title ?? t.unknownPage)}
+        variant="count"
+        valueLabel={label}
+        disabled={busy}
+        items={PAGE_STATES.map((value) => ({
+          key: value,
+          label: t.taskState[value],
+          role: 'menuitemradio' as const,
+          checked: value === row.state,
+        }))}
+        onSelect={(next) => {
+          if (busy || next === row.state) return;
+          setBusy(true);
+          setError(undefined);
+          write(next).then(
+            () => setBusy(false),
+            (failure: unknown) => {
+              setBusy(false);
+              setError(saveMessage(failure));
+            },
+          );
+        }}
+      />
+      {error && <span role="alert">{error}</span>}
+    </div>
   );
 }
 
@@ -92,11 +227,11 @@ function PageStateMenu({ binding, state }: { binding?: PageBinding; state?: Page
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string>();
   const revision = useRef<Promise<string | undefined>>(undefined);
-  const label = state ? text.workBand.taskState[state] : text.workBand.stateUnavailable;
+  const label = state ? t.taskState[state] : t.stateUnavailable;
   if (!binding?.canMetadata?.() || !binding.metadata || !binding.metadataRevision || state == null)
     return <span className={`work-page-state ${ui.countChip}`}>{label}</span>;
   const select = async (next: string) => {
-    if (busy || !['todo', 'in-progress', 'done'].includes(next)) return;
+    if (busy || !(PAGE_STATES as readonly string[]).includes(next)) return;
     setBusy(true);
     setError(undefined);
     try {
@@ -112,7 +247,7 @@ function PageStateMenu({ binding, state }: { binding?: PageBinding; state?: Page
   return (
     <div className="work-state-control">
       <BrowserMenu
-        label={text.workBand.pageState}
+        label={t.pageState}
         variant="count"
         valueLabel={label}
         disabled={busy}
@@ -126,9 +261,9 @@ function PageStateMenu({ binding, state }: { binding?: PageBinding; state?: Page
             },
           );
         }}
-        items={(['todo', 'in-progress', 'done'] as const).map((value) => ({
+        items={PAGE_STATES.map((value) => ({
           key: value,
-          label: text.workBand.taskState[value],
+          label: t.taskState[value],
           role: 'menuitemradio' as const,
           checked: value === state,
         }))}
@@ -136,7 +271,7 @@ function PageStateMenu({ binding, state }: { binding?: PageBinding; state?: Page
           void select(key);
         }}
       />
-      {busy && <span role="status">{text.workBand.savingState}</span>}
+      {busy && <span role="status">{t.savingState}</span>}
       {error && <span role="alert">{error}</span>}
     </div>
   );

@@ -246,12 +246,7 @@ it('keeps bounded line-specific question repairs alongside a short Save refusal'
 
 it('keeps stable link refusal reasons through parsing and settlement', () => {
   const reply = (fields: Record<string, unknown>) => ({ ...frame(fields), type: 'workresult' });
-  for (const reason of [
-    'second-parent',
-    'cycle',
-    'invalid-hierarchy',
-    'unavailable',
-  ]) {
+  for (const reason of ['second-parent', 'cycle', 'invalid-hierarchy', 'unavailable']) {
     const result = workResult(
       reply({ state: 'rejected', code: 'COLAB_LINK_REFUSED', message: 'Repair the link', reason }),
       'o',

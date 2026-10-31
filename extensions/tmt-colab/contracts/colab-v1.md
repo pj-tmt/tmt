@@ -3195,27 +3195,32 @@ action.
 Derived values are computed from the tasks and never stored or edited. The stage is
 `discussion` with no task, `done` when every task is done, and `in-progress` otherwise. Progress
 is the done count over the total. Who is working is the assignees of `in-progress` tasks, each
-once, in task order. Sign-off is the count of `in-review` tasks with `needsSignoff`. The browser folds and validates work, while the ordinary-page route and share reader draw a compact
-status panel below the nav, scrolling with content. Its chip shows the independent manual page state,
-never the task-derived stage. The segmented bar and count use the native progress buckets above:
-Done is theme green, In progress is review purple, To do is empty, and Unknown is neutral. Zero total
-shows `0 of 0 done`; unavailable progress shows a label without invented counts. Share readers have
-verified manual state and `progress: null`, no owner metadata writes or discovery reads.
+once, in task order. Sign-off is the count of `in-review` tasks with `needsSignoff`. The browser folds and validates work, while the ordinary-page route and share reader draw a work
+panel pinned under the nav as the page scrolls (#5820). It lists sub-pages only; plain tasks are
+stored and counted natively but never shown there. Its head row is one toggle (pointer, Enter or
+Space) holding the independent manual page state chip, which is its own menu and never toggles,
+then a segmented bar, `N of M done` (`N/M` on a phone) and a chevron. The bar and count are the
+direct sub-pages by their own manual states from the owner list (Done theme green, In progress review
+purple, To do empty, Unknown neutral), never the task-derived stage and never recursive. With no
+sub-page the head shows `No sub-pages yet` and no bar, and for the owner opens Add. A share reader
+has no owner list, so it shows the chip and sub-page rows without titles, states or counts.
 
-The panel reports its measured height to the existing renderer viewport owner and canvas minimum-height calculation, including after expansion or resize, so a short page does not gain a second scroll region. Expanding the panel pushes content down and shows direct sub-pages (titles/manual states only from
-existing owner-list rows, with missing values unknown), plus the bucket legend. With sub-pages,
-`Tasks N` opens the unlinked task list and detail in place. Without sub-pages, the selectable task
-list appears directly; there is no duplicate summary or task toggle. Task deep links open that detail once. Owner task
-controls send the existing closed browser work actions, with changes appearing only through the
-admitted stream. The owner state menu sends `page.state` through the expected-revision metadata
-route and captures the shown manual value independently of creator/question editors. Busy/refused
-writes do not optimistically change the chip. Optional owner progress details survive initial
-subscription. Snapshot joins the admitted details read instead of starting another. Page/work
-changes invalidate counts; the first owner-list observation establishes the child-state baseline,
-and later child-state changes re-read details while retaining the last verified bar. Each open
-page coalesces observations into at most one active details read and one trailing read per burst,
-without timers, extra child subscriptions or wider list rows. Obsolete or closed reads cannot publish.
-Other viewers retain read-only state, expansion and task details. Page export includes it as `work.json`
+Opening the panel animates with the motion tokens (instant under reduced motion) and shows one
+list: each sub-page row has a disclosure when the owner list names sub-pages under it, which expands
+the next level in place (no depth limit, a level indented by `space-xl`, each level from the same
+list's parent links, ordered by the parent's task number; a stored loop is drawn once), a title link,
+its own direct `N of M`, its state chip and a ⋯ menu. Right-hand columns align across levels. When
+the list is taller than the room under the nav, only the list scrolls. The panel reports its
+measured height to the existing renderer viewport owner, so the frame keeps one scroll region.
+
+The owner state menu sends `page.state` through the expected-revision metadata route and captures
+the shown manual value independently of creator/question editors; busy or refused writes do not
+optimistically change the chip. A row's chip sets that sub-page's own state the same way, through
+that page's binding opened only for the write; the row moves when the owner list reports it. The
+⋯ menu offers Open and Detach; Detach sends `task.remove` for the task that holds the link, on the
+page that holds it, and never deletes the page. Optional owner progress details survive initial
+subscription and are read as before (one active and one trailing read per burst, no timers).
+Page export includes it as `work.json`
 (see [Plaintext page export](#plaintext-page-export-1309)). Native and browser consume the shared
 `work-v1.json` vectors.
 
@@ -3249,12 +3254,12 @@ attached under another page. A valid same-task/same-child retry
 is unchanged. CLI JSON puts a stable `reason` beside `error.code` and `error.message`; a rejected
 browser `workresult` puts it beside `code` and `message`:
 
-| `reason`              | Refusal                                                                                      |
-| --------------------- | -------------------------------------------------------------------------------------------- |
-| `second-parent`       | Another task already follows the child; the message names that task and page.                |
-| `cycle`               | A self-link or a link to an ancestor would close a loop.                                     |
-| `invalid-hierarchy`   | An existing connected hierarchy already has conflicting links; repair it before adding more. |
-| `unavailable`         | The proposed child is not an available page of this space.                                   |
+| `reason`            | Refusal                                                                                      |
+| ------------------- | -------------------------------------------------------------------------------------------- |
+| `second-parent`     | Another task already follows the child; the message names that task and page.                |
+| `cycle`             | A self-link or a link to an ancestor would close a loop.                                     |
+| `invalid-hierarchy` | An existing connected hierarchy already has conflicting links; repair it before adding more. |
+| `unavailable`       | The proposed child is not an available page of this space.                                   |
 
 Self/missing-target and second-parent checks precede ancestor-cycle checks; existing-invalid-hierarchy
 checks follow. A refused action publishes no page, content, work,
@@ -3335,13 +3340,15 @@ applies to the revision the serve reads when it prepares, so the action's own pr
 (a task that is gone is `COLAB_INPUT_INVALID`), and the commit's fences turn a page that moved
 meanwhile into `COLAB_STALE_BASE`; nothing is written on a refusal.
 
-The expanded owner work panel offers Attach a sub-page when work is available and the observed
-list does not identify this page as a child; unknown parentage does not claim authority, and the
-owner's link admission decides it. The picker uses the observed page list and an existing unlinked
-task or sends `task.add` then `task.link` with the returned task ID. A refused link keeps the task,
-shows the refusal and permits a retry of that same link. An unsettled outcome is not resent
-automatically: the user is asked to check the task list before reopening, and an admitted matching
-link closes the picker as success. Share readers and shell pages have no attach control.
+The owner work panel has one Add window (#5820): a design-system dialog that searches the observed
+page list. Choosing a page sends `task.add` (titled like the page) then `task.link` with the returned
+task ID. When no listed page has exactly the typed title, the first row creates one: `task.add`
+with the typed title, then `task.convert`. Pages the list shows cannot be attached stay listed,
+dimmed, with why (this page, above this page, already under another page); the owner's admission
+still decides. A refused link or conversion removes the task it added and shows the refusal; a
+conversion that made its page but could not link it says so, and the page can be chosen. An
+unsettled outcome is not resent: the user is asked to check the sub-pages. Share readers and shell
+pages have no Add control.
 
 A tenth action, `task.convert` with the body `{taskId}` and nothing else, makes the task a page of its
 own, as `tmt colab task convert` does, and is the only browser action that makes a page. Page

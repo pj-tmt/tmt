@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
-import { pageAction, openWorkTasks } from '../test/page-actions.js';
+import { pageAction } from '../test/page-actions.js';
 import { text } from '../src/strings.js';
 import { capturePath } from './captures.js';
 import { expectOnePrimaryPerGroup } from './primary-groups.js';
@@ -46,31 +46,6 @@ for (const { width, scheme } of views) {
     );
     await expectOnePrimaryPerGroup(page, 'proposal card');
     await capture(page, 'proposal', width, scheme);
-  });
-
-  test(`the work controls keep one primary per group at ${width} ${scheme}`, async ({ page }) => {
-    await look(page);
-    await page.goto('/');
-    await page.evaluate(async () => {
-      const path = '/test/work-page-browser.tsx';
-      (await import(path)).mountWorkPage(true, true);
-    });
-    await expect(page.locator('.page-header-actions:visible')).toBeVisible();
-    const band = page.getByRole('region', { name: 'Work on this page' });
-    await openWorkTasks(band);
-    for (const id of ['T-3', 'T-2']) {
-      await band.locator('.work-row', { hasText: id }).locator('button').click();
-      await expect(band.locator('.work-controls')).toBeVisible();
-      // Every form has its input, so each submit is enabled: the panel is one group, and only
-      // the task's decision (Sign off) is primary.
-      await band.getByRole('textbox', { name: 'Name' }).fill('Atlas');
-      await band.getByRole('textbox', { name: 'New task' }).fill('Ship it');
-      await expectOnePrimaryPerGroup(page, `work controls of ${id}`);
-      await capture(page, `work-${id}`, width, scheme);
-    }
-    await band.getByRole('button', { name: 'Edit', exact: true }).click();
-    await expectOnePrimaryPerGroup(page, 'work task edit');
-    await capture(page, 'work-edit', width, scheme);
   });
 
   test(`the export drawer keeps downloads secondary at ${width} ${scheme}`, async ({ page }) => {

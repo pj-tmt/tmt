@@ -144,10 +144,10 @@ import { useAnnotations } from './use-annotations.js';
 import { usePageRenderer } from './use-page-renderer.js';
 
 /** Controls in the page and above it that the floating actions move above, never over: the cards'
- * footers, and the open work band's controls and add-task row, which can fill a phone's viewport. */
-const AVOIDED_CARDS = '.question-group-footer, .proposal-inline .proposal-card, .work-add';
+ * footers, and the open work band's controls, which can fill a phone's viewport. */
+const AVOIDED_CARDS = '.question-group-footer, .proposal-inline .proposal-card';
 const AVOIDED_BAND =
-  '.work-band :is(button, a[href], input, select, textarea, [role="combobox"], [role="menuitem"])';
+  '.work-band :is(button, a[href], input, select, textarea, [role="button"], [role="combobox"], [role="menuitem"])';
 
 /** The control belongs to trusted chrome; only mode is projected into author content. */
 function PageFloatingActions({
@@ -262,11 +262,18 @@ function PageFloatingActions({
         }
         if (!moved) break;
       }
+      // The work band is pinned right under the page bar: above its top there is only chrome.
+      const ceiling = Math.max(
+        0,
+        workspace?.querySelector('.work-band')?.getBoundingClientRect().top ?? 0,
+      );
       const next = {
         right: Math.max(margin, innerWidth - right + margin),
         bottom: innerHeight - bottom + margin,
         visibility:
-          bottom - margin - (fab?.height ?? 0) >= 8 ? ('visible' as const) : ('hidden' as const),
+          bottom - margin - (fab?.height ?? 0) >= ceiling + 8
+            ? ('visible' as const)
+            : ('hidden' as const),
       };
       setPlacement(next);
       onPlacement({ right: next.right, bottom: next.bottom, height: fab?.height ?? 0 });
@@ -1708,7 +1715,7 @@ function OpenPage({
     document.addEventListener('keydown', key);
     return () => document.removeEventListener('keydown', key);
   }, [canSelect, selectionMode, annotate, annotationRef, currentSelector, currentRectangle]);
-  const { read: readingHint, anchor, task } = search;
+  const { read: readingHint, anchor } = search;
   const {
     readings,
     inlineSlots,
@@ -2163,12 +2170,11 @@ function OpenPage({
           onSize={setWorkBandSize}
           work={view.work}
           pageState={view.state === undefined ? (view.pageState ?? 'todo') : view.state}
-          progress={view.progress}
           binding={snapshot.binding}
           transport={transport}
           space={space}
           pageId={snapshot.id}
-          focusTask={task}
+          title={view.title}
           pageHref={routing.pageHref}
         />
         <div className="canvas" data-layout={framedLayout(view.layout) ? view.layout : undefined}>
