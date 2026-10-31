@@ -13,6 +13,7 @@ use tmt_tui::components::{Completion, Editor, strip};
 
 /// Chosen mentions use this prefix: `@name` reads as a file reference to Claude Code.
 pub(super) const TRIGGER: &str = "tmt/";
+pub(super) const PRIMARY_TRIGGER: &str = "@";
 pub(super) const TRIGGER_HINT: &str = "@ / tmt/";
 /// A chosen mention is an expanded fold over its `tmt/<name>` text whose label holds the
 /// agent's identity, so a rename never retargets it; editing the text drops the fold.
@@ -102,7 +103,11 @@ impl App {
                 .rsplit(char::is_whitespace)
                 .next()
                 .unwrap_or_default();
-            let trigger = if token.starts_with('@') { "@" } else { TRIGGER };
+            let trigger = if token.starts_with(PRIMARY_TRIGGER) {
+                PRIMARY_TRIGGER
+            } else {
+                TRIGGER
+            };
             completion.update(editor, &self.references.candidates, trigger);
         }
         self.mentions.completion = completion;

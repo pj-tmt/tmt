@@ -80,9 +80,9 @@ impl Info<'_> {
         let newline = self.newline.glyph();
         let full = format!(
             "⏎ send  {newline} new line  {} mention",
-            crate::board::mentions::TRIGGER_HINT
+            crate::board::mentions::PRIMARY_TRIGGER
         );
-        let keys = format!("⏎  {newline}  {}", crate::board::mentions::TRIGGER_HINT);
+        let keys = format!("⏎  {newline}  {}", crate::board::mentions::PRIMARY_TRIGGER);
         let (full, keys) = (full.as_str(), keys.as_str());
         let full_left = self.left(true, true, look);
         let (left, right) = if full_left.width() + full.width() + 2 <= usize::from(line.width) {
@@ -178,7 +178,35 @@ mod tests {
             .iter()
             .map(|c| c.symbol())
             .collect();
-        assert!(row.contains("Alt+⏎") && row.contains("@ / tmt/"));
+        assert!(row.contains("Alt+⏎") && row.contains("@"));
+    }
+
+    #[test]
+    fn the_primary_mention_hint_keeps_worded_actions_at_eighty_columns() {
+        use crate::board::app::NewlineKey;
+        for key in [NewlineKey::Alt, NewlineKey::Shift] {
+            let info = Info {
+                name: "worker-1",
+                newline: key,
+                unread: Count::default(),
+                open: Some(0),
+                context: None,
+            };
+            let mut buffer = Buffer::empty(Rect::new(0, 0, 80, 2));
+            let area = buffer.area;
+            info.paint(&mut buffer, area, Look::default(), false);
+            let row: String = buffer.content[80..]
+                .iter()
+                .map(|cell| cell.symbol())
+                .collect();
+            assert!(row.contains("⏎ send"), "{row}");
+            assert!(row.contains(&format!("{} new line", key.glyph())), "{row}");
+            assert!(row.contains("@ mention"), "{row}");
+            assert!(
+                !row.contains("tmt/"),
+                "the secondary trigger belongs in Help: {row}"
+            );
+        }
     }
 
     #[test]
