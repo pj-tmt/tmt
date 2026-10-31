@@ -163,6 +163,7 @@ function expectNativeSchema(
     { version: 82, name: 'name a Stop rejected without an admitted start' },
     { version: 83, name: 'reserve binding publication outside the writer' },
     { version: 84, name: 'receipt durable hook capture ingestion' },
+    { version: 85, name: 'name bounded Digest worker and caller failure stages' },
   ];
   expect(migrated.migrations.slice(8)).toEqual(additions);
   expect(migrated.tables.map(({ name }) => name)).toEqual(
