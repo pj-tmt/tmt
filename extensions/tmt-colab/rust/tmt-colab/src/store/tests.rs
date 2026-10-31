@@ -13,6 +13,74 @@ const OTHER: &str = "other";
 const SIGNER: &str = "signer";
 
 #[test]
+fn database_admission_is_private_nofollow_and_noncreating() {
+    use std::os::unix::fs::PermissionsExt;
+    let root = std::env::temp_dir().join(format!("tmt-colab-db-admission-{}", std::process::id()));
+    assert!(!root.exists());
+    struct Cleanup(PathBuf);
+    impl Drop for Cleanup {
+        fn drop(&mut self) {
+            fs::remove_dir_all(&self.0).unwrap();
+        }
+    }
+    let layout = Layout::open(&root).unwrap();
+    let _cleanup = Cleanup(root);
+    let path = layout.directory.join("space.db");
+    assert!(!existing_database(&path).unwrap());
+    assert!(Store::read(&layout).is_err());
+    assert!(Store::write_existing(&layout).is_err());
+    assert!(!path.exists());
+    drop(layout.file("space.db").unwrap());
+    assert!(existing_database(&path).unwrap());
+    fs::set_permissions(&path, fs::Permissions::from_mode(0o644)).unwrap();
+    assert!(matches!(
+        existing_database(&path)
+            .unwrap_err()
+            .downcast_ref::<crate::keyring::StateFault>(),
+        Some(crate::keyring::StateFault::UnsafeFile)
+    ));
+    assert!(Store::read(&layout).is_err());
+    assert!(Store::write_existing(&layout).is_err());
+    assert!(Store::open(&layout).is_err());
+    fs::remove_file(&path).unwrap();
+    std::os::unix::fs::symlink("missing-target", &path).unwrap();
+    let error = existing_database(&path).unwrap_err();
+    assert_eq!(
+        error
+            .downcast_ref::<std::io::Error>()
+            .unwrap()
+            .raw_os_error(),
+        Some(nix::errno::Errno::ELOOP as i32)
+    );
+    assert!(Store::read(&layout).is_err());
+    assert!(Store::write_existing(&layout).is_err());
+    assert!(Store::open(&layout).is_err());
+    fs::remove_file(&path).unwrap();
+    fs::create_dir(&path).unwrap();
+    assert!(existing_database(&path).is_err());
+    assert!(Store::read(&layout).is_err());
+    assert!(Store::write_existing(&layout).is_err());
+    assert!(Store::open(&layout).is_err());
+    fs::remove_dir(&path).unwrap();
+    nix::unistd::mkfifo(
+        &path,
+        nix::sys::stat::Mode::S_IRUSR | nix::sys::stat::Mode::S_IWUSR,
+    )
+    .unwrap();
+    assert!(existing_database(&path).is_err());
+    assert!(Store::read(&layout).is_err());
+    assert!(Store::write_existing(&layout).is_err());
+    assert!(Store::open(&layout).is_err());
+    fs::remove_file(&path).unwrap();
+    Store::open(&layout).unwrap().close().unwrap();
+    assert!(existing_database(&path).unwrap());
+    assert_eq!(
+        fs::metadata(&path).unwrap().permissions().mode() & 0o777,
+        0o600
+    );
+}
+
+#[test]
 fn terminal_metadata_results_survive_reopen_and_the_first_decision_wins() {
     use serde_json::json;
     let mut f = Fixture::new();

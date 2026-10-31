@@ -210,6 +210,27 @@ pub struct Store {
     connection: Connection,
     clock: Arc<Clock>,
 }
+/// Match the state leaf's descriptor-free SQLite admission. Closing a separate file handle
+/// would release this process's locks held by another SQLite connection on the same inode.
+fn existing_database(path: &std::path::Path) -> Result<bool> {
+    use std::os::unix::fs::MetadataExt;
+    let metadata = match std::fs::symlink_metadata(path) {
+        Ok(metadata) => metadata,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(false),
+        Err(error) => return Err(error.into()),
+    };
+    if metadata.file_type().is_symlink() {
+        return Err(std::io::Error::from_raw_os_error(nix::errno::Errno::ELOOP as i32).into());
+    }
+    if !metadata.is_file()
+        || metadata.uid() != nix::unistd::Uid::effective().as_raw()
+        || metadata.mode() & 0o777 != 0o600
+    {
+        return Err(crate::keyring::StateFault::UnsafeFile.into());
+    }
+    Ok(true)
+}
+
 impl Store {
     /// Classify every retained content payload once, using the same paired cut as bootstrap.
     pub fn page_storage_bytes(&self, page: &str) -> StoreResult<PageStorageBytes> {
@@ -334,7 +355,9 @@ impl Store {
     }
 
     pub fn open(layout: &Layout) -> Result<Self> {
-        layout.file("space.db")?.sync_all()?;
+        if !existing_database(&layout.directory.join("space.db"))? {
+            layout.file("space.db")?.sync_all()?;
+        }
         std::fs::File::open(&layout.directory)?.sync_all()?;
         let mut connection = Connection::open_with_flags(
             layout.directory.join("space.db"),
@@ -359,22 +382,9 @@ impl Store {
         Self::existing(layout, true)
     }
     fn existing(layout: &Layout, writable: bool) -> Result<Self> {
-        use nix::fcntl::OFlag;
-        use std::{
-            fs::OpenOptions,
-            os::unix::fs::{MetadataExt, OpenOptionsExt},
-        };
         let path = layout.directory.join("space.db");
-        let file = OpenOptions::new()
-            .read(true)
-            .custom_flags((OFlag::O_NOFOLLOW | OFlag::O_NONBLOCK).bits())
-            .open(&path)?;
-        let metadata = file.metadata()?;
-        if !metadata.is_file()
-            || metadata.uid() != nix::unistd::Uid::effective().as_raw()
-            || metadata.mode() & 0o777 != 0o600
-        {
-            return Err(crate::keyring::StateFault::UnsafeFile.into());
+        if !existing_database(&path)? {
+            return Err(std::io::Error::from_raw_os_error(nix::errno::Errno::ENOENT as i32).into());
         }
         let connection = Connection::open_with_flags(
             &path,
