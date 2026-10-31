@@ -60,7 +60,26 @@ fn text(draft: &Draft, app: &App) -> Vec<(String, Role)> {
                     ),
                     Role::Blocked,
                 );
-                push(error.message.clone(), Role::Blocked);
+                if *step == Step::Delete && error.code != "AGENT_RUNNING" {
+                    let stopped = pane_reason.is_some()
+                        || matches!(
+                            draft.operation.as_ref(),
+                            Some(Change::CloseMember(Request {
+                                mode: Mode::CloseAndDelete,
+                                ..
+                            }))
+                        );
+                    push(
+                        format!(
+                            "{}Deletion was not confirmed: {}",
+                            if stopped { "Agent stopped. " } else { "" },
+                            error.message
+                        ),
+                        Role::Blocked,
+                    );
+                } else {
+                    push(error.message.clone(), Role::Blocked);
+                }
                 if *step == Step::Stop {
                     push(
                         match error.signalled {
@@ -72,7 +91,10 @@ fn text(draft: &Draft, app: &App) -> Vec<(String, Role)> {
                         Role::Muted,
                     );
                 }
-                if error.code == "RESUME_UNAVAILABLE" && error.signalled == Some(false) {
+                if *step == Step::Stop
+                    && error.code == "RESUME_UNAVAILABLE"
+                    && error.signalled == Some(false)
+                {
                     push(
                         "No recorded agent session; Delete may follow, Core checks it.".into(),
                         Role::Text,
@@ -80,6 +102,11 @@ fn text(draft: &Draft, app: &App) -> Vec<(String, Role)> {
                 } else if error.code == "AGENT_RUNNING" {
                     push(
                         "Still running or unproven · quit it in its pane, then Delete.".into(),
+                        Role::Text,
+                    );
+                } else if *step == Step::Delete {
+                    push(
+                        "Delete asks Core to check again; nothing is retried automatically.".into(),
                         Role::Text,
                     );
                 } else {

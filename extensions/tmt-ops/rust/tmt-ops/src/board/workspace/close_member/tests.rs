@@ -258,6 +258,78 @@ fn any_refused_stop_allows_an_explicit_delete_but_never_replays_stop() {
     }
 }
 #[test]
+fn failed_delete_does_not_ask_to_quit_an_already_stopped_agent() {
+    let mut app = board();
+    let _commands = crate::runner::forbid_commands();
+    let request = begin(&mut app);
+    app.finished_close_member(Completed {
+        request,
+        outcome: Outcome::Refused {
+            step: Step::Delete,
+            error: fault("API_UNAVAILABLE", None),
+            pane_reason: Some("User-opened pane.".into()),
+        },
+    });
+    for width in [60, 100, 160] {
+        let screen = paint(&app, width, 36);
+        assert!(
+            screen.contains("Delete asks Core to check again"),
+            "{screen}"
+        );
+        assert!(!screen.contains("Quit it yourself"), "{screen}");
+        assert!(
+            screen.contains("Agent stopped. Deletion was not confirmed:"),
+            "{screen}"
+        );
+        assert!(
+            screen.contains("Pane left open: User-opened pane."),
+            "{screen}"
+        );
+        assert!(screen.contains("Delete identity"), "{screen}");
+    }
+}
+#[test]
+fn explicit_delete_failure_does_not_claim_an_unproven_stop_succeeded() {
+    let mut app = board();
+    let _commands = crate::runner::forbid_commands();
+    let request = begin(&mut app);
+    app.finished_close_member(Completed {
+        request,
+        outcome: Outcome::Refused {
+            step: Step::Stop,
+            error: fault("API_UNAVAILABLE", None),
+            pane_reason: None,
+        },
+    });
+    paint(&app, 100, 36);
+    for _ in 0..2 {
+        key(&mut app, KeyCode::Right);
+        paint(&app, 100, 36);
+    }
+    let Effect::Act(Action::WorkspaceOperation(Change::CloseMember(request))) =
+        key(&mut app, KeyCode::Enter)
+    else {
+        panic!("explicit Delete dispatches its own guarded remove")
+    };
+    assert_eq!(request.mode, Mode::DeleteOnly);
+    app.finished_close_member(Completed {
+        request,
+        outcome: Outcome::Refused {
+            step: Step::Delete,
+            error: fault("API_UNAVAILABLE", None),
+            pane_reason: None,
+        },
+    });
+    let screen = paint(&app, 100, 36);
+    assert!(screen.contains("Deletion was not confirmed:"), "{screen}");
+    assert!(!screen.contains("Agent stopped"), "{screen}");
+    assert!(!screen.contains("Quit it yourself"), "{screen}");
+    assert!(
+        screen.contains("Delete asks Core to check again"),
+        "{screen}"
+    );
+}
+#[test]
 fn close_pending_survives_hide_reopen_and_late_unrelated_completion_is_ignored() {
     let mut app = board();
     let _commands = crate::runner::forbid_commands();
