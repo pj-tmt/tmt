@@ -275,6 +275,10 @@ test('page-visible device Chat threads send exact bytes once, preserve drafts, k
     await pageComment.fill('Ordinary page comment');
     await pageComment.press('Enter');
     await expect(first.getByTestId('chat-panel')).toContainText('Ordinary page comment');
+    // The immediate echo is pending; reload only after the owner record has landed.
+    await expect(
+      first.getByTestId('comment-entry').filter({ hasText: 'Ordinary page comment' }),
+    ).toBeVisible();
     await first.reload();
     await openChat(first);
     await expect(first.getByTestId('chat-thread')).toHaveCount(2);
