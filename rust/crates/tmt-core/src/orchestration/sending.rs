@@ -20,6 +20,17 @@ pub struct OrchRouteGrant {
     pub granted_by: Option<String>,
 }
 
+/// One request held at its pair's talk limit.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct OrchHeld {
+    pub request_id: String,
+    pub attempt_id: String,
+    pub from_id: String,
+    pub to_id: String,
+    pub held_ms: u64,
+    pub expires_at_ms: u64,
+}
+
 /// What the sender's effective `sending` value says about one recipient.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum OrchRoute {

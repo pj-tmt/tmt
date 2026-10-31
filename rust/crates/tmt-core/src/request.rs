@@ -636,6 +636,22 @@ pub trait RequestRecords {
         to: &str,
         now_ms: u64,
     ) -> Result<crate::orchestration::sending::OrchTalkAdmission, Self::Error>;
+    /// Requests held at the talk limit between `a` and `b`, both directions.
+    fn held_for_person(
+        &self,
+        a: &str,
+        b: &str,
+    ) -> Result<Vec<crate::orchestration::sending::OrchHeld>, Self::Error>;
+    /// Release the pair: drop its holds, restart its window at `now_ms`, give each live
+    /// released attempt a fresh normal expiry and journal the release.
+    fn release_person_holds(
+        &mut self,
+        a: &str,
+        b: &str,
+        released: &[crate::orchestration::sending::OrchHeld],
+        actor: Option<&str>,
+        now_ms: u64,
+    ) -> Result<(), Self::Error>;
     /// Keep a prepared request waiting for a person: no wake and no Digest item.
     fn hold_for_person(
         &mut self,
@@ -836,6 +852,8 @@ pub enum RequestError<E> {
     SendNow(delivery::SendNowRejection),
     /// The sender's sending rule refuses this recipient; nothing was stored.
     RouteRestricted(Box<crate::orchestration::sending::OrchRouteRefusal>),
+    /// The pair's held requests changed since the preview; preview again.
+    HeldChanged,
     Repository(E),
 }
 
@@ -885,6 +903,7 @@ impl<E> fmt::Display for RequestError<E> {
             Self::Digest(reason) => f.write_str(reason.code()),
             Self::SendNow(reason) => f.write_str(reason.code()),
             Self::RouteRestricted(_) => f.write_str("ORCH_ROUTE_RESTRICTED"),
+            Self::HeldChanged => f.write_str("Held requests changed since the preview; preview again."),
             Self::Repository(_) => f.write_str("Could not access request state."),
         }
     }

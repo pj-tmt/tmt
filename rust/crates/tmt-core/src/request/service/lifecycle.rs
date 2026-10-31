@@ -137,6 +137,38 @@ impl<R: RequestRepository, C: Fn() -> u64> RequestService<'_, R, C> {
     }
 }
 
+impl<R: RequestRepository, C: Fn() -> u64> RequestService<'_, R, C> {
+    /// Release a pair held at its talk limit (#4892) in one transaction. `expected` is the
+    /// preview's held request IDs: any change refuses. Expired holds are skipped, never
+    /// sent. Returns the released request IDs.
+    pub fn resume_pair(
+        &mut self,
+        a: &str,
+        b: &str,
+        actor: Option<&str>,
+        expected: &[String],
+    ) -> Result<Vec<String>, RequestError<R::Error>> {
+        let clock = &self.clock;
+        self.repository.with_request_transaction(|records| {
+            let now = positive(clock())?;
+            let held = records.held_for_person(a, b)?;
+            let mut current: Vec<_> = held.iter().map(|h| h.request_id.clone()).collect();
+            let mut wanted = expected.to_vec();
+            current.sort();
+            wanted.sort();
+            if current != wanted {
+                return Err(RequestError::HeldChanged);
+            }
+            let live: Vec<_> = held.into_iter().filter(|h| now < h.expires_at_ms).collect();
+            records.release_person_holds(a, b, &live, actor, now)?;
+            for h in &live {
+                queue_records(records, &h.attempt_id, now)?;
+            }
+            Ok(live.into_iter().map(|h| h.request_id).collect())
+        })
+    }
+}
+
 pub(super) fn queue_records<E>(
     records: &mut dyn RequestRecords<Error = E>,
     attempt_id: &str,

@@ -849,6 +849,25 @@ impl RequestRecords for RequestRows<'_> {
             .ok_or_else(admitted_calendar_missing)?
             .talk_admission(self.0, from, to, now_ms)
     }
+    fn held_for_person(
+        &self,
+        a: &str,
+        b: &str,
+    ) -> Result<Vec<tmt_core::orchestration::sending::OrchHeld>, Self::Error> {
+        super::orchestration::held_for_person(self.0, a, b)
+    }
+    fn release_person_holds(
+        &mut self,
+        a: &str,
+        b: &str,
+        released: &[tmt_core::orchestration::sending::OrchHeld],
+        actor: Option<&str>,
+        now_ms: u64,
+    ) -> Result<(), Self::Error> {
+        self.1
+            .ok_or_else(admitted_calendar_missing)?
+            .release_person_holds(self.0, a, b, released, actor, now_ms)
+    }
     fn hold_for_person(
         &mut self,
         request_id: &str,
