@@ -1,2 +1,4 @@
 # Approved article HTML is canonical importer output bound to its artifact hash.
 src/posts/**/article.html
+# Approved article scripts are named by their content hash; reformatting breaks the binding.
+src/posts/**/scripts/*.mjs
