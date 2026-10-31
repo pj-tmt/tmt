@@ -322,7 +322,10 @@ Resize/model replacement invalidates controls before another action can use them
 Intro/Scan/candidate/detail/form/confirmation/result presentation. Config
 supplies the Agents-list-only `discover-agents` default `s`; dispatch,
 footer/help/menu and the empty-pool action use the effective table. Only public
-`discover` precedes confirmation; known UUID examples reuse acquired/verified
+`discover`, with no host or socket option, precedes confirmation. Rows are
+host-neutral: Ops checks only the pane key's shape (`%N` for tmux, a bounded
+printable literal for another host) and binds with the row's own socket;
+Core admits the host syntax. Known UUID examples reuse acquired/verified
 evidence, with explicit UUID input for other identities. The existing ordered
 lane owns finite Scan/guarded-add tasks and typed completions. One active scan
 plus one coalesced latest scan owns its generation; submitted writes and

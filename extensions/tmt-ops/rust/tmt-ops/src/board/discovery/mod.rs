@@ -8,7 +8,7 @@ mod tests;
 
 use super::picker_surface;
 use crate::core::SquadError;
-use load::{Job, Outcome, ScanScope, Task};
+use load::{Job, Outcome, Task};
 use model::{AgentSelector, BindReport, BindSelection, PaneKey, ScanObservation};
 use std::cell::{Cell, RefCell};
 
@@ -55,15 +55,10 @@ impl super::app::App {
             })
             .unwrap_or_default();
         self.menu = None;
-        let controller = self.discovery.get_or_insert_with(|| {
-            Controller::new(
-                1,
-                ScanScope {
-                    host: None,
-                    socket: crate::effects::tmux_socket(),
-                },
-            )
-        });
+        // No host or socket option, also in a popup: Core's caller selection
+        // keeps the server that `TMUX` names (`with_caller`, #4862) and
+        // reports a gap host beside it.
+        let controller = self.discovery.get_or_insert_with(|| Controller::new(1));
         controller.known = known;
         controller.open();
         Effect::None
@@ -151,9 +146,8 @@ pub(in crate::board) struct Controller {
     owner: u64,
     serial: u64,
     screen: Screen,
-    scope: ScanScope,
     pending: Option<Task>,
-    requested_scan: Option<ScanScope>,
+    requested_scan: bool,
     observation: Option<ScanObservation>,
     selected: Option<PaneKey>,
     confirmation: Option<BindSelection>,
@@ -183,15 +177,14 @@ impl Controller {
             && self.form_focus
             && !self.pending.as_ref().is_some_and(|task| task.job.writes())
     }
-    pub fn new(owner: u64, scope: ScanScope) -> Self {
+    pub fn new(owner: u64) -> Self {
         Self {
             active: true,
             owner,
             serial: 0,
             screen: Screen::Intro,
-            scope,
             pending: None,
-            requested_scan: None,
+            requested_scan: false,
             observation: None,
             selected: None,
             confirmation: None,
@@ -248,24 +241,23 @@ impl Controller {
         self.changed();
         task
     }
-    fn scan(&mut self, scope: ScanScope) -> Option<Task> {
+    fn scan(&mut self) -> Option<Task> {
         if self.pending.as_ref().is_some_and(|t| t.job.writes()) {
             return None;
         }
         self.changed();
         self.observation = None;
-        self.scope = scope.clone();
         self.screen = Screen::Candidates;
         if self.pending.is_some() {
-            self.requested_scan = Some(scope);
+            self.requested_scan = true;
             None
         } else {
-            Some(self.issue(Job::Scan(scope)))
+            Some(self.issue(Job::Scan))
         }
     }
     pub(in crate::board) fn close(&mut self) {
         self.active = false;
-        self.requested_scan = None;
+        self.requested_scan = false;
         self.changed();
         // Pending ownership and all submitted outcomes survive closing.
     }
@@ -336,10 +328,10 @@ impl Controller {
         self.pending = None;
         self.changed();
         match completed.task.job {
-            Job::Scan(_) if !self.active => self.requested_scan = None,
-            Job::Scan(_) => {
-                if let Some(scope) = self.requested_scan.take() {
-                    next.task = Some(self.issue(Job::Scan(scope)));
+            Job::Scan if !self.active => self.requested_scan = false,
+            Job::Scan => {
+                if std::mem::take(&mut self.requested_scan) {
+                    next.task = Some(self.issue(Job::Scan));
                     return next;
                 }
                 match completed.result {
@@ -383,7 +375,7 @@ impl Controller {
                 self.result_index = self.attempts.len() - 1;
                 self.observation = None;
                 self.screen = Screen::Results;
-                self.requested_scan = None;
+                self.requested_scan = false;
             }
         }
         next
@@ -397,7 +389,7 @@ impl Controller {
             return None;
         }
         match id {
-            "scan" => return self.scan(self.scope.clone()),
+            "scan" => return self.scan(),
             // A cancelled confirm returns to the Form that asked for it, with the typed text,
             // where its reopen lands too.
             "cancel" if self.screen == Screen::Confirm => self.changed(),

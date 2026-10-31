@@ -41,6 +41,7 @@ pub(super) struct ObservedPane {
     pub command: String,
     pub cwd: String,
     pub text_truncated: bool,
+    pub agent_name: Option<String>,
     pub adoptable: bool,
     pub expect: Option<String>,
 }
@@ -108,6 +109,17 @@ fn optional_uuid(value: &Value) -> Result<Option<String>, SquadError> {
         uuid(value).map(Some)
     }
 }
+/// tmux pane keys are `%N`. Another host's key is in its driver's syntax,
+/// which Core admits; Ops checks only a bounded printable literal of 1 to
+/// 80 bytes that `tmt add` gets after `--`.
+fn pane_key(host: &str, pane: &str) -> bool {
+    if host == "tmux" {
+        return pane
+            .strip_prefix('%')
+            .is_some_and(|n| !n.is_empty() && n.bytes().all(|b| b.is_ascii_digit()));
+    }
+    (1..=80).contains(&pane.len()) && pane.bytes().all(|b| b.is_ascii_graphic())
+}
 fn digest(value: &Value) -> Result<Option<String>, SquadError> {
     let result = optional(value)?;
     if result.as_ref().is_some_and(|s| {
@@ -163,12 +175,7 @@ impl ScanObservation {
                 socket: optional(&row["socket"])?,
                 pane: text(&row["pane"])?,
             };
-            if key
-                .pane
-                .strip_prefix('%')
-                .is_none_or(|n| n.is_empty() || !n.bytes().all(|b| b.is_ascii_digit()))
-                || !keys.insert(key.clone())
-            {
+            if !pane_key(&key.host, &key.pane) || !keys.insert(key.clone()) {
                 return Err(invalid());
             }
             let state = text(&row["state"])?;
@@ -206,19 +213,20 @@ impl ScanObservation {
                 command: text(&row["display"]["command"])?,
                 cwd: text(&row["display"]["cwd"])?,
                 text_truncated: flag(&row["display"]["truncated"])?,
+                agent_name: optional(&row["display"]["agentName"])?,
                 adoptable: flag(&row["adoptable"])?,
                 expect: digest(&row["expect"])?,
                 key,
             };
             if [&pane.title, &pane.command, &pane.cwd]
-                .iter()
+                .into_iter()
+                .chain(&pane.agent_name)
                 .any(|s| s.len() > 1024)
             {
                 return Err(invalid());
             }
             if pane.adoptable
                 && (truncated
-                    || pane.key.host != "tmux"
                     || pane.key.socket.as_ref().is_none_or(|s| s.is_empty())
                     || pane.server.is_none()
                     || pane.native.is_none()
@@ -264,6 +272,7 @@ pub(super) enum BindReport {
         pane: String,
         lifetime: String,
         already_bound: bool,
+        agent_name: Option<HostAgentName>,
     },
     Refused {
         code: String,
@@ -273,6 +282,38 @@ pub(super) enum BindReport {
         code: String,
         message: String,
     },
+}
+/// What an external host said about its agent name after a bind. Display
+/// only: it never names or selects an identity.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(super) enum HostAgentName {
+    Set(String),
+    NotLinked,
+    NotSet(String),
+    Unconfirmed(String),
+}
+impl HostAgentName {
+    /// The `agentName` member, or its `AGENT_NAME_*` warning. A tmux bind has
+    /// neither. An unknown form is left out, since the bind itself succeeded.
+    fn decode(value: &Value) -> Option<Self> {
+        let member = &value["agentName"];
+        let text = |value: &Value| value.as_str().map(str::to_owned);
+        match member["status"].as_str() {
+            Some("set") => text(&member["name"]).map(Self::Set),
+            Some("not_linked") => Some(Self::NotLinked),
+            Some("refused") => text(&member["message"]).map(Self::NotSet),
+            _ => value["warnings"]
+                .as_array()?
+                .iter()
+                .find(|w| {
+                    w["code"]
+                        .as_str()
+                        .is_some_and(|c| c.starts_with("AGENT_NAME_"))
+                })
+                .and_then(|w| text(&w["message"]))
+                .map(Self::Unconfirmed),
+        }
+    }
 }
 impl BindReport {
     pub fn decode(
@@ -305,6 +346,7 @@ impl BindReport {
                     pane: selection.key.pane.clone(),
                     lifetime,
                     already_bound: value["status"] == "already_bound",
+                    agent_name: HostAgentName::decode(value),
                 })
             }
             Some("refused" | "partial") if !success => {

@@ -42,11 +42,48 @@ fn selector(selection: &BindSelection) -> String {
         AgentSelector::ExistingUuid(id) => format!("Existing identity UUID: {}", safe(id)),
     }
 }
+/// Where a row is: its tmux session, or another host's name and target.
+fn location(p: &model::ObservedPane) -> String {
+    match (&p.session, &p.target) {
+        (Some(session), _) => session.clone(),
+        (None, Some(target)) => format!("{} {target}", p.key.host),
+        (None, None) => p.key.host.clone(),
+    }
+}
+/// The plain-text fix for a host whose driver approval is not usable. Ops
+/// never runs it and binds no key to it.
+fn source_fix(source: &model::SourceObservation) -> Option<String> {
+    let host = safe(&source.host);
+    match source.reason.as_deref()? {
+        "driver_not_approved" => Some(format!(
+            "◆ Action needed: approve the {host} driver to scan it: tmt driver install {host}"
+        )),
+        "driver_approval_outdated" => Some(format!(
+            "◆ Action needed: approve the {host} driver again: tmt driver install {host}"
+        )),
+        // The approved first-party file is not in this release: install alone
+        // may not help.
+        "driver_not_shipped" => Some(format!(
+            "◆ Action needed: this tmt release does not ship the {host} driver. Upgrade tmt with: tmt upgrade, then approve it: tmt driver install {host}"
+        )),
+        _ => None,
+    }
+}
+fn agent_name_note(agent: &model::HostAgentName) -> String {
+    use model::HostAgentName::*;
+    match agent {
+        Set(name) => format!("Host agent name: set to \"{}\"", safe(name)),
+        NotLinked => "Host agent name: the host has no agent names".into(),
+        NotSet(message) => format!("Host agent name: not set: {}", safe(message)),
+        Unconfirmed(message) => format!("Host agent name: {}", safe(message)),
+    }
+}
 fn selection_notes(selection: &BindSelection) -> Vec<String> {
     vec![
         format!(
-            "Target: {} on {}",
+            "Target: {} on {} {}",
             safe(&selection.key.pane),
+            safe(&selection.key.host),
             safe(selection.key.socket.as_deref().unwrap_or("unknown"))
         ),
         selector(selection),
@@ -80,10 +117,7 @@ impl Controller {
                                     format!(
                                         "{} · {} · {}{}",
                                         safe(&p.key.pane),
-                                        preview(
-                                            p.session.as_deref().unwrap_or("session unknown"),
-                                            24
-                                        ),
+                                        preview(&location(p), 24),
                                         preview(
                                             p.identity
                                                 .as_ref()
@@ -184,9 +218,9 @@ impl Controller {
         let mut notes = vec![];
         match self.screen {
             Screen::Intro => {
-                notes.push("Find an agent you have already started in a tmux pane. Scan first, review a candidate, then choose a name or existing identity.".into());
+                notes.push("Find an agent you have already started in a terminal pane. Scan first, review a candidate, then choose a name or existing identity.".into());
                 notes.push("Nothing is bound until you confirm. Scanning does not install or start programs, extensions or hooks.".into());
-                notes.push("Discovery supports tmux. Herdr and standalone environments show an unsupported explanation.".into());
+                notes.push("The scan reads the terminal host this board runs in: tmux, or a host with an approved driver such as Herdr. A host it cannot read shows an explanation.".into());
                 notes.push("tmux guide: https://github.com/pj-tmt/tmt/blob/main/site/src/chapters/drv-tmux.mdx".into());
                 notes.push("Runtime and optional setup guide: https://github.com/pj-tmt/tmt/blob/main/site/src/chapters/drivers.mdx".into());
             }
@@ -208,12 +242,13 @@ impl Controller {
                                 .as_ref()
                                 .map_or(String::new(), |r| format!(" · {}", safe(r)))
                         ));
+                        notes.extend(source_fix(source));
                     }
                     if scan.truncated {
                         notes.push("Scan incomplete. Review the source explanation, then scan again; these rows cannot be bound.".into());
                     }
                     if scan.panes.is_empty() {
-                        notes.push("No candidate panes were observed. Start an agent in a tmux pane, check the selected server and permissions, then scan again.".into());
+                        notes.push("No candidate panes were observed. Start an agent in a terminal pane, check the selected server and permissions, then scan again.".into());
                     }
                     notes.push("Runtime hints do not prove an agent is ready. Open a candidate to inspect its evidence.".into());
                 }
@@ -226,12 +261,27 @@ impl Controller {
                         safe(&p.key.host),
                         safe(p.key.socket.as_deref().unwrap_or("unknown"))
                     ));
-                    notes.push(format!(
-                        "Session {} · window {} · target {}",
-                        safe(p.session.as_deref().unwrap_or("unknown")),
-                        safe(p.window.as_deref().unwrap_or("unknown")),
-                        safe(p.target.as_deref().unwrap_or("unknown"))
-                    ));
+                    // Another host has no session or window; show only what it reports.
+                    let place: Vec<_> = [
+                        ("Session", &p.session),
+                        ("window", &p.window),
+                        ("target", &p.target),
+                    ]
+                    .into_iter()
+                    .filter_map(|(label, value)| Some(format!("{label} {}", safe(value.as_ref()?))))
+                    .collect();
+                    if !place.is_empty() {
+                        let mut place = place.join(" · ");
+                        // Every label is an ASCII literal.
+                        place[..1].make_ascii_uppercase();
+                        notes.push(place);
+                    }
+                    if let Some(name) = &p.agent_name {
+                        notes.push(format!(
+                            "Host agent name: \"{}\" (from the host, not checked)",
+                            safe(name)
+                        ));
+                    }
                     notes.push(format!(
                         "Observation: {}{}{}",
                         safe(&p.state),
@@ -309,6 +359,13 @@ impl Controller {
                     Ok(BindReport::Partial{message,..})=>format!("◆ Action needed: {}. Binding may have changed; check this pane before trying again.",safe(message)),
                     Err(error)=>format!("{} Unknown: {}. Check this pane before deciding what to do next.",Mark::Warning.symbol(),safe(&error.message)),
                 });
+                    if let Ok(BindReport::Bound {
+                        agent_name: Some(agent),
+                        ..
+                    }) = &attempt.result
+                    {
+                        notes.push(agent_name_note(agent));
+                    }
                     notes.push("Nothing is retried automatically. Binding does not confirm that the agent is ready.".into());
                 }
             }

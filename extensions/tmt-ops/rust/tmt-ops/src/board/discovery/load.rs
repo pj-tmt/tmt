@@ -3,14 +3,11 @@ use super::model::{BindReport, BindSelection, ScanObservation};
 use crate::core::{Core, SquadError};
 use std::time::Duration;
 
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
-pub(crate) struct ScanScope {
-    pub host: Option<String>,
-    pub socket: Option<String>,
-}
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum Job {
-    Scan(ScanScope),
+    /// No host or socket option: Core's caller selection picks the host and
+    /// server, and reports a gap host beside tmux.
+    Scan,
     Bind(BindSelection),
 }
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -35,24 +32,13 @@ impl Job {
     /// Options and operands stay separate; even an option-like name is literal.
     pub(super) fn arguments(&self) -> (Vec<String>, Vec<String>) {
         match self {
-            Self::Scan(scope) => {
-                let mut args = vec!["discover".into()];
-                if let Some(host) = &scope.host {
-                    args.extend(["--host".into(), host.clone()]);
-                }
-                if let Some(socket) = &scope.socket {
+            Self::Scan => (vec!["discover".into()], vec![]),
+            Self::Bind(selection) => {
+                // The row's own socket: an adoptable row always has one.
+                let mut args = vec!["add".into(), "--expect".into(), selection.expect.clone()];
+                if let Some(socket) = &selection.key.socket {
                     args.extend(["--socket".into(), socket.clone()]);
                 }
-                (args, vec![])
-            }
-            Self::Bind(selection) => {
-                let mut args = vec![
-                    "add".into(),
-                    "--expect".into(),
-                    selection.expect.clone(),
-                    "--socket".into(),
-                    selection.key.socket.clone().expect("reviewed tmux socket"),
-                ];
                 let mut operands = vec![selection.key.pane.clone()];
                 match &selection.selector {
                     super::model::AgentSelector::NewName(name) => operands.push(name.clone()),
@@ -77,24 +63,7 @@ fn execute(core: &Core, job: &Job) -> Result<Outcome, SquadError> {
     let args: Vec<_> = args.iter().map(String::as_str).collect();
     let operands: Vec<_> = operands.iter().map(String::as_str).collect();
     match job {
-        Job::Scan(scope) => {
-            let value = core.json(&args)?;
-            let observation = ScanObservation::decode(&value)?;
-            if scope
-                .host
-                .as_ref()
-                .is_some_and(|host| observation.sources.iter().any(|s| s.host != *host))
-                || scope.socket.as_ref().is_some_and(|socket| {
-                    observation
-                        .sources
-                        .iter()
-                        .any(|s| s.socket.as_ref() != Some(socket))
-                })
-            {
-                return Err(super::model::invalid());
-            }
-            Ok(Outcome::Scan(observation))
-        }
+        Job::Scan => ScanObservation::decode(&core.json(&args)?).map(Outcome::Scan),
         Job::Bind(selection) => {
             // The common process owner bounds and reaps the command. Guarded add
             // can publish refused/partial evidence on a nonzero exit.

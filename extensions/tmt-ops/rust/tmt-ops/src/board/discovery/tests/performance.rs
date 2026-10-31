@@ -8,14 +8,29 @@ use crate::board::{
 use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use ratatui::{Terminal, layout::Rect};
 
+/// Half tmux and half Herdr rows: Herdr rows have no session or window and
+/// carry a host agent name.
 fn inventory() -> ScanObservation {
     let mut value = document();
     let prototype = value["candidates"][0].clone();
+    value["sources"].as_array_mut().unwrap().push(
+        json!({"host":"herdr","socket":"/tmp/private-herdr.sock","status":"ok","reason":null}),
+    );
     value["candidates"] = Value::Array(
         (0..256)
             .map(|i| {
                 let mut pane = prototype.clone();
-                pane["pane"] = format!("%{i}").into();
+                if i % 2 == 0 {
+                    pane["pane"] = format!("%{i}").into();
+                } else {
+                    pane["host"] = "herdr".into();
+                    pane["socket"] = "/tmp/private-herdr.sock".into();
+                    pane["session"] = Value::Null;
+                    pane["window"] = Value::Null;
+                    pane["pane"] = format!("term_{i:x}").into();
+                    pane["target"] = format!("w{i}:p1").into();
+                    pane["display"]["agentName"] = "literal agent ".repeat(70).into();
+                }
                 pane["display"]["title"] = "literal title ".repeat(70).into();
                 pane["display"]["cwd"] = "/private/observed/".repeat(55).into();
                 pane
@@ -26,7 +41,7 @@ fn inventory() -> ScanObservation {
 }
 fn observed(app: &mut App, scan: ScanObservation) {
     let controller = app.discovery.as_mut().unwrap();
-    let task = controller.scan(scope()).unwrap();
+    let task = controller.scan().unwrap();
     controller.loaded(load::Completed {
         task,
         result: Ok(Outcome::Scan(scan)),
