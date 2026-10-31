@@ -25,9 +25,9 @@ fn rename(app: &mut App, name: &str) -> Rename {
     request
 }
 #[test]
-fn rename_has_no_factory_key_and_hidden_target_cannot_begin() {
+fn rename_shortcut_is_bound_and_hidden_target_cannot_begin() {
     let mut app = board();
-    assert!(!app.bindings().contains_key("r"));
+    assert_eq!(app.bindings()["r"].text, "rename");
     let tab = OpsTab::Digest;
     app.shell.tab = tab;
     assert!(!app.bindings().contains_key("r"));

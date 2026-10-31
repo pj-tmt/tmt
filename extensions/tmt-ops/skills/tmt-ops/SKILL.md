@@ -345,8 +345,12 @@ by oldest proven request, then unknown age and name/UUID; no waiting duration is
 shown. Blocked state alone does not imply waiting. A squad selection messages its
 observed lead; an agent selection uses that exact member. Missing evidence refuses
 rather than choosing another recipient. Search and refresh retain hidden UUID
-anchors. `e` opens full observed member values. `R` opens Session for the selected
-agent in either list or conversation focus. Host / Session shows the observed host
+anchors. `e` edits the selected agent or squad. `r` opens that same form with
+Name focused and the caret at the end. A name-only change shows Enter rename;
+Enter saves through the same writer. Other kept edits show Enter next and Enter
+moves to Save for explicit review. Esc keeps the draft. Full observed values are
+under Measure. Actions → Member session opens Session for the selected agent;
+there is no default R binding, and Help lists the action. Host / Session shows the observed host
 and remembered/unavailable state and yields first at narrow widths. Core's explicit
 `session.unbound: true` instead shows `! unbound`; a missing or null field does not imply it.
 Session explains the unbound provider session, previews and offers **Copy command** for its exact
@@ -587,7 +591,7 @@ In Agents, `n` opens New member on any row; `p` pins/unpins a squad. `N`
 creates a squad on a squad row or the Common pool, `C` opens the member's Checklist on a
 member row, `m` manages a squad or moves an agent in place, and `x` leaves only the
 selected squad membership. The Agents footer is one line of the keys the selected
-row needs; on a member row: `↑↓←→ move  ⏎ chat  n new  S switch tool  m move  x leave squad  R resume  C checklist  / search  ? help  q quit`.
+row needs; on a member row: `↑↓←→ move  ⏎ chat  n new  e edit  r rename  m move  x leave squad  C checklist  / search  ? help  q quit`.
 Squad, Common pool and Hidden group rows show their own keys. Narrow widths drop whole row
 keys from the right and keep search, help and quit; every other key still works and is listed in `?`.
 While the reply pane is focused, its selection guidance takes that line.
@@ -600,8 +604,27 @@ Right-click a visible Agents row to select it and open Actions, or open Settings
 (default comma) and choose Actions. With list focus, Rename agent and Remove member are named menu
 entries without default keys. Remove member is a copy-only retirement review: stop the agent first and
 recheck the displayed name before running the copied command. Retirement does
-not stop the agent or close its window. Member `S switch tool` is not
-available yet. `D` opens Digest and `c` opens Timers outside a modal.
+not stop the agent or close its window. `D` opens Digest and `c` opens Timers outside a modal.
+
+On Agents, `e` opens Edit for the selected agent or squad. An agent form has Name,
+AI tool, Model, Effort and Squad; Host and Session stay fixed. The model and effort
+start from the recorded resume settings, with the last observed model shown
+separately. A tool change clears incompatible choices. An empty same-tool choice
+means keep current; a changed tool uses its remembered/default setting. Clearing
+an individual recorded override is not offered. Runs shows only changed operations;
+unchanged or invalid forms cannot Save. Save applies rename, the selected membership
+change and one coalesced runtime resume in that order. A requested setting is not
+an observed setting: unavailable model/effort evidence stays Unknown. A copy-only
+host offers Copy command; copying runs nothing and leaves every other edit unsaved.
+
+Squad `e` edits Name, Idle alert, After and Hidden. After accepts a typed duration
+or the existing 15m/30m/1h/2h presets. Only the selected membership moves; other
+memberships remain. Common pool is offered as a destination only for a single
+membership, where it means leave. From Common pool, choosing a squad adds one.
+Default member S and the separate i shortcut are folded into Edit; squad S still
+shows a hidden squad. The read-only full monitor values remain under Measure's
+Observed values control and named action, including UUID, memberships and long
+values. `e` does not open that reader.
 
 A squad member's header shows its Checklist chip, `Checklist · 2 todo`
 (`Checklist · empty` for an empty list), led by its key as a keycap like the tab labels
@@ -1061,11 +1084,14 @@ reviewed; the same key reopens it, titled with its target, with Discard beside C
 drop it. ↓ past a field's last line reaches those buttons, ←→ move between them and ↑
 goes back. Member actions reopen only from the Agents list. One draft is kept at a time:
 starting a different management form drops it, and the status line says
-`Dropped the kept <form> draft.` Switch tool (`S`) keeps its form or review the same way and
-reopens it on the same agent with Discard; Back steps from the review to the form. On another
-agent `S` starts fresh and says `Dropped the kept Switch tool draft for <agent>.`; a running
-switch or its result reopens from any agent. In the form ↑↓ move between AI tool, Model and
-the buttons, and ←→ choose an observed value.
+`Dropped the kept <form> draft.` Edit keeps its own frozen target and uses the shared
+form keys: ↑↓ fields/footer, ←→ choices/buttons or the text caret, Enter opens a
+choice list or activates the selected button, and Tab does nothing. Esc closes a
+choice list first; Esc/Cancel on the form keeps it. Reopening offers Discard. A
+changed or missing original target never retargets the kept draft: it remains
+accessible through Cancel and Discard, with no Save offered. Closing a running Save only hides it;
+reopening shows that same operation/result, never another launch. Explicit
+authored switch-tool bindings retain their review.
 Results retain per-item success/failure and explicit repair guidance, with no
 automatic retry; Enter or Esc closes a result. `x` removes membership, not an identity, process, draft or history.
 Source timers pause before leave; re-add/reassign never resumes them. Explicit
@@ -1344,7 +1370,8 @@ The scan is a second duty of the cron clock. A clock must run, with a board open
 
 In Agents, the squad row's MODEL / ALERT cell shows `◷ 30m` when enabled or `○ off`
 when disabled; Common pool has no setting. Hover highlights the editable cell. Click it, or
-press `i` on a squad or member, to open `Idle alert · <squad>`. A flat-list member in several
+use squad `e` to edit Idle alert and After together with the squad's name and visibility.
+The cell's quick Idle alert editor remains available; a flat-list member in several
 squads first chooses one. Authored bindings take precedence. Use On/Off chips, type After or
 choose 15m/30m/1h/2h; ↑↓ changes rows and ←→ changes choices. The dialog previews who would
 no longer count as over. Invalid times refuse Save; Esc/Cancel saves nothing and keeps an

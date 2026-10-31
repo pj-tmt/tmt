@@ -3,18 +3,26 @@ use super::super::{app::App, host_launch::Loaded, workspace::OpsTarget};
 use serde_json::{Value, json};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(super) struct Source {
+pub(in crate::board) struct Source {
     pub target: OpsTarget,
     pub name: String,
     pub observation: Value,
 }
 fn observation(row: &Value) -> Value {
-    json!({"location":row["location"], "runningDriver":row["runningDriver"],
+    json!({"pane":row["pane"], "location":row["location"], "runningDriver":row["runningDriver"],
         "driverSupport":row["driverSupport"], "unbound":row["session"]["unbound"],
-        "driver":row["resume"]["driver"], "session":row["resume"]["session"],
+        "driver":row["resume"]["driver"], "model":row["resume"]["model"], "session":row["resume"]["session"],
         "staleAtMs":row["resume"]["staleAtMs"]})
 }
 impl Source {
+    pub fn frozen(target: OpsTarget, name: String, row: &Value) -> Self {
+        Self {
+            target,
+            name,
+            observation: observation(row),
+        }
+    }
+
     pub fn from_app(app: &App) -> Option<Self> {
         let target = app.workspace_selected_member()?.clone();
         let OpsTarget::Member { identity_id, .. } = &target else {
@@ -50,8 +58,13 @@ impl Source {
             .or_else(|| self.observation["driver"].as_str())
             .unwrap_or("unknown")
     }
+    pub fn same_runtime_observation(&self, row: &Value) -> bool {
+        let current = observation(row);
+        let held = self.observation.clone();
+        current == held
+    }
     pub fn matches(&self, row: &Value) -> bool {
-        row["id"] == self.id() && observation(row) == self.observation
+        row["id"] == self.id() && self.same_runtime_observation(row)
     }
     pub fn still_selected(&self, app: &App) -> bool {
         Self::from_app(app)
@@ -63,6 +76,7 @@ pub(in crate::board) struct Review {
     pub source: Source,
     pub driver: String,
     pub model: String,
+    pub effort: Option<String>,
     pub command: Vec<String>,
     pub outer: Option<Vec<String>>,
     pub display_command: Vec<String>,
@@ -75,11 +89,36 @@ impl Review {
         model: &str,
         loaded: &Loaded,
     ) -> Result<Self, String> {
-        if driver.is_empty() || driver.starts_with('-') || driver.chars().any(char::is_control) {
-            return Err("Choose an AI tool executable.".into());
-        }
         if driver == source.driver() {
             return Err("Choose a different AI tool.".into());
+        }
+        Self::prepare(source, driver, model, None, loaded)
+    }
+    pub fn for_edit(
+        source: &Source,
+        driver: &str,
+        model: &str,
+        effort: Option<&str>,
+        loaded: &Loaded,
+    ) -> Result<Self, String> {
+        if driver == source.driver()
+            && source.observation["pane"]
+                .as_str()
+                .is_none_or(str::is_empty)
+        {
+            return Err("The current container identity is unavailable; reopen before editing same-tool settings.".into());
+        }
+        Self::prepare(source, driver, model, effort, loaded)
+    }
+    fn prepare(
+        source: &Source,
+        driver: &str,
+        model: &str,
+        effort: Option<&str>,
+        loaded: &Loaded,
+    ) -> Result<Self, String> {
+        if driver.is_empty() || driver.starts_with('-') || driver.chars().any(char::is_control) {
+            return Err("Choose an AI tool executable.".into());
         }
         if model.chars().any(char::is_control) {
             return Err("Model cannot contain control characters.".into());
@@ -97,6 +136,12 @@ impl Review {
         if !model.is_empty() {
             command.push(format!("--model={model}"));
         }
+        if let Some(effort) = effort {
+            if effort.is_empty() || effort.chars().any(char::is_control) {
+                return Err("Choose a valid effort.".into());
+            }
+            command.push(format!("--effort={effort}"));
+        }
         command.extend(["--".into(), source.id().into()]);
         let outer = loaded
             .prepare(source.host(), source.session(), &command)
@@ -110,6 +155,7 @@ impl Review {
             source: source.clone(),
             driver: driver.into(),
             model: model.into(),
+            effort: effort.map(str::to_owned),
             command,
             outer,
             display_command,
@@ -161,5 +207,12 @@ impl Review {
             && row["location"]["session"] == self.source.session()
             && row["runningDriver"] == self.driver
             && row["session"]["unbound"] != true
+            && (self.driver != self.source.driver()
+                || row["pane"]
+                    .as_str()
+                    .zip(self.source.observation["pane"].as_str())
+                    .is_some_and(|(current, previous)| {
+                        !current.is_empty() && !previous.is_empty() && current != previous
+                    }))
     }
 }

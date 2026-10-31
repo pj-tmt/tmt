@@ -402,16 +402,13 @@ fn opening_factory_table_never_bakes_authored_commands_into_reset_inheritance() 
 }
 
 #[test]
-fn member_session_has_one_factory_binding_in_rows_and_reader() {
+fn member_session_has_no_factory_binding_in_rows_and_reader() {
     for scope in [
         crate::config::OpsKeyScope::Member,
         crate::config::OpsKeyScope::Reader,
     ] {
         let keys = crate::config::workspace_defaults(scope);
-        assert_eq!(
-            keys.get("R").map(|action| action.text.as_str()),
-            Some("member-session")
-        );
+        assert!(!keys.contains_key("R"));
     }
 }
 
@@ -419,7 +416,7 @@ fn member_session_has_one_factory_binding_in_rows_and_reader() {
 fn member_session_opens_a_placeholder_without_running_a_command() {
     let mut app = configured_member("", json!({"id":MEMBER,"name":"worker"}));
     let _no_commands = crate::runner::forbid_commands();
-    let _effect = key(&mut app, KeyCode::Char('R'));
+    let _effect = app.perform(&Action::parse("member-session").unwrap());
     assert!(
         app.modal_open(),
         "Session opens immediately before a worker read can finish"
@@ -451,7 +448,7 @@ fn session_opens_in_conversation_focus_without_starting_a_command() {
     assert_eq!(app.workspace_scope(), OpsKeyScope::Reader);
     let _ui = crate::runner::forbid_commands();
     assert!(matches!(
-        key(&mut app, KeyCode::Char('R')),
+        app.perform(&Action::parse("member-session").unwrap()),
         Effect::MemberSession(_)
     ));
     assert!(paint(&app, 160, 36).join("\n").contains("Loading session"));

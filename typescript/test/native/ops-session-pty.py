@@ -67,8 +67,9 @@ def read_output(timeout):
         query_tail = query_tail[-16:]
 
 
-def wait_for(predicate, label):
-    deadline = time.monotonic() + 25
+def wait_for(predicate, label, deadline=None):
+    if deadline is None:
+        deadline = time.monotonic() + 25
     # A PTY read can stop mid-paint. Never admit a key from a mixture of
     # the previous modal and its replacement; Crossterm ends each paint here.
     while not (output.endswith((b"\x1b[?25l", b"\x1b[?25h")) and predicate()):
@@ -78,9 +79,52 @@ def wait_for(predicate, label):
 
 
 def open_session():
+    # Session has no default key. Use the selected row's real Actions menu;
+    # keep the original 25 s bound across opening, selection and public read.
+    deadline = time.monotonic() + 25
+    rows = ["".join(row) for row in screen.cells]
+    row = next(index for index, line in enumerate(rows) if "└" in line and "worker" in line)
+    column = rows[row].index("worker")
     before = len(output)
-    os.write(master, b"R")
-    wait_for(lambda: len(output) > before and screen.contains("Launch preset:"), "session public read completed")
+    os.write(master, f"\x1b[<2;{column + 1};{row + 1}M\x1b[<2;{column + 1};{row + 1}m".encode())
+    wait_for(lambda: len(output) > before and screen.contains("Enter runs · Esc closes"),
+             "selected agent Actions menu", deadline)
+
+    # Actions paints its cursor directly beside the selected label. Wait for
+    # that selection to change after each Down: an unrelated refresh paint
+    # must not admit another key and queue movement beyond Member session.
+    def selection():
+        rows = ["".join(row) for row in screen.cells]
+        footer = next(line for line in rows if "Enter runs · Esc closes" in line)
+        label = footer.index("Enter runs · Esc closes")
+        left = footer.rfind("│", 0, label)
+        right = footer.find("│", label)
+        assert 0 <= left < right, "Actions menu has no painted bounds"
+        return tuple((index, line[left + 1:right]) for index, line in enumerate(rows)
+                     if "›" in line[left + 1:right])
+
+    def session_selected():
+        return any("Member session" in line
+                   and line.split("Member session", 1)[0].rstrip().endswith("›")
+                   for _, line in selection())
+
+    for _ in range(80):
+        if session_selected():
+            break
+        previous = selection()
+        os.write(master, b"\x1b[B")
+        wait_for(lambda: selection() != previous and screen.contains("Enter runs · Esc closes"),
+                 "Actions selection advanced", deadline)
+    else:
+        raise AssertionError("Member session never selected in the agent Actions menu")
+    selected_frame = "\n".join("".join(row) for row in screen.cells)
+    before = len(output)
+    os.write(master, b"\r")
+    try:
+        wait_for(lambda: len(output) > before and screen.contains("Launch preset:"),
+                 "session public read completed", deadline)
+    except AssertionError as error:
+        raise AssertionError("Actions frame before Enter:\n" + selected_frame) from error
 
 
 def open_review():

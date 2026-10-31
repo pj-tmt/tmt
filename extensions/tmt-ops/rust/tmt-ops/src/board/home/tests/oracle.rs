@@ -898,7 +898,13 @@ fn new_member_frames(styles: &mut Styles) -> Vec<Value> {
     scene_group(
         styles,
         crate::board::new_member::tests::captures::SCENES,
-        |_| grid(&[80, 150], &[43, 8]),
+        |scene| {
+            if scene.starts_with("edit-") {
+                grid(&[60, 100, 160], &[36, 8])
+            } else {
+                grid(&[80, 150], &[43, 8])
+            }
+        },
         |scene, look, _, _| crate::board::new_member::tests::captures::case(scene, look),
         |captured, app| {
             captured["newMember"] = crate::board::new_member::tests::captures::metadata(app);

@@ -10,7 +10,7 @@ use super::{
 };
 pub(in crate::board) use load::{Completed, Task, complete};
 use load::{Outcome, Work};
-use model::{Review, Source};
+pub(in crate::board) use model::{Review, Source};
 use ratatui::{
     crossterm::event::{Event, KeyCode, KeyEventKind, KeyModifiers, MouseButton, MouseEventKind},
     layout::Rect,
@@ -293,7 +293,7 @@ impl App {
             Ok(Outcome::Loaded(loaded)) if c.stage == Stage::Form => c.loaded = Some(*loaded),
             Ok(Outcome::Loaded(_)) => {}
             Ok(Outcome::Switched(text)) => {
-                c.finish(ResultKind::Switched, text);
+                c.finish(ResultKind::Switched, text.message);
                 refresh = true;
             }
             Ok(Outcome::Unknown(text)) => c.finish(ResultKind::Unknown, text),
@@ -541,4 +541,29 @@ impl App {
         }
         Some(Effect::None)
     }
+}
+
+/// Edit reuses the single switch launch and observation owner.
+pub(in crate::board) struct EditOutcome {
+    pub confirmed: bool,
+    pub message: String,
+    pub model: Option<String>,
+}
+pub(in crate::board) fn apply_edit(
+    core: &crate::core::Core,
+    review: &Review,
+) -> Result<EditOutcome, crate::core::SquadError> {
+    load::launch(core, review, std::time::Duration::from_secs(90)).map(|outcome| match outcome {
+        Outcome::Switched(observed) => EditOutcome {
+            confirmed: true,
+            message: observed.message,
+            model: observed.model,
+        },
+        Outcome::Unknown(message) => EditOutcome {
+            confirmed: false,
+            message,
+            model: None,
+        },
+        Outcome::Loaded(_) => unreachable!(),
+    })
 }

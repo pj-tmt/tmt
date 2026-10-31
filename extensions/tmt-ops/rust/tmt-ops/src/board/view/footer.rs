@@ -366,7 +366,8 @@ fn agents_legend(app: &App) -> Option<Hints> {
     let row: &[(Ui, &str, &str)] = if app.workspace_selected_member().is_some() {
         &[
             (Ui::NewMember, "n", "new"),
-            (Ui::SwitchTool, "S", "switch tool"),
+            (Ui::Edit, "e", "edit"),
+            (Ui::Rename, "r", "rename"),
             (Ui::MoveMembership, "m", "move"),
             (Ui::RemoveMembership, "x", "leave squad"),
             (Ui::MemberSession, "R", "resume"),
@@ -382,7 +383,8 @@ fn agents_legend(app: &App) -> Option<Hints> {
             {
                 &[
                     (Ui::NewMember, "n", "new"),
-                    (Ui::IdleAlert, "i", "idle alert"),
+                    (Ui::Edit, "e", "edit"),
+                    (Ui::Rename, "r", "rename"),
                     (Ui::Manage, "m", "manage"),
                     (Ui::CreateSquad, "N", "create squad"),
                     (Ui::ShowSquad, "S", ""),
@@ -390,7 +392,8 @@ fn agents_legend(app: &App) -> Option<Hints> {
             }
             Some(OpsTarget::Squad(_)) => &[
                 (Ui::NewMember, "n", "new"),
-                (Ui::IdleAlert, "i", "idle alert"),
+                (Ui::Edit, "e", "edit"),
+                (Ui::Rename, "r", "rename"),
                 (Ui::Manage, "m", "manage"),
                 (Ui::CreateSquad, "N", "create squad"),
                 (Ui::HideSquad, "H", ""),
@@ -856,13 +859,14 @@ mod tests {
         });
         assert_eq!(
             agents_hints(&member, 1000).unwrap(),
-            "↑↓←→ move  ⏎ chat  n new  S switch tool  m move  x leave squad  R resume  C checklist  / search  ? help  q quit"
+            "↑↓←→ move  ⏎ chat  n new  e edit  r rename  m move  x leave squad  C checklist  / search  ? help  q quit"
         );
         let squad = agents_hints(&selected(OpsTarget::Squad(ROOM.into())), 1000).unwrap();
         assert!(
             squad.starts_with("↑↓←→ move  ⏎ ")
-                && squad
-                    .contains("  n new  i idle alert  m manage  N create squad  H Hide squad  ")
+                && squad.contains(
+                    "  n new  e edit  r rename  m manage  N create squad  H Hide squad  "
+                )
                 && squad.ends_with("/ search  ? help  q quit"),
             "{squad}"
         );

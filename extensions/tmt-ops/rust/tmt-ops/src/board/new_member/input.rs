@@ -3,6 +3,13 @@ use super::model::Slot;
 use super::*;
 impl App {
     pub(in crate::board) fn new_member_event(&mut self, event: &Event) -> Option<Effect> {
+        if self
+            .new_member
+            .as_ref()
+            .is_some_and(|c| c.shown && c.edit.is_some())
+        {
+            return self.member_edit_event(event);
+        }
         let c = self.new_member.as_mut().filter(|c| c.shown)?;
         if matches!(event, Event::Resize(..)) {
             c.invalidate();

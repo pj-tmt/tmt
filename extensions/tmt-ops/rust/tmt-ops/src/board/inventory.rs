@@ -85,6 +85,7 @@ impl Inventory {
                         parameters: serde_json::Value::Object(
                             [
                                 "runningDriver",
+                                "pane",
                                 "driverSupport",
                                 "resume",
                                 "location",

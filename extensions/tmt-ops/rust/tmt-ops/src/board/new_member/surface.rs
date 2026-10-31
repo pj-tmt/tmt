@@ -97,6 +97,10 @@ impl Controller {
         }
     }
     pub fn render(&self, frame: &mut Frame, app: &App, look: Look, body: Rect) {
+        if self.edit.is_some() {
+            self.render_edit(frame, app, look, body);
+            return;
+        }
         self.fields.borrow_mut().clear();
         self.controls.set([None, None]);
         self.readable.set(false);
@@ -157,7 +161,7 @@ impl Controller {
                 let list = self.list.as_ref().unwrap();
                 paint(
                     frame,
-                    &format!("{} · type to filter", list.slot.label()),
+                    &format!("{} · type to filter", list.field.label()),
                     0,
                     Role::Muted,
                 );

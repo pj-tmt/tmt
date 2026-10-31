@@ -996,14 +996,8 @@ fn focus_uses_held_identity_stat_tiles_and_uuid_fenced_details_action() {
         "retired inline controls grant no hits"
     );
     let selected = app.workspace.selected.clone().unwrap();
-    let action = app
-        .workspace_bindings()
-        .into_iter()
-        .find(|(_, action)| {
-            action.verb == crate::action::Verb::Ui(crate::action::OpsUiAction::MonitorDetails)
-        })
-        .unwrap()
-        .1;
+    // Observed values live under Measure/Actions rather than a default key.
+    let action = crate::action::Action::parse("monitor-details").unwrap();
     app.perform(&action);
     assert_eq!(app.monitor_details.as_ref().unwrap().target, selected);
     assert!(app.input.is_none());

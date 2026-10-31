@@ -1,4 +1,5 @@
 //! New-member form and one confirmed host-template launch on the action lane.
+mod edit;
 mod input;
 mod load;
 mod model;
@@ -60,12 +61,14 @@ enum Control {
 /// A field's open list: typing filters it, and its free-form row takes the filter text.
 #[derive(Clone, Debug)]
 struct List {
-    slot: model::Slot,
+    dialog: tmt_tui::components::DialogState,
+    field: edit::Field,
     filter: Editor,
     row: usize,
 }
 pub(in crate::board) struct Controller {
     owner: u64,
+    edit: Option<edit::Edit>,
     destination: Destination,
     draft: model::Draft,
     loaded: Option<Loaded>,
@@ -90,6 +93,9 @@ pub(in crate::board) struct Controller {
 }
 impl Controller {
     pub fn invalidate(&self) {
+        if let Some(edit) = &self.edit {
+            *edit.hits.borrow_mut() = Default::default();
+        }
         self.readable.set(false);
         self.fields.borrow_mut().clear();
         self.controls.set([None, None]);
@@ -144,14 +150,35 @@ impl Controller {
         let at = stops.iter().position(|s| *s == self.at).unwrap_or(0);
         self.at = stops[(at + if back { stops.len() - 1 } else { 1 }) % stops.len()];
     }
-    /// The open list's rows that match its filter.
+    fn list_choices(&self, field: edit::Field) -> Vec<model::Choice> {
+        let Some(loaded) = &self.loaded else {
+            return vec![];
+        };
+        match field {
+            edit::Field::Member(slot) => self
+                .edit_choices(slot)
+                .unwrap_or_else(|| self.draft.choices(slot, loaded)),
+            edit::Field::After => ["15m", "30m", "1h", "2h"]
+                .into_iter()
+                .map(|value| model::Choice {
+                    label: value.into(),
+                    value: Some(value.into()),
+                })
+                .chain([model::Choice {
+                    label: "Type a duration…".into(),
+                    value: None,
+                }])
+                .collect(),
+            _ => vec![],
+        }
+    }
+    /// One choice-list owner serves New member fields and Edit's After presets.
     fn rows(&self) -> Vec<model::Choice> {
-        let (Some(list), Some(loaded)) = (&self.list, &self.loaded) else {
+        let Some(list) = &self.list else {
             return vec![];
         };
         let filter = list.filter.as_str().to_lowercase();
-        self.draft
-            .choices(list.slot, loaded)
+        self.list_choices(list.field)
             .into_iter()
             .filter(|c| c.value.is_none() || c.label.to_lowercase().contains(&filter))
             .map(|mut c| {
@@ -163,21 +190,32 @@ impl Controller {
             .collect()
     }
     fn open_list(&mut self, slot: model::Slot) {
-        let Some(loaded) = &self.loaded else { return };
-        let current = self.draft.text(slot);
+        self.open_field_list(edit::Field::Member(slot));
+    }
+    fn open_field_list(&mut self, field: edit::Field) {
+        if self.loaded.is_none() {
+            return;
+        }
+        let current = match field {
+            edit::Field::Member(slot) => self.draft.text(slot),
+            edit::Field::After => self.edit.as_ref().map_or("", |e| e.after.as_str()),
+            _ => "",
+        };
         let row = self
-            .draft
-            .choices(slot, loaded)
+            .list_choices(field)
             .iter()
             .position(|c| c.value.as_deref() == Some(current))
             .unwrap_or(0);
         self.list = Some(List {
-            slot,
+            dialog: tmt_tui::components::DialogState::new(
+                &[tmt_tui::components::FieldKind::Text],
+                &[tmt_tui::components::Button::primary("Back")],
+            ),
+            field,
             filter: Editor::default(),
             row,
         });
     }
-    /// Takes the open list's row. The free-form row with no filter leaves the field to type in.
     fn choose(&mut self, row: usize) {
         let rows = self.rows();
         let Some(list) = self.list.take() else { return };
@@ -185,19 +223,29 @@ impl Controller {
             self.list = Some(list);
             return;
         };
-        match &choice.value {
-            Some(value) => self.draft.set(list.slot, value),
-            None if list.filter.is_empty() => self.draft.set(list.slot, ""),
-            None => self.draft.set(list.slot, list.filter.as_str()),
+        let value = choice
+            .value
+            .as_deref()
+            .or_else(|| (!list.filter.is_empty()).then(|| list.filter.as_str()));
+        match list.field {
+            edit::Field::Member(slot) => {
+                self.draft.set(slot, value.unwrap_or(""));
+                self.at = Focus::Slot(slot);
+            }
+            edit::Field::After => {
+                if let (Some(edit), Some(value)) = (&mut self.edit, value) {
+                    edit.after = Editor::from(value);
+                }
+            }
+            _ => {}
         }
-        self.at = Focus::Slot(list.slot);
     }
     /// ←→ on a listed field: the next or previous fixed choice.
     fn cycle(&mut self, slot: model::Slot, back: bool) {
         let Some(loaded) = &self.loaded else { return };
         let choices: Vec<_> = self
-            .draft
-            .choices(slot, loaded)
+            .edit_choices(slot)
+            .unwrap_or_else(|| self.draft.choices(slot, loaded))
             .into_iter()
             .filter_map(|c| c.value)
             .collect();
@@ -255,11 +303,16 @@ impl App {
     /// the same key; a running launch or template save hides and keeps going; a load, the host
     /// list or a result closes.
     pub(in crate::board) fn new_member_close(&mut self) -> Effect {
-        let reopen = self.new_member_reopen_hint();
+        let reopen = if self.new_member.as_ref().is_some_and(|c| c.edit.is_some()) {
+            "Press e on this target to reopen Edit.".into()
+        } else {
+            self.new_member_reopen_hint()
+        };
         let Some(c) = &mut self.new_member else {
             return Effect::None;
         };
         let running = match c.stage {
+            Stage::Launching if c.edit.is_some() => "Saving changes",
             Stage::Launching => "Launching",
             Stage::Saving => "Saving the launch template",
             Stage::Form | Stage::Template if c.loaded.is_some() => {
@@ -284,8 +337,17 @@ impl App {
         self.say(&text)
     }
     fn open_member_form(&mut self, destination: Destination) -> Effect {
+        if self
+            .new_member
+            .as_ref()
+            .is_some_and(|c| !c.shown && c.edit.is_some())
+        {
+            return self.say("An Edit draft is kept. Reopen its target with e and discard it before creating a member.");
+        }
+
         if let Some(c) = &mut self.new_member
             && !c.shown
+            && c.edit.is_none()
         {
             c.shown = true;
             // Discard joins the row; the focused button stays the same button.
@@ -313,6 +375,7 @@ impl App {
         self.new_member_generation += 1;
         let c = Controller {
             owner: self.new_member_generation,
+            edit: None,
             destination,
             draft: model::Draft::from_app(self),
             loaded: None,
@@ -357,8 +420,34 @@ impl App {
         }
         effect
     }
-    fn finish_new_member(&mut self, completed: Completed) -> Effect {
-        let created = if let Ok(Outcome::Created { id, room, .. }) = &completed.result {
+    fn finish_new_member(&mut self, mut completed: Completed) -> Effect {
+        completed.result = match completed.result {
+            Ok(Outcome::EditLoaded { loaded, preset }) => {
+                if let Some(c) = self
+                    .new_member
+                    .as_mut()
+                    .filter(|c| c.owner == completed.task.owner && c.edit.is_some())
+                {
+                    c.load_edit_preset(preset);
+                }
+                Ok(Outcome::Loaded(loaded))
+            }
+            other => other,
+        };
+        let owned = self
+            .new_member
+            .as_ref()
+            .is_some_and(|c| c.owner == completed.task.owner);
+        let edited = matches!(&completed.result, Ok(Outcome::Edited { .. }));
+        let preferences = if owned {
+            match &completed.result {
+                Ok(Outcome::Edited { preferences, .. }) => preferences.clone(),
+                _ => None,
+            }
+        } else {
+            None
+        };
+        let created = if owned && let Ok(Outcome::Created { id, room, .. }) = &completed.result {
             Some(OpsTarget::Member {
                 room_id: room.clone(),
                 identity_id: id.clone(),
@@ -372,14 +461,19 @@ impl App {
             && c.owner == completed.task.owner
         {
             match completed.result {
+                Ok(Outcome::EditLoaded { .. }) => {
+                    unreachable!("Edit settings normalized before dispatch")
+                }
                 Ok(Outcome::Loaded(loaded)) => {
                     if matches!(completed.task.work, Work::Load)
+                        && c.edit.is_none()
                         && c.draft.text(model::Slot::Host).is_empty()
                         && let Some(host) = model::default_host(&loaded)
                     {
                         c.draft.set(model::Slot::Host, &host.name);
                     }
                     c.loaded = Some(*loaded);
+                    c.load_edit_defaults();
                     c.stage = if c.destination == Destination::Settings {
                         Stage::Hosts
                     } else {
@@ -394,6 +488,9 @@ impl App {
                             },
                         );
                     }
+                }
+                Ok(Outcome::Edited { message, .. }) => {
+                    c.stage = Stage::Result(message);
                 }
                 Ok(Outcome::Created { message, .. }) => {
                     if matches!(&completed.task.work, Work::Launch(review) if review.host == model::BUILT_IN_HOST)
@@ -417,6 +514,9 @@ impl App {
             }
             c.invalidate();
         }
+        if let Some(preferences) = preferences {
+            self.finished_workspace_preferences(preferences, "✓ Applied · Squad visibility".into());
+        }
         if let Some(target) = created {
             if let OpsTarget::Member { identity_id, .. } = &target {
                 self.discovered_uuid = Some(identity_id.clone());
@@ -437,6 +537,10 @@ impl App {
             }
             return Effect::Refresh;
         }
-        Effect::None
+        if edited {
+            Effect::Refresh
+        } else {
+            Effect::None
+        }
     }
 }

@@ -11,6 +11,8 @@ pub enum OpsUiAction {
     CycleTokRange,
     Inspect,
     MonitorDetails,
+    Edit,
+    Rename,
     DigestDetails,
     MemberSession,
     SwitchTool,
@@ -79,6 +81,14 @@ macro_rules! spec {
     };
 }
 const SPECS: &[OpsUiSpec] = &[
+    spec!(Edit, "edit", "edit", "edit the selected agent or squad", 7),
+    spec!(
+        Rename,
+        "rename",
+        "rename",
+        "rename the selected agent or squad in Edit",
+        7
+    ),
     spec!(
         SwitchTool,
         "switch-tool",
@@ -419,6 +429,8 @@ impl OpsUiAction {
     }
     pub fn menu_label(self) -> Option<&'static str> {
         match self {
+            Self::MonitorDetails => Some("Observed values (Measure)"),
+            Self::MemberSession => Some("Member session"),
             Self::RenameMember => Some("Rename agent"),
             Self::RemoveMember => Some("Remove member"),
             _ => None,

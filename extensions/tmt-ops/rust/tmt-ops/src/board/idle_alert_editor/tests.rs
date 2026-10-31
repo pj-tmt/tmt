@@ -91,9 +91,10 @@ fn unchanged_duration_rules_are_used_even_when_alert_is_off() {
     }
 }
 #[test]
-fn default_i_is_agents_list_only_and_authored_i_wins() {
+fn edit_replaces_default_i_and_authored_i_keeps_its_meaning() {
     let mut app = board();
-    assert_eq!(app.workspace_bindings()["i"].text, "idle-alert");
+    assert!(!app.workspace_bindings().contains_key("i"));
+    assert_eq!(app.workspace_bindings()["e"].text, "edit");
     app.focus = 1;
     assert!(!app.workspace_bindings().contains_key("i"));
     let app = configured_member(

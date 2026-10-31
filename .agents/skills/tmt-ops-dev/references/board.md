@@ -90,7 +90,7 @@ square shared modal. Incidental frame cells remain Dim; receiving focus and
 selection stay distinct. Frozen row/HOME provenance and decoded fixture approval
 are owned by the verification reference.
 
-`board/new_member` owns the Agents `n` form and Settings launch-template editor.
+`board/new_member` owns the Agents New member and Edit forms, plus the Settings launch-template editor.
 `board/host_launch` shares worker-side public templates/Config reads, effective
 slot preparation and frozen-argv rechecks with `board/switch_tool`; `crate::launch`
 remains the pure validation/quoting owner. `board/tool_choices` projects suggestions
@@ -101,18 +101,51 @@ without the key (an older Core, or ambiguous locators) it keeps the first eligib
 Core or locks Config. New member observes a new bound UUID before joining the frozen
 room; a failed join reports/selects that Pool member with a repair command.
 
-Member-row `S` owns one Switch AI tool review (squad-row `S` remains Show squad).
-The selected member's public host/session supplies its destination, with no unrelated
-host default. Changing tool clears model; empty model omits `--model`. A frozen UUID,
-source observation and template fence confirmation; activity is not a fence.
-One literal `resume --driver=… [--model=…] -- UUID` runs through the published host
-argv. Null templates are copy-only; failed reads remain unavailable. Core alone owns
-handoff/stop/driver records. The worker observes the same UUID at the destination
-running the requested tool for up to 90 seconds; host exit/pane ID or remembered
-driver is not completion. Unknown/partial outcomes ask for a public-state check
-before retry; no automatic replay or pane closure. Esc hides pending work; `S`
-reopens that same operation or its result until closed, without another launch.
-`R` stays the Session handoff.
+The Agents `e` action opens a member or squad Edit through `new_member/edit` on the
+same controller generation and ordered lane as New member. Shared `DialogState`
+and current `DialogHits` own field/button navigation and admission; the parent
+choice-list owner serves agent fields and After presets. Host and Session are
+fixed. A plan over held observations supplies both the changed-only Runs text
+and Save. No-op plans dispatch nothing. Viewer/selection drift offers only Cancel and Discard; no Save remains. A kept
+draft stays with its original target, accessible for Discard even when that row
+disappeared. Long review and notice lines wrap within the Dialog; overflow shows
+the shared scroll position. A surface too short to edit shows Enlarge to edit
+and admits no Save. Pending work can hide, never cancel or replay.
+
+Save preflights the held Config bytes, exact identity and room revisions,
+public runtime/session/container observation, recorded launch settings and host
+argv before effects. Each existing writer keeps its own final CAS. Confirmed
+steps advance only their own expected name/revision; failure or uncertainty
+stops later steps with separate Applied, Not applied, Unknown and Not run
+results. Member rename precedes the selected membership move, then one runtime
+resume; squad rename precedes the existing idle-alert writer, with visibility
+last through the existing preference publisher. Other memberships remain;
+Common pool is a leave choice only for one membership. Source timers retain
+the membership service's pause/recovery rules.
+
+`board/switch_tool` remains the one host-mediated runtime launch/observation
+owner. A coalesced public `resume --driver=… [--model=…] [--effort=…] -- UUID`
+uses the frozen destination, never an unrelated host default. Edit reads the
+public recorded preset through `Core::resume_show`, retaining only launch
+settings, not its environment. The model field follows Core's recorded resume
+setting; the last observed model is separate. Same-tool empty means keep the
+recorded value, and a tool change uses its remembered/default value. There is
+no individual clear-to-default operation. Requested model/effort is never
+reported as observed. A runtime result requires the same UUID, destination and
+requested running driver; a same-driver result also requires a different known
+public container identity. An old container's model event, host exit or container
+ID alone proves no launch. Missing observations stay Unknown, with no replay or
+pane closure. Explicit authored switch-tool bindings retain their existing
+review; default member S is folded into Edit and squad S remains Show squad.
+
+Measure's Observed values control and named action reuse the existing full
+monitor projection and scroll reader; they add no metric acquisition. `e`
+always edits on Agents. `r` opens the same form with Name focused and its caret
+at the end. Enter on Name submits through the same writer only for a name-only
+plan; with other kept changes it focuses Save for explicit review. The hint says
+Enter rename or Enter next, and Esc keeps the draft. Opening with e restores the
+ordinary next-field behavior. Member session has no default key; it remains in
+Actions and Help, with authored bindings supported.
 
 `board/member_session` owns the selected member's public host/session projection and
 Session dialog. It reuses the global identity inventory and typed activity. The target

@@ -118,9 +118,11 @@ pub(in crate::board) fn case(scene: &str, look: crate::look::Look) -> App {
         if scene == "switch-tool-hidden-result" {
             app.finished_switch_tool(Completed {
                 task,
-                result: Ok(Outcome::Switched(
-                    "worker is running claude in tmux / work.\nObserved model: opus".into(),
-                )),
+                result: Ok(Outcome::Switched(load::Observed {
+                    message: "worker is running claude in tmux / work.\nObserved model: opus"
+                        .into(),
+                    model: None,
+                })),
             });
         }
     }

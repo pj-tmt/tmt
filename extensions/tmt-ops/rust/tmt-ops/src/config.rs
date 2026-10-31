@@ -2406,6 +2406,18 @@ impl Config {
         })
     }
 
+    /// Read-only preflight for a compound edit. Each later write still performs its own CAS.
+    pub(crate) fn ensure_current(&self) -> Result<(), SquadError> {
+        let current = read_bounded(&self.path).map_err(|error| write_failed(&self.path, error))?;
+        if current != self.original {
+            return Err(SquadError::new(
+                "SQUAD_CONFIG_CHANGED",
+                "Ops settings changed; reopen and review the edit.",
+            ));
+        }
+        Ok(())
+    }
+
     /// Replaces the file atomically with one edit applied. Refuses if another
     /// editor changed the file since it was read, rather than overwriting
     /// their edit. The comparison and the replacement run under one document
