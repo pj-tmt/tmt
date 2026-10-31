@@ -113,6 +113,7 @@ export function renderVerifySummary(input: {
 }): string;
 export function ghPublishApi(input: {
   repository: string;
+  sleep?: (milliseconds: number) => void;
   env?: NodeJS.ProcessEnv;
   spawn?: (
     command: string,

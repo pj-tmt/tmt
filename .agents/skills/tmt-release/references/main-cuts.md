@@ -362,7 +362,11 @@ the full existing lookup bound before each retry. Earlier errors and admitted de
 other verification failures fail immediately. Immutable/latest reads retain their own bounded waits.
 A failed check opens an issue and fails the run; nothing is
 rolled back, because a published release is immutable and a repair needs a new reviewed
-version. A `smoke` job then installs the published release as a user does
+version. Convergence listings keep the shared three-attempt acquisition owner; latest
+reads retry HTTP 5xx at most three times with 1/2 s backoff. A correction 5xx spends one
+of the existing three convergence rounds and re-reads published versions and the latest
+pointer before another write, so an uncertain PATCH is not blindly replayed with a stale
+tag. Persistent failures remain loud; publication itself is never repeated or rolled back. A `smoke` job then installs the published release as a user does
 (`.github/workflows/native-release-smoke.yml`, also run by hand with `product` and `tag`, for
 the newest published CLI/extension release or an exact published driver tag: CLI and
 extension acquisition uses current public entry points, while a driver uses its versioned
