@@ -145,9 +145,8 @@ fn narrow_annotation_caption_keeps_excerpt_and_whole_removal_control_and_hint() 
         "{lines:?}"
     );
     assert!(
-        lines
-            .iter()
-            .any(|line| line.contains("Alt+⏎") && line.contains("tmt/")),
+        lines.iter().any(|line| line.contains("Alt+⏎")
+            && (line.trim_end().ends_with("@ mention") || line.trim_end().ends_with('@'))),
         "{lines:?}"
     );
     let editor = app.input_viewport.get().unwrap().0;

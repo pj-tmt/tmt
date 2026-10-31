@@ -958,7 +958,7 @@ fn while_typing_the_composer_and_its_key_hints_are_not_offered() {
     assert!(before.contains("to message worker"), "{before}");
     app.key(key(KeyCode::Enter, KeyModifiers::NONE));
     let typing = text(&app);
-    for hint in ["to message worker", "⏎ send", "new line", "tmt/ mention"] {
+    for hint in ["to message worker", "⏎ send", "new line", "@ mention"] {
         assert!(!typing.contains(hint), "{hint}\n{typing}");
     }
     app.key(key(KeyCode::Char('\\'), KeyModifiers::CONTROL));
@@ -979,7 +979,7 @@ fn a_created_member_terminal_takes_the_keys_as_soon_as_its_stream_opens() {
     });
     assert!(attached.app.terminal.typing(), "typing as if clicked");
     let typing = text(&attached.app);
-    for hint in ["to message worker", "⏎ send", "tmt/ mention"] {
+    for hint in ["to message worker", "⏎ send", "@ mention"] {
         assert!(!typing.contains(hint), "no composer: {hint}\n{typing}");
     }
     attached.app.terminal_sync();

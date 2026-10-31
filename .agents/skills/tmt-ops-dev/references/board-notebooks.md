@@ -71,8 +71,8 @@ probes the filesystem. Live pane output keeps its literal path presentation.
 Markdown keeps styled text, source-line mapping and typed member, URL and file hits.
 `member_links` resolves `#tmt:`, canonical `tmt/<name>` (not after `/`, `.` or `~`)
 and `@name`, and bare canonical names containing a dash, underscore or digit against
-the worker-held identity inventory. The composer picker (`mentions.rs`, `TRIGGER`
-`tmt/`, agents only) inserts `tmt/<canonical>` as an expanded Editor fold labelled
+the worker-held identity inventory. The composer picker (`mentions.rs`, agents only)
+accepts `@` or `tmt/` at a word start and inserts `tmt/<canonical>` as an expanded Editor fold labelled
 `tmt-mention:<identity>`; an edit inside drops the fold, and `quoted_message_named`
 writes the agent's current canonical name at send. Matching is case-sensitive, longest-first and word-bounded;
 simple bare words and unavailable or ambiguous identities stay literal. Source
