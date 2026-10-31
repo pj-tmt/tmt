@@ -66,6 +66,23 @@ text fields and select triggers keep the soft rule by decision (see
 [browser style](../gui-style.md), Fields). Selected indicators and keyboard focus
 retain their stronger roles.
 
+### Palette B and the ref tier
+
+`tokens.json` holds `browser.ref`, the primitive tier, which `static.css` projects as `--tmt-ui-ref-*`.
+It also holds `browser.palette-b`, which maps each listed colour, surface and radius role onto refs
+(`{name}`). The generator emits that mapping only under `[data-tmt-palette='b']`, in three blocks:
+light; the system dark unless a light theme is set on the scope or around it; and an explicit dark
+theme. Chart series and seats keep their values.
+
+The radius roles read one knob: `radius-s`, `radius` and `radius-badge` are `ref-radius`, and
+`radius-l` is `ref-radius + ref-radius-step`. Setting `--tmt-ui-ref-radius` on the scope moves the
+whole set (2/4 or 4/6). `radius-pill` stays for avatars, radios and status dots. Inside the scope,
+`ui.css`'s foundation roles read the semantic roles by name, so the shadcn set follows B, the viewer
+theme and the knob. This is the only place `ui.css` reads `--tmt-ui-*`, and it needs `static.css`
+there. Outside the scope nothing changes. B becomes the default values, and the scope goes away,
+once Ben approves the look. The gallery's "Theme B" section (`?frame=theme-b`) shows the set with
+its theme and radius switches.
+
 A mark's paint servers are prefixed by an id unique per document: `BrandMark` takes it from
 `useId`, and `mountShell` asks the live document (`freshMarkId`) so a second shell, such as a
 fixture or a hidden earlier mount, never makes the visible rail mark resolve to a hidden copy.

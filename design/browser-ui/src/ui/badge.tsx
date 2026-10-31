@@ -10,7 +10,8 @@ const badgeVariants = cva(
   {
     variants: {
       variant: {
-        default: 'tmt:bg-primary tmt:text-primary-foreground tmt:[a&]:hover:bg-primary',
+        // Neutral (#5821): the accent fill belongs to the primary action alone.
+        default: 'tmt:bg-secondary tmt:text-secondary-foreground tmt:[a&]:hover:bg-accent',
         secondary: 'tmt:bg-secondary tmt:text-secondary-foreground tmt:[a&]:hover:bg-secondary',
         destructive: 'tmt:bg-destructive tmt:text-background tmt:[a&]:hover:bg-destructive',
         outline:

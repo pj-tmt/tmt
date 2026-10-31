@@ -1,0 +1,68 @@
+/* The Theme B showcase frame (#5821): layout only; every colour and radius comes from the roles that
+   [data-tmt-palette='b'] remaps. */
+.theme-b {
+  box-sizing: border-box;
+  min-height: 100vh;
+  padding: var(--tmt-ui-space-l);
+  background: var(--tmt-ui-surface-paper);
+  color: var(--tmt-ui-color-text);
+  font: 14px/1.5 var(--tmt-ui-font-body);
+}
+.theme-b-switches {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--tmt-ui-space-s);
+  margin-bottom: var(--tmt-ui-space-l);
+  color: var(--tmt-ui-color-secondary);
+}
+.theme-b-switches > button {
+  padding: var(--tmt-ui-space-xs) var(--tmt-ui-space-s);
+  border: var(--tmt-ui-rule-width) solid var(--tmt-ui-surface-rule);
+  border-radius: var(--tmt-ui-radius-s);
+  background: var(--tmt-ui-surface-sheet);
+  color: var(--tmt-ui-color-text);
+  font: inherit;
+  cursor: pointer;
+}
+.theme-b-switches > button[aria-pressed='true'] {
+  border-color: var(--tmt-ui-color-accent);
+}
+.theme-b-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 320px), 1fr));
+  gap: var(--tmt-ui-space-l);
+}
+.theme-b-grid > section {
+  display: grid;
+  align-content: start;
+  gap: var(--tmt-ui-space-m);
+}
+.theme-b-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--tmt-ui-space-s);
+}
+.theme-b-states > [data-tone='working'] {
+  color: var(--tmt-ui-color-working);
+}
+.theme-b-states > [data-tone='waiting'] {
+  color: var(--tmt-ui-color-waiting);
+}
+.theme-b-states > [data-tone='review'] {
+  color: var(--tmt-ui-color-review);
+}
+.theme-b-states > [data-tone='blocked'] {
+  color: var(--tmt-ui-color-blocked);
+}
+.theme-b-skeleton {
+  display: grid;
+  gap: var(--tmt-ui-space-s);
+}
+.theme-b-skeleton-line {
+  height: 12px;
+}
+.theme-b-skeleton-short {
+  width: 60%;
+}

@@ -8,7 +8,9 @@ import { gzipSync } from 'node:zlib';
  * #5794: the editorial type ramp's custom properties: 22,466 -> 22,657 bytes, pending GUI approval with
  * the Linux CI measurement on its PR.
  * No headroom; later shared CSS changes require a new measurement and decision. */
-const approvedGzipBytes = 22_657;
+/** #5821: palette B's scope, the ref tier and the Select, Skeleton, Empty and Card parts, temporary
+ * until B becomes the default; pending GUI approval with the Linux CI measurement on its PR. */
+const approvedGzipBytes = 24_518;
 /** #5794: the editorial layer is its own entry, loaded only by prose surfaces, so it has its own cap.
  * Pending GUI approval with the Linux CI measurement on its PR; no headroom. */
 const approvedEditorialGzipBytes = 951;

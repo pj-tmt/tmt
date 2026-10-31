@@ -42,7 +42,30 @@ const typeParts = (indent, compact) =>
           `${indent}--tmt-ui-type-${role}-${part.replace(/^compact-/, '')}: ${typeValue(value)};`,
       ),
   );
+/** The primitive tier (#5821): `--tmt-ui-ref-<name>`, raw values that only roles read. */
+const refs = Object.entries(tokens.browser.ref).filter(([name]) => !name.startsWith('$'));
+/** A palette-B value: each `{name}` reads that ref; an unknown name fails generation. */
+const fromRefs = (value) =>
+  value.replace(/\{([\w-]+)\}/g, (_, name) => {
+    if (!Object.hasOwn(tokens.browser.ref, name)) throw new Error(`Palette B reads no ref ${name}`);
+    return `var(--tmt-ui-ref-${name})`;
+  });
+/** Palette B's role mapping for one theme, plus its theme-free metric roles when `metrics` is set. */
+const paletteB = (theme, indent, metrics = false) =>
+  [
+    ...['color', 'surface'].flatMap((group) =>
+      Object.entries(tokens.browser['palette-b'][group]).map(
+        ([role, value]) => `${indent}--tmt-ui-${group}-${role}: ${fromRefs(value[theme])};`,
+      ),
+    ),
+    ...(metrics
+      ? Object.entries(tokens.browser['palette-b'].metric).map(
+          ([role, value]) => `${indent}--tmt-ui-${role}: ${fromRefs(value)};`,
+        )
+      : []),
+  ].join('\n');
 const fixed = [
+  ...refs.map(([name, value]) => `  --tmt-ui-ref-${name}: ${value};`),
   ...Object.entries(tokens.font).map(
     ([name, value]) => `  --tmt-ui-font-${name}: ${value.stack.replaceAll('"', "'")};`,
   ),
@@ -109,6 +132,15 @@ const tokenCss = `/* Generated: generate-static-css */
 @media (prefers-reduced-motion: reduce) {
   :root {\n${motion('--tmt-ui-motion', '    ', true)}\n  }
 }
+/* Palette B (#5821): only inside the data-tmt-palette scope, on the element or an ancestor; the
+   default values above stay as they are: light, the system dark unless a light theme is set on the
+   scope or around it, then an explicit dark theme unless the scope itself sets light. */
+[data-tmt-palette='b'] {\n${paletteB('light', '  ', true)}\n}
+@media (prefers-color-scheme: dark) {
+  [data-tmt-palette='b']:not([data-theme='light'], [data-theme='light'] *) {\n${paletteB('dark', '    ')}\n  }
+}
+[data-tmt-palette='b'][data-theme='dark'],
+[data-theme='dark'] [data-tmt-palette='b']:not([data-theme='light']) {\n${paletteB('dark', '  ')}\n}
 @media (max-width: ${tokens.header['compact-max-width']}) {
   :root {
     --tmt-ui-header-height: var(--tmt-ui-header-compact-height);
