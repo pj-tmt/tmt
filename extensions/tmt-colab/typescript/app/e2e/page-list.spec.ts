@@ -32,7 +32,7 @@ async function storedScope(page: Page) {
 }
 /** The fixture mounts beside the hidden app, which renders the same route; scope to the fixture. */
 const app = (page: Page) => page.locator('#list-fixture');
-const rows = (page: Page) => app(page).locator('.pages > li');
+const rows = (page: Page) => app(page).locator('.pages [data-page-id]');
 const titles = (page: Page) => rows(page).locator('.tmt-ui-list-title > a');
 const search = (page: Page) => app(page).getByRole('combobox', { name: 'Search pages' });
 const requests = (page: Page) => page.evaluate(() => window.__projectRequests);
@@ -271,11 +271,10 @@ test('a row shows the real creator and waiting count without a repeated comments
   page,
 }) => {
   await mount(page);
-  const metadata = (title: string) =>
-    rows(page).filter({ hasText: title }).locator('.page-metadata');
+  const metadata = (title: string) => rows(page).filter({ hasText: title });
   await expect(metadata('Alpha plan')).toContainText('Studio agent');
   await expect(rows(page).locator('.page-comments')).toHaveCount(0);
-  // Desktop metadata has distinct Updated and Author columns; compact rows keep the same values.
+  // Updated and Author are distinct cells at every width; compact rows keep the same values.
   await expect(metadata('Alpha plan').locator('time')).toHaveAttribute('dateTime', /T/);
   await expect(metadata('Alpha plan').locator('.page-author')).toHaveText('Studio agent');
   // The dot accompanies the readable word; only the page with a proposal awaiting the owner has it.

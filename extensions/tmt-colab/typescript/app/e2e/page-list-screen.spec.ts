@@ -14,7 +14,7 @@ async function mount(page: Page, width: number, theme: 'light' | 'dark') {
   }, theme);
 }
 const app = (page: Page) => page.locator('#list-fixture');
-const rows = (page: Page) => app(page).locator('.pages > li');
+const rows = (page: Page) => app(page).locator('.pages [data-page-id]');
 
 for (const width of [1440, 390])
   for (const theme of ['light', 'dark'] as const)
@@ -192,9 +192,10 @@ for (const width of [1440, 390])
       expect(await home.evaluate((node) => node.scrollWidth <= node.clientWidth)).toBe(true);
       if (width === 390) {
         const first = rows(page).first();
-        await expect(first.locator('.page-row-detail')).toHaveCSS('display', 'flex');
+        // A compact row flows its cells' contents: the details wrap on a line under the title.
+        await expect(first).toHaveCSS('display', 'flex');
         const title = (await first.locator('.page-row-title').boundingBox())!;
-        const detail = (await first.locator('.page-row-detail').boundingBox())!;
+        const detail = (await first.locator('.page-row-projects').boundingBox())!;
         expect(detail.y).toBeGreaterThanOrEqual(title.y + title.height);
       }
 
@@ -308,7 +309,7 @@ for (const width of [1440, 390])
           1,
         );
       else {
-        const detail = (await first.locator('.page-row-detail').boundingBox())!;
+        const detail = (await first.locator('.page-row-projects').boundingBox())!;
         const titleCell = (await first.locator('.page-row-title').boundingBox())!;
         expect(detail.y).toBeGreaterThanOrEqual(titleCell.y + titleCell.height);
       }
@@ -327,7 +328,7 @@ for (const width of [1440, 390])
       expect(await longRow.evaluate((node) => node.scrollWidth <= node.clientWidth)).toBe(true);
       if (width === 390) {
         const titleCell = (await longRow.locator('.page-row-title').boundingBox())!;
-        const detail = (await longRow.locator('.page-row-detail').boundingBox())!;
+        const detail = (await longRow.locator('.page-row-projects').boundingBox())!;
         expect(detail.y).toBeGreaterThanOrEqual(titleCell.y + titleCell.height);
       }
     });

@@ -107,7 +107,7 @@ export async function mountPageIndex(
     <Profiler
       id="page-index"
       onRender={() => {
-        const times = container.querySelectorAll('.pages > li time');
+        const times = container.querySelectorAll('.pages [data-page-id] time');
         if (times.length && initialUpdateLabels === undefined) {
           // Capture the first committed DOM before passive effects can correct it.
           initialUpdateLabels = Array.from(times, (time) => time.textContent ?? '');

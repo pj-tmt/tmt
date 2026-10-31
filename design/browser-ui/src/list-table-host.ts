@@ -4,6 +4,8 @@ export interface ListTableColumn {
   label: string;
   hideBelow?: 'phone';
 }
+/** Host-owned `data-*` attributes for one row, named without the `data-` prefix; undefined omits one. */
+export type ListTableRowData = Readonly<Record<string, string | undefined>>;
 /** Framework-free owner for the same table presentation used by the React entry. */
 export function createListTable(
   columns: readonly ListTableColumn[],
@@ -30,14 +32,17 @@ export function createListTable(
   return {
     root,
     body,
-    row(cells: readonly Node[]) {
+    row(cells: readonly Node[], data: ListTableRowData = {}) {
       if (cells.length !== columns.length) throw new Error('A cell is required for every column.');
       const row = document.createElement('div');
       row.className = 'tmt-ui-list-table-row';
       row.setAttribute('role', 'row');
+      for (const [name, value] of Object.entries(data))
+        if (value !== undefined) row.setAttribute(`data-${name}`, value);
       cells.forEach((content, index) => {
         const cell = document.createElement('div');
         cell.setAttribute('role', 'cell');
+        cell.dataset.column = columns[index]!.id;
         if (columns[index]?.hideBelow) cell.dataset.hideBelow = columns[index]!.hideBelow;
         cell.append(content);
         row.append(cell);

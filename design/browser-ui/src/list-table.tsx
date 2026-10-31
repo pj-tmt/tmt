@@ -1,6 +1,6 @@
 import { createElement, type ReactNode } from 'react';
-import type { ListTableColumn } from './list-table-host.js';
-export type { ListTableColumn } from './list-table-host.js';
+import type { ListTableColumn, ListTableRowData } from './list-table-host.js';
+export type { ListTableColumn, ListTableRowData } from './list-table-host.js';
 
 export function BrowserListTable({
   label,
@@ -10,8 +10,9 @@ export function BrowserListTable({
 }: {
   label: string;
   className?: string;
-  columns: readonly ListTableColumn[];
-  rows: readonly { id: string; cells: readonly ReactNode[] }[];
+  /** `header` replaces the label text in the column header (a select-all control, say). */
+  columns: readonly (ListTableColumn & { header?: ReactNode })[];
+  rows: readonly { id: string; cells: readonly ReactNode[]; data?: ListTableRowData }[];
 }) {
   return (
     <div
@@ -22,7 +23,7 @@ export function BrowserListTable({
       <div className="tmt-ui-list-columns" role="row">
         {columns.map((column) => (
           <span key={column.id} role="columnheader" data-hide-below={column.hideBelow}>
-            {column.label}
+            {column.header ?? column.label}
           </span>
         ))}
       </div>
@@ -31,9 +32,21 @@ export function BrowserListTable({
           if (row.cells.length !== columns.length)
             throw new Error('A cell is required for every column.');
           return (
-            <div className="tmt-ui-list-table-row" role="row" key={row.id}>
+            <div
+              className="tmt-ui-list-table-row"
+              role="row"
+              key={row.id}
+              {...Object.fromEntries(
+                Object.entries(row.data ?? {}).map(([name, value]) => [`data-${name}`, value]),
+              )}
+            >
               {columns.map((column, index) => (
-                <div role="cell" key={column.id} data-hide-below={column.hideBelow}>
+                <div
+                  role="cell"
+                  key={column.id}
+                  data-column={column.id}
+                  data-hide-below={column.hideBelow}
+                >
                   {row.cells[index]}
                 </div>
               ))}

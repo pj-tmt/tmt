@@ -292,7 +292,7 @@ for (const width of [1440, 390, 320])
             await expect(card.locator('.tmt-ui-notice-eyebrow')).not.toBeEmpty();
           }
           if (screen === 'pages') {
-            const card = page.locator('.pages > li:visible').first();
+            const card = page.locator('.pages [data-page-id]:visible').first();
             await expect(card.locator('.tmt-ui-list-title')).toHaveText('Release notes');
             await expect(card.getByRole('button', { name: /^Actions for/ })).toBeVisible();
             await card.getByRole('button', { name: /^Actions for/ }).click();
@@ -300,7 +300,7 @@ for (const width of [1440, 390, 320])
             await expect(page.getByRole('menuitem', { name: 'Manage page' })).toBeVisible();
             await page.getByRole('menu').press('Escape');
             await expect(
-              page.locator('.pages > li:visible').nth(1).locator('.tmt-ui-list-title'),
+              page.locator('.pages [data-page-id]:visible').nth(1).locator('.tmt-ui-list-title'),
             ).toHaveText('Untitled page');
           }
           for (const icon of await page.locator('svg.lucide:visible').all()) {
@@ -368,7 +368,7 @@ test('the Archived tab filters archived pages with a tab, not a native checkbox'
   });
   // Rows and the header own selection checkboxes; Archived remains a tab.
   const root = page.locator('#chrome-fixture');
-  const rows = root.locator('ul.pages > li');
+  const rows = root.locator('.pages [data-page-id]');
   await expect(root.getByRole('checkbox', { name: 'Select all matching pages' })).toBeVisible();
   await expect(rows.getByRole('checkbox')).toHaveCount(await rows.count());
   await root.getByRole('button', { name: 'Filter', exact: true }).click();

@@ -354,10 +354,10 @@ for (const width of [1440, 390]) {
     const pinnedTitles = page.locator('.page-pins a');
     await expect(homeList(page)).toBeVisible();
     await expect(pinnedTitles).toHaveText(['First owner pin', 'Second owner pin']);
-    await expect(page.locator('.page-row[data-page-id]')).toHaveCount(3);
+    await expect(page.locator('.pages [data-page-id]')).toHaveCount(3);
     await page.reload();
     await expect(pinnedTitles).toHaveText(['First owner pin', 'Second owner pin']);
-    await expect(page.locator('.page-row[data-page-id]')).toHaveCount(3);
+    await expect(page.locator('.pages [data-page-id]')).toHaveCount(3);
   });
 }
 
@@ -520,7 +520,7 @@ test('empty owner space names the product page-create command', async ({ page })
   await expect(page.getByText('No pages in this space yet.', { exact: false })).toContainText(
     'tmt colab page create --title "Notes" --layout column',
   );
-  await expect(page.locator('ul.pages')).toHaveCount(0);
+  await expect(page.locator('.pages')).toHaveCount(0);
   await expect(page.locator('iframe')).toHaveCount(0);
 });
 
@@ -638,7 +638,7 @@ test('trusted sharing confirms narrowing, retries frozen bytes and exposes a new
   await expect(homeList(page)).toBeVisible();
   await showAllPages(page);
   await page
-    .locator('.pages > li')
+    .locator('.pages [data-page-id]')
     .getByRole('button', { name: /^Actions for/ })
     .click();
   await page.getByRole('menuitem', { name: 'Manage page' }).click();
@@ -905,7 +905,7 @@ test('trusted home manages retention, archive and verified or awaiting deletion'
   await page.goto(mount);
   await expect(homeList(page)).toBeVisible();
   await showAllPages(page);
-  const row = (id: string) => page.locator(`.pages li[data-page-id="${id}"]`);
+  const row = (id: string) => page.locator(`.pages [data-page-id="${id}"]`);
   await row(pageId)
     .getByRole('button', { name: /^Actions for/ })
     .click();
@@ -1023,7 +1023,7 @@ test('trusted home manages retention, archive and verified or awaiting deletion'
   );
   // A missing-summary refresh removes the last row, but must keep its pending dialog.
   await page.clock.runFor(2000);
-  await expect(page.locator('.pages > li')).toHaveCount(0);
+  await expect(page.locator('.pages [data-page-id]')).toHaveCount(0);
   await expect(dialog.getByRole('alert')).toContainText(
     'Your machine accepted the deletion, but it is not confirmed yet',
   );
@@ -1037,7 +1037,7 @@ test('trusted home manages retention, archive and verified or awaiting deletion'
   await expect(page.locator('iframe')).toHaveCount(0);
   await dialog.getByRole('button', { name: 'Close', exact: true }).click();
   await expect(dialog).toHaveCount(0);
-  await expect(page.locator('.pages > li')).toHaveCount(0);
+  await expect(page.locator('.pages [data-page-id]')).toHaveCount(0);
   await expect(page.getByText('No pages in this space yet.', { exact: false })).toContainText(
     'tmt colab page create',
   );
@@ -1083,7 +1083,7 @@ test.describe('relative retention evidence', () => {
     await page.goto(mount);
     await expect(homeList(page)).toBeVisible();
     await showAllPages(page);
-    const row = page.locator(`.pages li[data-page-id="${pageId}"]`);
+    const row = page.locator(`.pages [data-page-id="${pageId}"]`);
     const hint = page.getByRole('menu').locator('.retention-hint');
     await row.getByRole('button', { name: /^Actions for/ }).click();
     await expect(hint).toHaveText('expires in 6 days');

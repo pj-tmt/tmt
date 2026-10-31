@@ -287,7 +287,7 @@ test('Save uses the effective list scope when a removed project falls back to Al
   await expect(dialog.getByRole('status')).toHaveText('5 pages');
   await dialog.getByRole('textbox', { name: 'Name', exact: true }).fill('Current view');
   await dialog.getByRole('button', { name: 'Save', exact: true }).click();
-  await expect(page.locator('#list-fixture .pages > li')).toHaveCount(5);
+  await expect(page.locator('#list-fixture .pages [data-page-id]')).toHaveCount(5);
 });
 
 test('explicit pinned projects become project shortcuts once, in order; automatic ones do not', async ({
@@ -421,7 +421,7 @@ test('the side menu lists the shortcuts, selects exactly one row and opens the l
   await expect(railShortcuts(page)).toHaveAttribute('aria-current', 'page');
   await expect(page.locator('#list-fixture .tmt-ui-topbar-title-current')).toHaveText('Mine');
   // A page opened from that list keeps the shortcut selected.
-  await page.locator('#list-fixture .pages > li .tmt-ui-list-title > a').first().click();
+  await page.locator('#list-fixture .pages [data-page-id] .tmt-ui-list-title > a').first().click();
   await expect(page).toHaveURL(/#\/pages\//);
   await expect(selected(page)).toHaveCount(1);
   await expect(railShortcuts(page)).toHaveAttribute('aria-current', 'page');
@@ -493,7 +493,7 @@ test('sidebar edit, delete and keyboard reorder keep shortcut identity and focus
       .filter({ has: page.getByRole('link', { name, exact: true }) });
   await expect(railShortcuts(page)).toHaveCount(3);
   await railShortcuts(page).filter({ hasText: 'First' }).click();
-  await page.locator('#list-fixture .pages > li .tmt-ui-list-title > a').first().click();
+  await page.locator('#list-fixture .pages [data-page-id] .tmt-ui-list-title > a').first().click();
   await expect(page).toHaveURL(/#\/pages\//);
   await row('Third').hover();
   await row('Third').getByRole('button', { name: 'Edit Third' }).click();

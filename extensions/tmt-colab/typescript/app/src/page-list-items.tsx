@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react';
+import { Fragment, type ReactNode } from 'react';
 import { FileText, Lock, Pin } from 'lucide-react';
 import { HomeTitleLink, type HomeTitleHints } from './home-titles.js';
 import { pageStage } from './list-stage.js';
@@ -59,8 +59,21 @@ export function PinnedPages({
   );
 }
 
-/** List presentation only. Home retains selection, filtering and every write's lifetime. */
-export function PageListItem({
+/** The page list's shared-table columns; the first header is the owner's select-all control. */
+export const pageListColumns = [
+  'select',
+  'title',
+  'projects',
+  'stage',
+  'updated',
+  'author',
+  'access',
+  'actions',
+] as const;
+
+/** List presentation only: one cell per column. Home retains selection, filtering and every write's
+ * lifetime; the row's `data-page-id` and `data-selected` serve its keys, styles and tests. */
+export function pageListRow({
   page,
   hints,
   scope,
@@ -80,57 +93,66 @@ export function PageListItem({
   selected: boolean;
 }) {
   const updated = pageUpdate(page.lastUpdateAtMs, now);
-  return (
-    <li className="page-row" data-page-id={page.id} data-selected={selected ? '' : undefined}>
-      <span className="page-row-leading">{leading}</span>
-      <div className="page-row-title tmt-ui-list-title">
-        <span className="page-row-icon" aria-hidden="true">
-          {page.pinned && !page.archived ? (
-            <Pin className="page-pin-mark" size={20} />
-          ) : (
-            <FileText size={22} />
-          )}
-        </span>
-        <HomeTitleLink page={page} hints={hints} scope={scope} />
-      </div>
-      {page.summary?.work ? <PageWork work={page.summary.work} /> : null}
-      <div className="page-row-detail">
-        <div className="page-row-projects">{projects}</div>
-        <div className="page-row-stage">
-          {page.summary?.waiting ? (
-            <span className="page-waiting" data-waiting>
-              <span className="page-waiting-mark" aria-hidden="true" /> {t.waitingForYou}
-              {page.summary.needsYou > 0 ? ` · ${page.summary.needsYou}` : ''}
-            </span>
-          ) : (
-            <Stage page={page} />
-          )}
-        </div>
-        <span className="page-metadata">
-          {page.summary?.author ? (
-            <span className="page-author" title={page.summary.author}>
-              {page.summary.author}
-            </span>
-          ) : null}
-          {updated.dateTime ? (
-            <time
-              className="page-updated"
-              dateTime={updated.dateTime}
-              title={updated.absolute}
-              aria-label={`${text.lastUpdated}: ${updated.label}`}
-            >
-              {updated.label}
-            </time>
-          ) : null}
-        </span>
-        <span className="page-row-access">
-          {page.sharing === 'private' ? <Lock size={16} aria-hidden="true" /> : null}
-          <span title={page.sharing === 'private' ? text.private : text.shared}>
-            {page.sharing === 'private' ? text.private : text.shared}
+  return {
+    id: page.id,
+    data: { 'page-id': page.id, selected: selected ? '' : undefined },
+    cells: [
+      <span key="select" className="page-row-leading">
+        {leading}
+      </span>,
+      <Fragment key="title">
+        <div className="page-row-title tmt-ui-list-title">
+          <span className="page-row-icon" aria-hidden="true">
+            {page.pinned && !page.archived ? (
+              <Pin className="page-pin-mark" size={20} />
+            ) : (
+              <FileText size={22} />
+            )}
           </span>
+          <HomeTitleLink page={page} hints={hints} scope={scope} />
+        </div>
+        {page.summary?.work ? <PageWork work={page.summary.work} /> : null}
+      </Fragment>,
+      <div key="projects" className="page-row-projects">
+        {projects}
+      </div>,
+      <div key="stage" className="page-row-stage">
+        {page.summary?.waiting ? (
+          <span className="page-waiting" data-waiting>
+            <span className="page-waiting-mark" aria-hidden="true" /> {t.waitingForYou}
+            {page.summary.needsYou > 0 ? ` · ${page.summary.needsYou}` : ''}
+          </span>
+        ) : (
+          <Stage page={page} />
+        )}
+      </div>,
+      updated.dateTime ? (
+        <time
+          key="updated"
+          className="page-updated"
+          dateTime={updated.dateTime}
+          title={updated.absolute}
+          aria-label={`${text.lastUpdated}: ${updated.label}`}
+        >
+          {updated.label}
+        </time>
+      ) : null,
+      page.summary?.author ? (
+        <span key="author" className="page-author" title={page.summary.author}>
+          {page.summary.author}
         </span>
-      </div>
-      {actions ? <span className="tmt-ui-list-actions">{actions}</span> : null}
-    </li>
-  );
+      ) : null,
+      <span key="access" className="page-row-access">
+        {page.sharing === 'private' ? <Lock size={16} aria-hidden="true" /> : null}
+        <span title={page.sharing === 'private' ? text.private : text.shared}>
+          {page.sharing === 'private' ? text.private : text.shared}
+        </span>
+      </span>,
+      actions ? (
+        <span key="actions" className="tmt-ui-list-actions">
+          {actions}
+        </span>
+      ) : null,
+    ],
+  };
 }

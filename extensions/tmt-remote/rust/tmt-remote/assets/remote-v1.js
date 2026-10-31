@@ -4209,14 +4209,16 @@ function createListTable(columns, label, className) {
 	return {
 		root,
 		body,
-		row(cells) {
+		row(cells, data = {}) {
 			if (cells.length !== columns.length) throw new Error("A cell is required for every column.");
 			const row = document.createElement("div");
 			row.className = "tmt-ui-list-table-row";
 			row.setAttribute("role", "row");
+			for (const [name, value] of Object.entries(data)) if (value !== void 0) row.setAttribute(`data-${name}`, value);
 			cells.forEach((content, index) => {
 				const cell = document.createElement("div");
 				cell.setAttribute("role", "cell");
+				cell.dataset.column = columns[index].id;
 				if (columns[index]?.hideBelow) cell.dataset.hideBelow = columns[index].hideBelow;
 				cell.append(content);
 				row.append(cell);

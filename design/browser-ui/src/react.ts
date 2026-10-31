@@ -75,4 +75,4 @@ export { BrowserPanel } from './panel.js';
 export type { BrowserPanelProps, BrowserPanelDismissReason } from './panel.js';
 
 export { BrowserListTable, BrowserPageSubheader } from './list-table.js';
-export type { ListTableColumn } from './list-table.js';
+export type { ListTableColumn, ListTableRowData } from './list-table.js';

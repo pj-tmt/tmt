@@ -108,7 +108,7 @@ for (const width of [1440, 390, 320])
       await (await import(path)).mountPageList('bulk', '/?stage=all');
     });
     const list = page.locator('#list-fixture');
-    const rows = list.locator('.pages > li');
+    const rows = list.locator('.pages [data-page-id]');
     const scroller = list.locator('[data-page-list]');
     await expect(rows.first()).toBeVisible();
     await scroller.evaluate((node) => (node.scrollTop = node.scrollHeight));
