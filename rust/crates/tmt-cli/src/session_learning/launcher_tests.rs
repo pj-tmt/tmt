@@ -203,6 +203,7 @@ child.on('exit', (code, signal) => { if (signal) process.kill(process.pid, signa
             lease_session: None,
             channel: Some(false),
             can_admit: true,
+            plain: None,
         },
     )
     .unwrap();
