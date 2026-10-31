@@ -6,6 +6,15 @@ export interface MenuEntry<Key extends string> {
   label: string;
   disabled?: boolean;
 }
+/** Segment items without changing the flat controller order. Unheaded leading items remain ungrouped. */
+export function menuGroups<Item extends { heading?: string }>(items: readonly Item[]) {
+  const groups: { heading?: string; entries: { item: Item; index: number }[] }[] = [];
+  items.forEach((item, index) => {
+    if (item.heading || groups.length === 0) groups.push({ heading: item.heading, entries: [] });
+    groups[groups.length - 1]!.entries.push({ item, index });
+  });
+  return groups;
+}
 export interface MenuActivationEvent {
   readonly isTrusted: boolean;
 }

@@ -622,6 +622,21 @@ function placeBrowserPopup(anchor, surface, dismiss) {
 }
 //#endregion
 //#region ../../../../design/browser-ui/src/menu-controller.ts
+/** Segment items without changing the flat controller order. Unheaded leading items remain ungrouped. */
+function menuGroups(items) {
+	const groups = [];
+	items.forEach((item, index) => {
+		if (item.heading || groups.length === 0) groups.push({
+			heading: item.heading,
+			entries: []
+		});
+		groups[groups.length - 1].entries.push({
+			item,
+			index
+		});
+	});
+	return groups;
+}
 /** One transient menu owner for React and framework-free renderers; commands stay with callers. */
 function createMenuController(options) {
 	let snapshot = {
@@ -1253,6 +1268,11 @@ function mountBrowserMenu(container, initial) {
 	let disposed = false;
 	let help;
 	const rows = /* @__PURE__ */ new Map();
+	const groups = /* @__PURE__ */ new Map();
+	function syncChildren(parent, children) {
+		for (const [index, child] of children.entries()) if (parent.childNodes[index] !== child) parent.insertBefore(child, parent.childNodes[index] ?? null);
+		while (parent.childNodes.length > children.length) parent.lastChild.remove();
+	}
 	const controller = createMenuController({
 		items: () => options.items,
 		disabled: () => options.disabled === true,
@@ -1280,6 +1300,8 @@ function mountBrowserMenu(container, initial) {
 		tooltipLabel.textContent = options.label;
 		tooltip.hidden = !iconOnly;
 		surface.setAttribute("aria-label", options.label);
+		if (options.popupLayout === "grouped") surface.dataset.popupLayout = "grouped";
+		else delete surface.dataset.popupLayout;
 		menu.setAttribute("aria-label", options.label);
 		trigger.disabled = !controller.canOpen();
 		if (iconOnly) {
@@ -1327,30 +1349,93 @@ function mountBrowserMenu(container, initial) {
 			}
 			removed.delete(item.key);
 			display(row.label, item.content ?? item.label);
-			row.button.replaceChildren(row.label, ...item.checked ? [row.check] : []);
+			if (item.leadingIcon || item.detail || item.meta !== void 0) {
+				const parts = [];
+				if (item.leadingIcon) {
+					const icon = document.createElement("span");
+					icon.className = "tmt-ui-menu-leading-icon";
+					icon.setAttribute("aria-hidden", "true");
+					icon.append(item.leadingIcon);
+					parts.push(icon);
+				}
+				const label = document.createElement("span");
+				label.className = "tmt-ui-menu-label";
+				label.append(row.label);
+				if (item.detail) {
+					const detail = document.createElement("span");
+					detail.className = "tmt-ui-menu-detail";
+					detail.id = `${id}-detail-${index}`;
+					detail.textContent = item.detail;
+					label.append(detail);
+				}
+				parts.push(label);
+				if (item.meta !== void 0) {
+					const meta = document.createElement("span");
+					meta.className = "tmt-ui-menu-meta";
+					meta.textContent = item.meta;
+					parts.push(meta);
+				}
+				if (item.checked) parts.push(row.check);
+				row.button.replaceChildren(...parts);
+				row.button.setAttribute("aria-label", [item.label, item.meta].filter(Boolean).join(" "));
+			} else {
+				row.button.replaceChildren(row.label, ...item.checked ? [row.check] : []);
+				row.button.removeAttribute("aria-label");
+			}
 			row.button.disabled = item.disabled === true;
 			row.button.setAttribute("role", item.role ?? (item.checked === void 0 ? "menuitem" : "menuitemradio"));
 			if (item.checked === void 0) row.button.removeAttribute("aria-checked");
 			else row.button.setAttribute("aria-checked", String(item.checked));
-			if (item.separated) row.button.dataset.separated = "true";
+			if (item.separated && !item.heading) row.button.dataset.separated = "true";
 			else delete row.button.dataset.separated;
 			if (item.disabledReason) {
 				row.reason.id = `${id}-reason-${index}`;
 				row.reason.textContent = item.disabledReason;
-				row.button.setAttribute("aria-describedby", row.reason.id);
 				if (!row.reason.isConnected) row.root.append(row.reason);
-			} else {
-				row.reason.remove();
-				row.button.removeAttribute("aria-describedby");
-			}
+			} else row.reason.remove();
+			const described = [item.detail ? `${id}-detail-${index}` : void 0, item.disabledReason ? row.reason.id : void 0].filter(Boolean);
+			if (described.length) row.button.setAttribute("aria-describedby", described.join(" "));
+			else row.button.removeAttribute("aria-describedby");
 			children.push(row.root);
 		}
 		for (const key of removed) {
 			rows.get(key).root.remove();
 			rows.delete(key);
 		}
-		for (const [index, child] of children.entries()) if (menu.childNodes[index] !== child) menu.insertBefore(child, menu.childNodes[index] ?? null);
-		while (menu.childNodes.length > children.length) menu.lastChild.remove();
+		if (options.items.some((item) => item.heading)) {
+			const output = options.description ? [description] : [];
+			const used = /* @__PURE__ */ new Set();
+			for (const [index, group] of menuGroups(options.items).entries()) {
+				if (!group.heading) {
+					output.push(...group.entries.map(({ item }) => rows.get(item.key).root));
+					continue;
+				}
+				const first = group.entries[0].item;
+				let node = groups.get(first.key);
+				if (!node) {
+					node = {
+						root: document.createElement("div"),
+						heading: document.createElement("div")
+					};
+					node.root.setAttribute("role", "group");
+					node.heading.className = "tmt-ui-menu-heading";
+					groups.set(first.key, node);
+				}
+				used.add(first.key);
+				node.heading.id = `${id}-group-${index}`;
+				node.heading.textContent = group.heading;
+				if (first.separated) node.heading.dataset.separated = "true";
+				else delete node.heading.dataset.separated;
+				node.root.setAttribute("aria-labelledby", node.heading.id);
+				syncChildren(node.root, [node.heading, ...group.entries.map(({ item }) => rows.get(item.key).root)]);
+				output.push(node.root);
+			}
+			for (const key of groups.keys()) if (!used.has(key)) groups.delete(key);
+			syncChildren(menu, output);
+		} else {
+			groups.clear();
+			syncChildren(menu, children);
+		}
 		controller.refresh();
 		help?.refresh();
 	}

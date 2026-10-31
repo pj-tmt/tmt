@@ -148,7 +148,7 @@
   /* Preserve the separator's existing row footprint without bending its rule around the control. */
   padding-top: calc(10px + var(--tmt-ui-rule-width));
 }
-.tmt-ui-menu-item[data-separated]::before {
+:is(.tmt-ui-menu-item, .tmt-ui-menu-heading)[data-separated]::before {
   content: '';
   position: absolute;
   inset: 0 0 auto;
@@ -233,4 +233,68 @@
 
 .tmt-ui-menu[data-presentation='compact'] > .tmt-ui-menu-trigger-wrapper {
   width: 100%;
+}
+
+/* Grouped presentation is opt-in; ordinary menus keep their existing geometry. */
+.tmt-ui-menu-surface[data-popup-layout='grouped'] {
+  min-width: min(260px, calc(100vw - 2 * var(--tmt-ui-space-s)));
+  max-width: calc(100vw - 2 * var(--tmt-ui-space-s));
+  padding: var(--tmt-ui-space-xs);
+  border-radius: var(--tmt-ui-radius-l);
+}
+.tmt-ui-menu-surface[data-popup-layout='grouped'] .tmt-ui-menu-item {
+  min-height: var(--tmt-ui-control-size);
+  padding: 0 var(--tmt-ui-space-m);
+  gap: var(--tmt-ui-space-s);
+}
+.tmt-ui-menu-leading-icon {
+  display: flex;
+  align-items: center;
+  width: var(--tmt-ui-space-l);
+  height: var(--tmt-ui-space-l);
+  flex: none;
+  color: var(--tmt-ui-color-secondary);
+}
+.tmt-ui-menu-item:has(.tmt-ui-menu-detail) .tmt-ui-menu-leading-icon {
+  align-self: flex-start;
+  margin-top: var(--tmt-ui-space-xs);
+}
+.tmt-ui-menu-leading-icon > svg {
+  width: 100%;
+  height: 100%;
+}
+.tmt-ui-menu-label {
+  display: grid;
+  flex: 1;
+  min-width: 0;
+}
+.tmt-ui-menu-detail,
+.tmt-ui-menu-meta,
+.tmt-ui-menu-heading {
+  color: var(--tmt-ui-color-secondary);
+}
+.tmt-ui-menu-detail {
+  --tmt-ui-menu-detail-size: 12px;
+  font-size: var(--tmt-ui-menu-detail-size);
+  line-height: var(--tmt-ui-caption-line-height);
+}
+.tmt-ui-menu-meta {
+  min-width: 0;
+  max-width: 50%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.tmt-ui-menu-heading {
+  padding: var(--tmt-ui-space-s) var(--tmt-ui-space-m) var(--tmt-ui-space-xs);
+  font-size: var(--tmt-ui-eyebrow-size);
+  font-weight: 600;
+}
+.tmt-ui-menu-heading[data-separated] {
+  position: relative;
+  margin-top: var(--tmt-ui-space-xs);
+  padding-top: var(--tmt-ui-space-l);
+}
+.tmt-ui-menu-heading[data-separated]::before {
+  inset-inline: var(--tmt-ui-space-xs);
 }

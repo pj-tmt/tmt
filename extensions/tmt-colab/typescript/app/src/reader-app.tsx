@@ -2,7 +2,7 @@ import { WorkBand } from './work-band.js';
 import { useEditLockLayer } from './edit-lock-layer.js';
 import { ShellNotice } from './shell-notice.js';
 import { usePageLinks } from './page-link-bar.js';
-import { Circle, Info, X } from 'lucide-react';
+import { Circle, Info, X, Code2, Paperclip } from 'lucide-react';
 import type { AttachmentBinding } from './attachment-service.js';
 import { FilesSurface } from './files-panel.js';
 import { BrowserDialog, BrowserMenu, BusyMark } from '@tmt/browser-ui/react';
@@ -186,14 +186,36 @@ export function ReaderApp({
         actions={
           <BrowserMenu
             label={text.more}
+            popupLayout="grouped"
             items={[
-              ...(state.kind === 'ready' && edit && !shell
-                ? [{ key: 'source', label: text.source }]
-                : []),
               ...(descriptors.length > 0
-                ? [{ key: 'files', label: `${text.files} ${descriptors.length}` }]
+                ? [
+                    {
+                      key: 'files',
+                      label: text.files,
+                      meta: String(descriptors.length),
+                      leadingIcon: <Paperclip />,
+                      heading: text.moreGroups.content,
+                    },
+                  ]
                 : []),
-              { key: 'info', label: text.readerInfo },
+              ...(state.kind === 'ready' && edit && !shell
+                ? [
+                    {
+                      key: 'source',
+                      label: text.source,
+                      leadingIcon: <Code2 />,
+                      ...(descriptors.length === 0 ? { heading: text.moreGroups.content } : {}),
+                    },
+                  ]
+                : []),
+              {
+                key: 'info',
+                label: text.readerInfo,
+                leadingIcon: <Info />,
+                heading: text.moreGroups.page,
+                separated: descriptors.length > 0 || (state.kind === 'ready' && !!edit && !shell),
+              },
             ]}
             onSelect={(key) => {
               if (key === 'source') setSourceOpen(true);

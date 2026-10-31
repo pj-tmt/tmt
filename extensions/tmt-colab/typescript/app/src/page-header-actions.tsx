@@ -1,6 +1,20 @@
 import { RemoteMoreMenu, useRemoteHeaderSource } from './remote-header.js';
 import { useContext, useSyncExternalStore } from 'react';
 import { PageMenu as BrowserMenu } from './page-menu.js';
+import type { BrowserMenuItem } from '@tmt/browser-ui/react';
+import {
+  Share2,
+  Folder,
+  CircleHelp,
+  UserRound,
+  Paperclip,
+  Code2,
+  Download,
+  Bot,
+  Settings,
+  Info,
+  Pin,
+} from 'lucide-react';
 import { getThemeChoice, setThemeChoice, subscribeTheme, type ThemeChoice } from './theme.js';
 import { text } from './strings.js';
 import { pinMenuItem, type PagePinState } from './pins.js';
@@ -73,41 +87,100 @@ export function PageHeaderActions({
   // The bar hides the page's chips and pin up to 900px; More offers the pin there instead.
   const compact = useMedia('(max-width: 900px)');
   const pinItem = pinMenuItem(pin, compact, canProjects, readOnly);
+  const legacyItems: BrowserMenuItem[] = [
+    {
+      key: 'share',
+      label: text.shareItem,
+      content: (
+        <span className="more-item">
+          <span>{text.shareItem}</span>
+          <span className="more-item-detail">{access}</span>
+        </span>
+      ),
+      disabled: !canManage,
+    },
+    ...(canProjects ? [{ key: 'projects', label: text.projectsItem }] : []),
+    ...(pinItem ? [pinItem] : []),
+    { key: 'questions', label: text.metadata.questionsItem },
+    { key: 'creator', label: text.metadata.creatorItem(creatorLabel) },
+    ...(!readOnly ? [{ key: 'agents', label: text.agentStatus }] : []),
+    // A page that cannot hold a file and holds none has nothing to open; a writer keeps the entry,
+    // which is where files are added.
+    ...(files > 0 || canFiles
+      ? [{ key: 'files', label: `${text.files} (${files})`, disabled: !canFiles }]
+      : []),
+    { key: 'source', label: text.source },
+    ...(!readOnly ? [{ key: 'export', label: text.export, disabled: !canExport }] : []),
+    { key: 'manage', label: text.managePage, disabled: !canManage, separated: true },
+    ...(sharedBar
+      ? []
+      : (['light', 'dark', 'system'] as const).map((theme) => ({
+          key: theme,
+          label: text.themeChoice[theme],
+          checked: choice === theme,
+        }))),
+    { key: 'about', label: text.aboutPage },
+  ];
+  const groups: { heading: string; items: BrowserMenuItem[] }[] = [
+    {
+      heading: text.moreGroups.share,
+      items: [
+        {
+          key: 'share',
+          label: text.shareItem,
+          detail: access,
+          leadingIcon: <Share2 />,
+          disabled: !canManage,
+        },
+      ],
+    },
+    {
+      heading: text.moreGroups.organize,
+      items: [
+        ...(canProjects
+          ? [{ key: 'projects', label: text.projectsItem, leadingIcon: <Folder /> }]
+          : []),
+        ...(pinItem ? [{ ...pinItem, leadingIcon: <Pin /> }] : []),
+        { key: 'questions', label: text.metadata.questionsItem, leadingIcon: <CircleHelp /> },
+        { key: 'creator', label: text.moreCreator, meta: creatorLabel, leadingIcon: <UserRound /> },
+      ],
+    },
+    {
+      heading: text.moreGroups.content,
+      items: [
+        ...(files > 0 || canFiles
+          ? [
+              {
+                key: 'files',
+                label: text.files,
+                meta: String(files),
+                leadingIcon: <Paperclip />,
+                disabled: !canFiles,
+              },
+            ]
+          : []),
+        { key: 'source', label: text.source, leadingIcon: <Code2 /> },
+        ...(!readOnly
+          ? [{ key: 'export', label: text.export, leadingIcon: <Download />, disabled: !canExport }]
+          : []),
+      ],
+    },
+    {
+      heading: text.moreGroups.page,
+      items: [
+        ...(!readOnly ? [{ key: 'agents', label: text.agentStatus, leadingIcon: <Bot /> }] : []),
+        { key: 'manage', label: text.managePage, leadingIcon: <Settings />, disabled: !canManage },
+        { key: 'about', label: text.aboutPage, leadingIcon: <Info /> },
+      ],
+    },
+  ].filter((group) => group.items.length > 0);
+  const groupedItems = groups.flatMap((group, groupIndex) =>
+    group.items.map((item, index) =>
+      index === 0 ? { ...item, heading: group.heading, separated: groupIndex > 0 } : item,
+    ),
+  );
   const more = {
-    items: [
-      {
-        key: 'share',
-        label: text.shareItem,
-        content: (
-          <span className="more-item">
-            <span>{text.shareItem}</span>
-            <span className="more-item-detail">{access}</span>
-          </span>
-        ),
-        disabled: !canManage,
-      },
-      ...(canProjects ? [{ key: 'projects', label: text.projectsItem }] : []),
-      ...(pinItem ? [pinItem] : []),
-      { key: 'questions', label: text.metadata.questionsItem },
-      { key: 'creator', label: text.metadata.creatorItem(creatorLabel) },
-      ...(!readOnly ? [{ key: 'agents', label: text.agentStatus }] : []),
-      // A page that cannot hold a file and holds none has nothing to open; a writer keeps the entry,
-      // which is where files are added.
-      ...(files > 0 || canFiles
-        ? [{ key: 'files', label: `${text.files} (${files})`, disabled: !canFiles }]
-        : []),
-      { key: 'source', label: text.source },
-      ...(!readOnly ? [{ key: 'export', label: text.export, disabled: !canExport }] : []),
-      { key: 'manage', label: text.managePage, disabled: !canManage, separated: true },
-      ...(sharedBar
-        ? []
-        : (['light', 'dark', 'system'] as const).map((theme) => ({
-            key: theme,
-            label: text.themeChoice[theme],
-            checked: choice === theme,
-          }))),
-      { key: 'about', label: text.aboutPage },
-    ],
+    items: sharedBar ? groupedItems : legacyItems,
     onSelect: (key: string) => {
       if (key === 'share') onSelect('manage');
       else if (key === 'projects') onSelect('projects');
@@ -131,7 +204,12 @@ export function PageHeaderActions({
       {remoteAvailable ? (
         <RemoteMoreMenu remoteAfter="share" {...more} />
       ) : (
-        <BrowserMenu label={text.more} icon={<MoreIcon />} {...more} />
+        <BrowserMenu
+          label={text.more}
+          icon={<MoreIcon />}
+          popupLayout={sharedBar ? 'grouped' : undefined}
+          {...more}
+        />
       )}
     </nav>
   );
