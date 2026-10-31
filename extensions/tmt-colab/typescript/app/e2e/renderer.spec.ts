@@ -2670,14 +2670,15 @@ test('focus restoration admits only a current rendered thread marker', async ({ 
   await expect(page.locator('body')).toBeFocused();
 });
 
-test('a synchronous highlight owns and cancels a queued marker repaint', async ({ page }) => {
+test('only a completed synchronous highlight cancels a queued marker repaint', async ({ page }) => {
   await page.clock.install();
   await page.goto('/');
   await page.clock.pauseAt(await page.evaluate(() => new Date(Date.now() + 100)));
   const id = 'queued-focus';
-  const renderId = await bindPort(page, id, '<p>A focus passage.</p>');
+  const renderId = await bindPort(page, id, '<p>A focus passage.</p><p>Another passage.</p>');
   const anchors = [
     { id: 'first', ordinal: 1, selector: { exact: 'A focus passage', prefix: '', suffix: '' } },
+    { id: 'second', ordinal: 2, selector: { exact: 'Another passage', prefix: '', suffix: '' } },
   ];
   await requestHighlight(page, id, renderId, '00000000-0000-4000-8000-0000000000b1', anchors);
   // Drain initial frame sizing before controlling the next queued resize explicitly.
@@ -2718,6 +2719,28 @@ test('a synchronous highlight owns and cancels a queued marker repaint', async (
     }),
   ).toBe(true);
   await expect(frame.locator('[data-colab-thread="first"]')).toBeFocused();
+  await frame.locator('html').evaluate(() => {
+    window.dispatchEvent(new Event('resize'));
+    const now = performance.now.bind(performance);
+    let layoutCost = 0;
+    Object.defineProperty(performance, 'now', {
+      configurable: true,
+      value: () => now() + layoutCost,
+    });
+    const measure = Range.prototype.getBoundingClientRect;
+    Range.prototype.getBoundingClientRect = function () {
+      const box = measure.call(this);
+      // A single expensive layout exhausts this pass's match deadline, not the queued pass's.
+      layoutCost = 100;
+      Range.prototype.getBoundingClientRect = measure;
+      return box;
+    };
+  });
+  await requestHighlight(page, id, renderId, '00000000-0000-4000-8000-0000000000b3', anchors);
+  await expect(frame.locator('[data-colab-thread]')).toHaveCount(0);
+  await page.clock.runFor(100);
+  // A partial synchronous pass leaves the existing queued resize responsible for completion.
+  await expect(frame.locator('[data-colab-thread]')).toHaveCount(2);
 });
 
 test('a selection paints one passage in the selected look, and anything that is not a selection of the current request is refused', async ({

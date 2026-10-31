@@ -1585,8 +1585,6 @@
             });
           }
           function resolve() {
-            // A synchronous rebuild supersedes a repaint already queued for the same state.
-            clearTimeout(timer);
             resolveSlots();
             resolveQuestions();
             resolveLocks();
@@ -1784,6 +1782,8 @@
                 });
                 replacement?.focus({ preventScroll: true });
               }
+              // Only a completed rebuild supersedes a repaint queued for the same state.
+              clearTimeout(timer);
             } catch {
               positions.length = 0;
               resolved.length = 0;
