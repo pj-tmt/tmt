@@ -3166,14 +3166,14 @@ space upgrades together. The browser never sends `work.migrate`.
 Each action is trial-applied to a detached admitted document. Only a schema-valid whole result
 becomes an ordinary signed content publication. The closed bodies are:
 
-| Action           | Body                 | Effect                                                                                                         |
-| ---------------- | -------------------- | -------------------------------------------------------------------------------------------------------------- |
-| `subpage.attach` | `{pageId,before?}`   | List a page that is not listed, in front of the listed `before` or last; admitted by the link rules.           |
-| `subpage.move`   | `{pageId,before?}`   | Move a listed page in front of the listed `before`, or to the end.                                             |
-| `subpage.detach` | `{pageId}`           | Remove a listed page from the list; the page itself is unchanged. Always admitted, so links can be repaired.   |
-| `summary.set`    | `{line1,line2}`      | Set both lines and system attribution.                                                                         |
-| `summary.clear`  | `{}`                 | Remove the summary; absent already is a valid no-op.                                                           |
-| `work.migrate`   | `{}`                 | Store a version 1 value as version 2; the serve's own migration only.                                          |
+| Action           | Body               | Effect                                                                                                       |
+| ---------------- | ------------------ | ------------------------------------------------------------------------------------------------------------ |
+| `subpage.attach` | `{pageId,before?}` | List a page that is not listed, in front of the listed `before` or last; admitted by the link rules.         |
+| `subpage.move`   | `{pageId,before?}` | Move a listed page in front of the listed `before`, or to the end.                                           |
+| `subpage.detach` | `{pageId}`         | Remove a listed page from the list; the page itself is unchanged. Always admitted, so links can be repaired. |
+| `summary.set`    | `{line1,line2}`    | Set both lines and system attribution.                                                                       |
+| `summary.clear`  | `{}`               | Remove the summary; absent already is a valid no-op.                                                         |
+| `work.migrate`   | `{}`               | Store a version 1 value as version 2; the serve's own migration only.                                        |
 
 Extra or missing fields, invalid types, `null` optionals, overlimits, an attach of a listed page, a
 move or detach of an unlisted one, a `before` that names the page being placed or is not listed, a dashboard
@@ -4114,7 +4114,7 @@ operations are:
 | `savestatus`     | `operationId`; owner device only; what the page recorded for an earlier `save`                                                                                                                                     |
 | `saveresult`     | `operationId, state` and `revision[, merged, sourceSha256]` or `code, message[, conflicts]`, plus `childPage` where a `subpage.create` made a page; the one reply to a `save` or `savestatus`                      |
 | `work`           | `operationId, action, body`; owner device only; one closed work action of the page ([Work](#work-4050)), prepared and committed natively                                                                           |
-| `workresult`     | as `saveresult`, plus optional `reason` on `COLAB_LINK_REFUSED` (the stable hierarchy reason above), and `childPage` for a `subpage.create`; the one reply to a `work`                                                |
+| `workresult`     | as `saveresult`, plus optional `reason` on `COLAB_LINK_REFUSED` (the stable hierarchy reason above), and `childPage` for a `subpage.create`; the one reply to a `work`                                             |
 | `metadata`       | `operationId, expectedRevision, action, body`; owner device only; closed `creator.set` (`{agent:{id,name}}`), `question.handle` or `question.reopen` (`{id}`), committed through the conditional content publisher |
 | `metadataresult` | as `saveresult`; the one reply to a `metadata` frame; `savestatus` settles a lost reply for the same operation ID                                                                                                  |
 | `usage`          | no fields; owner device only; how full the page is                                                                                                                                                                 |
