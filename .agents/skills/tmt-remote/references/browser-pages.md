@@ -206,9 +206,9 @@ changed and gives each reason one sentence with what to do; Digest uses the same
 `ops-menu.ts` projects fixed children, observed totals and Agents-state attention into the shared
 rail, with Ops settings last. Missing, unavailable, truncated and null evidence produces no pill.
 `ops-menu.ts` also supplies this machine's squad channels and member DMs through the same
-shared menu: one group per squad, with canonical member UUIDs retained by `ops-source.ts`.
-No name-to-identity resolution, extra board read or product-local rail is added. The optional
-nested rail belongs to the shared leaf; flat squad groups remain usable without it.
+shared menu: one channel per squad with member children keyed by canonical UUIDs retained by `ops-source.ts`.
+No name-to-identity resolution, extra board read or product-local rail is added. The route retains squad expansion across observations and navigation; the shared leaf owns
+nesting, disclosure, keyboard traversal and the deepest visible selection on desktop and phone.
 `ops-channel.ts` renders local channel Members and DM About panels with four plain states
 (Working, Idle, Unknown, Offline) from explicit presence/activity, not attention or raw board
 colour. Both panels label timers as squad timers; an owner display name never associates one

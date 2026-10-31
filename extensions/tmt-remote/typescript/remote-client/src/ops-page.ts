@@ -32,10 +32,20 @@ export function opsPage(shell: RemoteShell, source: OpsSource = opsSource): void
   };
   let settings: HTMLElement | undefined;
   const channel = channelView(location.pathname);
+  const collapsedSquads = new Set<string>();
   const paint = () => {
     const section = current();
     if (section !== 'squads') views.squads.close();
-    shell.setMenu(opsMenu(section, board, location.pathname));
+    shell.setMenu(
+      opsMenu(section, board, location.pathname, {
+        collapsed: collapsedSquads,
+        toggle(squad) {
+          if (collapsedSquads.has(squad)) collapsedSquads.delete(squad);
+          else collapsedSquads.add(squad);
+          paint();
+        },
+      }),
+    );
     const label =
       typeof section === 'string'
         ? OPS_SECTIONS.find((item) => item.id === section)!.label

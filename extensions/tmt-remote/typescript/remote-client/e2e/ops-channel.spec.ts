@@ -132,6 +132,35 @@ for (const width of [1440, 390])
       await expect(page.locator('.tmt-ui-rail a[href*="#dm/"] .tmt-ui-shell-count')).toHaveCount(0);
       await expect(page.locator('html')).toHaveJSProperty('scrollWidth', width);
       await shot(page, `dm-${width}-${theme}`);
+      if (width === 390)
+        await page.getByRole('button', { name: 'Open navigation', exact: true }).click();
+      const rail = page.locator('.tmt-ui-rail');
+      const hide = rail.getByRole('button', { name: 'Hide #sample', exact: true });
+      await expect(hide).toHaveAttribute('aria-expanded', 'true');
+      if (width === 390) await shot(page, `rail-${width}-${theme}`);
+      await hide.click();
+      await expect(rail.getByRole('link', { name: '#sample', exact: true })).toHaveAttribute(
+        'aria-current',
+        'page',
+      );
+      await expect(rail.getByRole('link', { name: 'sample-1', exact: true })).toHaveCount(0);
+      await expect(page.getByRole('heading', { level: 1 })).toHaveText('Ops / sample-1');
+      await page.evaluate(() => {
+        window.channelBoard.agents[0]!.task = 'A refreshed sample';
+      });
+      await refresh(page);
+      await expect(rail.getByRole('button', { name: 'Show #sample', exact: true })).toHaveAttribute(
+        'aria-expanded',
+        'false',
+      );
+      await rail.getByRole('link', { name: '#sample', exact: true }).focus();
+      await page.keyboard.press('ArrowRight');
+      await expect(rail.getByRole('link', { name: 'sample-1', exact: true })).toBeVisible();
+      await expect(rail.getByRole('link', { name: 'sample-1', exact: true })).toHaveAttribute(
+        'aria-current',
+        'page',
+      );
+      await expect(rail.locator('[aria-current="page"]')).toHaveCount(1);
       expect(requests.every((url) => new URL(url).origin === origin)).toBe(true);
       expect(requests.some((url) => /requests|dispatch|subscribe/.test(url))).toBe(false);
       expect(errors).toEqual([]);

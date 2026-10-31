@@ -1,5 +1,6 @@
 import { expect, it } from 'vite-plus/test';
 import { OPS_SECTIONS, opsMenu, opsSection, opsPlace, opsHref } from '../src/ops-menu.js';
+import { visibleCurrent } from '@tmt/browser-ui/shell';
 import type { OpsAgent, OpsBoard } from '../src/ops-source.js';
 
 const agent = (state: OpsAgent['state']): OpsAgent => ({
@@ -92,9 +93,35 @@ it('keeps UUID selection on rename, never substitutes a namesake, and shows no u
   };
   const source = { ...board(), agents: [renamed, namesake] };
   const menu = opsMenu(selected, source, '/ops/');
-  const rows = menu.groups.slice(1).flatMap((group) => group.items);
+  const rows = menu.groups
+    .slice(1)
+    .flatMap((group) => group.items.flatMap((item) => item.children ?? []));
   expect(rows.filter((row) => row.current).map((row) => row.label)).toEqual(['renamed']);
   expect(rows.every((row) => row.count === undefined && row.total === undefined)).toBe(true);
   const removed = opsMenu(selected, { ...source, agents: [namesake] }, '/ops/');
-  expect(removed.groups.flatMap((group) => group.items).filter((row) => row.current)).toEqual([]);
+  expect(visibleCurrent(removed)).toBeUndefined();
+});
+
+it('keeps expansion host-owned and delegates the deepest visible UUID selection to the shared rail', () => {
+  const source = { ...board(), agents: [agent('working')] };
+  const section = { squad: 'sample', memberId: source.agents[0]!.id };
+  const collapsed = new Set<string>();
+  const disclosure = {
+    collapsed,
+    toggle: (squad: string) => {
+      collapsed.add(squad);
+    },
+  };
+  const menu = opsMenu(section, source, '/ops/', disclosure);
+  const parent = menu.groups[1]!.items[0]!;
+  expect(parent.expanded).toBe(true);
+  expect(parent.children).toHaveLength(1);
+  expect(parent.children![0]).toMatchObject({ id: `dm:sample:${section.memberId}`, current: true });
+  expect(parent.children![0]!.emphasis).toBeUndefined();
+  expect(visibleCurrent(menu)?.id).toBe(`dm:sample:${section.memberId}`);
+  parent.toggle!();
+  const hidden = opsMenu(section, source, '/ops/', disclosure);
+  expect(hidden.groups[1]!.items[0]!.expanded).toBe(false);
+  expect(visibleCurrent(hidden)?.id).toBe('channel:sample');
+  expect(source.agents[0]!.name).toBe('working');
 });

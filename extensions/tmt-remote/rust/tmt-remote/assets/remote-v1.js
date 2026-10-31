@@ -9142,7 +9142,7 @@ function opsHref(pathname, place) {
 	const squad = encodeURIComponent(place.squad);
 	return place.memberId ? `${pathname}#dm/${place.memberId}/${squad}` : `${pathname}#channel/${squad}`;
 }
-function opsMenu(section, board, pathname) {
+function opsMenu(section, board, pathname, disclosure) {
 	const observed = board && !board.unavailable && !board.truncated ? board : void 0;
 	const totals = {
 		agents: observed?.agents.length,
@@ -9162,14 +9162,14 @@ function opsMenu(section, board, pathname) {
 			...item(entry.id, entry.label),
 			total: totals[entry.id],
 			count: entry.id === "agents" && attention ? shellCount(attention) : void 0
-		})) }, ...!board?.unavailable && board ? bySquad(board, true).map((group) => ({
-			label: group.name,
-			items: [{
-				id: `channel:${group.name}`,
-				label: `#${group.name}`,
-				href: opsHref(pathname, { squad: group.name }),
-				current: typeof section !== "string" && section.squad === group.name && !section.memberId
-			}, ...group.agents.map((agent) => ({
+		})) }, ...!board?.unavailable && board ? bySquad(board, true).map((group) => ({ items: [{
+			id: `channel:${group.name}`,
+			label: `#${group.name}`,
+			href: opsHref(pathname, { squad: group.name }),
+			current: typeof section !== "string" && section.squad === group.name && !section.memberId,
+			expanded: !disclosure?.collapsed.has(group.name),
+			toggle: disclosure ? () => disclosure.toggle(group.name) : void 0,
+			children: group.agents.map((agent) => ({
 				id: `dm:${group.name}:${agent.id}`,
 				label: agent.name,
 				href: opsHref(pathname, {
@@ -9177,8 +9177,8 @@ function opsMenu(section, board, pathname) {
 					memberId: agent.id
 				}),
 				current: typeof section !== "string" && section.squad === group.name && section.memberId === agent.id
-			}))]
-		})) : []],
+			}))
+		}] })) : []],
 		settings: item("settings", "Ops settings")
 	};
 }
@@ -9404,10 +9404,18 @@ function opsPage(shell, source = opsSource) {
 	};
 	let settings;
 	const channel = channelView(location.pathname);
+	const collapsedSquads = /* @__PURE__ */ new Set();
 	const paint = () => {
 		const section = current();
 		if (section !== "squads") views.squads.close();
-		shell.setMenu(opsMenu(section, board, location.pathname));
+		shell.setMenu(opsMenu(section, board, location.pathname, {
+			collapsed: collapsedSquads,
+			toggle(squad) {
+				if (collapsedSquads.has(squad)) collapsedSquads.delete(squad);
+				else collapsedSquads.add(squad);
+				paint();
+			}
+		}));
 		const label = typeof section === "string" ? OPS_SECTIONS.find((item) => item.id === section).label : section.memberId ? board?.agents.find((agent) => agent.id === section.memberId && agent.squad === section.squad)?.name ?? "Member unavailable" : `#${section.squad}`;
 		const chips = [];
 		if (board && !board.unavailable && typeof section !== "string") {

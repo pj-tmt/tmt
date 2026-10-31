@@ -45,6 +45,7 @@ export function opsMenu(
   section: OpsPlace,
   board: OpsBoard | undefined,
   pathname: string,
+  disclosure?: { collapsed: ReadonlySet<string>; toggle(squad: string): void },
 ): ShellMenu {
   // A bounded subset cannot establish a total, and an unavailable read is not an empty board.
   const observed = board && !board.unavailable && !board.truncated ? board : undefined;
@@ -71,10 +72,9 @@ export function opsMenu(
           count: entry.id === 'agents' && attention ? shellCount(attention) : undefined,
         })),
       },
-      // Shared flat groups until GUI's nested ShellMenu contract (#5800) lands.
+      // Expansion belongs to this route; the shared leaf renders the same tree on phones.
       ...(!board?.unavailable && board
         ? bySquad(board, true).map((group) => ({
-            label: group.name,
             items: [
               {
                 id: `channel:${group.name}`,
@@ -82,16 +82,18 @@ export function opsMenu(
                 href: opsHref(pathname, { squad: group.name }),
                 current:
                   typeof section !== 'string' && section.squad === group.name && !section.memberId,
+                expanded: !disclosure?.collapsed.has(group.name),
+                toggle: disclosure ? () => disclosure.toggle(group.name) : undefined,
+                children: group.agents.map((agent) => ({
+                  id: `dm:${group.name}:${agent.id}`,
+                  label: agent.name,
+                  href: opsHref(pathname, { squad: group.name, memberId: agent.id }),
+                  current:
+                    typeof section !== 'string' &&
+                    section.squad === group.name &&
+                    section.memberId === agent.id,
+                })),
               },
-              ...group.agents.map((agent) => ({
-                id: `dm:${group.name}:${agent.id}`,
-                label: agent.name,
-                href: opsHref(pathname, { squad: group.name, memberId: agent.id }),
-                current:
-                  typeof section !== 'string' &&
-                  section.squad === group.name &&
-                  section.memberId === agent.id,
-              })),
             ],
           }))
         : []),
