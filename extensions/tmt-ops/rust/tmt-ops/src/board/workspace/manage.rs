@@ -32,7 +32,7 @@ impl Kind {
             Self::Lead => "Set lead",
             Self::RenameSquad => "Rename squad",
             Self::RenameMember => "Rename",
-            Self::RemoveMember => "Remove member",
+            Self::RemoveMember => "Close and delete",
             Self::Remove => "Leave squad",
         }
     }
@@ -48,11 +48,13 @@ pub enum Stage {
 pub(crate) enum Change {
     Membership(Operation),
     RenameMember(super::rename_member::Request),
+    CloseMember(super::close_member::Request),
 }
 impl Change {
     pub(super) fn confirm_label(&self) -> &'static str {
         match self {
             Self::RenameMember(_) => "Rename",
+            Self::CloseMember(_) => "Close and delete",
             Self::Membership(operation) => match operation {
                 Operation::Create { .. } => "Create squad",
                 Operation::Add { .. } => "Add member",
@@ -95,6 +97,7 @@ pub struct Draft {
     /// The Fields stage's chosen button: ↓ on the editor's last line reaches Cancel, ←→ Discard
     /// when reopened, ↑ goes back to the editor (`None`).
     pub fields_button: Option<ReviewButton>,
+    pub close: Option<super::close_member::Close>,
 }
 /// Review of a removal starts on Cancel, so a stray Enter never takes an agent out of a squad;
 /// any other review starts on its apply button, so Enter applies what was just reviewed.
@@ -250,7 +253,7 @@ impl Draft {
             }
             Kind::RenameMember => unreachable!("handled above"),
             Kind::RemoveMember => {
-                return Err("Removal is copy-only until Core stop is available.".into());
+                unreachable!("close/delete uses the typed lifecycle request")
             }
             Kind::Remove => Operation::Remove {
                 room: room()?,
@@ -272,7 +275,7 @@ impl Draft {
                 let label = if self.kind == Kind::RenameMember {
                     "Rename agent"
                 } else {
-                    "Remove member"
+                    "Close and delete"
                 };
                 // A reopened draft names the agent it was opened for.
                 match self.member.as_ref().filter(|_| self.reopened) {
@@ -283,18 +286,7 @@ impl Draft {
             Kind::Remove => format!("Leave squad · {name}"),
         }
     }
-    pub fn removal_command(&self) -> Option<String> {
-        // TODO(#4579): use the identity UUID once Core rm accepts it.
-        (self.kind == Kind::RemoveMember)
-            .then_some(self.member.as_ref())
-            .flatten()
-            .filter(|member| !member.name.is_empty() && !member.name.chars().any(char::is_control))
-            .map(|member| command_line(&["tmt", "rm", "--force", "--", &member.name]))
-    }
     pub fn review_command(&self) -> Option<String> {
-        if self.kind == Kind::RemoveMember {
-            return self.removal_command();
-        }
         let Change::RenameMember(request) = self.operation.as_ref()? else {
             return None;
         };
@@ -313,15 +305,6 @@ impl Draft {
         Some(command_line(&words))
     }
     pub fn review(&self) -> String {
-        if self.kind == Kind::RemoveMember {
-            let member = self.member.as_ref().expect("admitted selected member");
-            return format!(
-                "Remove {}\n\nStop the agent first; this only retires the identity and does not close its window.\nRecheck that the name still belongs to this agent before running the command.\nConversation history and notes are kept.\n\n{}",
-                member.name,
-                self.removal_command()
-                    .unwrap_or_else(|| "Unavailable: name cannot be copied safely.".into()),
-            );
-        }
         let identity = |id: &str| {
             self.identities.get(id).map_or_else(
                 || id.to_owned(),
@@ -340,7 +323,7 @@ impl Draft {
         let mut lines = vec![];
         let operation = self.operation.as_ref().and_then(|change| match change {
             Change::Membership(operation) => Some(operation),
-            Change::RenameMember(_) => None,
+            Change::RenameMember(_) | Change::CloseMember(_) => None,
         });
         match operation {
             Some(Operation::Create {
@@ -455,6 +438,9 @@ impl Draft {
         lines.push("Source timers stay in their original squad. Re-adding or reassigning the owner never resumes them; only explicit Resume does.".into());
     }
     pub fn invalidate(&self) {
+        if let Some(close) = &self.close {
+            close.invalidate();
+        }
         self.controls.set([None; 3]);
         let mut scroll = self.scroll.borrow_mut();
         let content = scroll.content();
@@ -562,6 +548,9 @@ impl App {
             Event, KeyCode, KeyModifiers, MouseButton, MouseEventKind,
         };
         let draft = self.workspace_form.as_ref()?;
+        if draft.close.is_some() {
+            return self.close_member_event(event);
+        }
         let editing = draft.stage == Stage::Fields;
         if matches!(event, Event::Key(key) if key.code == KeyCode::Esc) {
             self.workspace_close();
@@ -767,11 +756,14 @@ impl App {
         // Member actions stay in the Agents list, also when they would reopen a kept draft; a
         // submitted one stays reachable from anywhere so its result is never lost.
         let submitted = self.workspace_form.as_ref().is_some_and(|draft| {
-            draft.kind == kind && matches!(draft.stage, Stage::Pending | Stage::Result(_))
+            draft.kind == kind
+                && (draft.stage == Stage::Pending
+                    || (kind != Kind::RemoveMember && matches!(draft.stage, Stage::Result(_))))
         });
         if !submitted
             && matches!(kind, Kind::RenameMember | Kind::RemoveMember)
-            && (self.shell.tab != super::super::shell::OpsTab::Agents
+            && (self.loading()
+                || self.shell.tab != super::super::shell::OpsTab::Agents
                 || self.workspace_scope() != crate::config::OpsKeyScope::Member)
         {
             return self.say("Select a visible agent in the Agents list for this action.");
@@ -779,7 +771,8 @@ impl App {
         if let Some(draft) = &mut self.workspace_form
             && (!draft.shown || draft.stage == Stage::Pending)
         {
-            if kind == draft.kind {
+            if kind == draft.kind && !(kind == Kind::RemoveMember && draft.stage != Stage::Pending)
+            {
                 draft.shown = true;
                 draft.reopened = matches!(draft.stage, Stage::Fields | Stage::Review);
                 draft.fields_button = None;
@@ -972,6 +965,9 @@ impl App {
             reopened: false,
             review: review_start(kind, false),
             fields_button: None,
+            close: (kind == Kind::RemoveMember).then(|| {
+                super::close_member::Close::new(self.view.as_ref().and_then(|view| view.me.clone()))
+            }),
         });
         let effect = self.workspace_form_next();
         if let Some(label) = dropped {
@@ -1063,17 +1059,9 @@ impl App {
         if self
             .workspace_form
             .as_ref()
-            .is_some_and(|draft| draft.kind == Kind::RemoveMember)
+            .is_some_and(|draft| draft.close.is_some())
         {
-            return if self
-                .workspace_form
-                .as_ref()
-                .is_some_and(|draft| draft.controls.get()[1].is_some())
-            {
-                self.workspace_copy_command()
-            } else {
-                Effect::None
-            };
+            return self.close_member_submit(false);
         }
         let Some(draft) = self
             .workspace_form

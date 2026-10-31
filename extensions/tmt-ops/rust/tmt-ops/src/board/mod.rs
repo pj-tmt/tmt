@@ -411,6 +411,7 @@ pub(super) enum ActionOutcome {
     ),
     Workspace(Box<Result<crate::membership::Outcome, crate::core::SquadError>>),
     RenameMember(Box<workspace::rename_member::Completed>),
+    CloseMember(Box<workspace::close_member::Completed>),
     Message(String),
     WorkspacePreferences(Box<(crate::config::OpsPreferences, String)>),
     Send(Box<conversation::outgoing::Completed>),
@@ -452,6 +453,9 @@ fn execute(core: &Core, request: Request) -> Result<ActionOutcome, String> {
                     ActionOutcome::Workspace(Box::new(Config::load(core).and_then(|mut config| {
                         crate::membership::workspace::apply(core, &mut config, operation)
                     })))
+                }
+                workspace::manage::Change::CloseMember(request) => {
+                    ActionOutcome::CloseMember(Box::new(request.apply(core)))
                 }
                 workspace::manage::Change::RenameMember(request) => {
                     let outcome = request.apply(core);
@@ -1216,6 +1220,9 @@ fn session(
                             }
                             Ok(ActionOutcome::Workspace(outcome)) => {
                                 app.finished_workspace(*outcome)
+                            }
+                            Ok(ActionOutcome::CloseMember(outcome)) => {
+                                app.finished_close_member(*outcome)
                             }
                             Ok(ActionOutcome::RenameMember(outcome)) => {
                                 app.finished_member_rename(*outcome)

@@ -589,9 +589,9 @@ on TOK the mark takes the blank cell before the word. A click changes only the s
 order, never the selection or a message.
 In Agents, `n` opens New member on any row; `p` pins/unpins a squad. `N`
 creates a squad on a squad row or the Common pool, `C` opens the member's Checklist on a
-member row, `m` manages a squad or moves an agent in place, and `x` leaves only the
-selected squad membership. The Agents footer is one line of the keys the selected
-row needs; on a member row: `↑↓←→ move  ⏎ chat  n new  e edit  r rename  m move  x leave squad  C checklist  / search  ? help  q quit`.
+member row, `m` manages a squad or moves an agent in place, and `x` opens Close and
+delete for the selected agent. Leave a squad with `m` to Common pool or Edit's Squad field. The Agents footer is one line of the keys the selected
+row needs; on a member row: `↑↓←→ move  ⏎ chat  n new  e edit  r rename  m move  x close  C checklist  / search  ? help  q quit`.
 Squad, Common pool and Hidden group rows show their own keys. Narrow widths drop whole row
 keys from the right and keep search, help and quit; every other key still works and is listed in `?`.
 While the reply pane is focused, its selection guidance takes that line.
@@ -601,10 +601,18 @@ the squad), Enter applies and Esc cancels, with no dialog. It moves one membersh
 second squad and keep the first, use `tmt ops squad add`. The result is one status line, and a
 refused move leaves the list as it was.
 Right-click a visible Agents row to select it and open Actions, or open Settings
-(default comma) and choose Actions. With list focus, Rename agent and Remove member are named menu
-entries without default keys. Remove member is a copy-only retirement review: stop the agent first and
-recheck the displayed name before running the copied command. Retirement does
-not stop the agent or close its window. `D` opens Digest and `c` opens Timers outside a modal.
+(default comma) and choose Actions. Close and delete is also a named action. Its
+confirmation starts on Cancel. Confirm stops the agent through Core and closes
+only a pane TMT opened, then deletes the identity after Core proves it stopped.
+Conversation history and notes are kept. A kept pane's reason remains in the result.
+A stop refusal deletes nothing automatically: the dialog shows Core's reason and
+whether a stop was requested, with Cancel, Jump to pane (`j`) and Delete identity.
+Explicit Delete asks Core to check and remove the identity without retrying stop;
+a hand-bound pane with no recorded agent may remove. If Core reports still running
+or unproven, quit it in its pane, then Delete. Missing or changed identities require
+a fresh review. Esc hides pending work without cancelling or replaying it; `x`
+after a refused result starts a fresh confirmation. `D` opens Digest and `c` opens
+Timers outside a modal.
 
 On Agents, `e` opens Edit for the selected agent or squad. An agent form has Name,
 AI tool, Model, Effort and Squad; Host and Session stay fixed. The model and effort
@@ -1076,7 +1084,7 @@ Rename and membership reviews show the human CLI equivalents. Rename still
 executes the UUID/expected-name check; `c` copies its displayed command.
 Management reviews freeze exact room/identity UUIDs and revisions and show timer
 impact. Non-destructive reviews open on the apply button, so Enter applies what was
-reviewed; Leave squad and Remove member open on Cancel. ←→ move between Cancel and
+reviewed; Leave squad and Close and delete open on Cancel. ←→ move between Cancel and
 Apply, ↑↓ and the page keys read, and Tab does nothing. Clipped or stale Apply controls
 cannot submit. Pending prevents repeated applies.
 Esc, Cancel or a click outside hides a management form and keeps what you typed or

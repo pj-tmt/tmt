@@ -31,6 +31,8 @@ pub struct SquadError {
     pub current: Option<Box<Value>>,
     /// A request Core accepted before failing; it is retained, never resent.
     pub request: Option<String>,
+    /// Public verified-stop evidence; absence remains unknown.
+    pub signalled: Option<bool>,
     /// Where `message` splits into what failed and the next step.
     hint: Option<(usize, usize)>,
     /// Local process cancellation, never inferred from a public error document.
@@ -45,6 +47,7 @@ impl SquadError {
             hint: None,
             current: None,
             request: None,
+            signalled: None,
             cancelled: false,
         }
     }
@@ -58,6 +61,7 @@ impl SquadError {
             hint: Some((what.len(), what.len() + separator.len())),
             current: None,
             request: None,
+            signalled: None,
             cancelled: false,
         }
     }
@@ -71,7 +75,11 @@ impl SquadError {
     }
 
     pub fn to_json(&self) -> Value {
-        json!({"error": {"code": self.code, "message": self.message}})
+        let mut value = json!({"error": {"code": self.code, "message": self.message}});
+        if let Some(signalled) = self.signalled {
+            value["error"]["signalled"] = json!(signalled);
+        }
+        value
     }
 
     pub(crate) fn was_cancelled(&self) -> bool {
@@ -592,6 +600,7 @@ fn resource_error(document: &Value) -> Result<Value, SquadError> {
         (Some(code), Some(message)) => {
             let mut failure = SquadError::new(code, message);
             failure.current = error.get("current").cloned().map(Box::new);
+            failure.signalled = error.get("signalled").and_then(Value::as_bool);
             failure.request = document["requestId"].as_str().map(str::to_owned);
             Err(failure)
         }

@@ -64,7 +64,7 @@ fn agents_shortcuts_keep_authored_keys_without_factory_duplicates() {
 }
 
 #[test]
-fn agents_shortcuts_keep_unbound_rename_and_remove_in_actions() {
+fn agents_shortcuts_keep_named_rename_and_close_with_honest_keys() {
     let mut app = configured_member(
         "[bind]\nr='copy r'\nd='copy d'\n",
         json!({"id":MEMBER,"name":"worker"}),
@@ -76,9 +76,14 @@ fn agents_shortcuts_keep_unbound_rename_and_remove_in_actions() {
             matches!(&entry.choice, Choice::Action(action) if action.verb == Verb::Ui(ui))
         }).collect();
         assert_eq!(entries.len(), 1, "{ui:?}");
-        assert!(
-            entries[0].key.is_empty(),
-            "unbound actions invent no shortcut"
+        assert_eq!(
+            entries[0].key,
+            if ui == OpsUiAction::RemoveMember {
+                "x"
+            } else {
+                ""
+            },
+            "the close shortcut is real; unbound rename invents none"
         );
     }
 }
@@ -463,7 +468,14 @@ fn agents_shortcuts_keyboard_settings_reaches_named_unbound_member_actions() {
     for ui in [OpsUiAction::RenameMember, OpsUiAction::RemoveMember] {
         let entry = entries.iter().find(|entry| matches!(&entry.choice, Choice::Action(action) if action.verb == Verb::Ui(ui))).unwrap();
         assert_eq!(entry.label, ui.menu_label().unwrap());
-        assert!(entry.key.is_empty());
+        assert_eq!(
+            entry.key,
+            if ui == OpsUiAction::RemoveMember {
+                "x"
+            } else {
+                ""
+            }
+        );
     }
     app.menu = None;
     // The ? panel the Actions row opened from is still beneath; Esc closes it.

@@ -366,6 +366,14 @@ fn pending_operations_hide_reopen_and_keep_their_single_outcome_without_resubmis
                     changed: true,
                 }),
             }),
+            Change::CloseMember(request) => {
+                app.finished_close_member(crate::board::workspace::close_member::Completed {
+                    request,
+                    outcome: crate::board::workspace::close_member::Outcome::Changed {
+                        pane_reason: None,
+                    },
+                })
+            }
             Change::Membership(_) => app.finished_workspace(Err(crate::core::SquadError::new(
                 "API_UNAVAILABLE",
                 "Outcome not confirmed",

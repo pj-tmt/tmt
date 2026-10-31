@@ -347,7 +347,7 @@ fn crud_keys_keep_create_uppercase_and_remove_distinct_from_leave() {
     assert_eq!(app.bindings()["C"].text, "member-checklist");
     assert!(!app.bindings().contains_key("N"));
     assert!(!app.bindings().contains_key("d"));
-    assert_eq!(app.bindings()["x"].text, "remove-membership");
+    assert_eq!(app.bindings()["x"].text, "remove-member");
     for target in [OpsTarget::Squad(ROOM.into()), OpsTarget::Pool] {
         app.workspace.selected = Some(target);
         assert_eq!(app.bindings()["N"].text, "create-squad");
@@ -358,26 +358,33 @@ fn crud_keys_keep_create_uppercase_and_remove_distinct_from_leave() {
 }
 
 #[test]
-fn remove_member_is_copy_only_cancel_default_and_frozen_to_the_displayed_name() {
+fn close_member_is_cancel_default_and_frozen_to_the_displayed_name() {
     let mut app = board();
     member_menu_action(&mut app, OpsUiAction::RemoveMember);
-    assert!(
-        app.workspace_form.is_some(),
-        "the named menu entry opens remove member"
-    );
     for width in [80, 150] {
         let text = paint(&app, width, 43).join("\n");
-        assert!(text.contains("Remove member"));
-        assert!(text.contains("Stop the agent first"));
-        assert!(text.contains("tmt rm --force -- worker"));
-        assert!(text.contains("Copy command"));
-        assert!(!text.contains("'stop'"));
+        assert!(text.contains("Close and delete"));
+        assert!(text.contains("Delete identity worker"));
+        assert!(text.contains("Conversation history and notes are kept"));
+        assert!(!text.contains("Copy command"));
+        assert!(!text.contains("tmt rm"));
     }
     app.workspace.selected = Some(OpsTarget::Pool);
-    let Effect::Act(Request::Copy { text, .. }) = key(&mut app, KeyCode::Char('c')) else {
-        panic!("copy only; no workspace operation or foreground exec")
-    };
-    assert!(text.ends_with("tmt rm --force -- worker"));
+    assert_eq!(
+        app.workspace_form
+            .as_ref()
+            .unwrap()
+            .member
+            .as_ref()
+            .unwrap()
+            .name,
+        "worker"
+    );
+    assert_eq!(
+        key(&mut app, KeyCode::Char('c')),
+        Effect::None,
+        "no copy-only lifecycle command"
+    );
     assert_eq!(key(&mut app, KeyCode::Enter), Effect::None);
     assert!(hidden(&app), "initial Enter cancels");
 }
@@ -398,10 +405,21 @@ fn removal_quoting_is_literal_and_never_leaks_into_other_scopes() {
         .unwrap()["name"] = json!("worker's-name");
     member_menu_action(&mut app, OpsUiAction::RemoveMember);
     paint(&app, 80, 43);
-    let Effect::Act(Request::Copy { text, .. }) = key(&mut app, KeyCode::Char('c')) else {
-        panic!("copy");
-    };
-    assert!(text.ends_with("'worker'\\''s-name'"));
+    assert_eq!(
+        app.workspace_form
+            .as_ref()
+            .unwrap()
+            .member
+            .as_ref()
+            .unwrap()
+            .name,
+        "worker's-name"
+    );
+    assert_eq!(
+        key(&mut app, KeyCode::Char('c')),
+        Effect::None,
+        "literal name never becomes a shell command"
+    );
     key(&mut app, KeyCode::Esc);
     assert!(hidden(&app));
     app.shell.tab = OpsTab::Digest;
@@ -417,29 +435,23 @@ fn removal_quoting_is_literal_and_never_leaks_into_other_scopes() {
 }
 
 #[test]
-fn crud_reviews_wrap_with_body_margins_and_keep_clipped_mutations_disabled() {
-    for scene in ["crud-rename-review", "crud-remove"] {
-        for width in [80, 150] {
-            let mut app = crud_capture_case(scene, crate::look::Look::default());
-            let text = paint(&app, width, 43).join("\n");
-            let area = app.input_band.get().unwrap();
-            assert_eq!(area.width, 80.min(width - 4));
-            assert!(area.x >= 2 && area.right() <= width - 2);
-            assert!(text.contains("Cancel"));
-            if scene == "crud-rename-review" {
-                assert!(
-                    app.workspace_form
-                        .as_ref()
-                        .unwrap()
-                        .review()
-                        .contains("tmt mv worker worker-two")
-                );
-            }
-            app.invalidate_frame_geometry();
-            if scene != "crud-remove" {
-                assert_eq!(app.workspace_confirm(), Effect::None);
-            }
-        }
+fn rename_review_wraps_with_body_margins_and_keeps_clipped_mutations_disabled() {
+    for width in [80, 150] {
+        let mut app = crud_capture_case("crud-rename-review", crate::look::Look::default());
+        let text = paint(&app, width, 43).join("\n");
+        let area = app.input_band.get().unwrap();
+        assert_eq!(area.width, 80.min(width - 4));
+        assert!(area.x >= 2 && area.right() <= width - 2);
+        assert!(text.contains("Cancel"));
+        assert!(
+            app.workspace_form
+                .as_ref()
+                .unwrap()
+                .review()
+                .contains("tmt mv worker worker-two")
+        );
+        app.invalidate_frame_geometry();
+        assert_eq!(app.workspace_confirm(), Effect::None);
     }
 }
 
@@ -455,10 +467,14 @@ pub(in crate::board) const CRUD_SCENES: &[&str] = &[
     "crud-rename-conflict",
     "crud-moving",
     "crud-moving-pool",
-    "crud-remove",
-    "crud-remove-copied",
+    "close-member-confirm",
+    "close-member-refused",
+    "close-member-signalled",
+    "close-member-unavailable",
+    "close-member-running",
+    "close-member-pending",
+    "close-member-pane-kept",
     "crud-leave-squad",
-    "crud-remove-long",
     "timers-delete-confirm",
     "cron-review",
 ];
@@ -478,22 +494,60 @@ pub(in crate::board) fn crud_capture_case(scene: &str, look: crate::look::Look) 
         "crud-member" => {}
         "crud-squad" => app.workspace.selected = Some(OpsTarget::Squad(ROOM.into())),
         "crud-pool" => app.workspace.selected = Some(OpsTarget::Pool),
-        "crud-remove" | "crud-remove-copied" | "crud-remove-long" => {
+        "close-member-confirm"
+        | "close-member-refused"
+        | "close-member-signalled"
+        | "close-member-unavailable"
+        | "close-member-running"
+        | "close-member-pending"
+        | "close-member-pane-kept" => {
+            use crate::board::workspace::close_member::{Outcome, Step};
             app.workspace_begin(Kind::RemoveMember);
-            if scene == "crud-remove-copied" {
-                app.set_notice(
-                    Some(crate::effects::Copied::Clipboard.describe().into()),
-                    false,
-                );
-            }
-            if scene == "crud-remove-long" {
-                app.workspace_form
-                    .as_mut()
-                    .unwrap()
-                    .member
-                    .as_mut()
-                    .unwrap()
-                    .name = "worker-with-a-long-name-and-a-'quoted'-suffix".into();
+            let draft = app.workspace_form.as_mut().unwrap();
+            if scene == "close-member-pending" {
+                draft.stage = Stage::Pending;
+            } else if scene != "close-member-confirm" {
+                let (step, code, message, signalled) = match scene {
+                    "close-member-signalled" => (
+                        Step::Stop,
+                        "PROCESS_ERROR",
+                        "The agent did not exit within three seconds.",
+                        Some(true),
+                    ),
+                    "close-member-unavailable" => (
+                        Step::Stop,
+                        "RESUME_UNAVAILABLE",
+                        "No recorded agent session.",
+                        Some(false),
+                    ),
+                    "close-member-running" => (
+                        Step::Delete,
+                        "AGENT_RUNNING",
+                        "The recorded agent is still running or unproven.",
+                        None,
+                    ),
+                    "close-member-pane-kept" => (
+                        Step::Delete,
+                        "API_UNAVAILABLE",
+                        "Deletion was not confirmed. The agent has stopped.",
+                        None,
+                    ),
+                    _ => (
+                        Step::Stop,
+                        "RUNTIME_CONFLICT",
+                        "The agent shares a runtime; quit it yourself in its pane.",
+                        Some(false),
+                    ),
+                };
+                let mut error = crate::core::SquadError::new(code, message);
+                error.signalled = signalled;
+                draft.stage = Stage::Result(String::new());
+                draft.close.as_mut().unwrap().result = Some(Outcome::Refused {
+                    step,
+                    error,
+                    pane_reason: (scene == "close-member-pane-kept")
+                        .then(|| "The pane was opened by you.".into()),
+                });
             }
         }
         "crud-leave-squad" => {
@@ -593,7 +647,7 @@ pub(in crate::board) fn crud_capture_case(scene: &str, look: crate::look::Look) 
 fn member_footer_uses_effective_crud_bindings_and_never_advertises_future_actions() {
     let mut app = board();
     let text = paint(&app, 150, 43).join("\n");
-    for hint in ["n new", "m move", "r rename", "x leave squad"] {
+    for hint in ["n new", "m move", "r rename", "x close"] {
         assert!(text.contains(hint), "{hint}: {text}");
     }
     assert!(text.contains("e edit"), "{text}");
@@ -699,4 +753,44 @@ fn switch_tool_respects_authored_keys_and_is_absent_outside_agents() {
     app.shell.tab = OpsTab::Agents;
     app.focus = 1;
     assert!(!app.bindings().values().any(|a| a.text == "switch-tool"));
+}
+
+#[test]
+fn close_delete_x_opens_cancel_first_confirm_instead_of_leaving_the_squad() {
+    let mut app = board();
+    let _no_commands = crate::runner::forbid_commands();
+    assert_eq!(key(&mut app, KeyCode::Char('x')), Effect::None);
+    let screen = paint(&app, 100, 36).join("\n");
+    assert!(
+        screen.contains("Close and delete"),
+        "x must review stopping and deleting the identity, not just leaving its squad: {screen}"
+    );
+    assert!(screen.contains("worker"));
+    assert!(screen.contains("Conversation history and notes are kept"));
+    assert!(!screen.contains("Copy command"));
+    assert_eq!(key(&mut app, KeyCode::Enter), Effect::None);
+    assert!(
+        !app.modal_open(),
+        "initial Enter chooses Cancel and never dispatches"
+    );
+}
+
+#[test]
+fn close_delete_explicit_confirm_dispatches_once_instead_of_copying_a_command() {
+    let mut app = board();
+    let _no_commands = crate::runner::forbid_commands();
+    member_menu_action(&mut app, OpsUiAction::RemoveMember);
+    paint(&app, 100, 36);
+    assert_eq!(key(&mut app, KeyCode::Right), Effect::None);
+    paint(&app, 100, 36);
+    let effect = key(&mut app, KeyCode::Enter);
+    assert!(
+        matches!(&effect, Effect::Act(request) if !matches!(request, Request::Copy { .. })),
+        "explicit Close and delete must dispatch lifecycle work, not copy-only retirement: {effect:?}"
+    );
+    assert_eq!(
+        key(&mut app, KeyCode::Enter),
+        Effect::None,
+        "pending work never resubmits"
+    );
 }

@@ -1311,6 +1311,10 @@ pub(in crate::board) fn dialog(frame: &mut Frame, app: &App, body: Rect) {
     let Some(draft) = app.workspace_form.as_ref().filter(|draft| draft.shown) else {
         return;
     };
+    if draft.close.is_some() {
+        super::close_member::render(frame, app, draft, body);
+        return;
+    }
     draft.controls.set([None; 3]);
     let look = app.look();
     let short = body.height < 8;
@@ -1466,20 +1470,11 @@ pub(in crate::board) fn dialog(frame: &mut Frame, app: &App, body: Rect) {
         },
     };
     if draft.stage == Stage::Review {
-        let removal = draft.kind == super::manage::Kind::RemoveMember;
-        let apply_label = if removal {
-            if draft.removal_command().is_some() {
-                "Copy command"
-            } else {
-                ""
-            }
-        } else {
-            draft
-                .operation
-                .as_ref()
-                .map(|operation| operation.confirm_label())
-                .unwrap_or_default()
-        };
+        let apply_label = draft
+            .operation
+            .as_ref()
+            .map(|operation| operation.confirm_label())
+            .unwrap_or_default();
         let apply_enabled = !apply_label.is_empty()
             && areas.content.height > 1
             && (draft.kind != super::manage::Kind::RenameMember

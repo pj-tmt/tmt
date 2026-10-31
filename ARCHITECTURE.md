@@ -388,7 +388,8 @@ own module/drawing boundaries and verification.
   `TMT_EXECUTABLE` (else PATH), bounded by `tmt-invoke`. `board/host_launch`
   prepares/rechecks frozen argv for New member (new UUID before join)
   and Switch tool (same UUID, requested running driver). Core owns
-  handoff/stop; Ops never writes private Core/host/provider state. Digest owns
+  handoff/stop and guarded identity removal; Ops uses `identity.stop`/`identity.remove`
+  for confirmed close/delete and never writes private Core/host/provider state. Digest owns
   locks/deadlines/delivery. No Core/Ops Cargo/source edges. tmt-lead reviews new APIs.
   Leaves: `tmt-tui`, `tmt-cli-style`, `tmt-invoke`, `tmt-extension-state`,
   `tmt-pty-protocol` (a built-in host's terminal-stream frames); dev-only `tmt-test-support`.

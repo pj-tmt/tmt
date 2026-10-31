@@ -68,7 +68,10 @@ fn flat_lists_remove_the_only_membership_and_keep_the_selected_uuid() {
     for tab in [OpsTab::Agents, OpsTab::Digest] {
         let mut app = flat(1, tab);
         let selected = app.workspace.selected.clone();
-        assert_eq!(key(&mut app, KeyCode::Char('x')), Effect::None);
+        assert_eq!(
+            app.perform(&crate::action::Action::parse("remove-membership").unwrap()),
+            Effect::None
+        );
         assert_remove(&app, ROOM, 2);
         assert_eq!(app.workspace.selected, selected);
         let text = paint(&app, 100, 24).join("\n");
@@ -84,7 +87,10 @@ fn multiple_memberships_require_a_room_choice_before_any_review() {
     for tab in [OpsTab::Agents, OpsTab::Digest] {
         let mut app = flat(2, tab);
         let selected = app.workspace.selected.clone();
-        assert_eq!(key(&mut app, KeyCode::Char('x')), Effect::None);
+        assert_eq!(
+            app.perform(&crate::action::Action::parse("remove-membership").unwrap()),
+            Effect::None
+        );
         assert!(app.workspace_form.is_none());
         let menu = app.menu.as_ref().expect("explicit squad picker");
         assert_eq!(menu.title, "Remove worker from:");
@@ -111,7 +117,10 @@ fn common_pool_member_has_no_membership_instead_of_a_refresh_problem() {
     app.workspace.pool_expanded = true;
     app.workspace_reconcile();
     paint(&app, 100, 24);
-    assert_eq!(key(&mut app, KeyCode::Char('x')), Effect::None);
+    assert_eq!(
+        app.perform(&crate::action::Action::parse("remove-membership").unwrap()),
+        Effect::None
+    );
     let notice = app.notice.as_deref().expect("known membership absence");
     assert!(notice.contains("worker is not in a squad"), "{notice}");
     assert!(!notice.contains("refresh"), "{notice}");
@@ -136,7 +145,10 @@ fn a_flat_partial_roster_needs_refresh_even_with_one_observed_membership() {
             roster.membership_complete = false;
             app.workspace_reconcile();
             paint(&app, 160, 36);
-            assert_eq!(key(&mut app, KeyCode::Char('x')), Effect::None);
+            assert_eq!(
+                app.perform(&crate::action::Action::parse("remove-membership").unwrap()),
+                Effect::None
+            );
             assert!(app.workspace_form.is_none() && app.menu.is_none());
             assert!(app.notice.as_deref().unwrap().contains("refresh"));
 
@@ -146,7 +158,12 @@ fn a_flat_partial_roster_needs_refresh_even_with_one_observed_membership() {
             publication.view = Ok(fresh.view.take().unwrap());
             app.apply(publication);
             paint(&app, 160, 36);
-            assert_eq!(key(&mut app, KeyCode::Char('x')), Effect::None);
+            // Key dispatch clears the previous notice; this test invokes the named action.
+            app.set_notice(None, false);
+            assert_eq!(
+                app.perform(&crate::action::Action::parse("remove-membership").unwrap()),
+                Effect::None
+            );
             assert_remove(&app, ROOM, 2);
             assert!(app.notice.is_none());
         }
@@ -168,7 +185,10 @@ fn explicit_agents_membership_needs_only_its_complete_room() {
     roster.membership_complete = false;
     roster.observation = OpsObservation::Partial;
     paint(&app, 160, 36);
-    assert_eq!(key(&mut app, KeyCode::Char('x')), Effect::None);
+    assert_eq!(
+        app.perform(&crate::action::Action::parse("remove-membership").unwrap()),
+        Effect::None
+    );
     assert_remove(&app, ROOM, 2);
 }
 
@@ -183,7 +203,10 @@ fn agents_choose_the_exact_second_membership_without_flat_resolution() {
     });
     app.workspace_reconcile();
     paint(&app, 100, 24);
-    assert_eq!(key(&mut app, KeyCode::Char('x')), Effect::None);
+    assert_eq!(
+        app.perform(&crate::action::Action::parse("remove-membership").unwrap()),
+        Effect::None
+    );
     assert_remove(&app, SECOND_ROOM, 7);
     assert!(app.menu.is_none());
 }
@@ -193,7 +216,7 @@ fn picker_cancel_and_destination_keys_never_apply_a_membership() {
     for exit in [KeyCode::Esc, KeyCode::Char('q'), KeyCode::Char('2')] {
         let mut app = flat(2, OpsTab::Agents);
         let selected = app.workspace.selected.clone();
-        key(&mut app, KeyCode::Char('x'));
+        app.perform(&crate::action::Action::parse("remove-membership").unwrap());
         paint(&app, 60, 18);
         assert_eq!(key(&mut app, exit), Effect::None);
         assert!(app.menu.is_none() && app.workspace_form.is_none());
@@ -228,7 +251,7 @@ fn choosing_revalidates_membership_selection_and_complete_evidence() {
         "missing-details",
     ] {
         let mut app = flat(2, OpsTab::Agents);
-        key(&mut app, KeyCode::Char('x'));
+        app.perform(&crate::action::Action::parse("remove-membership").unwrap());
         let choice = app.menu.as_ref().unwrap().entries[1].choice.clone();
         app.menu = None;
         let workspace = &mut app.view.as_mut().unwrap().home.as_mut().unwrap().workspace;
@@ -272,7 +295,7 @@ fn chosen_room_freezes_current_revision_and_only_its_member_timer_impact() {
         jobs,
         tmt_ops::cron::ClockStatus::NoClock,
     )));
-    key(&mut app, KeyCode::Char('x'));
+    app.perform(&crate::action::Action::parse("remove-membership").unwrap());
     let choice = app.menu.as_ref().unwrap().entries[1].choice.clone();
     assert!(
         matches!(&choice, Choice::WorkspaceRoom {kind:Kind::Remove,identity_id,room_id} if identity_id==MEMBER && room_id==SECOND_ROOM)
@@ -411,7 +434,7 @@ fn incomplete_room_names_its_actual_observation_or_held_read_failure() {
 #[test]
 fn picker_pointer_uses_only_current_painted_entry_geometry() {
     let mut app = flat(2, OpsTab::Agents);
-    key(&mut app, KeyCode::Char('x'));
+    app.perform(&crate::action::Action::parse("remove-membership").unwrap());
     let text = paint(&app, 80, 24);
     let (y, line) = text
         .iter()
@@ -447,7 +470,7 @@ fn picker_pointer_uses_only_current_painted_entry_geometry() {
 #[test]
 fn picker_keys_work_after_geometry_invalidation_without_a_repaint() {
     let mut app = flat(2, OpsTab::Agents);
-    key(&mut app, KeyCode::Char('x'));
+    app.perform(&crate::action::Action::parse("remove-membership").unwrap());
     paint(&app, 80, 24);
     app.invalidate_frame_geometry();
     assert_eq!(key(&mut app, KeyCode::Down), Effect::None);

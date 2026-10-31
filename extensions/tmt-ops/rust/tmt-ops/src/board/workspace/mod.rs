@@ -1,6 +1,7 @@
 //! Pure workspace projection over one acquired roster. This is not a membership
 //! store: IDs and observations come from the worker, and no action performs I/O.
 
+pub(crate) mod close_member;
 pub(crate) mod columns;
 pub(crate) mod manage;
 pub(crate) mod moving;

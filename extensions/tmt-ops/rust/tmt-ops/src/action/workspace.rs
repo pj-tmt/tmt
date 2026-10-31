@@ -378,8 +378,8 @@ const SPECS: &[OpsUiSpec] = &[
     spec!(
         RemoveMember,
         "remove-member",
-        "remove",
-        "review a copy-only identity retirement command; stop the agent first",
+        "close",
+        "stop through its host and delete this identity after confirmation",
         8
     ),
     spec!(
@@ -432,7 +432,7 @@ impl OpsUiAction {
             Self::MonitorDetails => Some("Observed values (Measure)"),
             Self::MemberSession => Some("Member session"),
             Self::RenameMember => Some("Rename agent"),
-            Self::RemoveMember => Some("Remove member"),
+            Self::RemoveMember => Some("Close and delete"),
             _ => None,
         }
     }

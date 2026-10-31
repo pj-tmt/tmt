@@ -488,3 +488,30 @@ fn a_core_reads_the_cli_version_once_from_dash_dash_version_and_a_failure_is_unk
         "a nonzero exit is unknown"
     );
 }
+
+#[test]
+fn close_delete_stop_fault_preserves_signalled_evidence_without_guessing() {
+    for signalled in [true, false] {
+        let failure = resource_error(&json!({"error": {
+            "code": "PROCESS_ERROR", "message": "stop was not proven",
+            "signalled": signalled,
+        }}))
+        .unwrap_err();
+        assert_eq!(
+            failure.to_json()["error"]["signalled"],
+            json!(signalled),
+            "the refusal dialog must distinguish a possible TERM from nothing signalled"
+        );
+    }
+    for evidence in [None, Some(json!("false")), Some(json!(0))] {
+        let mut error = json!({"code":"PROCESS_ERROR","message":"outcome unknown"});
+        if let Some(value) = evidence {
+            error["signalled"] = value;
+        }
+        let failure = resource_error(&json!({"error":error})).unwrap_err();
+        assert!(
+            failure.to_json()["error"].get("signalled").is_none(),
+            "missing or malformed evidence must remain unknown, never false"
+        );
+    }
+}

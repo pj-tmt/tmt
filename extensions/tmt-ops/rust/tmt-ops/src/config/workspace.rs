@@ -326,7 +326,7 @@ pub(crate) fn defaults(scope: OpsKeyScope) -> Bindings {
             ("enter", "talk"),
             ("j", "jump"),
             ("o", "open"),
-            ("x", "remove-membership"),
+            ("x", "remove-member"),
             ("C", "member-checklist"),
             ("t", "terminal"),
             ("z", "terminal-zoom"),
@@ -1549,7 +1549,7 @@ mod tests {
             .bindings;
         assert_eq!(member["r"].text, "rename");
         assert_eq!(member["D"].text, "digest");
-        assert_eq!(member["x"].text, "remove-membership");
+        assert_eq!(member["x"].text, "remove-member");
         assert_eq!(squad["w"].text, "workspace-snapshots");
         assert!(!member.contains_key("A"));
         assert_eq!(squad["left"].text, "fold");

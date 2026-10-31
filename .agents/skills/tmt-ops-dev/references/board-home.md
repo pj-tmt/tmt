@@ -128,12 +128,15 @@ to [the reply owner](board-notebooks.md#replies-and-verification).
 
 Member CRUD uses the existing frozen `workspace::manage` review and ordered
 worker effects. Rename keeps Core's identity/name CAS; assignment keeps admitted
-room revisions and destination-before-source ordering. `remove-member` is a
-copy-only review until Core stop is available: it freezes the displayed name
-(the public `rm` operand), offers no mutation or foreground handoff, and warns to
-stop and recheck the name first. Displayed CLI equivalents quote only words needing shell protection;
-Ops never executes a shell. CRUD modal bounds leave two body cells per edge,
-wrap commands, and keep the existing clipped-control and default-Cancel rules.
+room revisions and destination-before-source ordering. `workspace::close_member`
+uses the same frozen workspace draft and action lane for `identity.stop` then
+`identity.remove`. Only verified stop success chains into remove. Refused stop
+results allow explicit Delete-only, whose Core liveness/CAS guard remains final;
+Ops infers nothing from presence or resume fields. Core's optional `signalled`
+evidence and a kept pane's reason remain visible. The shared Confirm dialog owns
+Cancel-first keys, geometry and currently painted controls. Pending hide/reopen
+never repeats a write. Other management CLI previews retain literal quoting;
+Ops never executes a shell.
 
 ## Shell, geometry and input
 

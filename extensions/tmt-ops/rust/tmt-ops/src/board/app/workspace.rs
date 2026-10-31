@@ -666,6 +666,9 @@ impl App {
                 )
             });
         }
+        if self.loading() {
+            keys.retain(|_, action| action.verb != Verb::Ui(OpsUiAction::RemoveMember));
+        }
         // Details tabs exist only on the Digest tab, so the key is not offered elsewhere.
         if self.shell.tab != OpsTab::Digest {
             keys.retain(|_, action| action.verb != Verb::Ui(OpsUiAction::DigestDetails));

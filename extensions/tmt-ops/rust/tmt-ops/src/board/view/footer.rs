@@ -369,7 +369,7 @@ fn agents_legend(app: &App) -> Option<Hints> {
             (Ui::Edit, "e", "edit"),
             (Ui::Rename, "r", "rename"),
             (Ui::MoveMembership, "m", "move"),
-            (Ui::RemoveMembership, "x", "leave squad"),
+            (Ui::RemoveMember, "x", "close"),
             (Ui::MemberSession, "R", "resume"),
             (Ui::MemberNotes, "C", "checklist"),
         ]
@@ -859,7 +859,7 @@ mod tests {
         });
         assert_eq!(
             agents_hints(&member, 1000).unwrap(),
-            "↑↓←→ move  ⏎ chat  n new  e edit  r rename  m move  x leave squad  C checklist  / search  ? help  q quit"
+            "↑↓←→ move  ⏎ chat  n new  e edit  r rename  m move  x close  C checklist  / search  ? help  q quit"
         );
         let squad = agents_hints(&selected(OpsTarget::Squad(ROOM.into())), 1000).unwrap();
         assert!(
