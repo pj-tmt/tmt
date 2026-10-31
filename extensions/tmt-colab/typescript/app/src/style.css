@@ -1203,6 +1203,10 @@ body:has(.needs-you-header-menu):not(:has(.tmt-ui-shell)) {
   max-height: 100%;
   width: 100%;
 }
+/* A window whose send still runs stays mounted but hidden (#5816). */
+.annotation-new[hidden] {
+  display: none;
+}
 .comment-thread[data-layout='anchored'] {
   display: flex;
   flex-direction: column;

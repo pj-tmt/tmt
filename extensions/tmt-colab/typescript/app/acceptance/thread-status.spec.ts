@@ -285,11 +285,12 @@ test('a held annotation closes; a second one opens, keeps its text and sends, an
     // The message is recorded and its dispatch is held: closing never waits for the send.
     await page.keyboard.press('Escape');
     await expect(compose).toHaveCount(0);
-    // Annotation 2 opens, keeps exactly what was typed, and sends while annotation 1 is held.
-    await write('#quote2', '@held-alpha Second comment, typed while the first is held.');
+    // Annotation 2 opens, keeps exactly what was typed, and sends while annotation 1 is held. The
+    // held dispatch keeps the core busy, so the agent directory cannot be read: it is a comment.
+    await write('#quote2', 'Second comment, typed while the first is held.');
     await send();
     await expect(compose.getByTestId('comment-thread')).toBeVisible();
-    await expect.poll(() => alpha.received().length).toBe(2);
+    await expect.poll(() => alpha.received().length).toBe(1);
     expect(beta.received()).toHaveLength(0);
     await page.keyboard.press('Escape');
     await expect(compose).toHaveCount(0);
@@ -303,20 +304,31 @@ test('a held annotation closes; a second one opens, keeps its text and sends, an
       .getByRole('dialog', { name: 'Resolve 2 open comments?' })
       .getByRole('button', { name: 'Resolve all', exact: true })
       .click();
+    // The confirmation is accepted at once; the statuses commit through the core, which the held
+    // dispatch keeps busy until it is released.
+    await expect(page.getByRole('dialog', { name: 'Resolve 2 open comments?' })).toHaveCount(0);
+    // Releasing annotation 1 finishes its delivery exactly once per recipient.
+    world.releaseBarrier();
     const listing = () =>
       JSON.parse(run(world, world.binaries.colab, ['threads', created.pageId, '--json'])) as {
         threads: { resolved: boolean }[];
       };
     await expect.poll(() => listing().threads.every((thread) => thread.resolved)).toBe(true);
     expect(listing().threads).toHaveLength(2);
-    // Releasing annotation 1 finishes its delivery exactly once per recipient.
-    world.releaseBarrier();
     const ordinary = (agent: typeof alpha) =>
       agent.received().filter((value) => !String(value.message).includes('Thread resolved by'));
     await expect.poll(() => ordinary(beta).length).toBe(1);
-    expect(ordinary(alpha)).toHaveLength(2);
-    expect(world.coreCalls().filter((call) => call.operation === 'dispatch.create')).toHaveLength(
-      3,
-    );
+    expect(ordinary(alpha)).toHaveLength(1);
+    // Two ordinary Asks and one resolve notice per agent, each operation created once.
+    const notices = (agent: typeof alpha) =>
+      agent.received().filter((value) => String(value.message).includes('Thread resolved by'));
+    await expect.poll(() => notices(alpha).length).toBe(1);
+    await expect.poll(() => notices(beta).length).toBe(1);
+    const dispatched = world
+      .coreCalls()
+      .filter((call) => call.operation === 'dispatch.create')
+      .map((call) => call.operationId);
+    expect(dispatched).toHaveLength(4);
+    expect(new Set(dispatched).size).toBe(4);
   });
 });
