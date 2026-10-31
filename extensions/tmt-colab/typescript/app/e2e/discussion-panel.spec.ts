@@ -52,6 +52,16 @@ test('Discussion never offers page-level comment creation', async ({ page }) => 
   await expect(panel.getByRole('button', { name: '+ Comment on page' })).toHaveCount(0);
 });
 
+test('Discussion uses twelve-pixel phone gutters above the dock', async ({ page }) => {
+  const { panel } = await openFirst(page, 390);
+  const frame = (await panel.boundingBox())!;
+  const dock = (await page.locator('#ask-page-fixture .page-floating-actions').boundingBox())!;
+  expect(frame.x).toBeCloseTo(12, 0);
+  expect(frame.x + frame.width).toBeCloseTo(378, 0);
+  expect(frame.height).toBeLessThanOrEqual(470);
+  expect(frame.y + frame.height).toBeLessThanOrEqual(dock.y);
+});
+
 const highlights = (frame: ReturnType<Page['frameLocator']>) =>
   frame.locator('html').evaluate(() => ({
     quiet: CSS.highlights.has('colab-quiet'),

@@ -5,10 +5,19 @@
   border-bottom: var(--tmt-ui-rule-width) solid var(--tmt-ui-surface-rule);
 }
 
-/* The wide Discussion window floats above its measured dock without reflow. */
+/* The Discussion window floats above its measured dock without reflow. */
 .workspace .tmt-ui-panel[data-panel='comments'][data-floating-discussion] {
   inset: auto var(--discussion-right) var(--discussion-bottom) auto;
   width: 360px;
   height: 470px;
   max-height: calc(100dvh - var(--discussion-bottom) - var(--tmt-ui-header-height) - 12px);
+}
+
+@media (max-width: 760px) {
+  .workspace .tmt-ui-panel[data-panel='comments'][data-floating-discussion] {
+    left: 12px;
+    right: 12px;
+    width: auto;
+    border-radius: var(--tmt-ui-radius-l);
+  }
 }

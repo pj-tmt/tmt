@@ -2211,7 +2211,7 @@ function OpenPage({
           focusFallback={environment.focusFallback}
           open={panel === 'comments'}
           mode={panelMode === 'column' ? 'card' : panelMode}
-          data-floating-discussion={panelMode === 'column' ? '' : undefined}
+          data-floating-discussion=""
           style={
             {
               '--discussion-right': `${dockPlacement.right}px`,

@@ -4017,7 +4017,7 @@ remains a listbox. A nested menu consumes Escape before its drawer. Comments is 
 exception: a non-modal panel with no scrim, trap or inert page, sharing the single panel
 slot with the drawers. At wide widths Discussion is a 360 × 470 px floating card, 16 px
 above the measured dock, shortened as needed to remain below the header on short screens;
-card and sheet modes remain at narrower widths. Its compact
+at narrow widths it keeps 12 px side gutters and the same maximum 470 px height above the dock. Its compact
 single-row header holds Discussion, position, filter, previous/next, Resolve or Reopen,
 Resolve all and Close. Escape on the page or in Discussion closes it, retains the draft,
 clears passage selection and restores the opener when available; an in-flight Discussion
