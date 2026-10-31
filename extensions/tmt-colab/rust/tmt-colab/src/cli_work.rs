@@ -280,7 +280,7 @@ pub fn run(root: &Path, group: &str, args: &ArgMatches) -> Result<()> {
     let text = |name: &str| args.get_one::<String>(name).cloned();
     let (action, body) = match (group, name) {
         ("subpage", "ls") => return list(root, page, args.get_flag("json")),
-        ("subpage", "create") => return create(root, page, args),
+        ("subpage", "create") => return create_subpage(root, page, args),
         ("summary", "set") => (
             "summary.set",
             json!({"line1":text("line1"),"line2":text("line2")}),
@@ -484,7 +484,7 @@ fn read_with_space(root: &Path, page: &str) -> Result<Read> {
 /// `subpage create`: a new page with the title as its heading, then the attach. The page is made
 /// first, so an attach that fails leaves a page and says how to finish; it never searches for one
 /// to adopt.
-fn create(root: &Path, page: &str, args: &ArgMatches) -> Result<()> {
+fn create_subpage(root: &Path, page: &str, args: &ArgMatches) -> Result<()> {
     let title = tmt_colab::subpage_create::title(&json!(
         args.get_one::<String>("title").expect("required title")
     ))
