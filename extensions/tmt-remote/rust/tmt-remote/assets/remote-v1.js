@@ -2960,11 +2960,9 @@ function homePage(shell, open) {
 //#region src/remote-menu.ts
 function remoteMenu(actions, shell = remoteShell()) {
 	if (!shell) return () => {};
-	const href = (view) => new URL(REMOTE_ITEMS.find((item) => item.id === view).path, location.href).href;
+	const href = (view) => new URL(remotePath(view), location.href).href;
 	let projection;
-	const run = /* @__PURE__ */ new Map();
 	function paint() {
-		run.clear();
 		const view = projection?.current.connection;
 		const showing = remoteItem(location.pathname)?.id;
 		const item = (id) => {
@@ -2975,32 +2973,31 @@ function remoteMenu(actions, shell = remoteShell()) {
 				current: showing === id
 			};
 		};
-		const remotes = [{
-			...item("overview"),
-			label: `This Remote · ${view?.text ?? "Checking"}`,
-			current: showing !== "remotes" && showing !== "create" && showing !== "join"
-		}];
-		if (view?.action) {
-			run.set("recover", () => actions.recover(view.action));
-			remotes.push({
-				id: "recover",
-				label: view.action,
-				href: "#",
-				current: false,
-				note: view.text
-			});
-		}
+		const recovery = view?.action;
 		shell.setMenu({
 			title: "Remote",
-			groups: [{ items: [item("remotes")] }, {
+			groups: [{ items: [{
+				...item("remotes"),
+				current: [
+					"remotes",
+					"create",
+					"join"
+				].includes(showing ?? ""),
+				total: projection?.rows.length
+			}] }, {
 				label: "This machine",
-				items: remotes
-			}]
-		}, (id) => {
-			const action = run.get(id);
-			if (!action) return false;
-			action();
-			return true;
+				items: [item("members"), item("my-devices")],
+				action: recovery ? {
+					icon: "link",
+					label: recovery,
+					onActivate: () => actions.recover(recovery)
+				} : void 0
+			}],
+			settings: {
+				...item("settings"),
+				label: "Remote settings",
+				current: showing === "settings" || showing === "service"
+			}
 		});
 	}
 	paint();
@@ -8817,13 +8814,9 @@ function timersView() {
 	};
 }
 //#endregion
-//#region src/ops-page.ts
-/** The Ops web view, read-only: Agents, Squads, Timers and Ops settings, one section at a time from
-* the module menu. Every state is a mark and a word; what the reader sets on a section stays across
-* the board's refreshes. */
-/** The board's own reload cadence (`tmt ops ui`). */
-var REFRESH_MS = 5e3;
-var SECTIONS$1 = [
+//#region src/ops-menu.ts
+/** The fixed Ops rail: observed counts only; the shared leaf owns row presentation. */
+var OPS_SECTIONS = [
 	{
 		id: "agents",
 		label: "Agents"
@@ -8841,12 +8834,46 @@ var SECTIONS$1 = [
 		label: "Ops settings"
 	}
 ];
+function opsSection(hash) {
+	return OPS_SECTIONS.find((section) => `#${section.id}` === hash)?.id ?? "agents";
+}
+function opsMenu(section, board, pathname) {
+	const observed = board && !board.unavailable && !board.truncated ? board : void 0;
+	const totals = {
+		agents: observed?.agents.length,
+		squads: observed?.squads.length,
+		schedules: observed?.schedules?.length
+	};
+	const attention = observed?.agents.filter((agent) => agent.state === "needs-you").length;
+	const item = (id, label) => ({
+		id,
+		label,
+		href: `${pathname}#${id}`,
+		current: section === id
+	});
+	return {
+		title: "Ops",
+		groups: [{ items: OPS_SECTIONS.filter((entry) => entry.id !== "settings").map((entry) => ({
+			...item(entry.id, entry.label),
+			total: totals[entry.id],
+			count: entry.id === "agents" && attention ? shellCount(attention) : void 0
+		})) }],
+		settings: item("settings", "Ops settings")
+	};
+}
+//#endregion
+//#region src/ops-page.ts
+/** The Ops web view, read-only: Agents, Squads, Timers and Ops settings, one section at a time from
+* the module menu. Every state is a mark and a word; what the reader sets on a section stays across
+* the board's refreshes. */
+/** The board's own reload cadence (`tmt ops ui`). */
+var REFRESH_MS = 5e3;
 function opsPage(shell, source = opsSource) {
 	const main = document.getElementById("ops-section");
 	const note = document.getElementById("ops-note");
 	if (!main || !note) return;
 	const href = (id) => `${location.pathname}#${id}`;
-	const current = () => SECTIONS$1.find((section) => `#${section.id}` === location.hash)?.id ?? "agents";
+	const current = () => opsSection(location.hash);
 	let board;
 	const views = {
 		agents: agentsView(),
@@ -8857,21 +8884,8 @@ function opsPage(shell, source = opsSource) {
 	const paint = () => {
 		const section = current();
 		if (section !== "squads") views.squads.close();
-		shell.setMenu({
-			title: "Ops",
-			groups: [{ items: SECTIONS$1.filter((item) => item.id !== "settings").map((item) => ({
-				id: item.id,
-				label: item.label,
-				href: href(item.id),
-				current: item.id === section
-			})) }, { items: [{
-				id: "settings",
-				label: "Ops settings",
-				href: href("settings"),
-				current: section === "settings"
-			}] }]
-		});
-		const label = SECTIONS$1.find((item) => item.id === section).label;
+		shell.setMenu(opsMenu(section, board, location.pathname));
+		const label = OPS_SECTIONS.find((item) => item.id === section).label;
 		shell.setTitle(label, ["Ops"], "Ops");
 		if (!board) main.replaceChildren(pageLoading());
 		else if (board.unavailable) main.replaceChildren();

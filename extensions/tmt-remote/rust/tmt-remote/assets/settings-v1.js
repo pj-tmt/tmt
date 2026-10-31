@@ -288,11 +288,9 @@ function settingsChoice(trigger, surface) {
 //#region src/remote-menu.ts
 function remoteMenu(actions, shell = void 0) {
 	if (!shell) return () => {};
-	const href = (view) => new URL(REMOTE_ITEMS.find((item) => item.id === view).path, location.href).href;
+	const href = (view) => new URL(remotePath(view), location.href).href;
 	let projection;
-	const run = /* @__PURE__ */ new Map();
 	function paint() {
-		run.clear();
 		const view = projection?.current.connection;
 		const showing = remoteItem(location.pathname)?.id;
 		const item = (id) => {
@@ -303,32 +301,31 @@ function remoteMenu(actions, shell = void 0) {
 				current: showing === id
 			};
 		};
-		const remotes = [{
-			...item("overview"),
-			label: `This Remote · ${view?.text ?? "Checking"}`,
-			current: showing !== "remotes" && showing !== "create" && showing !== "join"
-		}];
-		if (view?.action) {
-			run.set("recover", () => actions.recover(view.action));
-			remotes.push({
-				id: "recover",
-				label: view.action,
-				href: "#",
-				current: false,
-				note: view.text
-			});
-		}
+		const recovery = view?.action;
 		shell.setMenu({
 			title: "Remote",
-			groups: [{ items: [item("remotes")] }, {
+			groups: [{ items: [{
+				...item("remotes"),
+				current: [
+					"remotes",
+					"create",
+					"join"
+				].includes(showing ?? ""),
+				total: projection?.rows.length
+			}] }, {
 				label: "This machine",
-				items: remotes
-			}]
-		}, (id) => {
-			const action = run.get(id);
-			if (!action) return false;
-			action();
-			return true;
+				items: [item("members"), item("my-devices")],
+				action: recovery ? {
+					icon: "link",
+					label: recovery,
+					onActivate: () => actions.recover(recovery)
+				} : void 0
+			}],
+			settings: {
+				...item("settings"),
+				label: "Remote settings",
+				current: showing === "settings" || showing === "service"
+			}
 		});
 	}
 	paint();

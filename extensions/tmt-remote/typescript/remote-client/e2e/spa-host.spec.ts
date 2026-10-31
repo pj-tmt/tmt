@@ -553,15 +553,15 @@ test.describe('the app in a browser', () => {
     },
   ] as const;
   const litRow = (page: Page) =>
-    modulePages(page)
-      .locator('[aria-current="page"]')
+    page
+      .locator('nav.tmt-ui-rail [aria-current="page"]')
       .evaluateAll((items) => items.map((item) => item.getAttribute('data-id')));
   const expectView = async (page: Page, view: (typeof REMOTE_VIEWS)[number]) => {
     expect(new URL(page.url()).pathname, view.id).toBe(view.path);
     expect(new URL(page.url()).hash, view.id).toBe('');
     await expect
       .poll(() => litRow(page), view.id)
-      .toEqual([view.id === 'remotes' ? 'remotes' : 'overview']);
+      .toEqual([view.id === 'overview' ? 'remote' : view.id === 'service' ? 'settings' : view.id]);
     if (view.id !== 'remotes')
       await expect(page.locator(`#remote-tab-${view.id}`)).toHaveAttribute('aria-selected', 'true');
     await expect(page.locator('.tmt-ui-topbar-title-current'), view.id).toHaveText(view.h1);
@@ -575,7 +575,7 @@ test.describe('the app in a browser', () => {
     if (view.id === 'remotes') await menu.locator('a[data-id="remotes"]').click();
     else {
       if (new URL(page.url()).pathname === '/remote/')
-        await menu.locator('a[data-id="overview"]').click();
+        await page.locator('#remote-list [data-this-machine="true"] [data-action="open"]').click();
       await page.locator(`#remote-tab-${view.id}`).click();
     }
   }
@@ -1000,6 +1000,130 @@ test.describe('the Ops route on the owner read', () => {
     });
     return reads;
   }
+
+  for (const width of [1440, 390])
+    for (const colorScheme of ['light', 'dark'] as const)
+      test(`fixed menu children at ${width} ${colorScheme}`, async ({ browserName }, testInfo) => {
+        expect(browserName).toBe('chromium');
+        const observed = structuredClone(board) as {
+          agents: { presence: string }[];
+          timers: unknown;
+        };
+        observed.agents[1]!.presence = 'active';
+        observed.timers = null;
+        const { page } = await openApp('/ops#squads', async (page) => {
+          await page.setViewportSize({ width, height: 900 });
+          await page.emulateMedia({ colorScheme });
+          await page.addInitScript(
+            (theme) => localStorage.setItem('tmt-ui-theme', theme),
+            colorScheme,
+          );
+          await stub(page, [observed]);
+        });
+        const rail = page.locator('nav.tmt-ui-rail');
+        const openMenu = async () => {
+          if (width <= 900) {
+            const open = page.getByRole('button', { name: 'Open navigation', exact: true });
+            if ((await open.getAttribute('aria-expanded')) !== 'true') await open.click();
+          }
+        };
+        const inspect = async (labels: string[], selected: string) => {
+          await openMenu();
+          const tree = modulePages(page);
+          await expect(tree.locator('a .tmt-ui-module-menu-label')).toHaveText(labels);
+          await expect(rail.locator('[aria-current="page"]')).toHaveCount(1);
+          await expect(tree.locator(`a[data-id="${selected}"]`)).toHaveAttribute(
+            'aria-current',
+            'page',
+          );
+          await expect(tree.locator(':scope > li:last-child')).toHaveClass('tmt-ui-rail-settings');
+          await expect(tree.locator('button.tmt-ui-rail-add')).toHaveCount(0);
+          const geometry = await tree.evaluate((node) => ({
+            indents: [...node.querySelectorAll('a.tmt-ui-rail-sub-item')].map(
+              (item) => getComputedStyle(item).paddingLeft,
+            ),
+            edge: getComputedStyle(node.querySelector('[aria-current="page"]')!).borderLeftWidth,
+            rule: getComputedStyle(node.lastElementChild!, '::before').borderTopStyle,
+            overflow: document.documentElement.scrollWidth > innerWidth,
+          }));
+          expect(new Set(geometry.indents)).toEqual(new Set(['36px']));
+          expect(geometry.edge).toBe('0px');
+          expect(geometry.rule).toBe('solid');
+          expect(geometry.overflow).toBe(false);
+        };
+        try {
+          const opsLabels = ['Agents', 'Squads', 'Timers', 'Ops settings'];
+          await inspect(opsLabels, 'squads');
+          const agents = modulePages(page).locator('a[data-id="agents"]');
+          await expect(agents.locator('.tmt-ui-shell-count')).toHaveText(['2', '1']);
+          await expect(agents.locator('.tmt-ui-shell-count').last()).toHaveAttribute(
+            'data-kind',
+            'needs-you',
+          );
+          await expect(
+            modulePages(page).locator('a[data-id="schedules"] .tmt-ui-shell-count'),
+          ).toHaveCount(0);
+          const colours = await agents
+            .locator('.tmt-ui-shell-count')
+            .evaluateAll((nodes) => nodes.map((node) => getComputedStyle(node).backgroundColor));
+          expect(colours[0]).not.toBe(colours[1]);
+          await page.mouse.move(width - 1, 899);
+          await page.screenshot({
+            path: testInfo.outputPath(`rail-ops-${width}-${colorScheme}.png`),
+          });
+          for (const id of ['agents', 'schedules', 'settings', 'squads']) {
+            await openMenu();
+            await modulePages(page).locator(`a[data-id="${id}"]`).click();
+            await expect(page).toHaveURL(`${origin}/ops#${id}`);
+            await inspect(opsLabels, id);
+            expect(
+              await modulePages(page)
+                .locator('a[data-id="agents"] .tmt-ui-shell-count')
+                .evaluateAll((nodes) =>
+                  nodes.map((node) => getComputedStyle(node).backgroundColor),
+                ),
+            ).toEqual(colours);
+          }
+          expect(
+            await modulePages(page)
+              .locator('a[data-id="agents"] .tmt-ui-shell-count')
+              .evaluateAll((nodes) => nodes.map((node) => getComputedStyle(node).backgroundColor)),
+          ).toEqual(colours);
+          await page.goto(`${origin}/remote/`);
+          await page.evaluate(async () => {
+            const { remoteRegistry } = (await import(
+              '/sdk/remote-v1.js' as string
+            )) as typeof import('../src/browser.js');
+            await remoteRegistry.add('other-remote', 'https://other.invalid/');
+          });
+          await page.goto(`${origin}/remote/members`);
+          const remoteLabels = ['My Remotes', 'People', 'My devices', 'Remote settings'];
+          await inspect(remoteLabels, 'members');
+          await expect(
+            modulePages(page).locator('a[data-id="remotes"] .tmt-ui-shell-count'),
+          ).toHaveText('2');
+          await expect(
+            modulePages(page).locator('a[data-id="members"] .tmt-ui-shell-count'),
+          ).toHaveCount(0);
+          await expect(modulePages(page).locator('.tmt-ui-rail-sub-group')).toContainText(
+            'This machine',
+          );
+          await expect(
+            modulePages(page).getByRole('button', { name: 'Pair again', exact: true }),
+          ).toBeVisible();
+          await page.mouse.move(width - 1, 899);
+          await page.screenshot({
+            path: testInfo.outputPath(`rail-remote-${width}-${colorScheme}.png`),
+          });
+          for (const id of ['my-devices', 'settings', 'members']) {
+            await openMenu();
+            await modulePages(page).locator(`a[data-id="${id}"]`).click();
+            await inspect(remoteLabels, id);
+          }
+        } finally {
+          await page.close();
+        }
+      });
 
   test('shows the board, refreshes it while visible and stops on leaving the route', async () => {
     let reads: number[] = [];

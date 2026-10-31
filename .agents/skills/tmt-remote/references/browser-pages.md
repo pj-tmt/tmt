@@ -96,8 +96,9 @@ entry states, keyboard activation, storage/transport/pin errors, refusal, token 
 1440/390 light/dark captures plus a 320-pixel fit check. The SDK fixture covers complete stored-record guards
 and page replacement; actual browser/terminal fixtures remain the user-flow evidence owner.
 
-The Remote rail opens **My Remotes** at `/remote/`, with a second link into the current door’s Overview. One
-`registryView` projection feeds the page and the rail's current-machine context; the rail does
+The Remote rail keeps **My Remotes**, this machine's **People** and **My devices**, and a final
+**Remote settings** row in the shared settings slot. One `registryView` projection feeds its
+known registry total and existing recovery group command; absent member/device counts stay unknown. The rail does
 not enumerate a second remote list. This machine is first, explicitly marked, including when
 no public reference has been saved. Each row shows its backend, mark plus connection word,
 and the viewer role from the existing confirmed readable management observation: a designated
@@ -152,7 +153,8 @@ origin-local list; its Open enters the selected door’s Overview. One current-d
 Overview, People, My devices, Settings and Service & upgrade tabs, with no Remote ID in
 the path. The native page allowlist mirrors that explicit set, and old machine/devices/connect/invites
 paths have no shims. The [public route contract](../../../../contracts/remote-channel-v1.md#public-browser-routes)
-owns the exact paths. The rail links to the list and current Remote rather than duplicating the tabs.
+owns the exact paths. `remote-menu.ts` maps Create/Join to My Remotes and Service to Remote settings;
+Overview selects the Remote module itself. Rail children stay fixed across connection and route changes.
 `remote-app.ts` keeps both markup models and persistent tab panels mounted, moving the same form
 nodes instead of cloning or remounting their draft/original-outcome owners. Tabs use the shipped
 static roles, roving focus, keyboard selection and disposable resize visibility. A registry
@@ -196,7 +198,9 @@ eight times. `/ops` reads `ops` every 5 s through `ops-source.ts`, repaints only
 changed and gives each reason one sentence with what to do; Digest uses the same client.
 `test/owner-reads.test.ts` runs every vector of `owner-reads-v1.json` through it.
 
-`ops-page.ts` owns the section menu and that read lifetime; `ops-agents.ts`,
+`ops-menu.ts` projects fixed children, observed totals and Agents-state attention into the shared
+rail, with Ops settings last. Missing, unavailable, truncated and null evidence produces no pill.
+`ops-page.ts` retains section selection and the read lifetime; `ops-agents.ts`,
 `ops-squads.ts` and `ops-timers.ts` render the observed board through shared
 `ops-parts.ts` presentation helpers. Ops settings (`ops-settings.ts`) has no browser read: it
 says where the settings are, with the terminal card (`terminalCard`, also Timers' way to manage
