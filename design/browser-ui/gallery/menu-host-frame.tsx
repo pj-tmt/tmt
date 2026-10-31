@@ -79,27 +79,45 @@ export function MenuHostFrame({ params }: { params: URLSearchParams }) {
     },
     [params],
   );
+  const grouped = params.get('grouped') === 'true';
   const items = useMemo<BrowserMenuItem[]>(() => {
     const rows: BrowserMenuItem[] = [
-      { key: 'alpha', label: 'Alpha', checked: selected === 'alpha' },
+      {
+        key: 'alpha',
+        label: 'Alpha',
+        checked: selected === 'alpha',
+        ...(grouped
+          ? { heading: 'First group', leadingIcon: '◆', detail: 'Detail', meta: '4' }
+          : {}),
+      },
       { key: 'blocked', label: 'Blocked', disabled: true, disabledReason: 'Read only' },
       { key: 'gamma', label: 'Gamma', checked: selected === 'gamma' },
-      { key: 'delta', label: 'Delta', checked: selected === 'delta', separated: true },
+      {
+        key: 'delta',
+        label: 'Delta',
+        checked: selected === 'delta',
+        separated: true,
+        ...(grouped ? { heading: 'Second group' } : {}),
+      },
     ].filter((item) => !removeAlpha || item.key !== 'alpha');
     return reverse ? rows.reverse() : rows;
-  }, [selected, removeAlpha, reverse]);
+  }, [selected, removeAlpha, reverse, grouped]);
   const nativeVisibility = useCallback((open: boolean) => visibility('native', open), [visibility]);
   const reactVisibility = useCallback((open: boolean) => visibility('react', open), [visibility]);
   const nativeOptions = useMemo<BrowserMenuHostOptions>(
     () => ({
       label: 'Native menu',
-      items: items.map(({ content: _content, ...item }) => item),
+      items: items.map(({ content: _content, leadingIcon, ...item }) => ({
+        ...item,
+        ...(leadingIcon ? { leadingIcon: document.createTextNode('◆') } : {}),
+      })),
+      popupLayout: grouped ? 'grouped' : undefined,
       description: 'Choose a fixture value',
       triggerText: params.get('kind') === 'text' ? 'Choose' : undefined,
       onSelect: receive,
       onOpenChange: nativeVisibility,
     }),
-    [items, params, receive, nativeVisibility],
+    [items, params, receive, nativeVisibility, grouped],
   );
   return (
     <main className="gallery-main gallery-stack">
@@ -109,6 +127,7 @@ export function MenuHostFrame({ params }: { params: URLSearchParams }) {
           <BrowserMenu
             label="React menu"
             items={items}
+            popupLayout={grouped ? 'grouped' : undefined}
             description="Choose a fixture value"
             triggerText={params.get('kind') === 'text' ? 'Choose' : undefined}
             openRequest={request}
