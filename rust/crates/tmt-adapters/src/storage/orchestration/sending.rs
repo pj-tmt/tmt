@@ -259,3 +259,33 @@ fn pair_count(db: &Connection, a: &str, b: &str, start: u64) -> Result<u64, Stor
     .map_err(|e| classify(e, "Count pair requests"))
     .and_then(|n| u64::try_from(n).map_err(|_| corrupt()))
 }
+
+/// Journal a refused route (subject = sender, action `block`) in the caller's transaction.
+pub(in crate::storage) fn append_route_refusal(
+    db: &Connection,
+    refusal: &OrchRouteRefusal,
+    now: u64,
+) -> Result<(), StorageError> {
+    append(db, &route_refusal_decision(refusal, now))?;
+    Ok(())
+}
+
+/// The one shape of a route refusal's journal entry.
+pub fn route_refusal_decision(refusal: &OrchRouteRefusal, now: u64) -> OrchDecision {
+    OrchDecision {
+        recorded_at_ms: now,
+        subject_kind: OrchSubjectKind::Identity,
+        subject_id: refusal.sender_id.clone(),
+        actor_id: Some(refusal.sender_id.clone()),
+        recipient_id: Some(refusal.recipient_id.clone()),
+        action: OrchDecisionAction::Block,
+        outcome: OrchDecisionOutcome::Failed,
+        reason: "route_restricted".into(),
+        configuration_revision: refusal.configuration_revision,
+        time_zone: refusal.time_zone.clone(),
+        sources: vec![OrchDecisionSource {
+            field: OrchPolicyField::Sending,
+            source: refusal.source.clone(),
+        }],
+    }
+}

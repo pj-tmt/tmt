@@ -164,8 +164,15 @@ impl Storage {
                     },
                 );
                 let acceptance = match result {
+                    Ok(prepared) if prepared.held_for_person => Acceptance::HeldForPerson,
                     Ok(_) => Acceptance::Queued,
                     Err(RequestError::NotFound) => Acceptance::RecipientUnavailable,
+                    // Nothing was stored for this recipient; the operation goes on and the
+                    // refusal is journaled in the same transaction (#4892).
+                    Err(RequestError::RouteRestricted(refusal)) => {
+                        super::orchestration::append_route_refusal(transaction, &refusal, now)?;
+                        Acceptance::RouteRestricted
+                    }
                     Err(error) => return Err(error.into()),
                 };
                 items.push(DispatchItem {

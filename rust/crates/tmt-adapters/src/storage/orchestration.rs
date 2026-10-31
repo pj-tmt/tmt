@@ -6,7 +6,8 @@ use super::{Storage, StorageError, StorageErrorCode, errors::classify};
 use crate::orchestration::wire::{self, OrchPlanDocument, OrchSubjectDocument};
 use rusqlite::{Connection, OptionalExtension, TransactionBehavior, params};
 pub use sending::active_leads;
-pub(super) use sending::held_for_person;
+pub use sending::route_refusal_decision;
+pub(super) use sending::{append_route_refusal, held_for_person};
 use serde_json::{Value, json};
 use tmt_core::{
     dispatch::canonical_id,

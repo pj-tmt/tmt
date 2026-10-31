@@ -198,6 +198,8 @@ struct ItemWire {
 enum AcceptanceWire {
     Queued,
     RecipientUnavailable,
+    RouteRestricted,
+    HeldForPerson,
 }
 
 pub fn encode_receipt(receipt: &DispatchReceipt) -> Vec<u8> {
@@ -213,6 +215,8 @@ pub fn encode_receipt(receipt: &DispatchReceipt) -> Vec<u8> {
                 acceptance: match item.acceptance {
                     Acceptance::Queued => AcceptanceWire::Queued,
                     Acceptance::RecipientUnavailable => AcceptanceWire::RecipientUnavailable,
+                    Acceptance::RouteRestricted => AcceptanceWire::RouteRestricted,
+                    Acceptance::HeldForPerson => AcceptanceWire::HeldForPerson,
                 },
             })
             .collect(),
@@ -275,6 +279,8 @@ pub(crate) fn decode_receipt(bytes: &[u8]) -> Option<DispatchReceipt> {
                 acceptance: match item.acceptance {
                     AcceptanceWire::Queued => Acceptance::Queued,
                     AcceptanceWire::RecipientUnavailable => Acceptance::RecipientUnavailable,
+                    AcceptanceWire::RouteRestricted => Acceptance::RouteRestricted,
+                    AcceptanceWire::HeldForPerson => Acceptance::HeldForPerson,
                 },
             })
             .collect(),

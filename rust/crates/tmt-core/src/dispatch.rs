@@ -83,6 +83,10 @@ pub fn canonical_id(value: &str) -> bool {
 pub enum Acceptance {
     Queued,
     RecipientUnavailable,
+    /// The sender's sending rule refuses this recipient; nothing was stored for it (#4892).
+    RouteRestricted,
+    /// Stored and held at the pair's talk limit until a person resumes it (#4892).
+    HeldForPerson,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

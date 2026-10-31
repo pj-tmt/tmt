@@ -175,6 +175,8 @@ pub(super) fn execute(operation: RoomOperation, mode: OutputMode) -> io::Result<
             let acceptance = match item.acceptance {
                 Acceptance::Queued => Cell::from("queued"),
                 Acceptance::RecipientUnavailable => Cell::styled("unavailable", Token::Warn),
+                Acceptance::RouteRestricted => Cell::styled("not sent · route", Token::Warn),
+                Acceptance::HeldForPerson => Cell::styled("held · needs a person", Token::Warn),
             };
             rows.row([
                 Cell::from(value::short_id(&item.recipient_id)),

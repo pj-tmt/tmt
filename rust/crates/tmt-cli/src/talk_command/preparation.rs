@@ -413,22 +413,9 @@ fn route_restricted(
     refusal: &tmt_core::orchestration::sending::OrchRouteRefusal,
 ) -> Failure {
     use tmt_core::orchestration::*;
-    let journaled = storage.append_orchestration_decision(&OrchDecision {
-        recorded_at_ms: wall_time_ms(),
-        subject_kind: OrchSubjectKind::Identity,
-        subject_id: refusal.sender_id.clone(),
-        actor_id: Some(refusal.sender_id.clone()),
-        recipient_id: Some(refusal.recipient_id.clone()),
-        action: OrchDecisionAction::Block,
-        outcome: OrchDecisionOutcome::Failed,
-        reason: "route_restricted".into(),
-        configuration_revision: refusal.configuration_revision,
-        time_zone: refusal.time_zone.clone(),
-        sources: vec![OrchDecisionSource {
-            field: OrchPolicyField::Sending,
-            source: refusal.source.clone(),
-        }],
-    });
+    let journaled = storage.append_orchestration_decision(
+        &tmt_adapters::storage::route_refusal_decision(refusal, wall_time_ms()),
+    );
     let rule = match refusal.sending {
         OrchSending::Leads => "may message only leads",
         OrchSending::Paused => "may not message other agents",
