@@ -178,8 +178,10 @@ pub const SHELL_AUDIENCE_BYTES: usize = 128;
 /// line 2 what comes next.
 pub const SUMMARY_LINE1_POINTS: usize = 24;
 pub const SUMMARY_LINE2_POINTS: usize = 60;
-/// Structured work value and task bounds (contract: Work). The whole value is one `meta.work`
-/// replacement, so it stays within the shell's single-update size.
+/// The most direct sub-pages one page lists (contract: Sub-pages).
+pub const SUBPAGES: usize = 256;
+/// Legacy-migration-only bounds: the task-era `meta.work` value is still validated while it is
+/// rewritten into `meta.subpages` and `meta.summary` (#5825). Nothing writes it any more.
 pub const WORK_TASKS: usize = 256;
 pub const WORK_BYTES: usize = 128 * 1024;
 /// The highest task number; `next` may reach one past it, and a task is never numbered twice.

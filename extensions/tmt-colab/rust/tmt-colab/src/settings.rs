@@ -1,18 +1,15 @@
 //! Colab's user settings: one small JSON file in the Colab state directory, no config system.
-//! `{"open": true|false}` controls whether `serve` and `page create` open the browser;
-//! `{"wip": {"default": N, "agents": {NAME: N}}}` is the work-in-progress limit (`wip.rs`). An
-//! absent file or key means the default. Unknown keys are ignored so a newer file never breaks an
-//! older executable, and a setter keeps the keys it does not own. `{"github": {"repo": "OWNER/REPO"}}`
-//! is the repository the GitHub driver pushes tasks to (`work_github.rs`). `{"pageExpiry": N|"off"}`
-//! is the space's days without activity before a page is archived (`page_expiry.rs`).
+//! `{"open": true|false}` controls whether `serve` and `page create` open the browser. An absent
+//! file or key means the default. Unknown keys are ignored so a newer file never breaks an older
+//! executable, and a setter keeps the keys it does not own (the task-era `wip` and `github` keys
+//! are now simply unknown). `{"pageExpiry": N|"off"}` is the space's days without activity before
+//! a page is archived (`page_expiry.rs`).
 //! `{"defaultTemplate": NAME|ID}` is the template `page create` starts from when none is named
 //! (`templates.rs`); absent means TMT's `starter`.
 use crate::{
     Result,
     keyring::{Layout, StateFault},
     page_expiry::{MAX_DAYS, SpaceExpiry},
-    wip::{Limits, MAX_LIMIT},
-    work_github::Repo,
 };
 use serde_json::{Value, json};
 use std::{
@@ -29,9 +26,6 @@ const LIMIT: u64 = 4096;
 pub struct ColabSettings {
     /// `None` when the file does not say: the default applies.
     open: Option<bool>,
-    wip: Limits,
-    /// The repository the GitHub driver pushes tasks to; `None` until one is set.
-    github_repo: Option<Repo>,
     page_expiry: SpaceExpiry,
     /// The space's default template, a name or a page ID; `None` is TMT's `starter`.
     default_template: Option<String>,
@@ -46,14 +40,6 @@ impl ColabSettings {
     pub fn source(&self) -> &'static str {
         if self.open.is_some() { FILE } else { "default" }
     }
-    /// The work-in-progress limits; the defaults when the file does not say.
-    pub fn wip(&self) -> &Limits {
-        &self.wip
-    }
-    /// The repository the GitHub driver pushes tasks to.
-    pub fn github_repo(&self) -> Option<&Repo> {
-        self.github_repo.as_ref()
-    }
     /// The space's days without activity before a page is archived.
     pub fn page_expiry(&self) -> SpaceExpiry {
         self.page_expiry
@@ -64,14 +50,8 @@ impl ColabSettings {
     }
     pub fn json(&self) -> Value {
         let mut settings = json!({"open": self.open(), "source": self.source(),
-            "wipLimit": {"default": self.wip.default.unwrap_or(crate::wip::DEFAULT_LIMIT),
-                "agents": self.wip.agents},
             "pageExpiryDays": self.page_expiry.days()});
-        // Present only once a repository is set, so a space that never uses the driver reads as before.
-        if let Some(repo) = &self.github_repo {
-            settings["githubRepo"] = json!(repo.slug());
-        }
-        // Likewise: only a space that chose a default template says so.
+        // Only a space that chose a default template says so.
         if let Some(template) = &self.default_template {
             settings["defaultTemplate"] = json!(template);
         }
@@ -80,19 +60,13 @@ impl ColabSettings {
     fn parse(bytes: &[u8]) -> Self {
         match serde_json::from_slice::<Value>(bytes) {
             Ok(value) if value.is_object() => {
-                let wip = parse_wip(&value["wip"]);
-                let github = parse_github(&value["github"]);
                 let expiry = parse_expiry(&value["pageExpiry"]);
                 let template = parse_default_template(&value["defaultTemplate"]);
                 Self {
                     open: value["open"].as_bool(),
                     malformed: (!value["open"].is_null() && !value["open"].is_boolean())
-                        || (!value["wip"].is_null() && wip.is_none())
-                        || github.is_none()
                         || expiry.is_none()
                         || template.is_none(),
-                    wip: wip.unwrap_or_default(),
-                    github_repo: github.flatten(),
                     page_expiry: expiry.unwrap_or_default(),
                     default_template: template.flatten(),
                 }
@@ -104,39 +78,6 @@ impl ColabSettings {
         }
     }
 }
-fn limit(value: &Value) -> Option<u32> {
-    let n = u32::try_from(value.as_u64()?).ok()?;
-    (1..=MAX_LIMIT).contains(&n).then_some(n)
-}
-/// `None` when the value is present but not a limit table; an absent value is the defaults.
-fn parse_wip(value: &Value) -> Option<Limits> {
-    if value.is_null() {
-        return Some(Limits::default());
-    }
-    let table = value.as_object()?;
-    let default = match table.get("default") {
-        None => None,
-        Some(value) => Some(limit(value)?),
-    };
-    let mut agents = std::collections::BTreeMap::new();
-    for (name, value) in table
-        .get("agents")
-        .map_or(Some(&serde_json::Map::new()), |v| v.as_object())?
-    {
-        agents.insert(name.clone(), limit(value)?);
-    }
-    Some(Limits { default, agents })
-}
-
-/// `None` when the value is present but not `{"repo": "OWNER/REPO"}`; absent is no repository.
-fn parse_github(value: &Value) -> Option<Option<Repo>> {
-    if value.is_null() {
-        return Some(None);
-    }
-    let repo = value.as_object()?.get("repo")?.as_str()?;
-    Some(Some(Repo::parse(repo)?))
-}
-
 /// `None` when the value is present but neither a day count nor `"off"`; absent is the default.
 fn parse_expiry(value: &Value) -> Option<SpaceExpiry> {
     match value {
@@ -274,51 +215,6 @@ pub fn set_open(root: &Path, open: bool) -> Result<ColabSettings> {
     })
 }
 
-/// Set the space default limit (`agent` is `None`), a limit of one agent, or clear a limit
-/// (`limit` is `None`): clearing the default returns it to `wip::DEFAULT_LIMIT`.
-pub fn set_wip_limit(
-    root: &Path,
-    agent: Option<&str>,
-    limit: Option<u32>,
-) -> Result<ColabSettings> {
-    let retry = match (agent, limit) {
-        (None, Some(limit)) => format!("tmt colab settings wip-limit {limit}"),
-        (None, None) => "tmt colab settings wip-limit".to_owned(),
-        (Some(agent), Some(limit)) => format!("tmt colab settings wip-limit {agent} {limit}"),
-        (Some(agent), None) => format!("tmt colab settings wip-limit {agent} default"),
-    };
-    update(root, &retry, |table| {
-        let mut wip = match table.remove("wip") {
-            Some(Value::Object(wip)) => wip,
-            _ => serde_json::Map::new(),
-        };
-        match agent {
-            None => {
-                wip.remove("default");
-                if let Some(limit) = limit {
-                    wip.insert("default".into(), json!(limit));
-                }
-            }
-            Some(agent) => {
-                let mut agents = match wip.remove("agents") {
-                    Some(Value::Object(agents)) => agents,
-                    _ => serde_json::Map::new(),
-                };
-                agents.remove(agent);
-                if let Some(limit) = limit {
-                    agents.insert(agent.into(), json!(limit));
-                }
-                if !agents.is_empty() {
-                    wip.insert("agents".into(), Value::Object(agents));
-                }
-            }
-        }
-        if !wip.is_empty() {
-            table.insert("wip".into(), Value::Object(wip));
-        }
-    })
-}
-
 /// Set the space's days without activity before a page is archived; `Default` removes the key.
 pub fn set_page_expiry(root: &Path, expiry: SpaceExpiry) -> Result<ColabSettings> {
     let retry = format!(
@@ -353,20 +249,6 @@ pub fn set_default_template(root: &Path, template: Option<&str>) -> Result<Colab
         table.remove("defaultTemplate");
         if let Some(template) = template {
             table.insert("defaultTemplate".into(), json!(template));
-        }
-    })
-}
-
-/// Set the repository the GitHub driver pushes tasks to, or clear it (`repo` is `None`).
-pub fn set_github_repo(root: &Path, repo: Option<&Repo>) -> Result<ColabSettings> {
-    let retry = format!(
-        "tmt colab settings github-repo {}",
-        repo.map_or("none".to_owned(), |repo| repo.slug())
-    );
-    update(root, &retry, |table| {
-        table.remove("github");
-        if let Some(repo) = repo {
-            table.insert("github".into(), json!({"repo": repo.slug()}));
         }
     })
 }
@@ -411,40 +293,13 @@ mod tests {
         }
     }
     #[test]
-    fn work_limits_read_and_a_bad_limit_is_malformed() {
-        let parsed = ColabSettings::parse(br#"{"wip":{"default":3,"agents":{"ada":2}}}"#);
+    fn task_era_keys_are_unknown_and_never_make_the_file_malformed() {
+        let parsed = ColabSettings::parse(br#"{"wip":{"default":3},"github":{"repo":"x"}}"#);
         assert!(!parsed.malformed);
-        assert_eq!((parsed.wip().of("ada"), parsed.wip().of("bo")), (2, 3));
-        assert_eq!(ColabSettings::parse(b"{}").wip().of("ada"), 1);
-        for bad in [
-            r#"{"wip":1}"#,
-            r#"{"wip":{"default":0}}"#,
-            r#"{"wip":{"default":1001}}"#,
-            r#"{"wip":{"agents":{"ada":"2"}}}"#,
-            r#"{"wip":{"agents":[]}}"#,
-        ] {
-            let parsed = ColabSettings::parse(bad.as_bytes());
-            assert!(parsed.malformed && parsed.wip().of("ada") == 1, "{bad}");
-        }
+        assert_eq!(parsed, ColabSettings::parse(b"{}"));
+        assert!(parsed.json().get("wipLimit").is_none());
     }
-    #[test]
-    fn the_github_repo_reads_and_a_bad_one_is_malformed() {
-        let parsed = ColabSettings::parse(br#"{"github":{"repo":"pj-tmt/tmt"}}"#);
-        assert!(!parsed.malformed);
-        assert_eq!(parsed.github_repo().unwrap().slug(), "pj-tmt/tmt");
-        assert_eq!(parsed.json()["githubRepo"], "pj-tmt/tmt");
-        assert!(ColabSettings::parse(b"{}").github_repo().is_none());
-        for bad in [
-            r#"{"github":1}"#,
-            r#"{"github":{}}"#,
-            r#"{"github":{"repo":3}}"#,
-            r#"{"github":{"repo":"-x/y"}}"#,
-            r#"{"github":{"repo":"x"}}"#,
-        ] {
-            let parsed = ColabSettings::parse(bad.as_bytes());
-            assert!(parsed.malformed && parsed.github_repo().is_none(), "{bad}");
-        }
-    }
+
     #[test]
     fn the_default_template_reads_a_name_or_id_and_a_bad_one_is_malformed() {
         let parsed = ColabSettings::parse(br#"{"defaultTemplate":"weekly-review"}"#);

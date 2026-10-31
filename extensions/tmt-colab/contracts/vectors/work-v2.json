@@ -1,0 +1,1084 @@
+{
+  "format": "tmt-colab-work",
+  "version": 2,
+  "description": "The work value of an ordinary page (`meta.work`, version 2: its ordered direct sub-pages and its two-line summary), detached actions and the read-only projection of the task-era version 1 value, shared by the native and browser validators. Attribution comes from the write owner and appears only in the stored summary; the link admission (one parent, no loop, an available page) is the write owner's rule and appears in no vector. `children` is the sub-page list a reader projects; a version 1 document is migration input only, and every write produces version 2.",
+  "cases": [
+    {
+      "name": "empty",
+      "document": {
+        "version": 2,
+        "order": []
+      },
+      "valid": true,
+      "canonical": "{\"order\":[],\"version\":2}",
+      "children": []
+    },
+    {
+      "name": "ordered sub-pages",
+      "document": {
+        "version": 2,
+        "order": [
+          "20000000-0000-4000-8000-00000000000b",
+          "20000000-0000-4000-8000-00000000000a",
+          "20000000-0000-4000-8000-00000000000c"
+        ]
+      },
+      "valid": true,
+      "canonical": "{\"order\":[\"20000000-0000-4000-8000-00000000000b\",\"20000000-0000-4000-8000-00000000000a\",\"20000000-0000-4000-8000-00000000000c\"],\"version\":2}",
+      "children": [
+        "20000000-0000-4000-8000-00000000000b",
+        "20000000-0000-4000-8000-00000000000a",
+        "20000000-0000-4000-8000-00000000000c"
+      ]
+    },
+    {
+      "name": "summary",
+      "document": {
+        "version": 2,
+        "order": [
+          "20000000-0000-4000-8000-00000000000a"
+        ],
+        "summary": {
+          "line1": "Two of five done",
+          "line2": "Next: the CLI",
+          "attribution": {
+            "writerId": "10000000-0000-4000-8000-000000000001",
+            "timeMs": 1760000000000
+          }
+        }
+      },
+      "valid": true,
+      "canonical": "{\"order\":[\"20000000-0000-4000-8000-00000000000a\"],\"summary\":{\"attribution\":{\"timeMs\":1760000000000,\"writerId\":\"10000000-0000-4000-8000-000000000001\"},\"line1\":\"Two of five done\",\"line2\":\"Next: the CLI\"},\"version\":2}",
+      "children": [
+        "20000000-0000-4000-8000-00000000000a"
+      ]
+    },
+    {
+      "name": "summary with agent",
+      "document": {
+        "version": 2,
+        "order": [],
+        "summary": {
+          "line1": "x",
+          "line2": "y",
+          "attribution": {
+            "writerId": "10000000-0000-4000-8000-000000000001",
+            "timeMs": 1760000000000,
+            "displayAgent": {
+              "name": "feat-1"
+            }
+          }
+        }
+      },
+      "valid": true,
+      "canonical": "{\"order\":[],\"summary\":{\"attribution\":{\"displayAgent\":{\"name\":\"feat-1\"},\"timeMs\":1760000000000,\"writerId\":\"10000000-0000-4000-8000-000000000001\"},\"line1\":\"x\",\"line2\":\"y\"},\"version\":2}",
+      "children": []
+    },
+    {
+      "name": "task-era value reads its linked tasks once, in task order",
+      "document": {
+        "version": 1,
+        "next": 5,
+        "order": [
+          "T-1",
+          "T-2",
+          "T-3",
+          "T-4"
+        ],
+        "tasks": {
+          "T-1": {
+            "title": "Plain",
+            "state": "done"
+          },
+          "T-2": {
+            "title": "Linked",
+            "state": "todo",
+            "child": "20000000-0000-4000-8000-00000000000b"
+          },
+          "T-3": {
+            "title": "First",
+            "state": "in-progress",
+            "child": "20000000-0000-4000-8000-00000000000a"
+          },
+          "T-4": {
+            "title": "Again",
+            "state": "todo",
+            "child": "20000000-0000-4000-8000-00000000000b"
+          }
+        },
+        "summary": {
+          "line1": "Two of five done",
+          "line2": "Next: the CLI",
+          "attribution": {
+            "writerId": "10000000-0000-4000-8000-000000000001",
+            "timeMs": 1760000000000
+          }
+        }
+      },
+      "valid": true,
+      "canonical": "{\"next\":5,\"order\":[\"T-1\",\"T-2\",\"T-3\",\"T-4\"],\"summary\":{\"attribution\":{\"timeMs\":1760000000000,\"writerId\":\"10000000-0000-4000-8000-000000000001\"},\"line1\":\"Two of five done\",\"line2\":\"Next: the CLI\"},\"tasks\":{\"T-1\":{\"state\":\"done\",\"title\":\"Plain\"},\"T-2\":{\"child\":\"20000000-0000-4000-8000-00000000000b\",\"state\":\"todo\",\"title\":\"Linked\"},\"T-3\":{\"child\":\"20000000-0000-4000-8000-00000000000a\",\"state\":\"in-progress\",\"title\":\"First\"},\"T-4\":{\"child\":\"20000000-0000-4000-8000-00000000000b\",\"state\":\"todo\",\"title\":\"Again\"}},\"version\":1}",
+      "children": [
+        "20000000-0000-4000-8000-00000000000b",
+        "20000000-0000-4000-8000-00000000000a"
+      ]
+    },
+    {
+      "name": "task-era empty value",
+      "document": {
+        "version": 1,
+        "next": 1,
+        "tasks": {},
+        "order": []
+      },
+      "valid": true,
+      "canonical": "{\"next\":1,\"order\":[],\"tasks\":{},\"version\":1}",
+      "children": []
+    },
+    {
+      "name": "unknown root",
+      "document": {
+        "version": 2,
+        "order": [],
+        "tasks": {}
+      },
+      "valid": false
+    },
+    {
+      "name": "missing order",
+      "document": {
+        "version": 2
+      },
+      "valid": false
+    },
+    {
+      "name": "wrong version",
+      "document": {
+        "version": 3,
+        "order": []
+      },
+      "valid": false
+    },
+    {
+      "name": "duplicate sub-page",
+      "document": {
+        "version": 2,
+        "order": [
+          "20000000-0000-4000-8000-00000000000a",
+          "20000000-0000-4000-8000-00000000000a"
+        ]
+      },
+      "valid": false
+    },
+    {
+      "name": "not a page ID",
+      "document": {
+        "version": 2,
+        "order": [
+          "T-1"
+        ]
+      },
+      "valid": false
+    },
+    {
+      "name": "upper-case page ID",
+      "document": {
+        "version": 2,
+        "order": [
+          "20000000-0000-4000-8000-00000000000A"
+        ]
+      },
+      "valid": false
+    },
+    {
+      "name": "null summary",
+      "document": {
+        "version": 2,
+        "order": [],
+        "summary": null
+      },
+      "valid": false
+    },
+    {
+      "name": "summary missing attribution",
+      "document": {
+        "version": 2,
+        "order": [],
+        "summary": {
+          "line1": "a",
+          "line2": "b"
+        }
+      },
+      "valid": false
+    },
+    {
+      "name": "task-era order names a missing task",
+      "document": {
+        "version": 1,
+        "next": 2,
+        "tasks": {},
+        "order": [
+          "T-1"
+        ]
+      },
+      "valid": false
+    },
+    {
+      "name": "task-era link is not a page ID",
+      "document": {
+        "version": 1,
+        "next": 2,
+        "tasks": {
+          "T-1": {
+            "title": "a",
+            "state": "todo",
+            "child": "x"
+          }
+        },
+        "order": [
+          "T-1"
+        ]
+      },
+      "valid": false
+    },
+    {
+      "name": "attach the first sub-page",
+      "document": {
+        "version": 2,
+        "order": []
+      },
+      "action": "subpage.attach",
+      "body": {
+        "pageId": "20000000-0000-4000-8000-00000000000a"
+      },
+      "attribution": {
+        "writerId": "10000000-0000-4000-8000-000000000001",
+        "timeMs": 1760000000000
+      },
+      "valid": true,
+      "expected": {
+        "version": 2,
+        "order": [
+          "20000000-0000-4000-8000-00000000000a"
+        ]
+      },
+      "canonical": "{\"order\":[\"20000000-0000-4000-8000-00000000000a\"],\"version\":2}",
+      "children": [
+        "20000000-0000-4000-8000-00000000000a"
+      ]
+    },
+    {
+      "name": "attach appends",
+      "document": {
+        "version": 2,
+        "order": [
+          "20000000-0000-4000-8000-00000000000a"
+        ]
+      },
+      "action": "subpage.attach",
+      "body": {
+        "pageId": "20000000-0000-4000-8000-00000000000b"
+      },
+      "attribution": {
+        "writerId": "10000000-0000-4000-8000-000000000001",
+        "timeMs": 1760000000000
+      },
+      "valid": true,
+      "expected": {
+        "version": 2,
+        "order": [
+          "20000000-0000-4000-8000-00000000000a",
+          "20000000-0000-4000-8000-00000000000b"
+        ]
+      },
+      "canonical": "{\"order\":[\"20000000-0000-4000-8000-00000000000a\",\"20000000-0000-4000-8000-00000000000b\"],\"version\":2}",
+      "children": [
+        "20000000-0000-4000-8000-00000000000a",
+        "20000000-0000-4000-8000-00000000000b"
+      ]
+    },
+    {
+      "name": "attach before a listed page",
+      "document": {
+        "version": 2,
+        "order": [
+          "20000000-0000-4000-8000-00000000000a",
+          "20000000-0000-4000-8000-00000000000b"
+        ]
+      },
+      "action": "subpage.attach",
+      "body": {
+        "pageId": "20000000-0000-4000-8000-00000000000c",
+        "before": "20000000-0000-4000-8000-00000000000b"
+      },
+      "attribution": {
+        "writerId": "10000000-0000-4000-8000-000000000001",
+        "timeMs": 1760000000000
+      },
+      "valid": true,
+      "expected": {
+        "version": 2,
+        "order": [
+          "20000000-0000-4000-8000-00000000000a",
+          "20000000-0000-4000-8000-00000000000c",
+          "20000000-0000-4000-8000-00000000000b"
+        ]
+      },
+      "canonical": "{\"order\":[\"20000000-0000-4000-8000-00000000000a\",\"20000000-0000-4000-8000-00000000000c\",\"20000000-0000-4000-8000-00000000000b\"],\"version\":2}",
+      "children": [
+        "20000000-0000-4000-8000-00000000000a",
+        "20000000-0000-4000-8000-00000000000c",
+        "20000000-0000-4000-8000-00000000000b"
+      ]
+    },
+    {
+      "name": "attach a listed page is refused",
+      "document": {
+        "version": 2,
+        "order": [
+          "20000000-0000-4000-8000-00000000000a"
+        ]
+      },
+      "action": "subpage.attach",
+      "body": {
+        "pageId": "20000000-0000-4000-8000-00000000000a"
+      },
+      "attribution": {
+        "writerId": "10000000-0000-4000-8000-000000000001",
+        "timeMs": 1760000000000
+      },
+      "valid": false
+    },
+    {
+      "name": "attach before an unlisted page is refused",
+      "document": {
+        "version": 2,
+        "order": [
+          "20000000-0000-4000-8000-00000000000a"
+        ]
+      },
+      "action": "subpage.attach",
+      "body": {
+        "pageId": "20000000-0000-4000-8000-00000000000b",
+        "before": "20000000-0000-4000-8000-00000000000c"
+      },
+      "attribution": {
+        "writerId": "10000000-0000-4000-8000-000000000001",
+        "timeMs": 1760000000000
+      },
+      "valid": false
+    },
+    {
+      "name": "attach with an unknown field is refused",
+      "document": {
+        "version": 2,
+        "order": []
+      },
+      "action": "subpage.attach",
+      "body": {
+        "pageId": "20000000-0000-4000-8000-00000000000a",
+        "title": "x"
+      },
+      "attribution": {
+        "writerId": "10000000-0000-4000-8000-000000000001",
+        "timeMs": 1760000000000
+      },
+      "valid": false
+    },
+    {
+      "name": "move to the end",
+      "document": {
+        "version": 2,
+        "order": [
+          "20000000-0000-4000-8000-00000000000a",
+          "20000000-0000-4000-8000-00000000000b",
+          "20000000-0000-4000-8000-00000000000c"
+        ]
+      },
+      "action": "subpage.move",
+      "body": {
+        "pageId": "20000000-0000-4000-8000-00000000000a"
+      },
+      "attribution": {
+        "writerId": "10000000-0000-4000-8000-000000000001",
+        "timeMs": 1760000000000
+      },
+      "valid": true,
+      "expected": {
+        "version": 2,
+        "order": [
+          "20000000-0000-4000-8000-00000000000b",
+          "20000000-0000-4000-8000-00000000000c",
+          "20000000-0000-4000-8000-00000000000a"
+        ]
+      },
+      "canonical": "{\"order\":[\"20000000-0000-4000-8000-00000000000b\",\"20000000-0000-4000-8000-00000000000c\",\"20000000-0000-4000-8000-00000000000a\"],\"version\":2}",
+      "children": [
+        "20000000-0000-4000-8000-00000000000b",
+        "20000000-0000-4000-8000-00000000000c",
+        "20000000-0000-4000-8000-00000000000a"
+      ]
+    },
+    {
+      "name": "move before a page",
+      "document": {
+        "version": 2,
+        "order": [
+          "20000000-0000-4000-8000-00000000000a",
+          "20000000-0000-4000-8000-00000000000b",
+          "20000000-0000-4000-8000-00000000000c"
+        ]
+      },
+      "action": "subpage.move",
+      "body": {
+        "pageId": "20000000-0000-4000-8000-00000000000c",
+        "before": "20000000-0000-4000-8000-00000000000a"
+      },
+      "attribution": {
+        "writerId": "10000000-0000-4000-8000-000000000001",
+        "timeMs": 1760000000000
+      },
+      "valid": true,
+      "expected": {
+        "version": 2,
+        "order": [
+          "20000000-0000-4000-8000-00000000000c",
+          "20000000-0000-4000-8000-00000000000a",
+          "20000000-0000-4000-8000-00000000000b"
+        ]
+      },
+      "canonical": "{\"order\":[\"20000000-0000-4000-8000-00000000000c\",\"20000000-0000-4000-8000-00000000000a\",\"20000000-0000-4000-8000-00000000000b\"],\"version\":2}",
+      "children": [
+        "20000000-0000-4000-8000-00000000000c",
+        "20000000-0000-4000-8000-00000000000a",
+        "20000000-0000-4000-8000-00000000000b"
+      ]
+    },
+    {
+      "name": "move before itself is refused",
+      "document": {
+        "version": 2,
+        "order": [
+          "20000000-0000-4000-8000-00000000000a",
+          "20000000-0000-4000-8000-00000000000b"
+        ]
+      },
+      "action": "subpage.move",
+      "body": {
+        "pageId": "20000000-0000-4000-8000-00000000000a",
+        "before": "20000000-0000-4000-8000-00000000000a"
+      },
+      "attribution": {
+        "writerId": "10000000-0000-4000-8000-000000000001",
+        "timeMs": 1760000000000
+      },
+      "valid": false
+    },
+    {
+      "name": "move an unlisted page is refused",
+      "document": {
+        "version": 2,
+        "order": [
+          "20000000-0000-4000-8000-00000000000a"
+        ]
+      },
+      "action": "subpage.move",
+      "body": {
+        "pageId": "20000000-0000-4000-8000-00000000000b"
+      },
+      "attribution": {
+        "writerId": "10000000-0000-4000-8000-000000000001",
+        "timeMs": 1760000000000
+      },
+      "valid": false
+    },
+    {
+      "name": "detach",
+      "document": {
+        "version": 2,
+        "order": [
+          "20000000-0000-4000-8000-00000000000a",
+          "20000000-0000-4000-8000-00000000000b"
+        ],
+        "summary": {
+          "line1": "Two of five done",
+          "line2": "Next: the CLI",
+          "attribution": {
+            "writerId": "10000000-0000-4000-8000-000000000001",
+            "timeMs": 1760000000000
+          }
+        }
+      },
+      "action": "subpage.detach",
+      "body": {
+        "pageId": "20000000-0000-4000-8000-00000000000a"
+      },
+      "attribution": {
+        "writerId": "10000000-0000-4000-8000-000000000001",
+        "timeMs": 1760000000000
+      },
+      "valid": true,
+      "expected": {
+        "version": 2,
+        "order": [
+          "20000000-0000-4000-8000-00000000000b"
+        ],
+        "summary": {
+          "line1": "Two of five done",
+          "line2": "Next: the CLI",
+          "attribution": {
+            "writerId": "10000000-0000-4000-8000-000000000001",
+            "timeMs": 1760000000000
+          }
+        }
+      },
+      "canonical": "{\"order\":[\"20000000-0000-4000-8000-00000000000b\"],\"summary\":{\"attribution\":{\"timeMs\":1760000000000,\"writerId\":\"10000000-0000-4000-8000-000000000001\"},\"line1\":\"Two of five done\",\"line2\":\"Next: the CLI\"},\"version\":2}",
+      "children": [
+        "20000000-0000-4000-8000-00000000000b"
+      ]
+    },
+    {
+      "name": "detach an unlisted page is refused",
+      "document": {
+        "version": 2,
+        "order": [
+          "20000000-0000-4000-8000-00000000000a"
+        ]
+      },
+      "action": "subpage.detach",
+      "body": {
+        "pageId": "20000000-0000-4000-8000-00000000000b"
+      },
+      "attribution": {
+        "writerId": "10000000-0000-4000-8000-000000000001",
+        "timeMs": 1760000000000
+      },
+      "valid": false
+    },
+    {
+      "name": "detach takes no before",
+      "document": {
+        "version": 2,
+        "order": [
+          "20000000-0000-4000-8000-00000000000a",
+          "20000000-0000-4000-8000-00000000000b"
+        ]
+      },
+      "action": "subpage.detach",
+      "body": {
+        "pageId": "20000000-0000-4000-8000-00000000000a",
+        "before": "20000000-0000-4000-8000-00000000000b"
+      },
+      "attribution": {
+        "writerId": "10000000-0000-4000-8000-000000000001",
+        "timeMs": 1760000000000
+      },
+      "valid": false
+    },
+    {
+      "name": "create is not a value action",
+      "document": {
+        "version": 2,
+        "order": []
+      },
+      "action": "subpage.create",
+      "body": {
+        "title": "x"
+      },
+      "attribution": {
+        "writerId": "10000000-0000-4000-8000-000000000001",
+        "timeMs": 1760000000000
+      },
+      "valid": false
+    },
+    {
+      "name": "a task action is refused",
+      "document": {
+        "version": 2,
+        "order": []
+      },
+      "action": "task.add",
+      "body": {
+        "task": {
+          "title": "x"
+        }
+      },
+      "attribution": {
+        "writerId": "10000000-0000-4000-8000-000000000001",
+        "timeMs": 1760000000000
+      },
+      "valid": false
+    },
+    {
+      "name": "summary set",
+      "document": {
+        "version": 2,
+        "order": []
+      },
+      "action": "summary.set",
+      "body": {
+        "line1": "Two of five done",
+        "line2": "Next: the CLI"
+      },
+      "attribution": {
+        "writerId": "10000000-0000-4000-8000-000000000001",
+        "timeMs": 1760000000000
+      },
+      "valid": true,
+      "expected": {
+        "version": 2,
+        "order": [],
+        "summary": {
+          "line1": "Two of five done",
+          "line2": "Next: the CLI",
+          "attribution": {
+            "writerId": "10000000-0000-4000-8000-000000000001",
+            "timeMs": 1760000000000
+          }
+        }
+      },
+      "canonical": "{\"order\":[],\"summary\":{\"attribution\":{\"timeMs\":1760000000000,\"writerId\":\"10000000-0000-4000-8000-000000000001\"},\"line1\":\"Two of five done\",\"line2\":\"Next: the CLI\"},\"version\":2}",
+      "children": []
+    },
+    {
+      "name": "summary set records the agent",
+      "document": {
+        "version": 2,
+        "order": []
+      },
+      "action": "summary.set",
+      "body": {
+        "line1": "a",
+        "line2": "b"
+      },
+      "attribution": {
+        "writerId": "10000000-0000-4000-8000-000000000001",
+        "timeMs": 1760000000000,
+        "displayAgent": {
+          "name": "feat-1"
+        }
+      },
+      "valid": true,
+      "expected": {
+        "version": 2,
+        "order": [],
+        "summary": {
+          "line1": "a",
+          "line2": "b",
+          "attribution": {
+            "writerId": "10000000-0000-4000-8000-000000000001",
+            "timeMs": 1760000000000,
+            "displayAgent": {
+              "name": "feat-1"
+            }
+          }
+        }
+      },
+      "canonical": "{\"order\":[],\"summary\":{\"attribution\":{\"displayAgent\":{\"name\":\"feat-1\"},\"timeMs\":1760000000000,\"writerId\":\"10000000-0000-4000-8000-000000000001\"},\"line1\":\"a\",\"line2\":\"b\"},\"version\":2}",
+      "children": []
+    },
+    {
+      "name": "summary caller attribution refused",
+      "document": {
+        "version": 2,
+        "order": []
+      },
+      "action": "summary.set",
+      "body": {
+        "line1": "a",
+        "line2": "b",
+        "attribution": {
+          "writerId": "10000000-0000-4000-8000-000000000001",
+          "timeMs": 1760000000000
+        }
+      },
+      "attribution": {
+        "writerId": "10000000-0000-4000-8000-000000000001",
+        "timeMs": 1760000000000
+      },
+      "valid": false
+    },
+    {
+      "name": "summary clear",
+      "document": {
+        "version": 2,
+        "order": [
+          "20000000-0000-4000-8000-00000000000a"
+        ],
+        "summary": {
+          "line1": "Two of five done",
+          "line2": "Next: the CLI",
+          "attribution": {
+            "writerId": "10000000-0000-4000-8000-000000000001",
+            "timeMs": 1760000000000
+          }
+        }
+      },
+      "action": "summary.clear",
+      "body": {},
+      "attribution": {
+        "writerId": "10000000-0000-4000-8000-000000000001",
+        "timeMs": 1760000000000
+      },
+      "valid": true,
+      "expected": {
+        "version": 2,
+        "order": [
+          "20000000-0000-4000-8000-00000000000a"
+        ]
+      },
+      "canonical": "{\"order\":[\"20000000-0000-4000-8000-00000000000a\"],\"version\":2}",
+      "children": [
+        "20000000-0000-4000-8000-00000000000a"
+      ]
+    },
+    {
+      "name": "summary clear noop",
+      "document": {
+        "version": 2,
+        "order": []
+      },
+      "action": "summary.clear",
+      "body": {},
+      "attribution": {
+        "writerId": "10000000-0000-4000-8000-000000000001",
+        "timeMs": 1760000000000
+      },
+      "valid": true,
+      "expected": {
+        "version": 2,
+        "order": []
+      },
+      "canonical": "{\"order\":[],\"version\":2}",
+      "children": []
+    },
+    {
+      "name": "summary line 1 at 24 code points",
+      "document": {
+        "version": 2,
+        "order": []
+      },
+      "action": "summary.set",
+      "body": {
+        "line1": "\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9",
+        "line2": "b"
+      },
+      "attribution": {
+        "writerId": "10000000-0000-4000-8000-000000000001",
+        "timeMs": 1760000000000
+      },
+      "valid": true,
+      "expected": {
+        "version": 2,
+        "order": [],
+        "summary": {
+          "line1": "\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9",
+          "line2": "b",
+          "attribution": {
+            "writerId": "10000000-0000-4000-8000-000000000001",
+            "timeMs": 1760000000000
+          }
+        }
+      },
+      "canonical": "{\"order\":[],\"summary\":{\"attribution\":{\"timeMs\":1760000000000,\"writerId\":\"10000000-0000-4000-8000-000000000001\"},\"line1\":\"\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\",\"line2\":\"b\"},\"version\":2}",
+      "children": []
+    },
+    {
+      "name": "summary line 1 over 24 code points",
+      "document": {
+        "version": 2,
+        "order": []
+      },
+      "action": "summary.set",
+      "body": {
+        "line1": "\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9",
+        "line2": "b"
+      },
+      "attribution": {
+        "writerId": "10000000-0000-4000-8000-000000000001",
+        "timeMs": 1760000000000
+      },
+      "valid": false
+    },
+    {
+      "name": "migrate a task-era value",
+      "document": {
+        "version": 1,
+        "next": 5,
+        "order": [
+          "T-1",
+          "T-2",
+          "T-3",
+          "T-4"
+        ],
+        "tasks": {
+          "T-1": {
+            "title": "Plain",
+            "state": "done"
+          },
+          "T-2": {
+            "title": "Linked",
+            "state": "todo",
+            "child": "20000000-0000-4000-8000-00000000000b"
+          },
+          "T-3": {
+            "title": "First",
+            "state": "in-progress",
+            "child": "20000000-0000-4000-8000-00000000000a"
+          },
+          "T-4": {
+            "title": "Again",
+            "state": "todo",
+            "child": "20000000-0000-4000-8000-00000000000b"
+          }
+        },
+        "summary": {
+          "line1": "Two of five done",
+          "line2": "Next: the CLI",
+          "attribution": {
+            "writerId": "10000000-0000-4000-8000-000000000001",
+            "timeMs": 1760000000000
+          }
+        }
+      },
+      "action": "work.migrate",
+      "body": {},
+      "attribution": {
+        "writerId": "10000000-0000-4000-8000-000000000001",
+        "timeMs": 1760000000000
+      },
+      "valid": true,
+      "expected": {
+        "version": 2,
+        "order": [
+          "20000000-0000-4000-8000-00000000000b",
+          "20000000-0000-4000-8000-00000000000a"
+        ],
+        "summary": {
+          "line1": "Two of five done",
+          "line2": "Next: the CLI",
+          "attribution": {
+            "writerId": "10000000-0000-4000-8000-000000000001",
+            "timeMs": 1760000000000
+          }
+        }
+      },
+      "canonical": "{\"order\":[\"20000000-0000-4000-8000-00000000000b\",\"20000000-0000-4000-8000-00000000000a\"],\"summary\":{\"attribution\":{\"timeMs\":1760000000000,\"writerId\":\"10000000-0000-4000-8000-000000000001\"},\"line1\":\"Two of five done\",\"line2\":\"Next: the CLI\"},\"version\":2}",
+      "children": [
+        "20000000-0000-4000-8000-00000000000b",
+        "20000000-0000-4000-8000-00000000000a"
+      ]
+    },
+    {
+      "name": "migrate a version 2 value changes nothing",
+      "document": {
+        "version": 2,
+        "order": [
+          "20000000-0000-4000-8000-00000000000a"
+        ]
+      },
+      "action": "work.migrate",
+      "body": {},
+      "attribution": {
+        "writerId": "10000000-0000-4000-8000-000000000001",
+        "timeMs": 1760000000000
+      },
+      "valid": true,
+      "expected": {
+        "version": 2,
+        "order": [
+          "20000000-0000-4000-8000-00000000000a"
+        ]
+      },
+      "canonical": "{\"order\":[\"20000000-0000-4000-8000-00000000000a\"],\"version\":2}",
+      "children": [
+        "20000000-0000-4000-8000-00000000000a"
+      ]
+    },
+    {
+      "name": "migrate takes no body",
+      "document": {
+        "version": 1,
+        "next": 5,
+        "order": [
+          "T-1",
+          "T-2",
+          "T-3",
+          "T-4"
+        ],
+        "tasks": {
+          "T-1": {
+            "title": "Plain",
+            "state": "done"
+          },
+          "T-2": {
+            "title": "Linked",
+            "state": "todo",
+            "child": "20000000-0000-4000-8000-00000000000b"
+          },
+          "T-3": {
+            "title": "First",
+            "state": "in-progress",
+            "child": "20000000-0000-4000-8000-00000000000a"
+          },
+          "T-4": {
+            "title": "Again",
+            "state": "todo",
+            "child": "20000000-0000-4000-8000-00000000000b"
+          }
+        },
+        "summary": {
+          "line1": "Two of five done",
+          "line2": "Next: the CLI",
+          "attribution": {
+            "writerId": "10000000-0000-4000-8000-000000000001",
+            "timeMs": 1760000000000
+          }
+        }
+      },
+      "action": "work.migrate",
+      "body": {
+        "order": []
+      },
+      "attribution": {
+        "writerId": "10000000-0000-4000-8000-000000000001",
+        "timeMs": 1760000000000
+      },
+      "valid": false
+    },
+    {
+      "name": "the first write to a task-era value migrates it",
+      "document": {
+        "version": 1,
+        "next": 5,
+        "order": [
+          "T-1",
+          "T-2",
+          "T-3",
+          "T-4"
+        ],
+        "tasks": {
+          "T-1": {
+            "title": "Plain",
+            "state": "done"
+          },
+          "T-2": {
+            "title": "Linked",
+            "state": "todo",
+            "child": "20000000-0000-4000-8000-00000000000b"
+          },
+          "T-3": {
+            "title": "First",
+            "state": "in-progress",
+            "child": "20000000-0000-4000-8000-00000000000a"
+          },
+          "T-4": {
+            "title": "Again",
+            "state": "todo",
+            "child": "20000000-0000-4000-8000-00000000000b"
+          }
+        },
+        "summary": {
+          "line1": "Two of five done",
+          "line2": "Next: the CLI",
+          "attribution": {
+            "writerId": "10000000-0000-4000-8000-000000000001",
+            "timeMs": 1760000000000
+          }
+        }
+      },
+      "action": "subpage.attach",
+      "body": {
+        "pageId": "20000000-0000-4000-8000-00000000000c",
+        "before": "20000000-0000-4000-8000-00000000000a"
+      },
+      "attribution": {
+        "writerId": "10000000-0000-4000-8000-000000000001",
+        "timeMs": 1760000000000
+      },
+      "valid": true,
+      "expected": {
+        "version": 2,
+        "order": [
+          "20000000-0000-4000-8000-00000000000b",
+          "20000000-0000-4000-8000-00000000000c",
+          "20000000-0000-4000-8000-00000000000a"
+        ],
+        "summary": {
+          "line1": "Two of five done",
+          "line2": "Next: the CLI",
+          "attribution": {
+            "writerId": "10000000-0000-4000-8000-000000000001",
+            "timeMs": 1760000000000
+          }
+        }
+      },
+      "canonical": "{\"order\":[\"20000000-0000-4000-8000-00000000000b\",\"20000000-0000-4000-8000-00000000000c\",\"20000000-0000-4000-8000-00000000000a\"],\"summary\":{\"attribution\":{\"timeMs\":1760000000000,\"writerId\":\"10000000-0000-4000-8000-000000000001\"},\"line1\":\"Two of five done\",\"line2\":\"Next: the CLI\"},\"version\":2}",
+      "children": [
+        "20000000-0000-4000-8000-00000000000b",
+        "20000000-0000-4000-8000-00000000000c",
+        "20000000-0000-4000-8000-00000000000a"
+      ]
+    },
+    {
+      "name": "a summary write to a task-era value migrates it",
+      "document": {
+        "version": 1,
+        "next": 5,
+        "order": [
+          "T-1",
+          "T-2",
+          "T-3",
+          "T-4"
+        ],
+        "tasks": {
+          "T-1": {
+            "title": "Plain",
+            "state": "done"
+          },
+          "T-2": {
+            "title": "Linked",
+            "state": "todo",
+            "child": "20000000-0000-4000-8000-00000000000b"
+          },
+          "T-3": {
+            "title": "First",
+            "state": "in-progress",
+            "child": "20000000-0000-4000-8000-00000000000a"
+          },
+          "T-4": {
+            "title": "Again",
+            "state": "todo",
+            "child": "20000000-0000-4000-8000-00000000000b"
+          }
+        },
+        "summary": {
+          "line1": "Two of five done",
+          "line2": "Next: the CLI",
+          "attribution": {
+            "writerId": "10000000-0000-4000-8000-000000000001",
+            "timeMs": 1760000000000
+          }
+        }
+      },
+      "action": "summary.clear",
+      "body": {},
+      "attribution": {
+        "writerId": "10000000-0000-4000-8000-000000000001",
+        "timeMs": 1760000000000
+      },
+      "valid": true,
+      "expected": {
+        "version": 2,
+        "order": [
+          "20000000-0000-4000-8000-00000000000b",
+          "20000000-0000-4000-8000-00000000000a"
+        ]
+      },
+      "canonical": "{\"order\":[\"20000000-0000-4000-8000-00000000000b\",\"20000000-0000-4000-8000-00000000000a\"],\"version\":2}",
+      "children": [
+        "20000000-0000-4000-8000-00000000000b",
+        "20000000-0000-4000-8000-00000000000a"
+      ]
+    }
+  ]
+}

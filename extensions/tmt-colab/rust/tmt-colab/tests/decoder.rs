@@ -538,7 +538,7 @@ fn work_edit(action: &str, body: serde_json::Value) -> tmt_colab::decoder::Struc
 #[test]
 fn work_shared_values_are_checked_by_the_actual_isolated_decoder() {
     let corpus: serde_json::Value =
-        serde_json::from_str(include_str!("../../../contracts/vectors/work-v1.json")).unwrap();
+        serde_json::from_str(include_str!("../../../contracts/vectors/work-v2.json")).unwrap();
     for case in corpus["cases"].as_array().unwrap() {
         if case.get("action").is_some() {
             continue;
@@ -701,7 +701,8 @@ fn work_actions_prepare_replayable_updates_and_leave_the_page_alone() {
     let before = decoder.decode(batch(), Role::Editor, None).unwrap();
     assert!(before.projection["meta"].get("work").is_none());
     // The first action starts from an empty value; the decoder re-derives and checks the result.
-    let add = work_edit("task.add", serde_json::json!({"task":{"title":"Write it"}}));
+    let child = "20000000-0000-4000-8000-00000000000a";
+    let add = work_edit("subpage.attach", serde_json::json!({"pageId":child}));
     let prepared = decoder
         .prepare_structured_batch(batch(), &before.projection, &add, None)
         .unwrap();
@@ -719,10 +720,9 @@ fn work_actions_prepare_replayable_updates_and_leave_the_page_alone() {
     assert_eq!(after.projection, prepared.projection);
     assert_eq!(after.projection["html"], "<p>the page</p>");
     assert_eq!(
-        after.projection["meta"]["work"]["tasks"]["T-1"],
-        serde_json::json!({"title":"Write it","state":"todo"})
+        after.projection["meta"]["work"],
+        serde_json::json!({"version":2,"order":[child]})
     );
-    assert_eq!(after.projection["meta"]["work"]["next"], 2);
     // An action that leaves a page with no work needs no write and gives it no empty value.
     let clear = work_edit("summary.clear", serde_json::json!({}));
     let noop = decoder
