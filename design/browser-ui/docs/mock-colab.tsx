@@ -20,24 +20,14 @@ import {
   CardFooter,
   CardHeader,
   CardTitle,
-  Input,
   Popover,
   PopoverContent,
   PopoverTrigger,
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
   Separator,
-  Tabs,
-  TabsContent,
-  TabsList,
-  TabsTrigger,
   UiTheme,
 } from '../src/ui/index.js';
+import { ListScreen } from './mock-list.js';
 import { ReaderScreen } from './mock-reader.js';
-import { PageRow } from './patterns.js';
 import { radiusLabel, setRadius, setTheme, usePreview, type Radius } from './preview.js';
 import { follow, navigate } from './router.js';
 
@@ -335,10 +325,10 @@ export function ColabMock({ path }: { path: string }) {
         ) : screen === 'menu' ? (
           <MenuScreen />
         ) : (
-          <PageList />
+          <ListScreen globals={<GlobalSwitches screen={screen} />} />
         )}
       </BrowserShell>
-      {screen !== 'page' && <MockSwitch screen={screen} />}
+      {screen === 'menu' && <MockSwitch screen={screen} />}
     </UiTheme>
   );
 }
@@ -382,119 +372,6 @@ function MenuScreen() {
             'The rail and the module menu are the real shared shell; Pages, Release 0.9 and Design system open a nested level.',
             'Home cards are Card parts; a real Colab home is not designed yet.',
             'Search and the Remote chip in the bar are the shell’s own common controls, not wired here.',
-          ]}
-        />
-      </div>
-    </>
-  );
-}
-
-const rows: {
-  title: string;
-  tags: string[];
-  updated: string;
-  unread?: boolean;
-  state?: 'waiting' | 'blocked';
-}[] = [
-  {
-    title: 'Theme B review',
-    tags: ['design', 'spec'],
-    updated: '2 min ago',
-    unread: true,
-    state: 'waiting',
-  },
-  { title: 'Release plan', tags: ['release-0.9'], updated: '18 min ago', unread: true },
-  {
-    title: 'Rollout checklist',
-    tags: ['release-0.9', 'ops'],
-    updated: '1 h ago',
-    state: 'waiting',
-  },
-  { title: 'CI flake triage', tags: ['infra'], updated: '3 h ago', state: 'blocked' },
-  { title: 'Remote pairing walkthrough', tags: ['remote-launch'], updated: 'Yesterday' },
-  {
-    title: 'Night shift report, 30 Oct',
-    tags: ['night-shift'],
-    updated: 'Yesterday',
-    unread: true,
-  },
-  { title: 'Token tiers', tags: ['design'], updated: 'Mon' },
-  { title: 'Brand sheet', tags: ['brand'], updated: '27 Oct' },
-];
-const projects = ['All projects', 'release-0.9', 'design', 'remote-launch', 'night-shift', 'infra'];
-
-function PageList() {
-  const [project, setProject] = useState('All projects');
-  const [query, setQuery] = useState('');
-  const shown = (tab: string) =>
-    rows.filter(
-      (row) =>
-        (project === 'All projects' || row.tags.includes(project)) &&
-        row.title.toLowerCase().includes(query.toLowerCase()) &&
-        (tab === 'all' || (tab === 'needs' ? row.state : tab === 'unread' ? row.unread : false)),
-    );
-  return (
-    <>
-      <Bar trail="Colab / " current="Pages" actions={<Button type="button">New page</Button>} />
-      <div className="mock-page">
-        <Tabs defaultValue="all">
-          <div className="mock-list-head">
-            <TabsList variant="line">
-              <TabsTrigger value="all">All 38</TabsTrigger>
-              <TabsTrigger value="needs">Needs you 4</TabsTrigger>
-              <TabsTrigger value="unread">Unread 6</TabsTrigger>
-              <TabsTrigger value="archived">Archived</TabsTrigger>
-            </TabsList>
-          </div>
-          <div className="mock-filters" role="group" aria-label="Filters">
-            <Input
-              className="mock-search"
-              placeholder="Filter pages"
-              aria-label="Filter pages"
-              value={query}
-              onChange={(event) => setQuery(event.target.value)}
-            />
-            <div className="mock-projects" role="group" aria-label="Project">
-              {projects.map((name) => (
-                <Button
-                  key={name}
-                  type="button"
-                  size="xs"
-                  variant={project === name ? 'secondary' : 'ghost'}
-                  aria-pressed={project === name}
-                  onClick={() => setProject(name)}
-                >
-                  {name}
-                </Button>
-              ))}
-            </div>
-            <Select defaultValue="updated">
-              <SelectTrigger aria-label="Sort">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="updated">Last updated</SelectItem>
-                <SelectItem value="title">Title</SelectItem>
-                <SelectItem value="project">Project</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-          {['all', 'needs', 'unread', 'archived'].map((tab) => (
-            <TabsContent key={tab} value={tab}>
-              <div className="mock-rows">
-                {shown(tab).map((row) => (
-                  <PageRow key={row.title} {...row} />
-                ))}
-                {shown(tab).length === 0 && <p className="mock-quiet">No pages match.</p>}
-              </div>
-            </TabsContent>
-          ))}
-        </Tabs>
-        <StandIns
-          items={[
-            'Project filters are ghost/secondary Buttons with aria-pressed: there is no ToggleGroup part yet.',
-            'Rows are the List row pattern (an anchor with Badge tags); a list-row part is not extracted yet.',
-            'Tab counts are plain text in the trigger; a count slot for Tabs does not exist yet.',
           ]}
         />
       </div>

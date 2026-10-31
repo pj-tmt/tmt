@@ -268,10 +268,11 @@
   cursor: pointer;
 }
 .reader-marker[data-resolved] {
-  background-color: var(--tmt-ui-color-secondary);
+  background-color: var(--tmt-ui-surface-rule);
+  color: var(--tmt-ui-color-secondary);
 }
 .reader-marker[data-selected] {
-  outline: 2px solid var(--tmt-ui-color-annotation-rule-selected);
+  outline: var(--tmt-ui-focus-width) solid var(--tmt-ui-color-focus);
   outline-offset: -2px;
 }
 .reader-selection-wrap {

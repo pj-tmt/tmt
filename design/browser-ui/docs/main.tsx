@@ -5,6 +5,7 @@ import '../generated/editorial.css';
 import './docs.css';
 import './mock-colab.css';
 import './mock-reader.css';
+import './mock-list.css';
 import { StrictMode, useEffect } from 'react';
 import { createRoot } from 'react-dom/client';
 import { DocsApp } from './app.js';

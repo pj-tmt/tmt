@@ -68,3 +68,26 @@ it('never colours a state with the accent primitive', () => {
       expect(ref[name], name).not.toBe(ref['red-500']);
     }
 });
+
+it('maps every colour and surface role, so nothing under B falls back to the old palette', () => {
+  // Chart series and seats are data colours, kept on purpose; elevation-0 is no shadow at all.
+  for (const group of ['color', 'surface'] as const)
+    for (const role of Object.keys(tokens.browser[group]).filter(
+      (name) => !name.startsWith('$') && !/^(series|seat)-/.test(name),
+    ))
+      expect(palette[group][role], `${group}.${role}`).toBeDefined();
+  for (const role of Object.keys(tokens.browser.shadow).filter(
+    (name) => !name.startsWith('$') && name !== 'elevation-0',
+  ))
+    expect(palette.shadow[role], `shadow.${role}`).toBeDefined();
+});
+
+it('keeps the docs and the Colab mock free of literal colours', () => {
+  for (const file of ['docs.css', 'mock-colab.css', 'mock-reader.css', 'mock-list.css']) {
+    const css = readFileSync(new URL(`../docs/${file}`, import.meta.url), 'utf8').replace(
+      /\/\*[\s\S]*?\*\//g,
+      '',
+    );
+    expect(css, file).not.toMatch(/#[0-9a-f]{3,8}\b|\b(?:rgb|hsl|oklch)a?\(/i);
+  }
+});

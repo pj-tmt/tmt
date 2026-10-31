@@ -501,7 +501,7 @@
   --tmt-ui-color-review: var(--tmt-ui-ref-violet-light);
   --tmt-ui-color-blocked: var(--tmt-ui-ref-blocked-light);
   --tmt-ui-color-link: var(--tmt-ui-ref-ink-900);
-  --tmt-ui-color-annotation-on-action: var(--tmt-ui-ref-white);
+  --tmt-ui-color-annotation-on-action: var(--tmt-ui-ref-ink-900);
   --tmt-ui-color-annotation-rule: var(--tmt-ui-ref-stone-400);
   --tmt-ui-color-annotation-rule-selected: var(--tmt-ui-ref-ink-900);
   --tmt-ui-color-mention-person: var(--tmt-ui-ref-ink-900);
@@ -525,7 +525,7 @@
   --tmt-ui-surface-annotation-highlight-hover: var(--tmt-ui-ref-paper-200);
   --tmt-ui-surface-annotation-highlight-selected: var(--tmt-ui-ref-paper-300);
   --tmt-ui-surface-annotation-panel: var(--tmt-ui-ref-paper-50);
-  --tmt-ui-surface-annotation-action: var(--tmt-ui-ref-red-500);
+  --tmt-ui-surface-annotation-action: var(--tmt-ui-ref-paper-300);
   --tmt-ui-surface-mention-agent: var(--tmt-ui-ref-paper-100);
   --tmt-ui-surface-mention-person: var(--tmt-ui-ref-paper-100);
   --tmt-ui-shadow-elevation-1: 0 1px 2px var(--tmt-ui-ref-shadow-light-soft);
@@ -561,7 +561,7 @@
   --tmt-ui-color-review: var(--tmt-ui-ref-violet-light);
   --tmt-ui-color-blocked: var(--tmt-ui-ref-blocked-light);
   --tmt-ui-color-link: var(--tmt-ui-ref-ink-900);
-  --tmt-ui-color-annotation-on-action: var(--tmt-ui-ref-white);
+  --tmt-ui-color-annotation-on-action: var(--tmt-ui-ref-ink-900);
   --tmt-ui-color-annotation-rule: var(--tmt-ui-ref-stone-400);
   --tmt-ui-color-annotation-rule-selected: var(--tmt-ui-ref-ink-900);
   --tmt-ui-color-mention-person: var(--tmt-ui-ref-ink-900);
@@ -585,7 +585,7 @@
   --tmt-ui-surface-annotation-highlight-hover: var(--tmt-ui-ref-paper-200);
   --tmt-ui-surface-annotation-highlight-selected: var(--tmt-ui-ref-paper-300);
   --tmt-ui-surface-annotation-panel: var(--tmt-ui-ref-paper-50);
-  --tmt-ui-surface-annotation-action: var(--tmt-ui-ref-red-500);
+  --tmt-ui-surface-annotation-action: var(--tmt-ui-ref-paper-300);
   --tmt-ui-surface-mention-agent: var(--tmt-ui-ref-paper-100);
   --tmt-ui-surface-mention-person: var(--tmt-ui-ref-paper-100);
   --tmt-ui-shadow-elevation-1: 0 1px 2px var(--tmt-ui-ref-shadow-light-soft);
@@ -618,7 +618,7 @@
     --tmt-ui-color-review: var(--tmt-ui-ref-violet-dark);
     --tmt-ui-color-blocked: var(--tmt-ui-ref-blocked-dark);
     --tmt-ui-color-link: var(--tmt-ui-ref-bone);
-    --tmt-ui-color-annotation-on-action: var(--tmt-ui-ref-white);
+    --tmt-ui-color-annotation-on-action: var(--tmt-ui-ref-bone);
     --tmt-ui-color-annotation-rule: var(--tmt-ui-ref-stone-400);
     --tmt-ui-color-annotation-rule-selected: var(--tmt-ui-ref-bone);
     --tmt-ui-color-mention-person: var(--tmt-ui-ref-bone);
@@ -642,7 +642,7 @@
     --tmt-ui-surface-annotation-highlight-hover: var(--tmt-ui-ref-ink-700);
     --tmt-ui-surface-annotation-highlight-selected: var(--tmt-ui-ref-ink-600);
     --tmt-ui-surface-annotation-panel: var(--tmt-ui-ref-ink-850);
-    --tmt-ui-surface-annotation-action: var(--tmt-ui-ref-red-500);
+    --tmt-ui-surface-annotation-action: var(--tmt-ui-ref-ink-600);
     --tmt-ui-surface-mention-agent: var(--tmt-ui-ref-ink-800);
     --tmt-ui-surface-mention-person: var(--tmt-ui-ref-ink-800);
     --tmt-ui-shadow-elevation-1: 0 1px 2px var(--tmt-ui-ref-shadow-dark-soft);
@@ -677,7 +677,7 @@
   --tmt-ui-color-review: var(--tmt-ui-ref-violet-dark);
   --tmt-ui-color-blocked: var(--tmt-ui-ref-blocked-dark);
   --tmt-ui-color-link: var(--tmt-ui-ref-bone);
-  --tmt-ui-color-annotation-on-action: var(--tmt-ui-ref-white);
+  --tmt-ui-color-annotation-on-action: var(--tmt-ui-ref-bone);
   --tmt-ui-color-annotation-rule: var(--tmt-ui-ref-stone-400);
   --tmt-ui-color-annotation-rule-selected: var(--tmt-ui-ref-bone);
   --tmt-ui-color-mention-person: var(--tmt-ui-ref-bone);
@@ -701,7 +701,7 @@
   --tmt-ui-surface-annotation-highlight-hover: var(--tmt-ui-ref-ink-700);
   --tmt-ui-surface-annotation-highlight-selected: var(--tmt-ui-ref-ink-600);
   --tmt-ui-surface-annotation-panel: var(--tmt-ui-ref-ink-850);
-  --tmt-ui-surface-annotation-action: var(--tmt-ui-ref-red-500);
+  --tmt-ui-surface-annotation-action: var(--tmt-ui-ref-ink-600);
   --tmt-ui-surface-mention-agent: var(--tmt-ui-ref-ink-800);
   --tmt-ui-surface-mention-person: var(--tmt-ui-ref-ink-800);
   --tmt-ui-shadow-elevation-1: 0 1px 2px var(--tmt-ui-ref-shadow-dark-soft);

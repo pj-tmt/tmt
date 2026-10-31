@@ -747,7 +747,12 @@ function Fab({ dock, unread }: { dock: string | null; unread: boolean }) {
   );
 }
 
-const controls: { key: string; label: string; options: [string, string][] }[] = [
+export interface StateControl {
+  key: string;
+  label: string;
+  options: [string, string][];
+}
+const controls: StateControl[] = [
   {
     key: 'dock',
     label: 'Dock',
@@ -826,7 +831,13 @@ const controls: { key: string; label: string; options: [string, string][] }[] = 
 ];
 
 /** The mock's state drawer (lead note 8): each state is a query value, so links reproduce it. */
-export function StatePanel({ children }: { children?: ReactNode }) {
+export function StatePanel({
+  children,
+  controls,
+}: {
+  children?: ReactNode;
+  controls: StateControl[];
+}) {
   const query = useQuery();
   const [open, setOpen] = useState(false);
   return (
@@ -955,7 +966,7 @@ export function ReaderScreen({ globals }: { globals: ReactNode }) {
       ) : null}
       <Fab dock={dock} unread={unread && dock !== 'chat'} />
       {query.get('add') === '1' && <AddDialog />}
-      <StatePanel>{globals}</StatePanel>
+      <StatePanel controls={controls}>{globals}</StatePanel>
     </TooltipProvider>
   );
 }
