@@ -1470,20 +1470,41 @@ for (const surface of ['chat', 'thread'] as const)
       const window =
         surface === 'chat' ? page.getByTestId('chat-panel') : page.getByTestId('comment-thread');
       await run(page, 'conversationMessageState', { state: asked('sendable') });
-      // The countdown is inline text that wraps in a narrow window (the Comments column is 286px):
-      // its last line is the one Send now follows.
-      const clock = await window
-        .getByTestId('ask-state')
-        .locator('.agent-activity-clock')
-        .evaluate((node) => {
-          const line = [...node.getClientRects()].at(-1)!;
-          return { x: line.x, y: line.y, width: line.width, height: line.height };
-        });
-      const [send, check] = await Promise.all(
-        [
-          window.getByRole('button', { name: text.sendNow }),
-          window.getByRole('button', { name: text.askRecheck }),
-        ].map((locator) => locator.boundingBox()),
+      // Wait for the admitted row and the Chat history's follow-to-bottom update before measuring.
+      await expect(window.getByTestId('ask-state')).toHaveCount(1);
+      if (surface === 'chat') {
+        await expect
+          .poll(() =>
+            window
+              .locator('.conversation-messages')
+              .evaluate((node) => Math.abs(node.scrollHeight - node.clientHeight - node.scrollTop)),
+          )
+          .toBeLessThanOrEqual(1);
+      }
+      const [clockNode, sendNode, checkNode] = await Promise.all([
+        window.getByTestId('ask-state').locator('.agent-activity-clock').elementHandle(),
+        window.getByRole('button', { name: text.sendNow }).elementHandle(),
+        window.getByRole('button', { name: text.askRecheck }).elementHandle(),
+      ]);
+      expect(clockNode).not.toBeNull();
+      expect(sendNode).not.toBeNull();
+      expect(checkNode).not.toBeNull();
+      // One browser frame supplies every box, so a follow scroll cannot mix coordinate spaces.
+      const { clock, send, check } = await page.evaluate(
+        ({ clockNode, sendNode, checkNode }) => {
+          const copy = (box: DOMRect) => ({
+            x: box.x,
+            y: box.y,
+            width: box.width,
+            height: box.height,
+          });
+          return {
+            clock: copy([...clockNode!.getClientRects()].at(-1)!),
+            send: copy(sendNode!.getBoundingClientRect()),
+            check: copy(checkNode!.getBoundingClientRect()),
+          };
+        },
+        { clockNode, sendNode, checkNode },
       );
       if (width <= 390) {
         expect(send!.height).toBeGreaterThanOrEqual(44);
@@ -1729,3 +1750,64 @@ for (const surface of ['chat', 'thread'] as const)
         await expect(input).toHaveText(draft!);
         expect(await run(page, 'proof')).toEqual(before);
       });
+
+for (const width of [320, 390])
+  test(`Chat opens long history at its final scroll position ${width}`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 900 });
+    await page.goto('/');
+    await run(page, 'mount', { history: 'chat' });
+    const host = page.locator('#ask-page-fixture');
+    await expect(host.locator('.status')).toContainText('Live');
+    await page.evaluate(() => {
+      const state = window as typeof window & {
+        __chatOpenFrames: { top: number; gap: number; lastY: number }[];
+      };
+      state.__chatOpenFrames = [];
+      let recording = false;
+      const observer = new MutationObserver(() => {
+        const history = document.querySelector<HTMLElement>(
+          '.tmt-ui-panel[data-panel="chat"]:not([hidden]) .conversation-messages',
+        );
+        const rows = history?.querySelectorAll<HTMLElement>('[data-conversation-record]');
+        if (recording || !history || !rows || rows.length < 40 || !history.getClientRects().length)
+          return;
+        recording = true;
+        observer.disconnect();
+        const sample = () => {
+          const last = history.querySelectorAll<HTMLElement>('[data-conversation-record]');
+          state.__chatOpenFrames.push({
+            top: history.scrollTop,
+            gap: history.scrollHeight - history.clientHeight - history.scrollTop,
+            lastY: last[last.length - 1]!.getBoundingClientRect().y,
+          });
+          if (state.__chatOpenFrames.length < 5) requestAnimationFrame(sample);
+        };
+        requestAnimationFrame(sample);
+      });
+      observer.observe(document.body, { childList: true, attributes: true, subtree: true });
+    });
+    await (await pageAction(host, 'Chat')).click();
+    await expect
+      .poll(() =>
+        page.evaluate(
+          () => (window as typeof window & { __chatOpenFrames: unknown[] }).__chatOpenFrames.length,
+        ),
+      )
+      .toBe(5);
+    const frames = await page.evaluate(
+      () =>
+        (
+          window as typeof window & {
+            __chatOpenFrames: { top: number; gap: number; lastY: number }[];
+          }
+        ).__chatOpenFrames,
+    );
+    expect(frames[0]!.gap).toBeLessThanOrEqual(1);
+    expect(
+      Math.max(...frames.map((frame) => frame.top)) - Math.min(...frames.map((frame) => frame.top)),
+    ).toBeLessThanOrEqual(1);
+    expect(
+      Math.max(...frames.map((frame) => frame.lastY)) -
+        Math.min(...frames.map((frame) => frame.lastY)),
+    ).toBeLessThanOrEqual(1);
+  });
