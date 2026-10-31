@@ -175,7 +175,7 @@ those rows from their already-admitted own records; no extra read, pairing or As
 Home keeps one vertical list viewport. Its hero contains only a right-aligned action row;
 pins and stage tabs follow it. After the full controls boundary passes the top, the sticky
 compact row retains condition chips, the same mounted search editor, Filter and New page.
-Sort remains visible on phones, wrapping below the search row; at wider widths it scrolls away.
+On phones Sort is an icon action on the search row; at wider widths it scrolls away.
 A list-root IntersectionObserver derives this presentation without a stored preference;
 resize and instant scroll jumps sample the same boundary geometry. Observers and listeners
 disconnect on unmount. Search drafts, route filters, row selection and command owners survive

@@ -174,9 +174,11 @@ for (const width of [1440, 390])
       await expect(home).toHaveCSS('padding-left', width === 1440 ? '36px' : '18px');
       await expect(rows(page).first().locator('progress')).toHaveCount(0);
       await expect(rows(page).first().locator('.page-comments')).toHaveCount(0);
-      await expect(app(page).getByRole('button', { name: 'Sort: Recently updated' })).toHaveText(
-        'Recently updated',
-      );
+      const sort = app(page).getByRole('button', { name: 'Sort: Recently updated' });
+      if (width === 390) {
+        await expect(sort).toHaveAccessibleName('Sort: Recently updated');
+        await expect(sort.locator('svg.lucide-arrow-down-up')).toHaveCount(1);
+      } else await expect(sort).toHaveText('Recently updated');
       const search = app(page).getByRole('combobox', { name: 'Search pages' });
       await expect(search).toHaveCSS('font-size', '14px');
       expect((await search.boundingBox())!.height).toBe(34);
@@ -410,12 +412,9 @@ for (const width of [1440, 390])
         };
       });
       expect(Math.abs(geometry.top)).toBeLessThan(1);
-      if (width > 650) expect(geometry.height).toBe(58);
-      else expect(geometry.height).toBeGreaterThan(58);
-      if (width > 650) {
-        expect(geometry.searchTop).toBeLessThan(geometry.actionBottom);
-        expect(geometry.actionTop).toBeLessThan(geometry.searchBottom);
-      }
+      expect(geometry.height).toBe(58);
+      expect(geometry.searchTop).toBeLessThan(geometry.actionBottom);
+      expect(geometry.actionTop).toBeLessThan(geometry.searchBottom);
       expect(geometry.overflow).toBe(false);
       await expect(controls.locator('.page-scope-filters')).toHaveCount(0);
       await expect(controls.locator('.page-list-sort')).toBeVisible({ visible: width <= 650 });

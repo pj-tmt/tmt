@@ -70,15 +70,24 @@ for (const width of [1440, 1024, 390])
       });
       const sort = page.locator('#list-fixture').getByRole('button', { name: /^Sort:/ });
       await expect(sort).toBeVisible();
-      const chevron = sort.locator('svg.lucide-chevron-down');
-      await expect(chevron).toHaveCount(1);
+      const icon = sort.locator(
+        width === 390 ? 'svg.lucide-arrow-down-up' : 'svg.lucide-chevron-down',
+      );
+      await expect(icon).toHaveCount(1);
       const center = await sort.evaluate((node) => {
         const a = node.getBoundingClientRect(),
           b = node.querySelector('svg')!.getBoundingClientRect();
         return Math.abs((a.top + a.bottom - b.top - b.bottom) / 2);
       });
       expect(center).toBeLessThanOrEqual(1);
-      await expect(chevron).toHaveAttribute('aria-hidden', 'true');
+      if (width > 390) await expect(icon).toHaveAttribute('aria-hidden', 'true');
+      else {
+        await expect(sort).toHaveAccessibleName('Sort: Recently updated');
+        await sort.hover();
+        await expect(page.locator('.tmt-ui-icon-action-tooltip:popover-open')).toContainText(
+          'Sort: Recently updated',
+        );
+      }
       await page.screenshot({ path: `${directory}/sort-closed-${width}-${theme}.png` });
       await sort.click();
       await expect(page.getByRole('menu', { name: 'Sort' })).toBeVisible();

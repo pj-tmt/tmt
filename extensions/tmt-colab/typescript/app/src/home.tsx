@@ -18,6 +18,7 @@ import { getRouteApi, useRouter } from '@tanstack/react-router';
 import {
   Archive,
   ArchiveRestore,
+  ArrowDownUp,
   Bookmark,
   ExternalLink,
   Funnel,
@@ -793,7 +794,8 @@ export function Home() {
         <span className="page-list-sort">
           <BrowserMenu
             label={`${t.sort}: ${sortLabel}`}
-            triggerText={sortLabel}
+            triggerText={phone ? undefined : sortLabel}
+            icon={<ArrowDownUp />}
             items={(['updated', 'title'] as const).map((key) => ({
               key,
               label: t.sortOptions[key],

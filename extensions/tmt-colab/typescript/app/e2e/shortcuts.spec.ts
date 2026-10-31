@@ -743,7 +743,15 @@ for (const width of [390, 1440])
           'flex-wrap',
           'nowrap',
         );
+        const sort = page.getByRole('button', { name: 'Sort: Recently updated', exact: true });
+        await expect(sort).toBeVisible();
+        const sortBox = (await sort.boundingBox())!;
         const box = (await filter.boundingBox())!;
+        expect(Math.abs(sortBox.y - box.y)).toBeLessThanOrEqual(1);
+        await expect(page.getByRole('combobox', { name: 'Search pages' })).toHaveAttribute(
+          'data-placeholder',
+          'Search pages…',
+        );
         expect(box.x + box.width).toBeLessThanOrEqual(width);
         expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(
           width,

@@ -947,7 +947,7 @@ export const text = {
     authorColumn: 'Author',
     accessColumn: 'Access',
     searchLabel: 'Search pages',
-    searchPlaceholder: 'Search pages · project: · by: · stage:',
+    searchPlaceholder: 'Search pages…',
     sort: 'Sort',
     sortOptions: { updated: 'Recently updated', title: 'Title' },
     views: 'Page views',
