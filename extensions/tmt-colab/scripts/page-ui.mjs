@@ -6,11 +6,11 @@
 import { createRequire } from 'node:module';
 import { readFile } from 'node:fs/promises';
 
-// The injected page UI CSS cap, in bytes, the one figure the build and the runtime check share: the exact
-// measured size, no headroom (GUI lead, #5794): 119,949 -> 125,075 bytes for the type ramp and the
-// editorial layer. A change that grows it re-measures and asks again; #5809 cuts the injected static.css
-// to what an author page can use and lowers this to its new exact figure.
-export const PAGE_UI_LIMIT = 125_075;
+// The injected page UI CSS cap, in bytes, shared by the build and runtime check: exact measured size,
+// no headroom (GUI lead). #5810 added the editorial layer at 125,075 bytes; #5804 adds 32 bytes for
+// the Design layer names in the shared @layer order, making 125,107. Growth requires a new measurement
+// and approval; #5809 trims the injected static.css, and #5821 will re-measure its own changes.
+export const PAGE_UI_LIMIT = 125_107;
 
 export async function buildPageUi() {
   // The design system the frame injects into every page (#5057): the leaf's static.css, whole, in the
