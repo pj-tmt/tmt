@@ -255,6 +255,28 @@ describe('release gate parity inventory', () => {
     expect(JSON.stringify(value)).not.toContain('followUp');
   });
 
+  it('maps #5744 post-publication latest convergence to bounded pre-merge policy tests', () => {
+    expect(manifest().incidents['5744']).toEqual({
+      release: {
+        workflow: 'native-release-bundle.yml',
+        job: 'publish',
+        step: "name:Publish the draft under the product's policy",
+      },
+      preMerge: [
+        {
+          workflow: 'ci.yml',
+          job: 'unit-tests',
+          selection: { kind: 'ci-scope', output: 'native_scope', value: 'full' },
+          coverage: 'policy',
+          tests: ['typescript/test/tooling/release-publish.test.ts'],
+        },
+      ],
+    });
+    const missing = manifest();
+    delete missing.incidents['5744'];
+    expect(() => checkReleaseParity(missing, { read })).toThrow('release incidents');
+  });
+
   it('maps #5451 compiled schema source closure to pre-merge tooling', () => {
     expect(manifest().incidents['5451']).toEqual({
       release: {

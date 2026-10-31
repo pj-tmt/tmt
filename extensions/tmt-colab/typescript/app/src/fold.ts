@@ -44,6 +44,16 @@ function inputBytes(command: DecoderCommand): number {
 export const decodeBudgetMs = (command: DecoderCommand) =>
   DECODE_BASE_MS + Math.floor((inputBytes(command) * DECODE_MS_PER_MIB) / (1024 * 1024));
 
+/** Fixed, non-sensitive reasons why a decoder cannot accept a command. */
+export type DecoderUnavailableReason =
+  | 'Decoder unavailable: busy'
+  | 'Decoder unavailable: closed'
+  | 'Decoder unavailable: worker error'
+  | 'Decoder unavailable: invalid output'
+  | 'Decoder unavailable: timeout'
+  | 'Decoder unavailable: post failed';
+type DecoderCloseReason = Exclude<DecoderUnavailableReason, 'Decoder unavailable: busy'>;
+
 /** Decoder output is checked again by the authority-holding parent. Failure
  * terminates the Worker and flags the binding; callers must resync from scratch. */
 export class Fold {
@@ -60,12 +70,13 @@ export class Fold {
   #writers = new Set<string>();
   #next = 0;
   #closed = false;
+  #closedReason: DecoderCloseReason = 'Decoder unavailable: closed';
   #timer: ReturnType<typeof setTimeout> | undefined;
   constructor(
     worker = new Worker(new URL('./fold.worker.ts', import.meta.url), { type: 'module' }),
   ) {
     this.#worker = worker;
-    worker.onerror = () => this.close();
+    worker.onerror = () => this.#close('Decoder unavailable: worker error');
     worker.onmessage = (event: MessageEvent<unknown>) => {
       try {
         if (this.#pending?.expected) {
@@ -206,7 +217,7 @@ export class Fold {
           update: value.update,
         });
       } catch {
-        this.close();
+        this.#close('Decoder unavailable: invalid output');
       }
     };
   }
@@ -253,7 +264,8 @@ export class Fold {
     }) as Promise<ContentPreparation>;
   }
   #run(command: DecoderCommand): Promise<FoldResult | ContentPreparation> {
-    if (this.#closed || this.#pending) return Promise.reject(new Error('Decoder unavailable'));
+    if (this.#closed) return Promise.reject(new Error(this.#closedReason));
+    if (this.#pending) return Promise.reject(new Error('Decoder unavailable: busy'));
     if (
       (command.type === 'apply' || command.type === 'check') &&
       (command.updates.length + (command.own?.length ?? 0) >
@@ -308,15 +320,23 @@ export class Fold {
           command.type !== 'own-conflict' &&
           command.type !== 'prepare-content',
       };
-      this.#timer = setTimeout(() => this.close(), decodeBudgetMs(command));
+      this.#timer = setTimeout(
+        () => this.#close('Decoder unavailable: timeout'),
+        decodeBudgetMs(command),
+      );
       try {
         this.#worker.postMessage({ id, command });
       } catch {
-        this.close();
+        this.#close('Decoder unavailable: post failed');
       }
     });
   }
   close() {
+    this.#close('Decoder unavailable: closed');
+  }
+  #close(reason: DecoderCloseReason) {
+    if (this.#closed) return;
+    this.#closedReason = reason;
     this.#closed = true;
     clearTimeout(this.#timer);
     this.#worker.terminate();

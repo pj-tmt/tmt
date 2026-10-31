@@ -101,6 +101,9 @@ export function publishBlocker({ release, product, tag, released = true }) {
   return '';
 }
 
+const githubServerFailure = (failure) =>
+  /\bHTTP 5\d\d\b/i.test(String(failure?.message ?? failure));
+
 /** Bounded convergence after publication: never leave a stale max-version decision unchecked. */
 export function convergeCliLatest({ api, tag, attempts = 3, wait = () => {} }) {
   for (let attempt = 0; attempt < attempts; attempt += 1) {
@@ -110,7 +113,20 @@ export function convergeCliLatest({ api, tag, attempts = 3, wait = () => {} }) {
       continue;
     }
     const highest = published[0].tag_name;
-    if (api.latestRelease()?.tag_name !== highest) api.setLatest(highest);
+    if (api.latestRelease()?.tag_name !== highest) {
+      try {
+        api.setLatest(highest);
+      } catch (failure) {
+        if (!githubServerFailure(failure) || attempt === attempts - 1) throw failure;
+        // The PATCH may have applied. Spend a convergence round and recompute the
+        // highest visible version instead of blindly promoting this stale tag again.
+        process.stderr.write(
+          `Latest correction round ${attempt + 1}/${attempts} failed: ${failure.message}\nRe-reading published CLI versions before another correction.\n`
+        );
+        wait();
+        continue;
+      }
+    }
     // Another tag may publish between discovery and promotion. Recompute after our write.
     const readbackHighest = publishedReleases(api.listReleases(), 'cli')[0]?.tag_name;
     if (readbackHighest === highest && api.latestRelease()?.tag_name === readbackHighest)
@@ -625,7 +641,7 @@ export function renderVerifySummary({ tag, results }) {
 // ---- GitHub, through gh ------------------------------------------------------------------
 
 /** `gh` for one repository: the draft API of `release-draft-assets.mjs` plus what publishing needs. */
-export function ghPublishApi({ repository, env = process.env, spawn = spawnSync }) {
+export function ghPublishApi({ repository, env = process.env, spawn = spawnSync, sleep }) {
   const run = (args, timeout = VERIFY_LOOKUP_MS) => {
     const result = spawn('gh', args, {
       env,
@@ -644,7 +660,7 @@ export function ghPublishApi({ repository, env = process.env, spawn = spawnSync 
   };
   const outcome = (result) => ({ ok: result.status === 0, output: text(result) });
   return {
-    ...ghApi({ repository, env, spawn }),
+    ...ghApi({ repository, env, spawn, sleep }),
     setLatest: (tag) => {
       const release = json(['api', `repos/${repository}/releases/tags/${tag}`]);
       if (!Number.isSafeInteger(release.id) || release.draft || productOfTag(tag) !== 'cli')
@@ -666,10 +682,17 @@ export function ghPublishApi({ repository, env = process.env, spawn = spawnSync 
       const result = run(['api', `repos/${repository}/releases/tags/${tag}`]);
       return result.status === 0 ? JSON.parse(result.stdout) : null;
     },
-    latestRelease: () => {
-      const result = run(['api', `repos/${repository}/releases/latest`]);
-      return result.status === 0 ? JSON.parse(result.stdout) : null;
-    },
+    latestRelease: () =>
+      retryReleaseRead(
+        () => {
+          const result = run(['api', `repos/${repository}/releases/latest`]);
+          // Preserve an absent latest pointer, but never turn a server failure into absence.
+          if (result.status !== 0 && githubServerFailure(text(result)))
+            throw new Error(`GitHub latest read failed: ${text(result)}`);
+          return result.status === 0 ? JSON.parse(result.stdout) : null;
+        },
+        { label: 'Published CLI latest read', retryIf: githubServerFailure, sleep }
+      ),
     tagCommit: (tag) => {
       const result = run(['api', `repos/${repository}/commits/${tag}`]);
       return result.status === 0 ? JSON.parse(result.stdout).sha : null;

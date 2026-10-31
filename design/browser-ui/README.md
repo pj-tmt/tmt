@@ -47,9 +47,9 @@ its original declarations and spelling. Only that generated distribution
 is excluded from formatting; authored CSS remains formatted. Source-level policy tests inspect
 the assembled source, byte checks inspect the distribution, and browser comparisons verify
 that compilation preserves computed paint and layout. The check compares expected bytes without writing. `test/byte-budget.test.ts` holds the gzip
-size (level 9) of `generated/static.css` plus `generated/ui.css` to 21,761 bytes. The GUI
-lead approved an exact 114-byte increase over the v2 cap of 21,647 bytes for the shared row
-controls, drop indicator, action icons and add-row glyph, with no headroom or change to the UI foundation budget.
+size (level 9) of `generated/static.css` plus `generated/ui.css` to 21,978 bytes. The GUI
+lead approved the exact 217-byte increase over 21,761 bytes for grouped menus, with no
+headroom or change to the UI foundation budget. The [Linux measurement](https://github.com/tmt-ninja/tmt/actions/runs/41128808110/job/124320431163) records the approved size.
 Class encapsulation is retained, and further increases return to the lead. Each pull request
 that changes these stylesheets reports their raw sizes. Consumers embed checked CSS;
 Cargo and installed products never run the generator. Select light/system-dark
@@ -684,8 +684,12 @@ placement, keyboard navigation and visibility contract as `BrowserMenu`.
 Options provide `label`, keyed `items` and `onSelect(key, originalMouseEvent)`;
 optional `triggerText` replaces the default Ellipsis icon trigger, `icon` supplies
 a decorative node, and `description`, `disabled` and `onOpenChange` retain the
-menu contracts above. There are no extra sizes or visual variants. Items may
-supply checked roles, a separator, a disabled reason and passive `content` nodes.
+menu contracts above. Items may supply checked roles, a separator, a disabled reason and passive
+`content` nodes. `popupLayout="grouped"` opts into a viewport-capped, 260px minimum menu with
+32px rows; `heading` starts a labelled group, `leadingIcon` is decorative, `detail` describes the
+item, and `meta` is trailing text included in its accessible name. A detail row grows to fit.
+Typeahead and roving focus use item labels and skip headings. Omitting these options preserves the
+existing menu DOM and geometry. The React and DOM hosts share this contract.
 Keys must be unique. Strings render as text; supplied nodes belong to this
 presentation until update/disposal and must contain no second interactive owner.
 
