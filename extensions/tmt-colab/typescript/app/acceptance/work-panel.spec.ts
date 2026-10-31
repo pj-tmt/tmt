@@ -28,17 +28,14 @@ test('manual state persists, an empty band offers Add to the owner only, and sha
     const created = createPage(world, 'Status panel', '<h1>Status panel source</h1>');
     const colab = (args: string[]) =>
       JSON.parse(run(world, world.binaries.colab, [...args, '--json']));
-    colab(['task', 'add', created.pageId, '--title', 'First task']);
-    colab(['task', 'add', created.pageId, '--title', 'Second task']);
-    colab(['task', 'state', created.pageId, 'T-1', 'done']);
     const before = colab(['show', created.pageId]);
     expect(before.page.state).toBe('todo');
-    expect(before.page.progress).toEqual({ done: 1, inProgress: 0, todo: 1, unknown: 0, total: 2 });
+    expect(before.page.progress).toEqual({ done: 0, inProgress: 0, todo: 0, unknown: 0, total: 0 });
     const door = await startDoor(world);
     const browser = await pairBrowser(world, 'status-owner');
     const page = await openPage(door, browser, created);
     const band = page.getByRole('region', { name: 'Work on this page' });
-    // Plain tasks are not sub-pages: the band says so and offers Add.
+    // A page without sub-pages: the band says so and offers Add.
     await expect(band.locator('.work-head')).toContainText('No sub-pages yet');
     await expect(band.getByRole('button', { name: 'Add', exact: true })).toBeVisible();
     await band
@@ -103,8 +100,7 @@ test('opening a page with sub-pages reads details once and never shows a wrong p
     const child = createPage(world, 'Status child', '<h1>Status child source</h1>');
     const colab = (args: string[]) =>
       JSON.parse(run(world, world.binaries.colab, [...args, '--json']));
-    colab(['task', 'add', parent.pageId, '--title', 'Child work']);
-    colab(['task', 'link', parent.pageId, 'T-1', child.pageId]);
+    colab(['subpage', 'attach', parent.pageId, child.pageId]);
     const door = await startDoor(world);
     const browser = await pairBrowser(world, 'progress-open');
     let reads = 0;
@@ -141,8 +137,7 @@ test('sub-pages attach, get created and detach at any depth through the owner ad
     const grand = createPage(world, 'Grand page', '<h1>Grand</h1>');
     const colab = (args: string[]) =>
       JSON.parse(run(world, world.binaries.colab, [...args, '--json']));
-    colab(['task', 'add', top.pageId, '--title', 'Middle link']);
-    colab(['task', 'link', top.pageId, 'T-1', middle.pageId]);
+    colab(['subpage', 'attach', top.pageId, middle.pageId]);
     const door = await startDoor(world);
     const browser = await pairBrowser(world, 'attach-owner');
     // The middle page already has a parent and still takes a child of its own (#5820).
@@ -157,10 +152,8 @@ test('sub-pages attach, get created and detach at any depth through the owner ad
     await dialog.getByRole('combobox').fill('Grand');
     await dialog.getByRole('option', { name: /Grand page/ }).click();
     await expect(dialog).toHaveCount(0);
-    let tasks = colab(['task', 'ls', middle.pageId]).work.tasks;
-    expect(Object.values(tasks)).toEqual([
-      expect.objectContaining({ title: 'Grand page', child: grand.pageId }),
-    ]);
+    const listed = () => colab(['subpage', 'ls', middle.pageId]).children as string[];
+    expect(listed()).toEqual([grand.pageId]);
     await band.getByRole('button', { name: 'Expand work panel' }).click();
     await expect(band.getByRole('link', { name: 'Grand page', exact: true })).toBeVisible();
     // Create makes the page with the typed name and attaches it.
@@ -168,21 +161,15 @@ test('sub-pages attach, get created and detach at any depth through the owner ad
     await dialog.getByRole('combobox').fill('Made here');
     await page.keyboard.press('Enter');
     await expect(dialog).toHaveCount(0);
-    tasks = colab(['task', 'ls', middle.pageId]).work.tasks;
-    const made = Object.values(tasks as Record<string, { title: string; child?: string }>).find(
-      (task) => task.title === 'Made here',
-    );
-    expect(made?.child).toBeDefined();
-    expect(colab(['show', made!.child!]).page.title).toBe('Made here');
+    const [, made] = listed();
+    expect(made).toBeDefined();
+    expect(colab(['show', made]).page.title).toBe('Made here');
     // Detach removes the link only: the page stays.
     await band.getByRole('link', { name: 'Grand page', exact: true }).hover();
     await band.getByRole('button', { name: 'More for Grand page' }).click();
     await page.getByRole('menuitem', { name: 'Detach' }).click();
     await expect(band.getByRole('link', { name: 'Grand page', exact: true })).toHaveCount(0);
-    tasks = colab(['task', 'ls', middle.pageId]).work.tasks;
-    expect(Object.values(tasks).map((task) => (task as { title: string }).title)).toEqual([
-      'Made here',
-    ]);
+    expect(listed()).toEqual([made]);
     expect(colab(['show', grand.pageId]).page.title).toBe('Grand page');
   });
 });

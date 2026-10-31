@@ -187,12 +187,11 @@ projects person read state from ordinary verified thread records (the frame and 
 cosmetic navigation; `reading-actions.ts` records
 and resolves through the existing binding/coordinator, and answers `ready` for the same condition
 the click needs, so the layer disables `Mark read` until it can act and a click never does nothing. Its named-agent restriction excludes
-other prose mentions. `reading-link.ts` owns cosmetic owner/paired navigation hints (`read`, `anchor`
-and `task`, at most one, each with its own shape; `hintSearch`/`hintFragment` are the one spelling of a
+other prose mentions. `reading-link.ts` owns cosmetic owner/paired navigation hints (`read` and
+`anchor`, at most one, each with its own shape; `hintSearch`/`hintFragment` are the one spelling of a
 hint in a router search or a fragment); Ask capture accepts only that exact hint and removes it from the
-canonical admitted URL. A `task=T-n` hint picks which task of the page's own work list its band
-opens (`WorkBand` `focusTask`, once, and nothing for a task the page lacks); the child page's crumb
-links to its parent page with it. Reader capabilities are unchanged.
+canonical admitted URL. The task-era `task` hint is gone (#5825): an old link opens at the top. Reader
+capabilities are unchanged.
 
 `needs-you.ts` combines the admitted layers' pending navigation without a stored count;
 `needs-you-header.tsx` owns only its header menu. Layer-owned jumps scroll/focus existing
@@ -771,7 +770,7 @@ page lacks a summary the visible list also reads every 2 s, at most 15 times (`h
 `page-layers.ts` composes the existing question/review/reading owners for the page; the action
 owners report lifetime separately from stale-outcome presentation fences.
 
-Manual `state` is independent of task-derived `stage`; selected states are a union and missing
+Manual `state` is independent of the sub-page-derived `stage`; selected states are a union and missing
 state does not match. A legacy single-state saved filter is read as one selection. Include
 archived is a union, while the Archived tab remains archived-only. `shortcuts.ts` validates saved
 filters and names; `shortcut-store.ts` persists one versioned browser-local record per space,
@@ -833,7 +832,7 @@ then view tabs, project-scope pills, search and Sort, then the list. `page-list-
 owns display-only pinned cards and rows; Home retains filtering, selection and all write lifetimes.
 Pins wrap after three on a wide screen and stack on compact screens; no pins means no card block.
 Project membership remains plural; `projectTone` maps exact names deterministically to existing role tints for header, pin and row tags; missing summaries never become a fabricated stage.
-Wide rows have Title, Project, Stage, Updated, Author and Access columns, with compact task-count words under the title; compact rows stack metadata without sideways overflow. Unknown authors stay absent; a long creator is one ellipsized line with the full label as its tooltip, and a project name used as the heading wraps in at most two lines with the full name as its tooltip, so neither moves `New page` or the row height. The shared
+Wide rows have Title, Project, Stage, Updated, Author and Access columns, with compact sub-page-count words under the title; compact rows stack metadata without sideways overflow. Unknown authors stay absent; a long creator is one ellipsized line with the full label as its tooltip, and a project name used as the heading wraps in at most two lines with the full name as its tooltip, so neither moves `New page` or the row height. The shared
 flat tabs show separate numeric counts and wrap on compact screens, without a horizontal scroller. The `New page` action (`new-page-dialog.tsx`) still gives the
 `tmt colab page create` command with `CopyCommand`; the browser creates no page.
 The list fills the shell content pane using the shared `tmt-ui-page` insets. Home is its one vertical viewport: hero, pins, controls, rows and footer scroll together; `.page-list-scroll` adds no nested scroller. Successful action feedback stays in a visually hidden live region; refusals remain visible.
@@ -858,8 +857,8 @@ counts only under Archived, and a page whose summary has not arrived (`pageStage
 fresh summary without `work` is in discussion) under no stage, so it is in All only. A stage is one
 state with the search: a typed `stage:<name>` (`takeStage`, applied with Enter) or a suggestion pick
 selects the tab and leaves the search text, and a tab click removes one still typed. A row shows its
-progress and who works (`page-work.tsx`: the count as `done of total tasks done` and at most three
-assignees from `summary.work`, the rest counted); an empty stage tab names its stage, an empty
+sub-page progress (`page-work.tsx`: the count from `summary.work` as `done of total sub-pages
+done`); an empty stage tab names its stage, an empty
 In progress offers Discussion and All and never opens another tab by itself, and a stage tab says
 `Reading page details…` while `useSummaryFill` is still reading (at most 15 re-reads) and a page in
 the scope has not reported, so a cold start never claims a tab is empty. A page waiting on the viewer
@@ -1140,11 +1139,12 @@ controls, and the shared and hosted readers keep `ShellNotice`.
 ## Sub-page relationship admission
 
 `work_links::Graph` owns cross-page relationship checks and diagnostics; the stored work value
-keeps accepting old links. Admission permits one parent/task at any depth, with no cycles.
+keeps accepting old links. Admission permits one parent at any depth, with no cycles.
 `work_admission` maps refusals to `COLAB_LINK_REFUSED` and a stable reason shared by native JSON
-and browser `workresult`. CLI and `page/convert` run its conversion preflight before creation,
-then retain the existing post-create link admission and publication fences. Unlink bypasses WIP
-admission so legacy links remain repairable; task/value and authority/revision checks still apply.
+and browser `workresult`; it runs for list actions only, since the summary is the value's own rule.
+CLI `subpage create` and `page/subpage_create` run its creation preflight before a page is made,
+then the ordinary attach admission and publication fences. Detach and move are always admitted so
+stored conflicts remain repairable; value and authority/revision checks still apply.
 
 Explicit `tmt colab show PAGE --json` diagnostics share admission's `work_index::scan` graph,
 refreshing only changed page fingerprints in the rebuildable cache, and report connected-component
@@ -1169,10 +1169,10 @@ room; expanding/collapsing resizes the existing frame without remounting or anot
 
 `PageWorkBand` (`work-band-live.tsx`) adds the owner controls: the manual state menu through
 `PageBinding.metadata('page.state', ...)` with an explicit page-state revision scope; a row's state
-chip and Detach (`task.remove` of the carrier task) on another page through that page's binding,
-opened for the one write and closed; and `AddSubpageDialog` (`work-add-dialog.tsx`), which attaches
-(`task.add` + `task.link`) or creates (`task.add` + `task.convert`) and removes the added task
-when the link is refused.
+chip and Detach (`subpage.detach` on the page whose list holds the row) on another page through that
+page's binding, opened for the one write and closed; the row menu's Open, which navigates in the app
+through `PageRouting.open`; and `AddSubpageDialog` (`work-add-dialog.tsx`), which sends one
+`subpage.attach` or one `subpage.create`, so a refusal leaves nothing to clean up.
 
 ## Short owner-page links
 
@@ -1234,4 +1234,4 @@ when the link is refused.
 
 ## Manual page state and progress (#5504)
 
-Ordinary-page `meta.pageState` is a closed value in the encrypted content document; the native decoder, browser fold and structured metadata action share the validation and admission boundaries. The work index keeps only a fingerprinted derived copy for fresh owner projections, while direct-page progress is computed from tasks and at most one level of referenced child state. Shell pages have no manual state. The contract owns state values, progress buckets, unknown data and CLI shapes.
+Ordinary-page `meta.pageState` is a closed value in the encrypted content document; the native decoder, browser fold and structured metadata action share the validation and admission boundaries. The work index keeps only a fingerprinted derived copy for fresh owner projections, while direct-page progress is computed from the direct sub-pages' own manual states, one level and never recursively. Shell pages have no manual state. The contract owns state values, progress buckets, unknown data and CLI shapes.

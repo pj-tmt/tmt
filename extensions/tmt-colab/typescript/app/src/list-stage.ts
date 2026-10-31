@@ -1,6 +1,6 @@
 import type { PageSummary } from './transport.js';
 
-/** The stages the page list tabs name; the owner derives them from a page's tasks. */
+/** The stages the page list tabs name; the owner derives them from a page's sub-pages. */
 export type PageStage = 'in-progress' | 'discussion' | 'done';
 /** What the page list's tabs show: a stage, or every active page. */
 export type HomeStage = PageStage | 'all';
@@ -11,7 +11,7 @@ export const DEFAULT_VIEW: HomeStage = 'all';
 export type HomeView = HomeStage | 'needs' | 'archived';
 
 /**
- * The stage a page's summary says. A fresh summary without work is a page with no task, so it is in
+ * The stage a page's summary says. A fresh summary without work is a page with no sub-page, so it is in
  * discussion; a page without a summary has not reported yet and is at no stage.
  */
 export function pageStage(page: PageSummary): PageStage | undefined {

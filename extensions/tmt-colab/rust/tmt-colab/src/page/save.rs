@@ -242,11 +242,8 @@ pub struct SaveResult {
     /// Rejected only: the hunks (as sent, 0-based) whose anchors moved or changed.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub conflicts: Option<Vec<usize>>,
-    /// Committed work action only: the task a `task.add` made.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub task_id: Option<String>,
-    /// A browser's `task.convert` only: the page its operation made, whether or not the link to
-    /// it landed (a rejected or absent result names it so nothing made is lost).
+    /// A browser's `subpage.create` only: the page its operation made, whether or not the attach
+    /// landed (a rejected or absent result names it so nothing made is lost).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub child_page: Option<String>,
 }
@@ -263,11 +260,10 @@ impl SaveResult {
             merged: None,
             source_sha256: None,
             conflicts: None,
-            task_id: None,
             child_page: None,
         }
     }
-    /// The page a convert operation made, when it made one.
+    /// The page a create operation made, when it made one.
     pub fn with_child(self, child_page: Option<String>) -> Self {
         Self { child_page, ..self }
     }
@@ -275,13 +271,6 @@ impl SaveResult {
         Self {
             revision: Some(revision),
             ..Self::state(operation_id, "committed")
-        }
-    }
-    /// A committed work action; `task_id` names the task a `task.add` made.
-    pub fn made(operation_id: &str, revision: String, task_id: Option<String>) -> Self {
-        Self {
-            task_id,
-            ..Self::committed(operation_id, revision)
         }
     }
     /// A commit whose source is the editor's change merged into a page that had moved.
@@ -377,7 +366,7 @@ fn refusal(error: &(dyn std::error::Error + 'static)) -> (&'static str, String) 
     if let Some(conflict) = error.downcast_ref::<HunkConflict>() {
         return (conflict.fault.code(), error.to_string());
     }
-    // A work action the write command's admission refuses (the limit, a link, a task that is gone).
+    // A sub-page action the write command's admission refuses (a link rule, a page not listed).
     if let Some(refused) = error.downcast_ref::<crate::work_admission::Refused>() {
         return (refused.code, refused.message.clone());
     }

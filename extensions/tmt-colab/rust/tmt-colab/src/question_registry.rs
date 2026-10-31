@@ -79,12 +79,23 @@ pub fn validate(value: &Value) -> Result<()> {
         if let Some(group) = entry.get("group") {
             question_id(group)?;
         }
+        // A task-era entry may still name the task that handled it (#5825); it is read as plain
+        // handled state and dropped by the entry's next change.
         if let Some(task) = entry.get("task") {
             require(entry["state"] == "handled")?;
-            require(crate::work::task_number(text(task)?).is_some())?;
+            require(legacy_task_number(text(task)?))?;
         }
     }
     Ok(())
+}
+
+/// A task-era task ID, `T-` and a decimal number from 1 to 9,999,999 without a leading zero.
+fn legacy_task_number(value: &str) -> bool {
+    value.strip_prefix("T-").is_some_and(|digits| {
+        (1..=7).contains(&digits.len())
+            && !digits.starts_with('0')
+            && digits.bytes().all(|b| b.is_ascii_digit())
+    })
 }
 
 /// Pure trial action. The admitted write owner supplies attribution and resolves selected agents
@@ -134,15 +145,7 @@ pub fn apply(base: &Value, action: &str, body: &Value, attribution: &Value) -> R
             }
         }
         "question.handle" | "question.reopen" => {
-            keys(
-                body,
-                &["id"],
-                if action == "question.handle" {
-                    &["task"]
-                } else {
-                    &[]
-                },
-            )?;
+            keys(body, &["id"], &[])?;
             let id = question_id(&body["id"])?;
             let entry = entries
                 .iter_mut()
@@ -153,13 +156,10 @@ pub fn apply(base: &Value, action: &str, body: &Value, attribution: &Value) -> R
             } else {
                 "open"
             };
-            if entry["state"] != state || entry.get("task") != body.get("task") {
+            if entry["state"] != state {
                 entry["state"] = json!(state);
                 entry["attribution"] = attribution.clone();
                 entry.as_object_mut().ok_or(Invalid)?.remove("task");
-                if let Some(task) = body.get("task") {
-                    entry["task"] = task.clone();
-                }
             }
         }
         _ => return Err(Invalid),
@@ -168,17 +168,14 @@ pub fn apply(base: &Value, action: &str, body: &Value, attribution: &Value) -> R
     Ok(next)
 }
 
-/// A page action also checks that its optional handled-task link names this page's task.
-/// Both the parent preflight and isolated decoder use this same bounded rule.
+/// A page action on the page's question registry. Both the parent preflight and the isolated
+/// decoder use this same bounded rule.
 pub fn apply_to_page(
     meta: &Value,
     action: &str,
     body: &Value,
     attribution: &Value,
 ) -> Result<Value> {
-    if let Some(task) = body.get("task").and_then(Value::as_str) {
-        require(meta["work"]["tasks"].get(task).is_some())?;
-    }
     apply(
         meta.get("questions").unwrap_or(&json!([])),
         action,
@@ -506,15 +503,23 @@ mod tests {
         let handled = apply(
             &first,
             "question.handle",
-            &json!({"id":QUESTION,"task":"T-1"}),
+            &json!({"id":QUESTION}),
             &attribution(3),
         )
         .unwrap();
+        assert!(
+            apply(
+                &first,
+                "question.handle",
+                &json!({"id":QUESTION,"task":"T-1"}),
+                &attribution(3)
+            )
+            .is_err()
+        );
         let mut renamed = registration();
         renamed["title"] = json!("Updated question");
         let updated = apply(&handled, "question.add", &renamed, &attribution(4)).unwrap();
         assert_eq!(updated[0]["state"], "handled");
-        assert_eq!(updated[0]["task"], "T-1");
         assert_eq!(updated[0]["attribution"], attribution(4));
         let reopened = apply(
             &updated,

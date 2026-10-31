@@ -1,13 +1,13 @@
-//! The write owner's admission of one work action, shared by the write command and the serve's
-//! browser frame so the limit and the link rules cannot drift between them. The stored value
-//! never carries these rules (contract: Work); they run before an action is prepared, and a
-//! refusal writes nothing.
+//! The write owner's admission of one sub-page action, shared by the write command and the serve's
+//! browser frame so the link rules cannot drift between them. The stored value never carries these
+//! rules (contract: Sub-pages); they run before an action is prepared, and a refusal writes
+//! nothing.
 use crate::{
     decoder::Decoder,
     inspection,
     keyring::{Keyring, Layout},
     store::Store,
-    wip, work, work_index,
+    work, work_index,
     work_links::{Graph, Refusal},
 };
 use serde_json::Value;
@@ -36,12 +36,6 @@ pub(crate) fn refused(
         reason: None,
     })
 }
-/// An action the value or its body cannot take, or a task the page does not have.
-/// The refusal for an action that names a task the page does not have: one sentence for the write
-/// command, the GitHub push, a convert and the browser's actions.
-pub fn no_such_task(task: &str) -> String {
-    format!("This page has no task {task}; tmt colab task ls shows its tasks.")
-}
 
 pub fn invalid(message: &str) -> Box<dyn std::error::Error + Send + Sync> {
     refused("COLAB_INPUT_INVALID", message)
@@ -55,56 +49,35 @@ pub struct Space<'a> {
     pub key: &'a Keyring,
 }
 
-use crate::repair::argument as quoted;
 fn short(page: &str) -> &str {
     page.get(..8).unwrap_or(page)
 }
-fn wip_refusal(refusal: &wip::Refusal) -> Box<dyn std::error::Error + Send + Sync> {
-    let tasks: Vec<String> = refusal
-        .held
-        .iter()
-        .map(|held| format!("{} {}", short(&held.page), held.task))
-        .collect();
-    let count = refusal.held.len() - 1;
-    refused(
-        "COLAB_WIP_LIMIT",
-        format!(
-            "{} already holds {count} task{} (limit {}): {}. Finish, block or reassign one, or raise the limit with: tmt colab settings wip-limit {} {}",
-            refusal.agent,
-            if count == 1 { "" } else { "s" },
-            refusal.limit,
-            tasks.join(", "),
-            quoted(&refusal.agent),
-            refusal.limit + 1,
-        ),
-    )
-}
-/// Why a task may not follow a page, in words.
+/// Why `child` may not become a sub-page of `page`, in words.
 pub fn link_refusal(
     why: &Refusal,
     page: &str,
-    task: &str,
     child: &str,
 ) -> Box<dyn std::error::Error + Send + Sync> {
     let message = match why {
-        Refusal::Itself => "A task cannot follow its own page.".to_owned(),
+        Refusal::Itself => "A page cannot be its own sub-page.".to_owned(),
         Refusal::Unavailable => format!(
             "{} is not a page of this space, or cannot be read now.",
             short(child)
         ),
-        Refusal::HasParent { page, task } => format!(
-            "{} is already followed by {task} of {}. A page has one parent: stop that task following it first (tmt colab task unlink {} {task}).",
+        Refusal::HasParent { page: parent } => format!(
+            "{} is already a sub-page of {}. A page has one parent: detach it there first (tmt colab subpage detach {} {}).",
             short(child),
-            short(page),
-            short(page)
+            short(parent),
+            short(parent),
+            short(child)
         ),
         Refusal::InvalidHierarchy => format!(
-            "{} belongs to a hierarchy with conflicting links. Inspect tmt colab show {} --json and repair it with task unlink before adding a link.",
+            "{} belongs to a hierarchy with conflicting links. Inspect tmt colab show {} --json and repair it with tmt colab subpage detach before adding a link.",
             short(page),
             short(page)
         ),
         Refusal::Loop => format!(
-            "{} has {} below it, so {task} following it would make a loop.",
+            "{} has {} below it, so attaching it there would make a loop.",
             short(child),
             short(page)
         ),
@@ -126,31 +99,29 @@ pub fn reason(mut error: &(dyn std::error::Error + 'static)) -> Option<&'static 
     }
 }
 
-/// Shared by CLI and browser conversion, before either creates a page.
-pub fn admit_conversion(
-    space: &Space<'_>,
-    decoder: &mut Decoder,
-    page: &str,
-    task: &str,
-) -> crate::Result<()> {
+fn space_work(space: &Space<'_>, decoder: &mut Decoder) -> crate::Result<work_index::Found> {
     let pages = inspection::all_page_ids(space.store, space.key)?;
-    let found = work_index::scan_with_live(
+    work_index::scan_with_live(
         space.layout,
         space.store,
         space.key,
         decoder,
         &pages,
         Some(&pages),
-    )?;
-    if let Some(why) = Graph(&found).conversion_refusal(page) {
-        return Err(link_refusal(&why, page, task, ""));
+    )
+}
+
+/// Shared by the CLI and the browser's `subpage.create`, before either makes a page.
+pub fn admit_creation(space: &Space<'_>, decoder: &mut Decoder, page: &str) -> crate::Result<()> {
+    if let Some(why) = Graph(&space_work(space, decoder)?).creation_refusal(page) {
+        return Err(link_refusal(&why, page, ""));
     }
     Ok(())
 }
 
-/// Admits one `task.*` action on `page`, whose work now is `before`: the task it names exists, the
-/// action applies, no agent ends up over its work-in-progress limit and a link closes no loop. The
-/// space-wide scan only runs when the change puts a task into an agent's hands or links a page.
+/// Admits one sub-page action on `page`, whose list now is `before`: the action applies to the
+/// list, and an attach takes a page that has no other parent and closes no loop. Detach and move
+/// need only the list, so a stored conflict can always be repaired.
 pub fn admit(
     space: &Space<'_>,
     decoder: &mut Decoder,
@@ -159,56 +130,19 @@ pub fn admit(
     action: &str,
     body: &Value,
 ) -> crate::Result<()> {
-    if let Some(task) = body["taskId"].as_str()
-        && before["tasks"].get(task).is_none()
+    if action == "subpage.attach"
+        && let Some(child) = body["pageId"].as_str()
+        && let Some(why) = Graph(&space_work(space, decoder)?).refusal(page, child)
     {
-        return Err(invalid(&no_such_task(task)));
+        return Err(link_refusal(&why, page, child));
     }
-    if !action.starts_with("task.") {
+    // The summary is the value's own rule (`work::apply`); only the list needs the space.
+    if !work::SUBPAGE_ACTIONS.contains(&action) {
         return Ok(());
     }
-    let after = work::apply(before, action, body, &Value::Null)
-        .map_err(|_| invalid("Invalid task value or action; nothing was changed."))?;
-    // Unlink is a repair operation, including when its restored task exceeds WIP.
-    if action != "task.unlink"
-        && wip::held(page, &after)
-            .iter()
-            .any(|task| !wip::held(page, before).contains(task))
-    {
-        let catalog = inspection::catalog(space.store, space.key)?;
-        let pages = inspection::catalog_active_page_ids(&catalog);
-        let live = inspection::catalog_page_ids(&catalog);
-        let found = work_index::scan_with_live(
-            space.layout,
-            space.store,
-            space.key,
-            decoder,
-            &pages,
-            Some(&live),
-        )?;
-        let elsewhere = work_index::held_elsewhere(&found, page);
-        let limits = crate::settings::read_or_default(space.root);
-        if let Some(over) = wip::admit(page, before, &after, &elsewhere, limits.wip()) {
-            return Err(wip_refusal(&over));
-        }
-    }
-    if action == "task.link" {
-        let (task, child) = (
-            body["taskId"].as_str().unwrap_or_default(),
-            body["pageId"].as_str().unwrap_or_default(),
-        );
-        let pages = inspection::all_page_ids(space.store, space.key)?;
-        let found = work_index::scan_with_live(
-            space.layout,
-            space.store,
-            space.key,
-            decoder,
-            &pages,
-            Some(&pages),
-        )?;
-        if let Some(why) = Graph(&found).refusal(page, task, child) {
-            return Err(link_refusal(&why, page, task, child));
-        }
-    }
+    work::apply(before, action, body, &Value::Null).map_err(|_| match action {
+        "subpage.attach" => invalid("That page is already a sub-page here; nothing was changed."),
+        _ => invalid("That page is not a sub-page here; tmt colab subpage ls shows the list."),
+    })?;
     Ok(())
 }

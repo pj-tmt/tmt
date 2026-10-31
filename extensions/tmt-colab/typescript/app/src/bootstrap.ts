@@ -13,7 +13,7 @@ import { hintFragment, ownerPageHint } from './reading-link.js';
 import { record } from './storage.js';
 import { shortPageId, validPagePrefix } from './short-links.js';
 import { jsonResponse } from './registration.js';
-import { WORK_TASKS, taskNumber } from './work.js';
+import { SUBPAGES } from './work.js';
 
 import type { ExpiryInfo } from './expiry.js';
 
@@ -27,13 +27,6 @@ const PROJECTS_PER_SPACE = 1000;
 
 /** Page summary limits; the contract's Page summary section holds the same numbers. */
 export const AUTHOR_BYTES = 128;
-/** The most code points of a parent task's title a row carries; `work_links.rs`
- * (`PARENT_TITLE_POINTS`) holds the same number. */
-export const PARENT_TITLE_POINTS = 32;
-/** Assignees a list row names; `work.rs` (`ROW_WORKING`) holds the same number. */
-export const ROW_WORKING = 3;
-/** A row's assignee label, as long as the task's own (`work.ts`). */
-const ASSIGNEE_BYTES = 128;
 /** 200 proposals + 50 readings + 50 answer blocks + 50 reviews. */
 export const NEEDS_YOU_MAX = 350;
 const COMMENTS_MAX = 4_294_967_295;
@@ -57,23 +50,12 @@ function projectNames(names: readonly unknown[]): boolean {
   );
 }
 
-/** An assignee a list row names: no identity, only the display label. */
-export interface RowAssignee {
-  kind: 'agent' | 'person';
-  name: string;
-}
-/** What a list row shows of a page's tasks, every task that follows a page showing that page's
- * stage; omitted for a page with no work (contract: Page summary). */
+/** A page's direct sub-pages counted by their own state, the same count its work panel shows;
+ * omitted for a page without sub-pages (contract: Page summary). */
 export interface PageWorkRow {
   stage: 'discussion' | 'in-progress' | 'done';
   done: number;
   total: number;
-  /** Tasks waiting in review for a sign-off. */
-  signoff: number;
-  /** The assignees of in-progress tasks, each once in task order, at most `ROW_WORKING`. */
-  working: readonly RowAssignee[];
-  /** How many more assignees work, when more than `ROW_WORKING` do. */
-  more?: number;
 }
 export type PageState = 'todo' | 'in-progress' | 'done';
 export interface PageProgress {
@@ -84,7 +66,7 @@ export interface PageProgress {
   total: number;
 }
 
-/** An owner-derived direct-item count, bounded by the work task limit. */
+/** An owner-derived direct sub-page count, bounded by the sub-page limit. */
 export function pageProgress(value: unknown): asserts value is PageProgress {
   requireValue(value !== null && typeof value === 'object' && !Array.isArray(value));
   exactKeys(value, ['done', 'inProgress', 'todo', 'unknown', 'total']);
@@ -92,7 +74,7 @@ export function pageProgress(value: unknown): asserts value is PageProgress {
     requireValue(
       Number.isSafeInteger(value[field]) &&
         Number(value[field]) >= 0 &&
-        Number(value[field]) <= WORK_TASKS,
+        Number(value[field]) <= SUBPAGES,
     );
   requireValue(
     Number(value.total) ===
@@ -109,11 +91,12 @@ export interface PageActivity {
   needsYou: number;
   /** The page's creation label (`meta.originalAuthor`); omitted when it has none. */
   author?: string;
-  /** The page's tasks; omitted for a page with no work, so a fresh summary without it is in discussion. */
+  /** The page's sub-pages; omitted for a page with none, so a fresh summary without it is in
+   * discussion. */
   work?: PageWorkRow;
-  /** The task that follows this page; omitted when none does. `title` is that task's own title,
-   * clipped by the owner (`PARENT_TITLE_POINTS`), and is absent from an older owner. */
-  parent?: { page: string; task: string; title?: string };
+  /** The page this one is a sub-page of, and its position in that page's list; omitted when it
+   * has no parent. */
+  parent?: { page: string; index: number };
 }
 export interface PageInfo extends ExpiryInfo {
   state?: PageState | null;
@@ -157,40 +140,15 @@ export interface Bootstrap {
 /** A work row is untrusted text too: closed values, and counts that agree with the stage. */
 function workRow(value: unknown): asserts value is PageWorkRow {
   requireValue(value !== null && typeof value === 'object' && !Array.isArray(value));
-  exactKeys(
-    value,
-    'more' in value
-      ? ['stage', 'done', 'total', 'signoff', 'working', 'more']
-      : ['stage', 'done', 'total', 'signoff', 'working'],
-  );
+  exactKeys(value, ['stage', 'done', 'total']);
   const count = (n: unknown): n is number =>
-    Number.isSafeInteger(n) && Number(n) >= 0 && Number(n) <= WORK_TASKS;
-  requireValue(count(value.done) && count(value.total) && count(value.signoff));
-  requireValue(value.done <= value.total && value.signoff <= value.total - value.done);
+    Number.isSafeInteger(n) && Number(n) >= 0 && Number(n) <= SUBPAGES;
+  requireValue(count(value.done) && count(value.total) && value.done <= value.total);
   // The stage follows the counts, as `waiting` follows `needsYou`.
   requireValue(
     value.stage ===
       (value.total === 0 ? 'discussion' : value.done === value.total ? 'done' : 'in-progress'),
   );
-  requireValue(Array.isArray(value.working) && value.working.length <= ROW_WORKING);
-  for (const who of value.working) {
-    requireValue(who !== null && typeof who === 'object' && !Array.isArray(who));
-    exactKeys(who, ['kind', 'name']);
-    requireValue(
-      (who.kind === 'agent' || who.kind === 'person') &&
-        typeof who.name === 'string' &&
-        who.name.length >= 1 &&
-        new TextEncoder().encode(who.name).length <= ASSIGNEE_BYTES &&
-        !/\p{Cc}/u.test(who.name),
-    );
-  }
-  if ('more' in value)
-    requireValue(
-      count(value.more) &&
-        value.more >= 1 &&
-        value.working.length === ROW_WORKING &&
-        value.working.length + value.more <= value.total,
-    );
 }
 /** The owner's display-only summary is untrusted text: bounded and typed, never trusted for more. */
 export function activity(value: unknown): asserts value is PageActivity {
@@ -224,17 +182,14 @@ export function activity(value: unknown): asserts value is PageActivity {
   if ('parent' in value) {
     const parent = value.parent;
     requireValue(parent !== null && typeof parent === 'object' && !Array.isArray(parent));
-    exactKeys(parent, ['page', 'task', ...('title' in parent ? ['title'] : [])]);
-    requireValue(typeof parent.page === 'string' && typeof parent.task === 'string');
-    if ('title' in parent)
-      requireValue(
-        typeof parent.title === 'string' &&
-          [...parent.title].length >= 1 &&
-          [...parent.title].length <= PARENT_TITLE_POINTS &&
-          !/\p{Cc}/u.test(parent.title),
-      );
+    exactKeys(parent, ['page', 'index']);
+    requireValue(typeof parent.page === 'string');
     generatedId(parent.page);
-    requireValue(taskNumber(parent.task) !== undefined);
+    requireValue(
+      Number.isSafeInteger(parent.index) &&
+        Number(parent.index) >= 0 &&
+        Number(parent.index) < SUBPAGES,
+    );
   }
 }
 export function mountUrl(): URL {
@@ -435,7 +390,7 @@ export async function discover(
     } else if (target?.startsWith('/short/') && validPagePrefix(target.slice(7))) {
       destination = `/p/${target.slice(7)}`;
     } else requireValue(target === null || target === '/');
-    // The owner's cosmetic reading, shell-anchor or task hint rides the short location.
+    // The owner's cosmetic reading or shell-anchor hint rides the short location.
     const tail = hint && destination !== '/colab/' ? hintFragment(hint) : '';
     history.replaceState(history.state, '', destination + tail);
   }

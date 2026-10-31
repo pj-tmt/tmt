@@ -1,7 +1,8 @@
-//! What every page's work says, read once for the whole space: the owner list's stage, progress and
-//! assignees, and the tasks each agent holds for the work-in-progress limit (`wip.rs`). Reading a
-//! page's work folds the page, so the answers are kept in one small derived file (`page_index.rs`
-//! owns how: keyed by the page's own progress, refolded only when it moves, never authority).
+//! What every page's work says, read once for the whole space: its manual state and its direct
+//! sub-pages, for the owner list's stage and progress and the sub-page link rules
+//! (`work_links.rs`). Reading a page's work folds the page, so the answers are kept in one small
+//! derived file (`page_index.rs` owns how: keyed by the page's own progress, refolded only when it
+//! moves, never authority).
 use crate::{
     Result,
     decoder::Decoder,
@@ -9,120 +10,55 @@ use crate::{
     page,
     page_index::{self, Kept},
     store::Store,
-    wip::Held,
-    work::Line,
 };
 use serde_json::{Value, json};
 use std::collections::BTreeMap;
 
-/// 3: the index also keeps verified manual state and direct-item progress.
-const VERSION: u64 = 3;
+/// 5: the work of a page is its sub-pages, and a task-era value not yet migrated is marked
+/// (#5825); older entries are refolded.
+const VERSION: u64 = 5;
 
 /// The work of the pages of the space: a page missing from it is unavailable (not asked, deleted,
 /// unreadable), and `None` is a verified shell.
 pub type Found = BTreeMap<String, Option<PageWork>>;
 
-/// One page's work, as the list and the limit need it.
+/// One page's work, as the list and the link rules need it.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct PageWork {
+    /// The verified manual page state.
     pub state: String,
-    pub has_work: bool,
-    pub own_progress: crate::page_state::Progress,
-    /// `work::Derived::to_value()` of the tasks' own states.
-    pub derived: Value,
-    pub held: Vec<Held>,
-    /// Every task, kept only for a page whose tasks follow other pages (`work_links.rs`); empty
-    /// otherwise.
-    pub lines: Vec<Line>,
+    /// The direct sub-pages, in the page's order.
+    pub children: Vec<String>,
+    /// The stored value is still the task-era version 1: the serve has not migrated it yet.
+    pub legacy: bool,
 }
 
-fn line_json(line: &Line) -> Value {
-    let mut value = json!({"id":line.id,"title":line.title,"state":line.state});
-    if line.signoff {
-        value["signoff"] = json!(true);
-    }
-    if let Some(assignee) = &line.assignee {
-        value["assignee"] = assignee.clone();
-    }
-    if let Some(child) = &line.child {
-        value["child"] = json!(child);
-    }
-    value
-}
-fn line_from(value: &Value) -> Option<Line> {
-    Some(Line {
-        id: value["id"].as_str()?.to_owned(),
-        title: value["title"].as_str()?.to_owned(),
-        state: value["state"].as_str()?.to_owned(),
-        signoff: value.get("signoff") == Some(&Value::Bool(true)),
-        assignee: value.get("assignee").cloned(),
-        child: match value.get("child") {
-            None => None,
-            Some(child) => Some(child.as_str()?.to_owned()),
-        },
-    })
-}
 impl Kept for Option<PageWork> {
     const FILE: &'static str = "work-index.json";
     const LOCK: &'static str = "work-index.lock";
     const VERSION: u64 = VERSION;
     fn to_json(&self) -> Value {
-        let mut entry = json!({});
-        if let Some(work) = self {
-            entry["state"] = json!(work.state);
-            entry["hasWork"] = json!(work.has_work);
-            entry["ownProgress"] = json!(work.own_progress);
-            entry["derived"] = work.derived.clone();
-            entry["held"] = work
-                .held
-                .iter()
-                .map(|held| json!({"agent":held.agent,"task":held.task}))
-                .collect();
-            if !work.lines.is_empty() {
-                entry["lines"] = work.lines.iter().map(line_json).collect();
+        match self {
+            Some(work) if work.legacy => {
+                json!({"state":work.state,"children":work.children,"legacy":true})
             }
+            Some(work) => json!({"state":work.state,"children":work.children}),
+            None => json!({}),
         }
-        entry
     }
-    fn from_json(page: &str, entry: &Value) -> Option<Self> {
-        if entry.get("derived").is_none() {
+    fn from_json(_page: &str, entry: &Value) -> Option<Self> {
+        let Some(state) = entry.get("state") else {
             return Some(None);
-        }
-        let held = entry["held"]
-            .as_array()?
-            .iter()
-            .map(|held| {
-                Some(Held {
-                    agent: held["agent"].as_str()?.to_owned(),
-                    page: page.to_owned(),
-                    task: held["task"].as_str()?.to_owned(),
-                })
-            })
-            .collect::<Option<Vec<_>>>()?;
-        let lines = match entry.get("lines") {
-            None => Vec::new(),
-            Some(lines) => lines
-                .as_array()?
-                .iter()
-                .map(line_from)
-                .collect::<Option<Vec<_>>>()?,
         };
-        let state = entry["state"].as_str()?;
-        if !crate::decoder::valid_page_state(&json!(state)) {
+        if !crate::decoder::valid_page_state(state) {
             return None;
         }
-        let own_progress: crate::page_state::Progress =
-            serde_json::from_value(entry["ownProgress"].clone()).ok()?;
-        if !own_progress.valid() {
-            return None;
-        }
+        let children =
+            crate::work::children(&json!({"version":2,"order":entry.get("children")?})).ok()?;
         Some(Some(PageWork {
-            state: state.to_owned(),
-            has_work: entry["hasWork"].as_bool()?,
-            own_progress,
-            derived: entry["derived"].clone(),
-            held,
-            lines,
+            state: state.as_str()?.to_owned(),
+            children,
+            legacy: entry.get("legacy") == Some(&Value::Bool(true)),
         }))
     }
 }
@@ -133,8 +69,8 @@ pub fn cached(layout: &Layout, store: &Store, key: &Keyring, pages: &[String]) -
     page_index::cached(layout, store, key, pages)
 }
 
-/// The work of each given page: `None` for a page with no work, a shell or a page that cannot be
-/// read now. Folds only changed pages and retains current live neighbors in the bounded cache.
+/// The work of each given page: `None` for a shell or a page that cannot be read now. Folds only
+/// changed pages and retains current live neighbors in the bounded cache.
 pub fn scan(
     layout: &Layout,
     store: &Store,
@@ -163,57 +99,50 @@ pub fn scan_with_live(
 /// `Some(None)`: the page is a shell. `None`: it could not be read.
 fn fold(store: &Store, key: &Keyring, id: &str, decoder: &mut Decoder) -> Option<Option<PageWork>> {
     match page::read_work_or_shell(store, key, id, decoder) {
-        Ok(Some(read)) => Some(from_work(id, &read.work, read.derived, &read.state)),
+        Ok(Some(read)) => Some(Some(PageWork {
+            state: read.state,
+            children: read.children,
+            legacy: read.legacy.is_some(),
+        })),
         Ok(None) => Some(None),
         Err(_) => None,
     }
 }
 
-/// The work a page's `meta` holds, as the list and the limit need it, from a fold that already
-/// happened: `None` for a page with no work, a shell or a value that does not validate.
-pub fn page_work(id: &str, meta: &Value) -> Option<PageWork> {
+/// The work a page's `meta` holds, from a fold that already happened: `None` for a shell or a
+/// value that does not validate.
+pub fn page_work(meta: &Value) -> Option<PageWork> {
     if meta["pageType"].as_str() == Some("shell") {
         return None;
     }
     let empty = crate::work::empty();
     let work = meta.get("work").unwrap_or(&empty);
-    let derived = crate::work::derived(work).ok()?.to_value();
+    let children = crate::work::children(work).ok()?;
     let state = match meta.get("pageState") {
         None => "todo",
         Some(value) if crate::decoder::valid_page_state(value) => value.as_str()?,
         Some(_) => return None,
     };
-    from_work(id, work, derived, state)
-}
-
-fn from_work(id: &str, work: &Value, derived: Value, state: &str) -> Option<PageWork> {
-    let lines = crate::work::lines(work).ok()?;
     Some(PageWork {
         state: state.to_owned(),
-        has_work: *work != crate::work::empty(),
-        held: crate::wip::held(id, work),
-        derived,
-        own_progress: crate::page_state::progress(&lines, &|_| None),
-        lines: if lines.iter().any(|line| line.child.is_some()) {
-            lines
-        } else {
-            Vec::new()
-        },
+        children,
+        legacy: work["version"] == 1,
     })
-}
-
-/// What the pages other than `page` hold.
-pub fn held_elsewhere(found: &Found, page: &str) -> Vec<Held> {
-    found
-        .iter()
-        .filter(|(id, _)| id.as_str() != page)
-        .flat_map(|(_, work)| work.iter().flat_map(|work| work.held.clone()))
-        .collect()
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    const CHILD: &str = "20000000-0000-4000-8000-000000000001";
+
+    fn work(children: &[&str]) -> Option<PageWork> {
+        Some(PageWork {
+            state: "todo".into(),
+            children: children.iter().map(|id| (*id).to_owned()).collect(),
+            legacy: false,
+        })
+    }
 
     #[test]
     fn cached_reads_only_current_entries_and_never_creates_or_rewrites_the_index() {
@@ -233,14 +162,7 @@ mod tests {
         let fingerprints = store
             .owner_read(&key.space_id, &key.owner_public(), |tx| tx.page_progress())
             .unwrap();
-        let work = Some(PageWork {
-            state: "todo".into(),
-            has_work: true,
-            own_progress: Default::default(),
-            derived: json!({"stage":"in-progress","done":0,"total":1,"working":[],"signoff":0}),
-            held: vec![],
-            lines: vec![],
-        });
+        let work = work(&[CHILD]);
         page_index::save(
             &layout,
             &BTreeMap::from([
@@ -271,25 +193,7 @@ mod tests {
 
     #[test]
     fn an_entry_survives_the_file_and_a_damaged_one_is_dropped() {
-        let work = Some(PageWork {
-            state: "todo".into(),
-            has_work: true,
-            own_progress: Default::default(),
-            derived: json!({"stage":"in-progress","done":0,"total":1,"working":[],"signoff":0}),
-            held: vec![Held {
-                agent: "ada".into(),
-                page: "p".into(),
-                task: "T-1".into(),
-            }],
-            lines: vec![Line {
-                id: "T-1".into(),
-                title: "Do it".into(),
-                state: "todo".into(),
-                signoff: true,
-                assignee: Some(json!({"kind":"agent","name":"ada"})),
-                child: Some("20000000-0000-4000-8000-000000000001".into()),
-            }],
-        });
+        let work = work(&[CHILD]);
         let json = page_index::entry_json(&work, "f1");
         assert_eq!(json["fingerprint"], "f1");
         assert_eq!(<Option<PageWork>>::from_json("p", &json), Some(work));
@@ -297,46 +201,49 @@ mod tests {
             <Option<PageWork>>::from_json("p", &page_index::entry_json(&None, "f2")),
             Some(None)
         );
-        assert_eq!(
-            <Option<PageWork>>::from_json("p", &json!({"fingerprint":"f","derived":{}})),
-            None
-        );
-    }
-    #[test]
-    fn state_without_work_is_kept_and_invalid_cached_counts_are_rejected() {
-        let empty = page_work("p", &json!({"pageState":"done"})).unwrap();
-        assert_eq!(empty.state, "done");
-        assert!(!empty.has_work);
-        assert_eq!(empty.own_progress, crate::page_state::Progress::default());
-        assert!(page_work("p", &json!({"pageState":null})).is_none());
-        let mut entry = page_index::entry_json(&Some(empty), "f1");
-        entry["ownProgress"]["done"] = json!(1);
-        assert!(<Option<PageWork>>::from_json("p", &entry).is_none());
+        for damaged in [
+            json!({"fingerprint":"f","state":"blocked","children":[]}),
+            json!({"fingerprint":"f","state":"todo"}),
+            json!({"fingerprint":"f","state":"todo","children":[CHILD, CHILD]}),
+            json!({"fingerprint":"f","state":"todo","children":["T-1"]}),
+        ] {
+            assert_eq!(
+                <Option<PageWork>>::from_json("p", &damaged),
+                None,
+                "{damaged}"
+            );
+        }
     }
 
     #[test]
-    fn held_elsewhere_leaves_out_the_page_being_changed() {
-        let held = |page: &str| PageWork {
-            state: "todo".into(),
-            has_work: true,
-            own_progress: Default::default(),
-            derived: json!({}),
-            held: vec![Held {
-                agent: "ada".into(),
-                page: page.into(),
-                task: "T-1".into(),
-            }],
-            lines: vec![],
-        };
-        let found = BTreeMap::from([
-            ("a".to_owned(), Some(held("a"))),
-            ("b".to_owned(), Some(held("b"))),
-            ("c".to_owned(), None),
-        ]);
-        let tasks: Vec<_> = held_elsewhere(&found, "a")
-            .into_iter()
-            .map(|h| h.page)
-            .collect();
-        assert_eq!(tasks, ["b"]);
+    fn a_page_reads_its_state_and_sub_pages_and_a_shell_or_bad_value_reads_none() {
+        assert_eq!(
+            page_work(&json!({"pageState":"done"})).unwrap().state,
+            "done"
+        );
+        assert!(page_work(&json!({})).unwrap().children.is_empty());
+        assert_eq!(
+            page_work(&json!({"work":{"version":2,"order":[CHILD]}})),
+            work(&[CHILD])
+        );
+        assert!(page_work(&json!({"pageState":null})).is_none());
+        assert!(page_work(&json!({"work":{"version":2,"order":[1]}})).is_none());
+        // A task-era value reads its linked tasks as sub-pages until it is migrated.
+        let v1 = json!({"work":{"version":1,"next":3,"order":["T-1","T-2"],"tasks":{
+            "T-1":{"title":"plain","state":"todo"},
+            "T-2":{"title":"linked","state":"todo","child":CHILD}}}});
+        let read = page_work(&v1).unwrap();
+        assert_eq!(read.children, [CHILD]);
+        assert!(read.legacy);
+        assert!(!work(&[CHILD]).unwrap().legacy);
+        // The mark survives the derived file and an entry without it reads as migrated.
+        let entry = Some(read.clone()).to_json();
+        assert_eq!(entry["legacy"], true);
+        assert_eq!(<Option<PageWork>>::from_json("p", &entry), Some(Some(read)));
+        assert_eq!(
+            <Option<PageWork>>::from_json("p", &json!({"state":"todo","children":[CHILD]})),
+            Some(work(&[CHILD]))
+        );
+        assert!(page_work(&json!({"pageType":"shell"})).is_none());
     }
 }

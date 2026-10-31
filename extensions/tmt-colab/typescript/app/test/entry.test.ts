@@ -75,14 +75,9 @@ it('allows one canonical display target at startup and during history navigation
   expect(entryTarget('')).toBeNull();
   expect(entryTarget(`#t=${thread}`)).toEqual({ thread });
   expect(entryTarget(`#read=${reading}`)).toEqual({ read: reading });
-  expect(entryTarget('#task=T-4')).toEqual({ task: 'T-4' });
   for (const hash of [
-    '#task=T-0',
-    '#task=T-01',
-    '#task=',
-    '#task=T-4&task=T-4',
-    `#task=T-4&read=${reading}`,
-    '#task=T-4&anchor=decisions',
+    // The task-era hint is gone (#5825).
+    '#task=T-4',
     '#space=foreign',
     '#seed=secret',
     '#t=',
@@ -104,7 +99,6 @@ it('opening a public link ignores a fragment that names no display target and ne
   expect(entryOpenTarget(`#t=${thread}`)).toEqual({ thread });
   expect(entryOpenTarget(`#read=${reading}`)).toEqual({ read: reading });
   expect(entryOpenTarget('#anchor=decisions')).toEqual({ anchor: 'decisions' });
-  expect(entryOpenTarget('#task=T-4')).toEqual({ task: 'T-4' });
   // A plain #id is the web's own form; the strict parser still takes only the canonical ones.
   expect(entryOpenTarget('#decisions')).toEqual({ anchor: 'decisions' });
   expect(entryOpenTarget('#section_1.2:a')).toEqual({ anchor: 'section_1.2:a' });
@@ -119,9 +113,8 @@ it('opening a public link ignores a fragment that names no display target and ne
     '#t=bad',
     '#read=bad',
     '#anchor=',
-    '#task=T-0',
-    '#task=',
-    '#task=T-4&read=22222222-2222-4222-8222-222222222222',
+    // An old task link opens the page at the top.
+    '#task=T-4',
     `#t=${thread}&t=${thread}`,
     `#t=${thread}&read=${reading}`,
     `#read=${reading}&read=${reading}`,
@@ -144,6 +137,5 @@ it('the location keeps the canonical fragment of its display target only', () =>
   expect(entryHash({ thread })).toBe(`#t=${thread}`);
   expect(entryHash({ read: thread })).toBe(`#read=${thread}`);
   expect(entryHash(entryOpenTarget('#decisions'))).toBe('#anchor=decisions');
-  expect(entryHash({ task: 'T-4' })).toBe('#task=T-4');
   expect(entryHash(entryOpenTarget('#a=1&b=2'))).toBe('');
 });

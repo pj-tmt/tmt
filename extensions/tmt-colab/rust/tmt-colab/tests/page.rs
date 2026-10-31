@@ -629,33 +629,34 @@ fn a_page_carries_work_through_actions_source_writes_and_a_new_epoch() {
             page::PublicationPreparation::Noop { .. } => Ok(None),
         }
     };
-    // A page that has had no work reads as an empty value, and a write against it succeeds.
+    const A: &str = "20000000-0000-4000-8000-00000000000a";
+    const B: &str = "20000000-0000-4000-8000-00000000000b";
+    // A page that has had no work reads as an empty list, and a write against it succeeds. The
+    // value admits any page ID; the link rules are the write owner's (`work_admission`).
     let before = work(&f);
-    assert_eq!(before.work, tmt_colab::work::empty());
-    assert_eq!(before.derived["stage"], "discussion");
+    assert!(before.children.is_empty() && before.summary.is_none());
     let revision = act(
         &mut f,
-        "task.add",
-        json!({"task":{"title":"Write it","assignee":{"kind":"agent","name":"feat-2"}}}),
+        "subpage.attach",
+        json!({"pageId":A}),
         &before.revision,
     )
     .unwrap()
     .unwrap();
     let after = work(&f);
     assert_eq!(after.revision, revision);
-    assert_eq!(after.work["tasks"]["T-1"]["title"], "Write it");
-    assert_eq!(after.derived["total"], 1);
+    assert_eq!(after.children, [A]);
     // The write owner's attribution, not the caller's, lands in the summary.
     let revision = act(
         &mut f,
         "summary.set",
-        json!({"line1":"One task","line2":"Next: build"}),
+        json!({"line1":"One page","line2":"Next: build"}),
         &revision,
     )
     .unwrap()
     .unwrap();
-    let summary = work(&f).work["summary"].clone();
-    assert_eq!(summary["line1"], "One task");
+    let summary = work(&f).summary.unwrap();
+    assert_eq!(summary["line1"], "One page");
     assert_eq!(
         summary["attribution"]["displayAgent"],
         json!({"name":"feat-2"})
@@ -664,27 +665,23 @@ fn a_page_carries_work_through_actions_source_writes_and_a_new_epoch() {
     // A stale base, an invalid action and a repeated no-op write nothing.
     let stale = act(
         &mut f,
-        "task.remove",
-        json!({"taskId":"T-1"}),
+        "subpage.detach",
+        json!({"pageId":A}),
         &before.revision,
     );
     assert!(stale.is_err());
-    assert!(act(&mut f, "task.remove", json!({"taskId":"T-9"}), &revision).is_err());
+    assert!(act(&mut f, "subpage.detach", json!({"pageId":B}), &revision).is_err());
+    assert!(act(&mut f, "task.add", json!({"task":{"title":"x"}}), &revision).is_err());
     assert!(
-        act(
-            &mut f,
-            "task.state",
-            json!({"taskId":"T-1","state":"todo"}),
-            &revision
-        )
-        .unwrap()
-        .is_none()
+        act(&mut f, "subpage.move", json!({"pageId":A}), &revision)
+            .unwrap()
+            .is_none()
     );
     assert_eq!(work(&f).revision, revision);
     // The page's own source still writes, and the work stays.
     let source_receipt = f.write("a new source 🦊");
     assert_eq!(f.read().source, "a new source 🦊");
-    assert_eq!(work(&f).work["tasks"]["T-1"]["title"], "Write it");
+    assert_eq!(work(&f).children, [A]);
     assert_eq!(work(&f).revision, source_receipt.revision);
     // A new epoch keeps the work with the source.
     Engine::with_decoder_config(support::decoder_config(BINARY.into()))
@@ -702,20 +699,19 @@ fn a_page_carries_work_through_actions_source_writes_and_a_new_epoch() {
         .unwrap();
     let rotated = work(&f);
     assert_eq!(rotated.epoch, "2");
-    assert_eq!(rotated.work["tasks"]["T-1"]["title"], "Write it");
-    assert_eq!(rotated.work["summary"], summary);
+    assert_eq!(rotated.children, [A]);
+    assert_eq!(rotated.summary, Some(summary));
     assert_eq!(f.read().source, "a new source 🦊");
-    // The numbering carries on after the rotation.
     let revision = act(
         &mut f,
-        "task.add",
-        json!({"task":{"title":"Second"}}),
+        "subpage.attach",
+        json!({"pageId":B,"before":A}),
         &rotated.revision,
     )
     .unwrap()
     .unwrap();
     assert_eq!(work(&f).revision, revision);
-    assert_eq!(work(&f).work["order"], json!(["T-1", "T-2"]));
+    assert_eq!(work(&f).children, [B, A]);
 }
 #[test]
 fn a_replayed_write_reports_the_batch_it_originally_committed() {

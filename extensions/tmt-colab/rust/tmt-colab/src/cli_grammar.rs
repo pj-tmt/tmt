@@ -33,14 +33,6 @@ pub fn page() -> Arg {
         .help("Full page UUID or unique lowercase UUID prefix (at least 8 characters; see ls)")
         .value_parser(page_operand)
 }
-/// The page operand of a command that also has a meaning without one.
-pub fn page_optional(help: &'static str) -> Arg {
-    Arg::new("page")
-        .index(1)
-        .value_name("PAGE")
-        .help(help)
-        .value_parser(page_operand)
-}
 /// The same page operand as an option, for a command whose first operand is something else.
 pub fn page_option() -> Arg {
     Arg::new("page")

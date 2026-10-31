@@ -10,7 +10,7 @@ import {
 } from '../src/fold-protocol.js';
 import { contentBase } from './content-base.js';
 import shellVectors from '../../../contracts/vectors/shell-v1.json';
-import workVectors from '../../../contracts/vectors/work-v1.json';
+import workVectors from '../../../contracts/vectors/work-v2.json';
 import * as Y from 'yjs';
 
 it('validates structured shell projections with the shared corpus and refuses HTML replacement', () => {
@@ -59,18 +59,11 @@ it('validates work on an ordinary page with the shared corpus and never beside t
     pageType: 'shell' as const,
     shell: { version: 1 as const, items: {}, order: [] },
   };
-  expect(() =>
-    validateProjection({ ...shell, work: { version: 1, next: 1, tasks: {}, order: [] } }),
-  ).toThrow();
+  expect(() => validateProjection({ ...shell, work: { version: 2, order: [] } })).toThrow();
 });
 
 it('carries admitted work through the parent and rejects a preparation that drops or changes it', async () => {
-  const work = {
-    version: 1 as const,
-    next: 2,
-    tasks: { 'T-1': { title: 'Write it', state: 'todo' as const } },
-    order: ['T-1'],
-  };
+  const work = { version: 2 as const, order: ['20000000-0000-4000-8000-000000000002'] };
   const open = async () => {
     const worker = {
       postMessage: vi.fn(),
@@ -115,7 +108,7 @@ it('carries admitted work through the parent and rejects a preparation that drop
       const { work: _dropped, ...rest } = base as { work: unknown };
       return rest;
     },
-    (base: object) => ({ ...base, work: { ...work, next: 3 } }),
+    (base: object) => ({ ...base, work: { ...work, order: [] } }),
   ]) {
     const { worker, fold, base } = await open();
     const rejected = expect(fold.prepareContent('<p>changed</p>', base)).rejects.toThrow();

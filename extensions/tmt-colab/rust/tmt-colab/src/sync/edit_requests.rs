@@ -239,7 +239,7 @@ impl<A: Admission> Server<A> {
                     for_request: true,
                     save,
                     hunks,
-                    work: None,
+                    subpage: None,
                     metadata: None,
                 };
                 self.run_save_job(None, &job)?.settles()
@@ -331,7 +331,7 @@ impl<A: Admission> Server<A> {
                                 for_request: true,
                                 save,
                                 hunks: None,
-                                work: None,
+                                subpage: None,
                                 metadata: Some(edit),
                             };
                             *self

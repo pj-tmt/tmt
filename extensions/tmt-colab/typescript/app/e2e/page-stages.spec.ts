@@ -87,27 +87,18 @@ test('a copied link lands on its stage, and one it cannot read lands on the defa
   await expect(tab(page, 'Archived, 1')).toHaveAttribute('aria-selected', 'true');
 });
 
-test('a row shows its progress in words and who works on it', async ({ page }) => {
+test('a row shows its sub-page progress in words, and no workers', async ({ page }) => {
   await mount(page, 'stages', '/?stage=all');
   const alpha = rows(page).filter({ hasText: 'Alpha plan' });
-  await expect(alpha).toContainText('7 of 10 tasks done');
+  await expect(alpha).toContainText('7 of 10 sub-pages done');
   await expect(alpha.getByRole('progressbar')).toHaveCount(0);
-  const working = alpha.getByRole('list', { name: 'Working' });
-  await expect(working.getByRole('listitem')).toHaveText(['feat-1', 'Ada']);
-  // Only three are named; the rest are counted.
-  const beta = rows(page).filter({ hasText: 'Beta review' });
-  await expect(beta.getByRole('list', { name: 'Working' }).getByRole('listitem')).toHaveText([
-    'feat-1',
-    'feat-2',
-    'remote-1',
-    '+2',
-  ]);
-  // A page with no task has no progress count, and a finished one uses the same words.
+  await expect(page.getByRole('list', { name: 'Working' })).toHaveCount(0);
+  // A page without sub-pages has no progress count, and a finished one uses the same words.
   await expect(rows(page).filter({ hasText: 'Gamma notes' }).getByRole('progressbar')).toHaveCount(
     0,
   );
   await expect(
-    rows(page).filter({ hasText: 'Delta ops' }).getByText('4 of 4 tasks done', { exact: true }),
+    rows(page).filter({ hasText: 'Delta ops' }).getByText('4 of 4 sub-pages done', { exact: true }),
   ).toBeVisible();
 });
 
@@ -192,7 +183,7 @@ test('an empty In progress says where pages without tasks are and links the way 
   await expect(tab(page, 'In progress, 0')).toHaveAttribute('aria-selected', 'true');
   const empty = app(page).locator('.page-list-empty');
   await expect(empty).toHaveText(
-    'Nothing in progress. Pages without tasks are under Discussion; All lists every page.',
+    'Nothing in progress. Pages without sub-pages are under Discussion; All lists every page.',
   );
   // No tab opens by itself; a link does.
   await expect(titles(page)).toHaveCount(0);

@@ -9,7 +9,7 @@ import type { PageHint } from './reading-link.js';
 export interface PageRouting {
   /** A link inside the document to a page route, optionally at one element of it. */
   open(route: string, anchor?: string): void;
-  /** The address of a page, optionally at one reading, element or task (the work band and Needs you
+  /** The address of a page, optionally at one reading or element (the work band and Needs you
    * link to these). */
   pageHref(pageId: string, hint?: PageHint): string;
   /** The header brand's link to the space home; `name` is its accessible name and tooltip. */

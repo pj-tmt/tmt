@@ -7,7 +7,7 @@ import { SaveOutcomeUnknown, SaveRefused } from '../src/save.js';
 import { localTransport, type PageBinding, type PageSnapshot } from '../src/transport.js';
 import { rememberPages } from '../src/quick-switcher-source.js';
 import type { PageState } from '../src/bootstrap.js';
-import type { Work } from '../src/work.js';
+import { subpages, type StoredWork } from '../src/work.js';
 import { applyWorkAction } from './work-apply.js';
 
 const attribution = { writerId: '10000000-0000-4000-8000-000000000001', timeMs: 1_000 };
@@ -39,9 +39,10 @@ const THIS = 'notes';
 export interface WorkPageHook {
   /** Every write the panel sent, with the page it went to. */
   calls: { page: string; action: string; body: unknown }[];
-  /** The next link or convert on this page is refused with this code and message. */
+  /** The next attach or create on this page is refused with this code and message. */
   refuse?: { code: string; message: string; childPage?: string };
-  unknownAdd?: boolean;
+  /** The next attach on this page has an outcome nobody knows. */
+  unknownAttach?: boolean;
   metadataCaptures?: number;
 }
 declare global {
@@ -50,52 +51,48 @@ declare global {
   }
 }
 
-type Row = { id: string; title: string; state: PageState; parent?: { page: string; task: string } };
+type Row = {
+  id: string;
+  title: string;
+  state: PageState;
+  parent?: { page: string; index: number };
+};
 function rows(): Row[] {
   const p = PAGES;
-  const under = (page: string, task: number) => ({ page, task: `T-${task}` });
+  const under = (page: string, index: number) => ({ page, index });
   return [
-    { id: p.remote, title: 'Remote pages v2', state: 'in-progress', parent: under(THIS, 1) },
-    { id: p.invites, title: 'Invites tab', state: 'done', parent: under(THIS, 3) },
-    { id: p.machines, title: 'Machines list', state: 'in-progress', parent: under(THIS, 4) },
-    { id: p.draft, title: 'Release notes draft', state: 'done', parent: under(THIS, 5) },
-    { id: p.machinesDetail, title: 'Machines detail', state: 'done', parent: under(p.remote, 1) },
-    { id: p.pairing, title: 'Pairing flow', state: 'todo', parent: under(p.remote, 2) },
-    { id: p.inviteCopy, title: 'Invite copy', state: 'in-progress', parent: under(p.remote, 3) },
-    { id: p.qa, title: 'QA pass', state: 'done', parent: under(p.remote, 4) },
+    { id: p.remote, title: 'Remote pages v2', state: 'in-progress', parent: under(THIS, 0) },
+    { id: p.invites, title: 'Invites tab', state: 'done', parent: under(THIS, 1) },
+    { id: p.machines, title: 'Machines list', state: 'in-progress', parent: under(THIS, 2) },
+    { id: p.draft, title: 'Release notes draft', state: 'done', parent: under(THIS, 3) },
+    { id: p.machinesDetail, title: 'Machines detail', state: 'done', parent: under(p.remote, 0) },
+    { id: p.pairing, title: 'Pairing flow', state: 'todo', parent: under(p.remote, 1) },
+    { id: p.inviteCopy, title: 'Invite copy', state: 'in-progress', parent: under(p.remote, 2) },
+    { id: p.qa, title: 'QA pass', state: 'done', parent: under(p.remote, 3) },
     {
       id: p.columns,
       title: 'Device list columns',
       state: 'done',
-      parent: under(p.machinesDetail, 1),
+      parent: under(p.machinesDetail, 0),
     },
-    { id: p.inviteText, title: 'Invite text', state: 'done', parent: under(p.invites, 1) },
-    { id: p.machineRows, title: 'Machine rows', state: 'done', parent: under(p.machines, 1) },
-    { id: p.machineFilter, title: 'Machine filter', state: 'todo', parent: under(p.machines, 2) },
+    { id: p.inviteText, title: 'Invite text', state: 'done', parent: under(p.invites, 0) },
+    { id: p.machineRows, title: 'Machine rows', state: 'done', parent: under(p.machines, 0) },
+    { id: p.machineFilter, title: 'Machine filter', state: 'todo', parent: under(p.machines, 1) },
     {
       id: p.machineEmpty,
       title: 'Machine empty state',
       state: 'todo',
-      parent: under(p.machines, 3),
+      parent: under(p.machines, 2),
     },
     { id: p.dataPlan, title: 'Remote data plan design', state: 'todo' },
     { id: p.adminPrototype, title: 'Remote admin prototype', state: 'todo' },
     { id: p.launch, title: 'Remote launch', state: 'in-progress' },
-    { id: p.elsewhere, title: 'Remote copy deck', state: 'todo', parent: under(p.launch, 2) },
+    { id: p.elsewhere, title: 'Remote copy deck', state: 'todo', parent: under(p.launch, 1) },
   ];
 }
-const linked = (): Work => ({
-  version: 1,
-  next: 6,
-  order: ['T-1', 'T-2', 'T-3', 'T-4', 'T-5'],
-  tasks: {
-    'T-1': { title: 'Remote pages v2', state: 'todo', child: PAGES.remote },
-    // A plain task is stored but never shown: the panel lists sub-pages only.
-    'T-2': { title: 'Hidden plain task', state: 'todo' },
-    'T-3': { title: 'Invites tab', state: 'todo', child: PAGES.invites },
-    'T-4': { title: 'Machines list', state: 'todo', child: PAGES.machines },
-    'T-5': { title: 'Release notes draft', state: 'todo', child: PAGES.draft },
-  },
+const linked = (): StoredWork => ({
+  version: 2,
+  order: [PAGES.remote, PAGES.invites, PAGES.machines, PAGES.draft],
 });
 
 let root: Root | undefined;
@@ -121,7 +118,7 @@ export function mountWorkPage(owner = false, scenario: 'tree' | 'empty' = 'tree'
   const list = rows();
   if (scenario === 'empty')
     for (const row of list) if (row.parent?.page === THIS) delete row.parent;
-  let current: Work | undefined = scenario === 'tree' ? linked() : undefined;
+  let current: StoredWork | undefined = scenario === 'tree' ? linked() : undefined;
   let manualState: PageState = 'in-progress';
   const source = tall
     ? `<h1>Release plan</h1>${'<p>Plan paragraph.</p>'.repeat(120)}`
@@ -152,23 +149,20 @@ export function mountWorkPage(owner = false, scenario: 'tree' | 'empty' = 'tree'
         comments: 0,
         waiting: false,
         needsYou: 0,
-        parent: { page: PAGES.launch, task: 'T-1' },
+        parent: { page: PAGES.launch, index: 0 },
       },
     },
     ...list.map(summary),
   ];
   let publish: ((value: PageView) => void) | undefined;
   const settle = () => new Promise((resolve) => setTimeout(resolve, 30));
-  /** The serve's effect of one of this page's work actions on the owner list. */
-  const reflect = (action: string, body: Record<string, unknown>, before: Work | undefined) => {
-    if (action === 'task.link') {
-      const row = list.find((page) => page.id === body.pageId);
-      if (row) row.parent = { page: THIS, task: String(body.taskId) };
-    }
-    if (action === 'task.remove') {
-      const child = before?.tasks[String(body.taskId)]?.child;
-      const row = list.find((page) => page.id === child);
-      if (row) delete row.parent;
+  /** The serve's effect of this page's list on the owner list: each listed page's parent link. */
+  const reflect = () => {
+    const order = current ? subpages(current) : [];
+    for (const row of list) {
+      const index = order.indexOf(row.id);
+      if (index >= 0) row.parent = { page: THIS, index };
+      else if (row.parent?.page === THIS) delete row.parent;
     }
   };
   const ownerControls: Partial<PageBinding> = {
@@ -186,31 +180,28 @@ export function mountWorkPage(owner = false, scenario: 'tree' | 'empty' = 'tree'
     async work(action, body) {
       hook.calls.push({ page: THIS, action, body });
       await settle();
-      if (action === 'task.add' && hook.unknownAdd) {
-        hook.unknownAdd = false;
-        throw new SaveOutcomeUnknown('fixture-add');
+      if (action === 'subpage.attach' && hook.unknownAttach) {
+        hook.unknownAttach = false;
+        throw new SaveOutcomeUnknown('fixture-attach');
       }
-      if (hook.refuse && (action === 'task.link' || action === 'task.convert')) {
+      if (hook.refuse && (action === 'subpage.attach' || action === 'subpage.create')) {
         const { code, message, childPage } = hook.refuse;
         hook.refuse = undefined;
         throw new SaveRefused(code, message, undefined, childPage);
       }
-      const before = current;
-      const base = current ?? { version: 1, next: 1, order: [], tasks: {} };
-      if (action === 'task.convert') {
-        // The serve makes the page, titled like the task, then links the task to it.
-        const taskId = String(body.taskId);
-        list.push({ id: PAGES.made, title: base.tasks[taskId]!.title, state: 'todo' });
-        const link = { taskId, pageId: PAGES.made };
-        current = applyWorkAction(base, 'task.link', link, attribution);
-        reflect('task.link', link, before);
+      const base = current ?? { version: 2 as const, order: [] };
+      if (action === 'subpage.create') {
+        // The serve makes the page, its heading the typed title, and attaches it in one write.
+        list.push({ id: PAGES.made, title: String(body.title), state: 'todo' });
+        current = applyWorkAction(base, 'subpage.attach', { pageId: PAGES.made }, attribution);
+        reflect();
         publish?.(view());
         return { childPage: PAGES.made };
       }
       current = applyWorkAction(base, action, body, attribution);
-      reflect(action, body, before);
+      reflect();
       publish?.(view());
-      return action === 'task.add' ? { taskId: `T-${current.next - 1}` } : {};
+      return {};
     },
   };
   const binding: PageBinding = {
@@ -228,7 +219,7 @@ export function mountWorkPage(owner = false, scenario: 'tree' | 'empty' = 'tree'
     },
     close() {},
   };
-  /** Another page, opened only for one owner write: its state, or removing one of its tasks. */
+  /** Another page, opened only for one owner write: its state, or detaching one of its sub-pages. */
   const otherBinding = (row: Row): PageBinding => ({
     subscribe(next) {
       next({ title: row.title, source: '<p>Other page</p>', state: row.state });
@@ -249,10 +240,8 @@ export function mountWorkPage(owner = false, scenario: 'tree' | 'empty' = 'tree'
     async work(action, body) {
       hook.calls.push({ page: row.id, action, body });
       await settle();
-      const child = list.find(
-        (page) => page.parent?.page === row.id && page.parent.task === body.taskId,
-      );
-      if (action === 'task.remove' && child) delete child.parent;
+      const child = list.find((page) => page.parent?.page === row.id && page.id === body.pageId);
+      if (action === 'subpage.detach' && child) delete child.parent;
       return {};
     },
     async edit() {

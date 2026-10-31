@@ -9,7 +9,14 @@ declare global {
 }
 /** The fixture's page IDs (`test/work-page-browser.tsx`). */
 const id = (n: number) => `20000000-0000-4000-8000-${String(n).padStart(12, '0')}`;
-const PAGE = { remote: id(1), machines: id(3), dataPlan: id(51), made: id(99) };
+const PAGE = {
+  remote: id(1),
+  invites: id(2),
+  machines: id(3),
+  pairing: id(12),
+  dataPlan: id(51),
+  made: id(99),
+};
 
 async function mount(page: Page, owner = true, scenario: 'tree' | 'empty' = 'tree', tall = false) {
   await page.goto('/');
@@ -52,7 +59,7 @@ test('Mock 1: the collapsed head shows the page state and direct sub-page progre
   page,
 }) => {
   const band = await mount(page);
-  // Four direct sub-pages by their own states (2 done, 2 in progress); the plain task is not one.
+  // Four direct sub-pages by their own states (2 done, 2 in progress).
   await expect(head(band)).toContainText('In progress');
   await expect(head(band)).toContainText('2 of 4 done');
   await expect(band.locator('.work-segments')).toHaveAttribute(
@@ -124,7 +131,6 @@ test('Mock 3: one list of sub-pages nests three levels in place, each with direc
   await expand(band);
   const tree = band.getByRole('list', { name: 'Sub-pages' });
   await expect(tree.locator(':scope > li')).toHaveCount(4);
-  await expect(band.getByText('Hidden plain task')).toHaveCount(0);
   await expect(row(band, 'Remote pages v2').locator('.work-row-progress')).toHaveText('2 of 4');
   await expect(row(band, 'Release notes draft').locator('.work-row-progress')).toHaveText('—');
   await expect(row(band, 'Release notes draft').locator('button.work-twisty')).toHaveCount(0);
@@ -179,8 +185,7 @@ test('Mock 5: Add attaches a chosen page and keeps unavailable pages listed with
   await options.filter({ hasText: 'Remote data plan design' }).click();
   await expect(dialog).toHaveCount(0);
   expect(await calls(page)).toEqual([
-    { page: 'notes', action: 'task.add', body: { task: { title: 'Remote data plan design' } } },
-    { page: 'notes', action: 'task.link', body: { taskId: 'T-6', pageId: PAGE.dataPlan } },
+    { page: 'notes', action: 'subpage.attach', body: { pageId: PAGE.dataPlan } },
   ]);
   await expect(row(band, 'Remote data plan design')).toBeVisible();
   await expect(head(band)).toContainText('2 of 5 done');
@@ -199,8 +204,7 @@ test('Create makes a page named as typed; Enter picks the highlighted row, Esc c
   await page.keyboard.press('Enter');
   await expect(dialog).toHaveCount(0);
   expect(await calls(page)).toEqual([
-    { page: 'notes', action: 'task.add', body: { task: { title: 'remote rollout' } } },
-    { page: 'notes', action: 'task.convert', body: { taskId: 'T-6' } },
+    { page: 'notes', action: 'subpage.create', body: { title: 'remote rollout' } },
   ]);
   await expect(row(band, 'remote rollout').getByRole('link')).toHaveAttribute(
     'href',
@@ -208,7 +212,7 @@ test('Create makes a page named as typed; Enter picks the highlighted row, Esc c
   );
 });
 
-test('a refused attach says why, keeps the window open and removes the task it made', async ({
+test('a refused attach says why and keeps the window open, with nothing to clean up', async ({
   page,
 }) => {
   const band = await mount(page);
@@ -227,19 +231,17 @@ test('a refused attach says why, keeps the window open and removes the task it m
     'Remote data plan design has Release plan below it.',
   );
   expect((await calls(page)).map(({ action, body }) => [action, body])).toEqual([
-    ['task.add', { task: { title: 'Remote data plan design' } }],
-    ['task.link', { taskId: 'T-6', pageId: PAGE.dataPlan }],
-    ['task.remove', { taskId: 'T-6' }],
+    ['subpage.attach', { pageId: PAGE.dataPlan }],
   ]);
   // An outcome nobody knows is not sent again and leaves nothing to clean up.
   await page.evaluate(() => {
-    window.__workPage!.unknownAdd = true;
+    window.__workPage!.unknownAttach = true;
   });
   await option.click();
   await expect(dialog.getByRole('alert')).toHaveText(
     'The result is unknown. Check the sub-pages before trying again.',
   );
-  expect(await calls(page)).toHaveLength(4);
+  expect(await calls(page)).toHaveLength(2);
 });
 
 test('Mock 4: the row menu opens a page or detaches it, here and on a deeper level', async ({
@@ -259,8 +261,8 @@ test('Mock 4: the row menu opens a page or detaches it, here and on a deeper lev
   await page.getByRole('menuitem', { name: 'Detach' }).click();
   await expect(row(band, 'Pairing flow')).toHaveCount(0);
   expect(await calls(page)).toEqual([
-    { page: 'notes', action: 'task.remove', body: { taskId: 'T-3' } },
-    { page: PAGE.remote, action: 'task.remove', body: { taskId: 'T-2' } },
+    { page: 'notes', action: 'subpage.detach', body: { pageId: PAGE.invites } },
+    { page: PAGE.remote, action: 'subpage.detach', body: { pageId: PAGE.pairing } },
   ]);
   await row(band, 'Machines list').hover();
   await more('Machines list').click();

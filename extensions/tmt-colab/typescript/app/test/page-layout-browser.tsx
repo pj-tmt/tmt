@@ -10,12 +10,8 @@ let publish: ((view: PageView) => void) | undefined;
 let current: PageView;
 /** One linked sub-page, so the status band has a list to open. */
 const SUBPAGE_WORK: NonNullable<PageView['work']> = {
-  version: 1,
-  next: 2,
-  order: ['T-1'],
-  tasks: {
-    'T-1': { title: 'Sub-page', state: 'todo', child: '20000000-0000-4000-8000-000000000002' },
-  },
+  version: 2,
+  order: ['20000000-0000-4000-8000-000000000002'],
 };
 export function mount(
   source: string,

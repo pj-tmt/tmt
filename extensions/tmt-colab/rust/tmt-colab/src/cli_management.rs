@@ -1013,6 +1013,17 @@ fn attach_hierarchy_warnings(graph: &tmt_colab::work_links::Graph<'_>, page: &mu
     if let Some(shown) = page["warnings"].as_array_mut() {
         shown.extend(warnings.into_iter().map(|warning| json!(warning)));
     }
+    attach_migration_warning(graph, page);
+}
+/// A page whose task-era work the serve has not migrated yet says so; the serve tries again at
+/// its next open and names why in its own log (#5825).
+fn attach_migration_warning(graph: &tmt_colab::work_links::Graph<'_>, page: &mut Value) {
+    let id = page["pageId"].as_str().unwrap_or_default();
+    if graph.legacy(id)
+        && let Some(shown) = page["warnings"].as_array_mut()
+    {
+        shown.push(json!("work-not-migrated"));
+    }
 }
 
 pub fn run(command: &str, args: &ArgMatches, root: &Path, json_output: bool) -> Result<()> {
@@ -1144,18 +1155,19 @@ pub fn run(command: &str, args: &ArgMatches, root: &Path, json_output: bool) -> 
             .filter_map(|page| page["pageId"].as_str().map(str::to_owned))
             .collect();
         if let Ok(found) = tmt_colab::work_index::cached(&layout, &store, &key, &listed) {
-            // A task that follows a page shows that page's stage; a page that is followed names the
-            // task, so the list says it is part of another page's work.
+            // A page with sub-pages shows its stage and progress; a sub-page names its parent, so
+            // the list says it is part of another page's work.
             let graph = tmt_colab::work_links::Graph(&found);
             let parents = graph.parents();
             for page in catalog["pages"].as_array_mut().into_iter().flatten() {
                 let id = page["pageId"].as_str().unwrap_or_default().to_owned();
-                if let Some(derived) = graph.derived(&id) {
-                    page["work"] = derived;
+                if let Some(work) = graph.row(&id) {
+                    page["work"] = work;
                 }
-                if let Some((parent, task)) = parents.get(&id) {
-                    page["parent"] = json!({"page":parent,"task":task});
+                if let Some((parent, index)) = parents.get(&id) {
+                    page["parent"] = json!({"page":parent,"index":index});
                 }
+                attach_migration_warning(&graph, page);
             }
         }
         let state_found = state_index(&layout, &store, &key, &ids).unwrap_or_default();
@@ -1482,27 +1494,14 @@ fn attach_state_progress(page: &mut Value, graph: &tmt_colab::work_links::Graph<
     }
 }
 
-/// A page's work on one dim line: its stage, progress, who is working and the sign-offs waiting.
+/// A page's work on one dim line: its stage and how many of its direct sub-pages are done.
 fn work_line(work: &Value) -> String {
-    let mut line = format!(
+    format!(
         "work {} · {}/{} done",
         work["stage"].as_str().unwrap_or_default(),
         work["done"],
         work["total"]
-    );
-    let who: Vec<&str> = work["working"]
-        .as_array()
-        .into_iter()
-        .flatten()
-        .filter_map(|assignee| assignee["name"].as_str())
-        .collect();
-    if !who.is_empty() {
-        line.push_str(&format!(" · working {}", who.join(", ")));
-    }
-    if let Some(waiting) = work["signoff"].as_u64().filter(|n| *n > 0) {
-        line.push_str(&format!(" · {waiting} awaiting sign-off"));
-    }
-    line
+    )
 }
 /// The rows every page-naming command shares: where to open the page, and the pairing step.
 fn page_rows(reach: &crate::reach::Reach, path: &str) -> Vec<(&'static str, String)> {
@@ -1820,17 +1819,14 @@ fn output_with(value: &Value, json_output: bool, extra: &[(&str, String)]) -> Re
                     terminal.paint(Token::Dim, &escape(&work_line(&page["work"])))
                 )?;
             }
-            if let (Some(parent), Some(task)) = (
-                page["parent"]["page"].as_str(),
-                page["parent"]["task"].as_str(),
-            ) {
+            if let Some(parent) = page["parent"]["page"].as_str() {
                 writeln!(
                     out,
                     "    {}",
                     terminal.paint(
                         Token::Dim,
                         &escape(&format!(
-                            "part of {task} of {}",
+                            "sub-page of {}",
                             parent.get(..8).unwrap_or(parent)
                         ))
                     )

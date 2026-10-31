@@ -17,7 +17,7 @@ page pins above. The browser side menu no longer lists projects; it shows shortc
 The page list also offers **Save as shortcut** (or **Edit shortcut** while viewing one) and
 **Manage shortcuts**. A shortcut keeps the current project, text, creator, sort, stage-tab and
 Needs me filters. Its editor also supports manual Page state and Include archived. Manual state
-is independent of task stage; Include archived adds archived pages, while the Archived tab stays
+is independent of the sub-page stage; Include archived adds archived pages, while the Archived tab stays
 archived-only. No selected project means all projects.
 
 Shortcuts are saved in this browser on this machine, per space; they are not synced or shared.

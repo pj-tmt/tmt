@@ -5053,21 +5053,20 @@ const WORK_TWO: &str = "60000000-0000-4000-8000-000000000002";
 const WORK_THREE: &str = "60000000-0000-4000-8000-000000000003";
 const WORK_FOUR: &str = "60000000-0000-4000-8000-000000000004";
 const WORK_FIVE: &str = "60000000-0000-4000-8000-000000000005";
-fn native_work(layout: &tmt_colab::keyring::Layout, key: &Keyring) -> Value {
+fn native_work(layout: &tmt_colab::keyring::Layout, key: &Keyring) -> Vec<String> {
     let store = Store::read(layout).unwrap();
     let mut decoder = tmt_colab::decoder::Decoder::with_config(support::decoder_config(
         env!("CARGO_BIN_EXE_tmt-colab").into(),
     ))
     .unwrap();
-    let work = tmt_colab::page::read_work(&store, key, PAGE, &mut decoder)
+    let children = tmt_colab::page::read_work(&store, key, PAGE, &mut decoder)
         .unwrap()
-        .work;
+        .children;
     store.close().unwrap();
-    work
+    children
 }
-
-#[test]
-fn a_browser_work_action_commits_as_the_root_local_writer_and_answers_status() {
+/// A published page with work, and a `work` frame sender that waits for its reply.
+fn work_fixture() -> (Running, Layout, Keyring, WebSocket<UnixStream>) {
     let (server, layout, key, mut peer) = publish_fixture();
     // Each action prepares natively, which outlasts the fixture's three-second read timeout when
     // the machine is busy.
@@ -5079,127 +5078,23 @@ fn a_browser_work_action_commits_as_the_root_local_writer_and_answers_status() {
     }
     let saved = receive_acked(&server, &mut peer, "saveresult");
     assert_eq!(saved["state"], "committed", "{saved}");
-    let work = |peer: &mut _, operation: &str, action: &str, body: Value| {
-        send(
-            peer,
-            server.frame(
-                "work",
-                json!({"operationId":operation,"action":action,"body":body}),
-            ),
-        );
-        receive_acked(&server, peer, "workresult")
-    };
-    let first = work(
-        &mut peer,
-        WORK_ONE,
-        "task.add",
-        json!({"task":{"title":"Draft the export"}}),
-    );
-    assert_eq!(first["state"], "committed", "{first}");
-    assert_eq!(first["operationId"], WORK_ONE);
-    assert_eq!(first["taskId"], "T-1");
-    assert_eq!(
-        native_work(&layout, &key)["tasks"]["T-1"]["title"],
-        "Draft the export"
-    );
-    // The next task takes the next number, and a state change names no new task.
-    let second = work(
-        &mut peer,
-        WORK_TWO,
-        "task.add",
-        json!({"task":{"title":"Review it"}}),
-    );
-    assert_eq!(second["taskId"], "T-2", "{second}");
-    let moved = work(
-        &mut peer,
-        WORK_THREE,
-        "task.state",
-        json!({"taskId":"T-1","state":"in-progress"}),
-    );
-    assert_eq!(moved["state"], "committed", "{moved}");
-    assert!(moved.get("taskId").is_none(), "{moved}");
-    // Only status reports what an operation did, as for a save.
-    send(
-        &mut peer,
-        server.frame("savestatus", json!({"operationId":WORK_ONE})),
-    );
-    let status = receive_acked(&server, &mut peer, "saveresult");
-    assert_eq!(status["state"], "committed", "{status}");
-    assert_eq!(
-        native_work(&layout, &key)["tasks"]["T-1"]["state"],
-        "in-progress"
-    );
+    (server, layout, key, peer)
 }
-
-#[test]
-fn a_browser_work_action_meets_the_same_admission_as_the_write_command() {
-    let (server, layout, key, mut peer) = publish_fixture();
-    // Each action prepares natively, which outlasts the fixture's three-second read timeout when
-    // the machine is busy.
-    peer.get_ref()
-        .set_read_timeout(Some(Duration::from_secs(60)))
-        .unwrap();
-    for frame in server.save_frames(SAVE_ONE, "", "<p>A page with work</p>") {
-        send(&mut peer, frame);
-    }
-    receive_acked(&server, &mut peer, "saveresult");
-    let work = |peer: &mut _, operation: &str, action: &str, body: Value| {
-        send(
-            peer,
-            server.frame(
-                "work",
-                json!({"operationId":operation,"action":action,"body":body}),
-            ),
-        );
-        receive_acked(&server, peer, "workresult")
-    };
-    let agent = json!({"kind":"agent","name":"ada"});
-    let one = work(
-        &mut peer,
-        WORK_ONE,
-        "task.add",
-        json!({"task":{"title":"One","assignee":agent}}),
-    );
-    assert_eq!(one["state"], "committed", "{one}");
-    // The default limit is one task per agent: a second makes it hold two.
-    let over = work(
-        &mut peer,
-        WORK_TWO,
-        "task.add",
-        json!({"task":{"title":"Two","assignee":agent}}),
-    );
-    assert_eq!(over["state"], "rejected", "{over}");
-    assert_eq!(over["code"], "COLAB_WIP_LIMIT", "{over}");
-    assert!(over["message"].as_str().unwrap().contains("ada"), "{over}");
-    // A task the page does not have, and a link to a page that is not there, are refused too.
-    let gone = work(
-        &mut peer,
-        WORK_THREE,
-        "task.state",
-        json!({"taskId":"T-9","state":"done"}),
-    );
-    assert_eq!(gone["code"], "COLAB_INPUT_INVALID", "{gone}");
-    let link = work(
-        &mut peer,
-        "60000000-0000-4000-8000-000000000004",
-        "task.link",
-        json!({"taskId":"T-1","pageId":"70000000-0000-4000-8000-0000000000ff"}),
-    );
-    assert_eq!(link["code"], "COLAB_LINK_REFUSED", "{link}");
-    assert_eq!(link["reason"], "unavailable", "{link}");
-    // Nothing else was written.
-    let tasks = native_work(&layout, &key)["order"].clone();
-    assert_eq!(tasks, json!(["T-1"]));
-    // An action the contract does not name is a protocol violation, and nothing is read for it.
+fn work_action(
+    server: &Running,
+    peer: &mut WebSocket<UnixStream>,
+    operation: &str,
+    action: &str,
+    body: Value,
+) -> Value {
     send(
-        &mut peer,
+        peer,
         server.frame(
             "work",
-            json!({"operationId":"60000000-0000-4000-8000-000000000005",
-                "action":"task.explode","body":{}}),
+            json!({"operationId":operation,"action":action,"body":body}),
         ),
     );
-    assert_eq!(receive_acked(&server, &mut peer, "error")["type"], "error");
+    receive_acked(server, peer, "workresult")
 }
 
 fn native_page(
@@ -5224,173 +5119,181 @@ fn page_ids(layout: &tmt_colab::keyring::Layout, key: &Keyring) -> Vec<String> {
 }
 
 #[test]
-fn a_browser_convert_makes_the_derived_page_links_it_and_answers_status_with_the_page() {
-    let (server, layout, key, mut peer) = publish_fixture();
-    peer.get_ref()
-        .set_read_timeout(Some(Duration::from_secs(60)))
-        .unwrap();
-    for frame in server.save_frames(SAVE_ONE, "", "<p>A page with work</p>") {
-        send(&mut peer, frame);
-    }
-    receive_acked(&server, &mut peer, "saveresult");
-    let work = |peer: &mut _, operation: &str, action: &str, body: Value| {
-        send(
-            peer,
-            server.frame(
-                "work",
-                json!({"operationId":operation,"action":action,"body":body}),
-            ),
-        );
-        receive_acked(&server, peer, "workresult")
-    };
-    work(
+fn a_browser_create_makes_the_derived_page_attaches_it_and_answers_status_with_the_page() {
+    let (server, layout, key, mut peer) = work_fixture();
+    let before = page_ids(&layout, &key);
+    let created = work_action(
+        &server,
         &mut peer,
         WORK_ONE,
-        "task.add",
-        json!({"task":{"title":"Draft <the> export","detail":"First.\n\nSecond & last."}}),
+        "subpage.create",
+        json!({"title":"Draft <the> export"}),
     );
-    let before = page_ids(&layout, &key);
-    let converted = work(&mut peer, WORK_TWO, "task.convert", json!({"taskId":"T-1"}));
-    assert_eq!(converted["state"], "committed", "{converted}");
+    assert_eq!(created["state"], "committed", "{created}");
+    assert_eq!(created["operationId"], WORK_ONE);
+    assert!(created.get("taskId").is_none(), "{created}");
     // The page is the one this operation names, and no other page was made.
-    let child = tmt_colab::work_convert::child_page_id(&key.space_id, WORK_TWO);
-    assert_eq!(converted["childPage"], child, "{converted}");
+    let child = tmt_colab::subpage_create::child_page_id(&key.space_id, WORK_ONE);
+    assert_eq!(created["childPage"], child, "{created}");
     let after = page_ids(&layout, &key);
     assert_eq!(after.len(), before.len() + 1);
     assert!(after.contains(&child));
-    // Its title and first text are the task's own, escaped, and nothing else.
+    // Its title and first text are the title, escaped, and nothing else.
     let made = native_page(&layout, &key, &child);
     assert_eq!(made.title, "Draft <the> export");
-    assert_eq!(
-        made.source,
-        "<h1>Draft &lt;the&gt; export</h1>\n<p>First.</p>\n<p>Second &amp; last.</p>\n"
-    );
-    assert_eq!(native_work(&layout, &key)["tasks"]["T-1"]["child"], child);
-    // A lost reply is answered by the operation: the link landed and the page is named.
+    assert_eq!(made.source, "<h1>Draft &lt;the&gt; export</h1>\n");
+    assert_eq!(native_work(&layout, &key), std::slice::from_ref(&child));
+    // A lost reply is answered by the operation: the attach landed and the page is named.
     send(
         &mut peer,
-        server.frame("savestatus", json!({"operationId":WORK_TWO})),
+        server.frame("savestatus", json!({"operationId":WORK_ONE})),
     );
     let status = receive_acked(&server, &mut peer, "saveresult");
     assert_eq!(status["state"], "committed", "{status}");
     assert_eq!(status["childPage"], child, "{status}");
-    // A task that now follows a page is refused before anything is made.
-    let again = work(
-        &mut peer,
-        WORK_THREE,
-        "task.convert",
-        json!({"taskId":"T-1"}),
-    );
-    assert_eq!(again["state"], "rejected", "{again}");
-    assert_eq!(again["code"], "COLAB_INPUT_INVALID", "{again}");
-    assert!(again.get("childPage").is_none(), "{again}");
-    assert_eq!(page_ids(&layout, &key), after);
-}
-
-#[test]
-fn a_browser_convert_refuses_what_the_link_would_refuse_before_it_makes_a_page() {
-    let (server, layout, key, mut peer) = publish_fixture();
-    peer.get_ref()
-        .set_read_timeout(Some(Duration::from_secs(60)))
-        .unwrap();
-    for frame in server.save_frames(SAVE_ONE, "", "<p>A page with work</p>") {
-        send(&mut peer, frame);
-    }
-    receive_acked(&server, &mut peer, "saveresult");
-    let work = |peer: &mut _, operation: &str, action: &str, body: Value| {
-        send(
-            peer,
-            server.frame(
-                "work",
-                json!({"operationId":operation,"action":action,"body":body}),
-            ),
-        );
-        receive_acked(&server, peer, "workresult")
-    };
-    work(
-        &mut peer,
-        WORK_ONE,
-        "task.add",
-        json!({"task":{"title":"Tracked","externalId":"#7"}}),
-    );
-    let before = page_ids(&layout, &key);
+    // Nothing but the title is accepted: no source or layout rides along, and nothing is made.
     for (operation, body) in [
-        (WORK_TWO, json!({"taskId":"T-1"})),
-        (WORK_THREE, json!({"taskId":"T-9"})),
-        // Nothing but the task is accepted: no title, source or layout rides along.
-        (WORK_FOUR, json!({"taskId":"T-1","title":"Mine"})),
-        (WORK_FIVE, json!({})),
+        (WORK_TWO, json!({"title":"Mine","source":"<p>x</p>"})),
+        (WORK_THREE, json!({"title":"  "})),
+        (WORK_FOUR, json!({})),
     ] {
-        let refused = work(&mut peer, operation, "task.convert", body);
+        let refused = work_action(&server, &mut peer, operation, "subpage.create", body);
         assert_eq!(refused["state"], "rejected", "{refused}");
         assert_eq!(refused["code"], "COLAB_INPUT_INVALID", "{refused}");
         assert!(refused.get("childPage").is_none(), "{refused}");
     }
-    assert_eq!(page_ids(&layout, &key), before);
+    assert_eq!(page_ids(&layout, &key), after);
 }
 
 #[test]
-fn a_convert_whose_page_exists_finds_it_and_a_link_that_cannot_land_still_names_the_page() {
-    let (server, layout, key, mut peer) = publish_fixture();
-    peer.get_ref()
-        .set_read_timeout(Some(Duration::from_secs(60)))
-        .unwrap();
-    for frame in server.save_frames(SAVE_ONE, "", "<p>A page with work</p>") {
-        send(&mut peer, frame);
-    }
-    receive_acked(&server, &mut peer, "saveresult");
-    let work = |peer: &mut _, operation: &str, action: &str, body: Value| {
-        send(
-            peer,
-            server.frame(
-                "work",
-                json!({"operationId":operation,"action":action,"body":body}),
-            ),
-        );
-        receive_acked(&server, peer, "workresult")
-    };
-    for title in ["One", "Two"] {
-        work(
-            &mut peer,
-            if title == "One" { WORK_ONE } else { WORK_TWO },
-            "task.add",
-            json!({"task":{"title":title}}),
-        );
-    }
-    let first = work(
+fn browser_list_actions_commit_and_meet_the_same_admission_as_the_write_command() {
+    let (server, layout, key, mut peer) = work_fixture();
+    let one = work_action(
+        &server,
+        &mut peer,
+        WORK_ONE,
+        "subpage.create",
+        json!({"title":"One"}),
+    );
+    let two = work_action(
+        &server,
+        &mut peer,
+        WORK_TWO,
+        "subpage.create",
+        json!({"title":"Two"}),
+    );
+    let (one, two) = (
+        one["childPage"].as_str().unwrap().to_owned(),
+        two["childPage"].as_str().unwrap().to_owned(),
+    );
+    assert_eq!(native_work(&layout, &key), [one.clone(), two.clone()]);
+    let moved = work_action(
+        &server,
         &mut peer,
         WORK_THREE,
-        "task.convert",
-        json!({"taskId":"T-1"}),
+        "subpage.move",
+        json!({"pageId":two,"before":one}),
+    );
+    assert_eq!(moved["state"], "committed", "{moved}");
+    assert_eq!(native_work(&layout, &key), [two.clone(), one.clone()]);
+    let detached = work_action(
+        &server,
+        &mut peer,
+        WORK_FOUR,
+        "subpage.detach",
+        json!({"pageId":two}),
+    );
+    assert_eq!(detached["state"], "committed", "{detached}");
+    // A page that is not there, the page itself, and a page already listed are refused.
+    for (number, body, code, reason) in [
+        (
+            6,
+            json!({"pageId":"70000000-0000-4000-8000-0000000000ff"}),
+            "COLAB_LINK_REFUSED",
+            Some("unavailable"),
+        ),
+        (
+            7,
+            json!({"pageId":PAGE}),
+            "COLAB_LINK_REFUSED",
+            Some("cycle"),
+        ),
+        (8, json!({"pageId":one}), "COLAB_INPUT_INVALID", None),
+    ] {
+        let operation = format!("60000000-0000-4000-8000-{number:012}");
+        let refused = work_action(&server, &mut peer, &operation, "subpage.attach", body);
+        assert_eq!(refused["state"], "rejected", "{refused}");
+        assert_eq!(refused["code"], code, "{refused}");
+        assert_eq!(
+            refused.get("reason").and_then(Value::as_str),
+            reason,
+            "{refused}"
+        );
+    }
+    let reattached = work_action(
+        &server,
+        &mut peer,
+        WORK_FIVE,
+        "subpage.attach",
+        json!({"pageId":two}),
+    );
+    assert_eq!(reattached["state"], "committed", "{reattached}");
+    assert_eq!(native_work(&layout, &key), [one.clone(), two.clone()]);
+    // The summary is a work action of the browser too, and keeps the list.
+    let summary = work_action(
+        &server,
+        &mut peer,
+        "60000000-0000-4000-8000-00000000000a",
+        "summary.set",
+        json!({"line1":"Shipping","line2":"Two sub-pages left"}),
+    );
+    assert_eq!(summary["state"], "committed", "{summary}");
+    assert_eq!(native_work(&layout, &key), [one, two]);
+    // An action the contract does not name is a protocol violation, and nothing is read for it.
+    send(
+        &mut peer,
+        server.frame(
+            "work",
+            json!({"operationId":"60000000-0000-4000-8000-000000000009",
+                "action":"task.add","body":{"task":{"title":"x"}}}),
+        ),
+    );
+    assert_eq!(receive_acked(&server, &mut peer, "error")["type"], "error");
+}
+
+#[test]
+fn a_create_whose_page_exists_finds_it_and_an_attach_that_cannot_land_still_names_the_page() {
+    let (server, layout, key, mut peer) = work_fixture();
+    let first = work_action(
+        &server,
+        &mut peer,
+        WORK_ONE,
+        "subpage.create",
+        json!({"title":"One"}),
     );
     assert_eq!(first["state"], "committed", "{first}");
     let child = first["childPage"].as_str().unwrap().to_owned();
     let pages = page_ids(&layout, &key);
-    // Another task under the same operation finds the page already made instead of making a
-    // second one, and a page follows at most one task, so the link is refused; the reply still
-    // names the page and nothing else changes.
-    let replay = work(
+    // The same operation finds the page already made instead of making a second one; the page is
+    // already listed, so the attach is refused, and the reply still names the page.
+    let replay = work_action(
+        &server,
         &mut peer,
-        WORK_THREE,
-        "task.convert",
-        json!({"taskId":"T-2"}),
+        WORK_ONE,
+        "subpage.create",
+        json!({"title":"Two"}),
     );
-    assert_eq!(replay["state"], "rejected", "{replay}");
     assert_eq!(replay["childPage"], child, "{replay}");
     assert_eq!(page_ids(&layout, &key), pages);
-    assert!(
-        native_work(&layout, &key)["tasks"]["T-2"]
-            .get("child")
-            .is_none()
-    );
+    assert_eq!(native_work(&layout, &key), [child]);
 }
 
 #[test]
-fn no_reader_and_no_link_can_send_a_work_action_or_make_a_page_by_converting() {
-    // `task.convert` is the one action that makes a page, so it is tried beside an ordinary one.
+fn no_reader_and_no_link_can_send_a_work_action_or_make_a_page_by_creating() {
+    // `subpage.create` is the one action that makes a page, so it is tried beside an ordinary one.
     for (action, body) in [
-        ("task.add", json!({"task":{"title":"x"}})),
-        ("task.convert", json!({"taskId":"T-1"})),
+        ("summary.clear", json!({})),
+        ("subpage.create", json!({"title":"x"})),
     ] {
         let work = |server: &Running, session: &_| {
             server.reader_frame(
@@ -5426,12 +5329,9 @@ fn no_reader_and_no_link_can_send_a_work_action_or_make_a_page_by_converting() {
                 before.iter().all(|frame| frame["type"] != "workresult"),
                 "{role} {action}"
             );
-            let tasks = native_work(&layout, &key);
             assert!(
-                tasks["order"]
-                    .as_array()
-                    .is_none_or(|order| order.is_empty()),
-                "{role} {action}: the refused action wrote a task: {tasks}"
+                native_work(&layout, &key).is_empty(),
+                "{role} {action}: the refused action wrote a sub-page"
             );
             assert_eq!(
                 page_ids(&layout, &key),
@@ -7157,110 +7057,58 @@ fn hierarchy_fixture_action(layout: &Layout, key: &Keyring, page: &str, action: 
 }
 
 #[test]
-fn browser_subpages_nest_and_refusals_have_reasons_and_convert_creates_no_orphan() {
-    let (server, layout, key, mut peer) = publish_fixture();
-    peer.get_ref()
-        .set_read_timeout(Some(Duration::from_secs(60)))
-        .unwrap();
-    for frame in server.save_frames(SAVE_ONE, "", "<p>One level</p>") {
-        send(&mut peer, frame);
-    }
-    receive_acked(&server, &mut peer, "saveresult");
+fn browser_subpages_nest_and_refusals_have_reasons_and_create_makes_no_orphan() {
+    let (server, layout, key, mut peer) = work_fixture();
     let work = |peer: &mut _, number: u32, action: &str, body: Value| {
         let operation = format!("60000000-0000-4000-8000-{number:012}");
-        send(
-            peer,
-            server.frame(
-                "work",
-                json!({"operationId":operation,"action":action,"body":body}),
-            ),
-        );
-        receive_acked(&server, peer, "workresult")
+        work_action(&server, peer, &operation, action, body)
     };
-    work(
-        &mut peer,
-        101,
-        "task.add",
-        json!({"task":{"title":"First"}}),
-    );
-    work(
-        &mut peer,
-        102,
-        "task.add",
-        json!({"task":{"title":"Second"}}),
-    );
-    let first = work(&mut peer, 103, "task.convert", json!({"taskId":"T-1"}));
-    let other = work(&mut peer, 104, "task.convert", json!({"taskId":"T-2"}));
-    assert_eq!(first["state"], "committed", "{first}");
-    assert_eq!(other["state"], "committed", "{other}");
-    let parent = first["childPage"].as_str().unwrap();
-    let other = other["childPage"].as_str().unwrap();
-    work(&mut peer, 105, "task.unlink", json!({"taskId":"T-1"}));
-    work(&mut peer, 106, "task.unlink", json!({"taskId":"T-2"}));
+    let parent = work(&mut peer, 101, "subpage.create", json!({"title":"Parent"}));
+    let other = work(&mut peer, 102, "subpage.create", json!({"title":"Other"}));
+    let parent = parent["childPage"].as_str().unwrap().to_owned();
+    let other = other["childPage"].as_str().unwrap().to_owned();
+    work(&mut peer, 103, "subpage.detach", json!({"pageId":parent}));
+    work(&mut peer, 104, "subpage.detach", json!({"pageId":other}));
     hierarchy_fixture_action(
         &layout,
         &key,
-        parent,
-        "task.add",
-        json!({"task":{"title":"Follows original"}}),
+        &parent,
+        "subpage.attach",
+        json!({"pageId":PAGE}),
     );
-    hierarchy_fixture_action(
-        &layout,
-        &key,
-        parent,
-        "task.link",
-        json!({"taskId":"T-1","pageId":PAGE}),
-    );
-    // This page is a child of `parent`, and still takes a child of its own (#5820).
-    let nested = work(
-        &mut peer,
-        107,
-        "task.link",
-        json!({"taskId":"T-1","pageId":other}),
-    );
+    // This page is a sub-page of `parent`, and still takes a sub-page of its own (#5820).
+    let nested = work(&mut peer, 105, "subpage.attach", json!({"pageId":other}));
     assert_eq!(nested["state"], "committed", "{nested}");
-    let loop_refused = work(
-        &mut peer,
-        108,
-        "task.link",
-        json!({"taskId":"T-2","pageId":parent}),
-    );
+    let loop_refused = work(&mut peer, 106, "subpage.attach", json!({"pageId":parent}));
     assert_eq!(loop_refused["reason"], "cycle", "{loop_refused}");
     // A racing writer closes a loop parent > this page > other > parent; the component is then
-    // invalid and conversion is refused before any page is made.
+    // invalid and creation is refused before any page is made.
     hierarchy_fixture_action(
         &layout,
         &key,
-        other,
-        "task.add",
-        json!({"task":{"title":"Follows parent"}}),
-    );
-    hierarchy_fixture_action(
-        &layout,
-        &key,
-        other,
-        "task.link",
-        json!({"taskId":"T-1","pageId":parent}),
+        &other,
+        "subpage.attach",
+        json!({"pageId":parent}),
     );
     let before = page_ids(&layout, &key);
     let source = native_page(&layout, &key, PAGE);
-    let tasks = native_work(&layout, &key);
-    let refused = work(&mut peer, 109, "task.convert", json!({"taskId":"T-2"}));
+    let listed = native_work(&layout, &key);
+    let refused = work(&mut peer, 107, "subpage.create", json!({"title":"Another"}));
     assert_eq!(refused["state"], "rejected", "{refused}");
     assert_eq!(refused["code"], "COLAB_LINK_REFUSED", "{refused}");
     assert_eq!(refused["reason"], "invalid-hierarchy", "{refused}");
     assert!(refused.get("childPage").is_none(), "{refused}");
     assert_eq!(page_ids(&layout, &key), before);
-    assert_eq!(native_work(&layout, &key), tasks);
+    assert_eq!(native_work(&layout, &key), listed);
     let after = native_page(&layout, &key, PAGE);
     assert_eq!(after.source, source.source);
     assert_eq!(after.revision, source.revision);
     // If this operation made a page earlier, a later hierarchy refusal must still name it.
-    let replay = work(&mut peer, 103, "task.convert", json!({"taskId":"T-2"}));
+    let replay = work(&mut peer, 101, "subpage.create", json!({"title":"Parent"}));
     assert_eq!(replay["reason"], "invalid-hierarchy", "{replay}");
     assert_eq!(replay["childPage"], parent, "{replay}");
     assert_eq!(page_ids(&layout, &key), before);
-    // Unlink stays available to repair the loop.
-    let repaired = work(&mut peer, 110, "task.unlink", json!({"taskId":"T-1"}));
+    // Detach stays available to repair the loop.
+    let repaired = work(&mut peer, 108, "subpage.detach", json!({"pageId":other}));
     assert_eq!(repaired["state"], "committed", "{repaired}");
 }

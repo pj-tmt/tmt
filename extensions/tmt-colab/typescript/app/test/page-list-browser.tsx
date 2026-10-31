@@ -55,15 +55,9 @@ function page(n: number, title: string, projects: string[], changes: Partial<Pag
   };
 }
 
-/** The stage a fixture page's summary reports: tasks done of all, and who works on them. */
-function work(
-  stage: 'discussion' | 'in-progress' | 'done',
-  done: number,
-  total: number,
-  working: PageWorkRow['working'] = [],
-  more?: number,
-): PageWorkRow {
-  return { stage, done, total, signoff: 0, working, ...(more ? { more } : {}) };
+/** The stage a fixture page's summary reports: its direct sub-pages done of all. */
+function work(stage: PageWorkRow['stage'], done: number, total: number): PageWorkRow {
+  return { stage, done, total };
 }
 const idle = { comments: 0, waiting: false, needsYou: 0 };
 
@@ -144,26 +138,13 @@ export async function mountPageList(
             page(1, 'Alpha plan', ['design'], {
               summary: {
                 ...idle,
-                work: work('in-progress', 7, 10, [
-                  { kind: 'agent', name: 'feat-1' },
-                  { kind: 'person', name: 'Ada' },
-                ]),
+                work: work('in-progress', 7, 10),
               },
             }),
             page(2, 'Beta review', ['design'], {
               summary: {
                 ...idle,
-                work: work(
-                  'in-progress',
-                  1,
-                  9,
-                  [
-                    { kind: 'agent', name: 'feat-1' },
-                    { kind: 'agent', name: 'feat-2' },
-                    { kind: 'agent', name: 'remote-1' },
-                  ],
-                  2,
-                ),
+                work: work('in-progress', 1, 9),
               },
             }),
             page(3, 'Gamma notes', [], { summary: idle }),
@@ -189,12 +170,7 @@ export async function mountPageList(
                       waiting: n === 1,
                       needsYou: n === 1 ? 1 : 0,
                       author: n % 2 ? 'Ada' : 'feat-1',
-                      work: work(
-                        stage,
-                        stage === 'done' ? 4 : n % 4,
-                        4,
-                        n % 3 === 1 ? [{ kind: 'agent', name: 'feat-1' }] : [],
-                      ),
+                      work: work(stage, stage === 'done' ? 4 : n % 4, 4),
                     },
                   },
                 );

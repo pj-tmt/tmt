@@ -85,72 +85,18 @@ it('refuses an anchor hint with extra, duplicate or mixed parameters', () => {
     expect(ownerPageHint(new URL(link), space, page)).toBeUndefined();
 });
 
-it('carries one task of the page as a third cosmetic hint (#4263)', () => {
-  expect(pageSearch({ task: 'T-4' })).toEqual({ task: 'T-4' });
-  expect(pageSearch({ task: 'T-1234567' })).toEqual({ task: 'T-1234567' });
-  // Never with another hint, and only the work module's task-id shape.
-  expect(pageSearch({ task: 'T-4', read })).toEqual({});
-  expect(pageSearch({ task: 'T-4', anchor: 'decisions' })).toEqual({});
-  expect(pageSearch({ task: 'T-4', read, anchor: 'decisions' })).toEqual({});
-  for (const task of [
-    '',
-    'T-',
-    'T-0',
-    'T-01',
-    't-1',
-    'T-1x',
-    'T-12345678',
-    ' T-1',
-    4,
-    null,
-    undefined,
-  ])
-    expect(pageSearch({ task })).toEqual({});
-  const href = ownerReadingHref(`/pages/${page}?task=T-4`, '/ext/colab/', space);
-  expect(href).toBe(`${owner.replace('https://example.test', '')}&task=T-4`);
-  const url = new URL(`https://example.test${href}`);
-  expect(ownerPageHint(url, space, page)).toEqual({ task: 'T-4' });
-  // Only the exact owner page, and the reading reader never reports a task.
-  expect(ownerPageHint(url, space, space)).toBeUndefined();
-  expect(ownerReadingHint(url, space, page)).toBeUndefined();
-  const short = ownerReadingHref('/short/10000000?task=T-4', '/ext/colab/', space);
-  expect(ownerPageHint(new URL(`https://example.test${short}`), space)).toEqual({ task: 'T-4' });
-  expect(splitPageHint(`/pages/${page}?task=T-4`)).toEqual({
-    route: `/pages/${page}`,
-    hint: { task: 'T-4' },
-  });
-  expect(splitPageHint('/short/10000000?task=T-4')).toEqual({
-    route: '/short/10000000',
-    hint: { task: 'T-4' },
-  });
-  // A bad task keeps its query inside the opaque path, uninterpreted.
-  for (const bad of ['T-0', 'T-1x', 'x'])
-    expect(splitPageHint(`/pages/${page}?task=${bad}`)).toEqual({
-      route: `/pages/${page}?task=${bad}`,
-    });
-  expect(splitPageHint(`/pages/${page}?task=T-4&read=${read}`).hint).toBeUndefined();
-});
-
-it('refuses a task hint with extra, duplicate or mixed parameters', () => {
-  for (const link of [
-    owner + '&task=T-4&task=T-4',
-    owner + '&task=T-4&secret=value',
-    owner + `&task=T-4&read=${read}`,
-    owner + '&task=T-4&anchor=decisions',
-    owner + '&task=T-0',
-    owner + '&task=',
-    owner.replace('/ext/colab/', '/ext/colab/read') + '&task=T-4',
-  ])
-    expect(ownerPageHint(new URL(link), space, page)).toBeUndefined();
+it('carries no task hint: the task-era key is not a page hint (#5825)', () => {
+  expect(pageSearch({ task: 'T-4' })).toEqual({});
+  expect(splitPageHint(`/pages/${page}?task=T-4`)).toEqual({ route: `/pages/${page}?task=T-4` });
+  const href = `${owner.replace('https://example.test', '')}&task=T-4`;
+  expect(ownerPageHint(new URL(`https://example.test${href}`), space, page)).toBeUndefined();
 });
 
 it('names a hint as one search or fragment parameter for every location form', () => {
   expect(hintSearch({ read })).toBe(`?read=${read}`);
   expect(hintSearch({ anchor: 'decisions' })).toBe('?anchor=decisions');
-  expect(hintSearch({ task: 'T-4' })).toBe('?task=T-4');
   expect(hintFragment({ read })).toBe(`#read=${read}`);
   expect(hintFragment({ anchor: 'decisions' })).toBe('#anchor=decisions');
-  expect(hintFragment({ task: 'T-4' })).toBe('#task=T-4');
 });
 
 describe('openSearch', () => {

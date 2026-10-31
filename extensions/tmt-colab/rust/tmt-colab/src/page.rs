@@ -1,14 +1,14 @@
 //! Root-local source access: isolated preparation, then fenced ciphertext commit.
 pub mod compact;
 pub mod compact_ipc;
-pub mod convert;
 pub mod ipc;
 pub mod lines;
 pub mod metadata;
 pub mod owner_fold;
 pub mod patch;
 pub mod save;
-pub mod work;
+pub mod subpage;
+pub mod subpage_create;
 use crate::{
     Result,
     decoder::{Decoder, MemoryLimit},
@@ -587,8 +587,8 @@ pub fn read_shell(
         revision: token(&key.space_id, page, &s.authority.head, s.epoch, &s.cuts)?,
     })
 }
-/// A page's work, read without its HTML source: the value (an empty one while the page has none),
-/// what is derived from it, and the revision a write must name. A shell has no work.
+/// A page's work, read without its HTML source: its manual state, its direct sub-pages and the
+/// revision a write must name. A shell has no work.
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct WorkPage {
@@ -597,8 +597,14 @@ pub struct WorkPage {
     pub space_id: String,
     pub page_id: String,
     pub title: String,
-    pub work: serde_json::Value,
-    pub derived: serde_json::Value,
+    /// The direct sub-pages, in the page's order.
+    pub children: Vec<String>,
+    /// The page's two summary lines, when it has them.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub summary: Option<serde_json::Value>,
+    /// The stored task-era version 1 value, whole, until it is migrated (#5825).
+    #[serde(skip)]
+    pub legacy: Option<serde_json::Value>,
     pub epoch: String,
     pub membership_head: Head,
     pub revision: String,
@@ -624,21 +630,19 @@ pub(crate) fn read_work_or_shell(
     if view.meta["pageType"].as_str() == Some("shell") {
         return Ok(None);
     }
-    let work = view
-        .meta
-        .get("work")
-        .cloned()
-        .unwrap_or_else(crate::work::empty);
-    let derived = crate::work::derived(&work)
-        .map_err(|_| Fault::Invalid)?
-        .to_value();
+    let empty = crate::work::empty();
+    let work = view.meta.get("work").unwrap_or(&empty);
+    let children = crate::work::children(work).map_err(|_| Fault::Invalid)?;
+    let summary = work.get("summary").cloned();
+    let legacy = (work["version"] == 1).then(|| work.clone());
     Ok(Some(WorkPage {
         state: view.meta["pageState"].as_str().unwrap_or("todo").to_owned(),
         space_id: key.space_id.clone(),
         page_id: page.into(),
         title: view.title,
-        work,
-        derived,
+        children,
+        summary,
+        legacy,
         epoch: s.epoch.to_string(),
         membership_head: Head::from(&s.authority.head),
         revision: token(&key.space_id, page, &s.authority.head, s.epoch, &s.cuts)?,

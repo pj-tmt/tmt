@@ -34,8 +34,8 @@ pub struct Summary {
     pub needs_you: u32,
     /// The creator label, or the original-author display label on a legacy page.
     pub author: Option<String>,
-    /// The page's own work, before any page it follows is resolved; `None` without work. It stays
-    /// out of `json()`: the list read resolves it across pages (`work_links::Graph`).
+    /// The page's own state and sub-pages; `None` for a shell. It stays out of `json()`: the list
+    /// read resolves progress across pages (`work_links::Graph`).
     pub work: Option<Box<crate::work_index::PageWork>>,
 }
 impl Summary {
@@ -153,7 +153,7 @@ fn fold_details(source: &mut Source, page: &str) -> Result<(SummaryProjection, O
         return Err(std::io::Error::other("summary reading budget").into());
     }
     let mut summary = count(&conversations, &folded.meta, u32::try_from(pending.len())?);
-    summary.work = crate::work_index::page_work(page, &folded.meta).map(Box::new);
+    summary.work = crate::work_index::page_work(&folded.meta).map(Box::new);
     let title = active.then(|| folded.title.clone());
     Ok((
         SummaryProjection {

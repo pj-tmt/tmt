@@ -439,24 +439,25 @@ it('carries every refusal reply with its stable code and message', async () => {
 it('sends a work action with its closed body and resolves on the work reply', async () => {
   const { connection, socket } = await open();
   try {
-    const pending = connection.work(operation, 'task.add', { task: { title: 'Publish' } });
+    const pending = connection.work(operation, 'subpage.attach', {
+      pageId: '20000000-0000-4000-8000-000000000003',
+    });
     await awaitSent(socket, 1);
     expect(sent(socket).at(-1)).toEqual({
       ...scope,
       type: 'work',
       operationId: operation,
-      action: 'task.add',
-      body: { task: { title: 'Publish' } },
+      action: 'subpage.attach',
+      body: { pageId: '20000000-0000-4000-8000-000000000003' },
     });
     socket.receive({
-      ...savedFrame({ state: 'committed', revision: 'v1:abc', taskId: 'T-4' }),
+      ...savedFrame({ state: 'committed', revision: 'v1:abc' }),
       type: 'workresult',
     });
     await expect(pending).resolves.toEqual({
       operationId: operation,
       state: 'committed',
       revision: 'v1:abc',
-      taskId: 'T-4',
     });
     // A work action shares the one-request slot, and a lost reply is asked about as a save is.
     const status = connection.saveStatus(operation);

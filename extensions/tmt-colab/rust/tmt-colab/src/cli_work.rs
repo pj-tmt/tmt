@@ -1,13 +1,13 @@
-//! A page's work: `tmt colab task ...` and `tmt colab summary ...`. Each change is one conditional
-//! action through the structured publication owner, on the revision the command just read (or the
-//! `--expected-revision` it was given). An action that would put an agent over its work-in-progress
-//! limit is refused here, before anything is prepared (`wip.rs`).
+//! A page's work: `tmt colab subpage ...` and `tmt colab summary ...`. Each change is one
+//! conditional action through the structured publication owner, on the revision the command just
+//! read (or the `--expected-revision` it was given). An attach the link rules refuse (one parent,
+//! no loop, an available page) is refused here, before anything is prepared (`work_admission`).
 use crate::cli_management::{fail, resolve_page};
-use clap::{Arg, ArgAction, ArgMatches, Command};
+use clap::{Arg, ArgMatches, Command};
 use serde_json::{Value, json};
 use std::{
     io::Write,
-    path::{Path, PathBuf},
+    path::Path,
     time::{SystemTime, UNIX_EPOCH},
 };
 use tmt_cli_style::{CommandSpec, Example, OutputModes};
@@ -17,7 +17,6 @@ use tmt_colab::{
     keyring::{Keyring, Layout},
     page::{self, Fault},
     store::Store,
-    work,
     work_admission::{self, Refused, Space},
     work_index,
     work_links::{Graph, Refusal},
@@ -45,13 +44,6 @@ pub(crate) fn spec(
         details,
     })
 }
-pub(crate) fn task_arg() -> Arg {
-    Arg::new("task")
-        .index(2)
-        .required(true)
-        .value_name("TASK")
-        .help("A task ID such as T-3 (see task ls)")
-}
 fn revision_arg() -> Arg {
     Arg::new("expected-revision")
         .long("expected-revision")
@@ -59,163 +51,86 @@ fn revision_arg() -> Arg {
         .value_parser(crate::revision_token)
         .help("Refuse unless the page is at this revision; without it the command uses the current one")
 }
-fn file_arg(help: &'static str) -> Arg {
-    Arg::new("file")
-        .long("file")
-        .value_name("PATH|-")
-        .value_parser(clap::value_parser!(PathBuf))
-        .help(help)
-}
 fn text_arg(name: &'static str, help: &'static str) -> Arg {
     Arg::new(name).long(name).value_name("TEXT").help(help)
 }
-pub fn task_command() -> Command {
-    let assign_help = "NAME or agent:NAME for an agent, person:NAME for a person";
+fn child_arg() -> Arg {
+    Arg::new("child")
+        .index(2)
+        .required(true)
+        .value_name("SUBPAGE")
+        .help("The sub-page: its ID or a unique ID prefix")
+}
+fn before_arg() -> Arg {
+    Arg::new("before")
+        .long("before")
+        .value_name("SUBPAGE")
+        .help("Put it in front of this listed sub-page; without it, it goes last")
+}
+
+pub fn subpage_command() -> Command {
     spec(
-        "task",
-        "Add, change and list the tasks of a page",
-        "A task has a title, a state (todo, in-progress, blocked, in-review, done), and optionally detail, an assignee, acceptance criteria, a sign-off flag and an external ID. Task IDs (T-1, T-2, ...) are never reused. An agent holds at most its work-in-progress limit of assigned todo and in-progress tasks across all pages (tmt colab settings wip-limit). Every change applies to the page's current revision, or to --expected-revision when given, and never opens a browser. A page that changed since is COLAB_STALE_BASE: read again. An invalid value refuses the whole change. An uncertain publication is inspected by its original operation, never automatically resent.",
-        example!("tmt colab task ls 10000000-0000-4000-8000-000000000001 --json"),
+        "subpage",
+        "List and change a page's sub-pages",
+        "A page's work is its sub-pages: an ordered list of the pages directly under it. A page has one parent, a link never closes a loop, and sub-pages nest at any depth. Progress counts the direct sub-pages by their own page state.",
+        example!("tmt colab subpage ls 10000000-0000-4000-8000-000000000001 --json"),
     )
     .subcommand_required(true)
     .subcommand(
         spec(
             "ls",
-            "List a page's tasks and where it stands",
-            "Prints the page's revision, its stage, its progress and each task. Creates nothing.",
-            example!("tmt colab task ls 10000000-0000-4000-8000-000000000001 --json"),
+            "List a page's sub-pages",
+            "Read only: takes no write lock and creates nothing. Shows each direct sub-page with its state, the page's progress and its summary.",
+            example!("tmt colab subpage ls 10000000-0000-4000-8000-000000000001 --json"),
         )
         .alias("list")
         .arg(crate::cli_grammar::page()),
     )
     .subcommand(
         spec(
-            "add",
-            "Add a task to a page",
-            "The new task starts as todo and takes the next task ID, printed as taskId. Give --title (with the optional flags) or the whole task as JSON with --file.",
-            example!("tmt colab task add 10000000-0000-4000-8000-000000000001 --title 'Write the guide' --assignee ada --json"),
+            "attach",
+            "Make an existing page a sub-page",
+            "Refused when the page already has another parent, when it is this page or above it (a loop), or when it is not a page of this space.",
+            example!("tmt colab subpage attach 10000000-0000-4000-8000-000000000001 20000000-0000-4000-8000-000000000002 --json"),
         )
         .arg(crate::cli_grammar::page())
-        .arg(revision_arg())
-        .arg(text_arg("title", "The task's title, at most 120 characters"))
-        .arg(text_arg("detail", "The task's spec, at most 4096 bytes"))
-        .arg(text_arg("assignee", assign_help))
-        .arg(
-            Arg::new("signoff")
-                .long("signoff")
-                .action(ArgAction::SetTrue)
-                .help("The task needs a person's sign-off when it is in review"),
-        )
-        .arg(text_arg("external-id", "An ID in another tracker"))
-        .arg(file_arg("The task as JSON: {\"title\": ..., \"detail\": ..., \"assignee\": ..., \"acceptance\": [...]}"))
-        .group(
-            clap::ArgGroup::new("source")
-                .args(["title", "file"])
-                .required(true),
-        )
-        .mut_arg("detail", |arg| arg.conflicts_with("file"))
-        .mut_arg("assignee", |arg| arg.conflicts_with("file"))
-        .mut_arg("signoff", |arg| arg.conflicts_with("file"))
-        .mut_arg("external-id", |arg| arg.conflicts_with("file")),
-    )
-    .subcommand(
-        spec(
-            "set",
-            "Replace a task's title, detail, acceptance, sign-off flag and external ID",
-            "Takes the whole editable part as JSON with --file: a field the file omits is cleared. State and assignee have their own commands.",
-            example!("tmt colab task set 10000000-0000-4000-8000-000000000001 T-1 --file task.json --json"),
-        )
-        .arg(crate::cli_grammar::page())
-        .arg(task_arg())
-        .arg(revision_arg())
-        .arg(file_arg("{\"title\": ..., \"detail\": ..., \"acceptance\": [...], \"needsSignoff\": true, \"externalId\": ...}").required(true)),
-    )
-    .subcommand(
-        spec(
-            "state",
-            "Move a task to another state",
-            "A blocked task needs --reason; no other state takes one.",
-            example!("tmt colab task state 10000000-0000-4000-8000-000000000001 T-1 in-progress --json"),
-        )
-        .arg(crate::cli_grammar::page())
-        .arg(task_arg())
-        .arg(
-            Arg::new("state")
-                .index(3)
-                .required(true)
-                .value_parser(work::STATES),
-        )
-        .arg(revision_arg())
-        .arg(text_arg("reason", "Why the task is blocked, at most 256 bytes")),
-    )
-    .subcommand(
-        spec(
-            "assign",
-            "Assign a task, or leave it unassigned",
-            "Without an assignee the task is unassigned.",
-            example!("tmt colab task assign 10000000-0000-4000-8000-000000000001 T-1 ada --json"),
-        )
-        .arg(crate::cli_grammar::page())
-        .arg(task_arg())
-        .arg(
-            Arg::new("assignee")
-                .index(3)
-                .value_name("ASSIGNEE")
-                .help(assign_help),
-        )
+        .arg(child_arg())
+        .arg(before_arg())
         .arg(revision_arg()),
     )
     .subcommand(
         spec(
-            "link",
-            "Make a task follow another page",
-            "The task's state then follows that page: todo while the page has no task, in-progress while it has, done when all of its tasks are (in-review instead when the task needs sign-off). A page has at most one parent, and sub-pages nest to any depth. A loop or an existing invalid hierarchy is refused (COLAB_LINK_REFUSED with a stable reason). Inspect legacy links with tmt colab show PAGE --json and repair them with task unlink. A task with an external ID cannot follow a page, and the state of a task that follows one cannot be set.",
-            example!("tmt colab task link 10000000-0000-4000-8000-000000000001 T-3 20000000-0000-4000-8000-000000000001 --json"),
+            "detach",
+            "Remove a page from the sub-pages",
+            "The page itself stays; it only stops being a sub-page here. Always admitted for a listed page, so a stored conflict can be repaired.",
+            example!("tmt colab subpage detach 10000000-0000-4000-8000-000000000001 20000000-0000-4000-8000-000000000002 --json"),
         )
         .arg(crate::cli_grammar::page())
-        .arg(task_arg())
-        .arg(
-            Arg::new("child")
-                .index(3)
-                .required(true)
-                .value_name("CHILD")
-                .help("The page this task follows, named as any page is"),
-        )
+        .arg(child_arg())
         .arg(revision_arg()),
     )
     .subcommand(
         spec(
-            "unlink",
-            "Stop a task following its page",
-            "The task shows its own state again. Removing a link can repair an invalid hierarchy, even if restoring the task exceeds the work-in-progress limit. The child page is not changed.",
-            example!("tmt colab task unlink 10000000-0000-4000-8000-000000000001 T-3 --json"),
+            "move",
+            "Reorder a sub-page",
+            "Moves a listed sub-page in front of --before, or to the end.",
+            example!("tmt colab subpage move 10000000-0000-4000-8000-000000000001 20000000-0000-4000-8000-000000000002 --before 20000000-0000-4000-8000-000000000003 --json"),
         )
         .arg(crate::cli_grammar::page())
-        .arg(task_arg())
+        .arg(child_arg())
+        .arg(before_arg())
         .arg(revision_arg()),
     )
     .subcommand(
         spec(
-            "convert",
-            "Turn a task into a page of its own and follow it",
-            "Refuses a child page or an existing invalid hierarchy before creating anything (COLAB_LINK_REFUSED with a stable reason). Otherwise creates a new page titled like the task, with the task's detail as its text, then makes the task follow it. If the link fails the page already exists: the command prints it and the tmt colab task link command that finishes the job. It never opens a browser.",
-            example!("tmt colab task convert 10000000-0000-4000-8000-000000000001 T-3 --json"),
+            "create",
+            "Make a new page and attach it",
+            "The new page starts with the title as its heading. The page is made first, so an attach that fails leaves the page and says how to finish; it never searches for a page to adopt.",
+            example!("tmt colab subpage create 10000000-0000-4000-8000-000000000001 --title 'Launch checklist' --json"),
         )
         .arg(crate::cli_grammar::page())
-        .arg(task_arg()),
+        .arg(text_arg("title", "The new page's title").required(true)),
     )
-    .subcommand(
-        spec(
-            "rm",
-            "Remove a task",
-            "The task's ID is never handed out again.",
-            example!("tmt colab task rm 10000000-0000-4000-8000-000000000001 T-1 --json"),
-        )
-        .arg(crate::cli_grammar::page())
-        .arg(task_arg())
-        .arg(revision_arg()),
-    )
-    .subcommand(crate::cli_work_github::command())
 }
 
 pub fn summary_command() -> Command {
@@ -256,92 +171,7 @@ fn now() -> Result<u64> {
         .as_millis()
         .try_into()?)
 }
-fn invalid(message: &str) -> Box<dyn std::error::Error + Send + Sync> {
-    fail("COLAB_INPUT_INVALID", message)
-}
 
-/// `NAME` and `agent:NAME` are an agent, `person:NAME` a person.
-fn assignee(value: &str) -> Value {
-    match value.split_once(':') {
-        Some(("person", name)) => json!({"kind":"person","name":name}),
-        Some(("agent", name)) => json!({"kind":"agent","name":name}),
-        _ => json!({"kind":"agent","name":value}),
-    }
-}
-fn body_from_file(args: &ArgMatches) -> Result<Value> {
-    let source = crate::page_source(args.get_one::<PathBuf>("file").expect("file checked"))?;
-    if source.len() > tmt_colab::decoder::UPDATE_BYTES {
-        return Err(Fault::Invalid.into());
-    }
-    serde_json::from_str(&source).map_err(|_| invalid("The file must contain one JSON object."))
-}
-/// The closed action and body the command asks for.
-fn action(group: &str, name: &str, args: &ArgMatches) -> Result<(&'static str, Value)> {
-    let task = || {
-        args.get_one::<String>("task")
-            .expect("required task")
-            .clone()
-    };
-    Ok(match (group, name) {
-        ("summary", "set") => (
-            "summary.set",
-            json!({"line1":args.get_one::<String>("line1"),"line2":args.get_one::<String>("line2")}),
-        ),
-        ("summary", _) => ("summary.clear", json!({})),
-        (_, "add") => {
-            let task = if args.get_one::<PathBuf>("file").is_some() {
-                body_from_file(args)?
-            } else {
-                let mut task = json!({"title":args.get_one::<String>("title")});
-                if let Some(detail) = args.get_one::<String>("detail") {
-                    task["detail"] = json!(detail);
-                }
-                if let Some(who) = args.get_one::<String>("assignee") {
-                    task["assignee"] = assignee(who);
-                }
-                if args.get_flag("signoff") {
-                    task["needsSignoff"] = json!(true);
-                }
-                if let Some(id) = args.get_one::<String>("external-id") {
-                    task["externalId"] = json!(id);
-                }
-                task
-            };
-            ("task.add", json!({"task":task}))
-        }
-        (_, "set") => {
-            let mut body = body_from_file(args)?;
-            body.as_object_mut()
-                .ok_or_else(|| invalid("The file must contain one JSON object."))?
-                .insert("taskId".into(), json!(task()));
-            ("task.set", body)
-        }
-        (_, "state") => {
-            let mut body = json!({"taskId":task(),"state":args.get_one::<String>("state")});
-            if let Some(reason) = args.get_one::<String>("reason") {
-                body["reason"] = json!(reason);
-            }
-            ("task.state", body)
-        }
-        (_, "link") => (
-            "task.link",
-            json!({"taskId":task(),"pageId":args.get_one::<String>("child").expect("required child")}),
-        ),
-        (_, "unlink") => ("task.unlink", json!({"taskId":task()})),
-        (_, "assign") => {
-            let mut body = json!({"taskId":task()});
-            if let Some(who) = args.get_one::<String>("assignee") {
-                body["assignee"] = assignee(who);
-            }
-            ("task.assign", body)
-        }
-        _ => ("task.remove", json!({"taskId":task()})),
-    })
-}
-
-fn short(page: &str) -> &str {
-    page.get(..8).unwrap_or(page)
-}
 /// A refusal the shared admission names, as this command's fault.
 fn fault(
     error: Box<dyn std::error::Error + Send + Sync>,
@@ -356,65 +186,64 @@ fn fault(
         None => error,
     }
 }
-fn link_refusal(
-    why: &Refusal,
-    page: &str,
-    task: &str,
-    child: &str,
-) -> Box<dyn std::error::Error + Send + Sync> {
-    fault(work_admission::link_refusal(why, page, task, child))
-}
 
-/// A work action that was written: the receipt and the work it was based on.
-pub(crate) struct Written {
-    pub receipt: page::Receipt,
-    pub base: page::WorkPage,
-}
-
-/// One conditional work action on a page, through the structured publication owner: on the revision
-/// it just read, or on `expected`. This is the whole of a write command's effect; a caller that must
-/// reach out first (the GitHub driver) reads, reaches out, then calls this.
+/// One conditional work action on a page, through the structured publication owner: on the
+/// revision it just read, or on `expected`. Sub-pages named by a prefix are resolved the way every
+/// command reads a page; one that is not there is refused as a link would be.
 pub(crate) fn write_work(
     root: &Path,
     page: &str,
     action: &'static str,
     body: &Value,
     expected: Option<&str>,
-) -> Result<Written> {
+) -> Result<page::Receipt> {
     let layout = Layout::existing(root)?.ok_or(Fault::Missing)?;
-    let key = Keyring::read(&layout)?;
     let lock = crate::write_owner(&layout)?;
-    let store = Store::read(&layout)?;
+    write_work_owned(root, &layout, page, action, body, expected, lock.as_ref())
+}
+/// `write_work` under a write lock the caller already holds (`None`: the running serve writes).
+fn write_work_owned(
+    root: &Path,
+    layout: &Layout,
+    page: &str,
+    action: &'static str,
+    body: &Value,
+    expected: Option<&str>,
+    lock: Option<&nix::fcntl::Flock<std::fs::File>>,
+) -> Result<page::Receipt> {
+    let key = Keyring::read(layout)?;
+    let store = Store::read(layout)?;
     store.require_current_schema()?;
     let page_id = resolve_page(&store, &key, page)?;
     let mut decoder = Decoder::new(std::env::current_exe()?)?;
     let read = page::read_work(&store, &key, &page_id, &mut decoder)?;
-    // A page named by anything but its ID is read the way every command reads one; a page that is
-    // not there is refused as a link would be.
-    let linked;
-    let body = if action == "task.link" {
-        let child = body["pageId"].as_str().unwrap_or_default();
-        let id = resolve_page(&store, &key, child)
-            .map_err(|_| link_refusal(&Refusal::Unavailable, &page_id, "", child))?;
-        linked = json!({"taskId":body["taskId"],"pageId":id});
-        &linked
-    } else {
-        body
-    };
+    let mut body = body.clone();
+    for field in ["pageId", "before"] {
+        if let Some(named) = body[field].as_str().map(str::to_owned) {
+            let id = resolve_page(&store, &key, &named).map_err(|_| {
+                fault(work_admission::link_refusal(
+                    &Refusal::Unavailable,
+                    &page_id,
+                    &named,
+                ))
+            })?;
+            body[field] = json!(id);
+        }
+    }
     // Whatever the command read is the base unless the caller named one.
     let expected = expected.unwrap_or(&read.revision).to_owned();
     work_admission::admit(
         &Space {
             root,
-            layout: &layout,
+            layout,
             store: &store,
             key: &key,
         },
         &mut decoder,
         &page_id,
-        &read.work,
+        &json!({"version":2,"order":read.children}),
         action,
-        body,
+        &body,
     )
     .map_err(fault)?;
     let display_agent = crate::core::caller_snapshot().map(|caller| {
@@ -431,7 +260,7 @@ pub(crate) fn write_work(
         page::StructuredAction {
             kind: StructuredKind::Work,
             action,
-            body,
+            body: &body,
             display_agent,
             expected_revision: &expected,
             operation_id: None,
@@ -442,66 +271,51 @@ pub(crate) fn write_work(
     let closed = store.close();
     let prepared = prepared?;
     closed?;
-    let receipt = crate::publish_structured_owned(
-        &layout,
-        &key,
-        &page_id,
-        prepared,
-        &mut decoder,
-        now,
-        lock.as_ref(),
-    )?;
-    Ok(Written {
-        receipt,
-        base: read,
-    })
+    crate::publish_structured_owned(layout, &key, &page_id, prepared, &mut decoder, now, lock)
 }
 
 pub fn run(root: &Path, group: &str, args: &ArgMatches) -> Result<()> {
     let (name, args) = args.subcommand().expect("required work command");
-    if group == "task" && name == "github" {
-        return crate::cli_work_github::run(root, args);
-    }
-    if group == "task" && name == "ls" {
-        return read_and_list(root, args);
-    }
-    if group == "task" && name == "convert" {
-        return convert(root, args);
-    }
-    let (action, body) = action(group, name, args)?;
-    let written = write_work(
+    let page = args.get_one::<String>("page").expect("required page");
+    let text = |name: &str| args.get_one::<String>(name).cloned();
+    let (action, body) = match (group, name) {
+        ("subpage", "ls") => return list(root, page, args.get_flag("json")),
+        ("subpage", "create") => return create_subpage(root, page, args),
+        ("summary", "set") => (
+            "summary.set",
+            json!({"line1":text("line1"),"line2":text("line2")}),
+        ),
+        ("summary", _) => ("summary.clear", json!({})),
+        (_, "detach") => ("subpage.detach", json!({"pageId":text("child")})),
+        (_, verb) => {
+            let mut body = json!({"pageId":text("child")});
+            if let Some(before) = text("before") {
+                body["before"] = json!(before);
+            }
+            (
+                if verb == "move" {
+                    "subpage.move"
+                } else {
+                    "subpage.attach"
+                },
+                body,
+            )
+        }
+    };
+    let receipt = write_work(
         root,
-        args.get_one::<String>("page").expect("required page"),
+        page,
         action,
         &body,
         args.get_one::<String>("expected-revision")
             .map(String::as_str),
     )?;
-    let receipt = written.receipt;
     let json_output = args.get_flag("json");
     let mut output = tmt_cli_style::stream::stdout(json_output);
-    // A new task's ID is the one the page was about to hand out: this command holds the base.
-    let created = (action == "task.add" && receipt.changed).then(|| {
-        format!(
-            "T-{}",
-            written.base.work["next"].as_u64().unwrap_or_default()
-        )
-    });
     if json_output {
-        let mut value = serde_json::to_value(&receipt)?;
-        if let Some(id) = &created {
-            value["taskId"] = json!(id);
-        }
-        writeln!(output, "{value}")?;
+        writeln!(output, "{}", serde_json::to_value(&receipt)?)?;
     } else {
         let terminal = output.terminal();
-        let mut rows = vec![
-            ("page", receipt.page_id.clone()),
-            ("revision", receipt.revision.clone()),
-        ];
-        if let Some(id) = created {
-            rows.insert(1, ("task", id));
-        }
         tmt_cli_style::detail::write(
             &mut output,
             terminal,
@@ -510,93 +324,191 @@ pub fn run(root: &Path, group: &str, args: &ArgMatches) -> Result<()> {
             } else {
                 "WORK UNCHANGED"
             },
-            &rows,
+            &[
+                ("page", receipt.page_id.clone()),
+                ("revision", receipt.revision.clone()),
+            ],
         )?;
     }
     Ok(())
 }
 
-/// A page's work read without a write lock: the page's ID and what it holds now.
-pub(crate) fn read_page_work(root: &Path, page: &str) -> Result<(String, page::WorkPage)> {
+/// What `subpage ls` and `subpage create` read, without a write lock.
+struct Read {
+    page_id: String,
+    work: page::WorkPage,
+    /// The space's work, for the link rules and each sub-page's state.
+    found: work_index::Found,
+    /// Each readable sub-page's title.
+    titles: std::collections::BTreeMap<String, String>,
+}
+/// The one-shot rewrite of task-era work values (#5825), run when the serve opens a space: every
+/// page still holding version 1 gets one `work.migrate` action, which keeps its linked pages in
+/// task order and its summary and drops its plain tasks. Nothing is dropped without a copy: the
+/// page's whole version 1 value is first written to an owner-only export
+/// (`migrations/5825/<pageId>.json` in the space's directory), and a page whose export cannot be
+/// written is not rewritten. A page already at version 2 is left alone, so the run is idempotent;
+/// a page that cannot be exported or rewritten now is `report`ed, keeps its value (`show` and `ls`
+/// warn `work-not-migrated`) and is tried at the next open. The serve holds the write lock
+/// (`serve_lock`) and passes it, since its own socket is not up yet to take a write. Returns the
+/// pages rewritten.
+pub(crate) fn migrate_space(
+    root: &Path,
+    lock: &nix::fcntl::Flock<std::fs::File>,
+    report: &dyn Fn(&str),
+) -> Result<Vec<String>> {
+    let Some(layout) = Layout::existing(root)? else {
+        return Ok(Vec::new());
+    };
+    let key = Keyring::read(&layout)?;
+    let store = Store::read(&layout)?;
+    store.require_current_schema()?;
+    let mut decoder = Decoder::new(std::env::current_exe()?)?;
+    let legacy: Result<Vec<(String, Value)>> = tmt_colab::inspection::all_page_ids(&store, &key)
+        .map(|pages| {
+            pages
+                .into_iter()
+                .filter_map(|page| {
+                    let value = page::read_work(&store, &key, &page, &mut decoder)
+                        .ok()?
+                        .legacy?;
+                    Some((page, value))
+                })
+                .collect()
+        });
+    let closed = store.close();
+    let legacy = legacy?;
+    closed?;
+    let mut rewritten = Vec::new();
+    for (page, value) in legacy {
+        let exported = match export_legacy(&layout.directory, &page, &value) {
+            Ok(path) => path,
+            Err(error) => {
+                report(&format!(
+                    "Page {page} keeps its task-era work until the next serve: its copy could not be written ({error})."
+                ));
+                continue;
+            }
+        };
+        match write_work_owned(
+            root,
+            &layout,
+            &page,
+            tmt_colab::work::MIGRATE,
+            &json!({}),
+            None,
+            Some(lock),
+        ) {
+            Ok(_) => {
+                report(&format!(
+                    "Page {page}: task-era work rewritten as sub-pages; its tasks are kept in {}.",
+                    exported.display()
+                ));
+                rewritten.push(page);
+            }
+            Err(error) => report(&format!(
+                "Page {page} keeps its task-era work until the next serve: {error}"
+            )),
+        }
+    }
+    Ok(rewritten)
+}
+
+/// Write a page's whole task-era value to `<space>/migrations/5825/<pageId>.json`, owner-only
+/// (directories 0700, file 0600, never through a link), and return the path. A copy left by an
+/// earlier attempt is replaced: the value it holds is the same until the page is rewritten.
+fn export_legacy(space: &Path, page: &str, value: &Value) -> Result<std::path::PathBuf> {
+    use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt, PermissionsExt};
+    let mut directory = space.to_path_buf();
+    for part in ["migrations", "5825"] {
+        directory.push(part);
+        match std::fs::DirBuilder::new().mode(0o700).create(&directory) {
+            Ok(()) => {}
+            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {}
+            Err(error) => return Err(error.into()),
+        }
+        let found = std::fs::symlink_metadata(&directory)?;
+        if !found.is_dir() || found.permissions().mode() & 0o077 != 0 {
+            return Err(format!("{} is not a private directory", directory.display()).into());
+        }
+    }
+    let path = directory.join(format!("{page}.json"));
+    let mut file = std::fs::OpenOptions::new()
+        .write(true)
+        .create(true)
+        .truncate(true)
+        .mode(0o600)
+        .custom_flags(nix::libc::O_NOFOLLOW)
+        .open(&path)?;
+    file.set_permissions(std::fs::Permissions::from_mode(0o600))?;
+    file.write_all(&serde_json::to_vec_pretty(value)?)?;
+    file.sync_all()?;
+    Ok(path)
+}
+
+/// A page's work read without a write lock, with what the space says about its sub-pages.
+fn read_with_space(root: &Path, page: &str) -> Result<Read> {
     let layout = Layout::existing(root)?.ok_or(Fault::Missing)?;
     let key = Keyring::read(&layout)?;
     let store = Store::read(&layout)?;
     store.require_current_schema()?;
     let page_id = resolve_page(&store, &key, page)?;
     let mut decoder = Decoder::new(std::env::current_exe()?)?;
-    let current = page::read_work(&store, &key, &page_id, &mut decoder);
-    let closed = store.close();
-    let read = current?;
-    closed?;
-    Ok((page_id, read))
-}
-
-/// `read` with every task that follows a page showing that page's stage. The space's pages are read
-/// only when this page has such a task.
-fn follow_pages(root: &Path, page_id: &str, read: &mut page::WorkPage) -> Result<()> {
-    let linked = read.work["tasks"]
-        .as_object()
-        .is_some_and(|tasks| tasks.values().any(|task| task.get("child").is_some()));
-    if !linked {
-        return Ok(());
-    }
-    let layout = Layout::existing(root)?.ok_or(Fault::Missing)?;
-    let key = Keyring::read(&layout)?;
-    let store = Store::read(&layout)?;
-    store.require_current_schema()?;
-    let mut decoder = Decoder::new(std::env::current_exe()?)?;
-    let found = tmt_colab::inspection::all_page_ids(&store, &key).and_then(|pages| {
-        work_index::scan_with_live(&layout, &store, &key, &mut decoder, &pages, Some(&pages))
+    let read = page::read_work(&store, &key, &page_id, &mut decoder).and_then(|work| {
+        let pages = tmt_colab::inspection::all_page_ids(&store, &key)?;
+        let found =
+            work_index::scan_with_live(&layout, &store, &key, &mut decoder, &pages, Some(&pages))?;
+        let titles = work
+            .children
+            .iter()
+            .filter_map(|child| {
+                let title = page::read_work(&store, &key, child, &mut decoder)
+                    .ok()?
+                    .title;
+                Some((child.clone(), title))
+            })
+            .collect();
+        Ok(Read {
+            page_id: page_id.clone(),
+            work,
+            found,
+            titles,
+        })
     });
     let closed = store.close();
-    let found = found?;
+    let read = read?;
     closed?;
-    if let Some(derived) = Graph(&found).derived(page_id) {
-        read.derived = derived;
+    Ok(read)
+}
+
+/// `subpage create`: a new page with the title as its heading, then the attach. The page is made
+/// first, so an attach that fails leaves a page and says how to finish; it never searches for one
+/// to adopt.
+fn create_subpage(root: &Path, page: &str, args: &ArgMatches) -> Result<()> {
+    let title = tmt_colab::subpage_create::title(&json!(
+        args.get_one::<String>("title").expect("required title")
+    ))
+    .map_err(|_| {
+        fail(
+            "COLAB_INPUT_INVALID",
+            "A title is one line of text, not empty.",
+        )
+    })?
+    .to_owned();
+    let Read {
+        page_id,
+        work: read,
+        found,
+        ..
+    } = read_with_space(root, page)?;
+    // Refuse what the attach would refuse before a page exists.
+    if let Some(why) = Graph(&found).creation_refusal(&page_id) {
+        return Err(fault(work_admission::link_refusal(&why, &page_id, "")));
     }
-    Ok(())
-}
-
-/// `task ls`: a read, which takes no write lock and creates nothing.
-fn read_and_list(root: &Path, args: &ArgMatches) -> Result<()> {
-    let (page_id, mut read) =
-        read_page_work(root, args.get_one::<String>("page").expect("required page"))?;
-    follow_pages(root, &page_id, &mut read)?;
-    list(&page_id, &read, args.get_flag("json"))
-}
-
-/// `task convert`: a new page made from the task, then the link. The page is created first, so a link
-/// that fails leaves a page and says how to finish; it never searches for one to adopt.
-fn convert(root: &Path, args: &ArgMatches) -> Result<()> {
-    let page = args.get_one::<String>("page").expect("required page");
-    let task_id = args.get_one::<String>("task").expect("required task");
-    let (page_id, read) = read_page_work(root, page)?;
-    // Refuse what the link would refuse before a page exists.
-    let task = tmt_colab::work_convert::convertible(&read.work, task_id)
-        .map_err(|blocked| invalid(&blocked.message(task_id)))?;
-    let layout = Layout::existing(root)?.ok_or(Fault::Missing)?;
-    let key = Keyring::read(&layout)?;
-    let store = Store::read(&layout)?;
-    let mut decoder = Decoder::new(std::env::current_exe()?)?;
-    let admitted = work_admission::admit_conversion(
-        &Space {
-            root,
-            layout: &layout,
-            store: &store,
-            key: &key,
-        },
-        &mut decoder,
-        &page_id,
-        task_id,
-    );
-    let closed = store.close();
-    admitted.map_err(fault)?;
-    closed?;
-    let title = task["title"].as_str().unwrap_or_default();
     let created = crate::cli_management::commit_creation(
         root,
-        title,
-        tmt_colab::work_convert::child_source(title, task["detail"].as_str().unwrap_or_default()),
+        &title,
+        tmt_colab::subpage_create::child_source(&title),
         Some(&tmt_colab::decoder::PageLayout {
             kind: tmt_colab::decoder::LayoutKind::Column,
             reason: None,
@@ -605,22 +517,15 @@ fn convert(root: &Path, args: &ArgMatches) -> Result<()> {
     )?;
     let child = created.page_id;
     let finish = format!(
-        "The page {child} was created from {task_id}; finish with: tmt colab task link {page_id} {task_id} {child}"
+        "The page {child} was created; finish with: tmt colab subpage attach {page_id} {child}"
     );
-    // Making a page moves the space, so the revision read before is stale. What matters is the task:
-    // the link is written on the revision read now, and only if the task is still the one copied.
-    let (_, now) = read_page_work(root, &page_id)?;
-    if now.work["tasks"].get(task_id.as_str()) != Some(task) {
-        return Err(invalid(&format!(
-            "{task_id} changed while its page was being made, so it was not linked. {finish}"
-        )));
-    }
-    let written = write_work(
+    // Making a page moves the space, so the attach is written on the revision read now.
+    let receipt = write_work(
         root,
         &page_id,
-        "task.link",
-        &json!({"taskId":task_id,"pageId":child}),
-        Some(&now.revision),
+        "subpage.attach",
+        &json!({"pageId":child}),
+        None,
     )
     .map_err(|error| {
         Box::new(crate::cli_management::ManagementFault {
@@ -630,14 +535,12 @@ fn convert(root: &Path, args: &ArgMatches) -> Result<()> {
             source: Some(error),
         }) as Box<dyn std::error::Error + Send + Sync>
     })?;
-    let receipt = written.receipt;
     let json_output = args.get_flag("json");
     let mut output = tmt_cli_style::stream::stdout(json_output);
     let reach = crate::reach::Reach::gather();
     let path = crate::reach::Reach::path(&read.space_id, &child);
     if json_output {
         let mut value = serde_json::to_value(&receipt)?;
-        value["taskId"] = json!(task_id);
         value["childPage"] = json!(child);
         value["title"] = json!(title);
         reach.annotate(&mut value, &path);
@@ -647,11 +550,10 @@ fn convert(root: &Path, args: &ArgMatches) -> Result<()> {
         tmt_cli_style::detail::write(
             &mut output,
             terminal,
-            "TASK CONVERTED",
+            "SUB-PAGE CREATED",
             &[
                 ("page", page_id),
-                ("task", task_id.clone()),
-                ("child page", child),
+                ("sub-page", child),
                 ("link", reach.text(&path)),
                 ("revision", receipt.revision.clone()),
             ],
@@ -660,20 +562,38 @@ fn convert(root: &Path, args: &ArgMatches) -> Result<()> {
     Ok(())
 }
 
-fn list(page_id: &str, read: &page::WorkPage, json_output: bool) -> Result<()> {
+/// `subpage ls`: a read, which takes no write lock and creates nothing.
+fn list(root: &Path, page: &str, json_output: bool) -> Result<()> {
+    let Read {
+        page_id,
+        work: read,
+        found,
+        titles,
+    } = read_with_space(root, page)?;
+    let graph = Graph(&found);
+    let progress = graph.progress(&page_id).unwrap_or_default();
     let reach = crate::reach::Reach::gather();
-    let path = crate::reach::Reach::path(&read.space_id, page_id);
+    let path = crate::reach::Reach::path(&read.space_id, &page_id);
     let mut output = tmt_cli_style::stream::stdout(json_output);
+    let subpages: Vec<Value> = read
+        .children
+        .iter()
+        .map(|child| {
+            json!({"pageId":child,"title":titles.get(child),"state":graph.page_state(child)})
+        })
+        .collect();
     if json_output {
-        let mut value = serde_json::to_value(read)?;
+        let mut value = serde_json::to_value(&read)?;
+        value["subpages"] = json!(subpages);
+        value["progress"] = json!(progress);
+        value["stage"] = json!(progress.stage());
         reach.annotate(&mut value, &path);
         writeln!(output, "{value}")?;
         return Ok(());
     }
     let terminal = output.terminal();
-    let derived = &read.derived;
     let mut rows = vec![
-        ("page", page_id.to_owned()),
+        ("page", page_id.clone()),
         ("link", reach.text(&path)),
         ("title", read.title.clone()),
         ("revision", read.revision.clone()),
@@ -681,13 +601,13 @@ fn list(page_id: &str, read: &page::WorkPage, json_output: bool) -> Result<()> {
             "stage",
             format!(
                 "{} ({}/{} done)",
-                derived["stage"].as_str().unwrap_or_default(),
-                derived["done"],
-                derived["total"]
+                progress.stage(),
+                progress.done,
+                progress.total
             ),
         ),
     ];
-    if let Some(summary) = read.work.get("summary") {
+    if let Some(summary) = &read.summary {
         rows.push((
             "summary",
             format!(
@@ -697,27 +617,14 @@ fn list(page_id: &str, read: &page::WorkPage, json_output: bool) -> Result<()> {
             ),
         ));
     }
-    for id in read.work["order"].as_array().into_iter().flatten() {
-        let id = id.as_str().unwrap_or_default();
-        let task = &read.work["tasks"][id];
-        let state = derived["states"][id]
-            .as_str()
-            .or(task["state"].as_str())
-            .unwrap_or_default();
-        let follows = task["child"]
-            .as_str()
-            .map_or(String::new(), |child| format!("  follows {}", short(child)));
+    for row in &subpages {
         rows.push((
-            "task",
+            "sub-page",
             format!(
-                "{id}  {state}{follows}  {}{}  {}",
-                task["assignee"]["name"].as_str().unwrap_or("-"),
-                if task["needsSignoff"] == true {
-                    "  signoff"
-                } else {
-                    ""
-                },
-                task["title"].as_str().unwrap_or_default()
+                "{}  {}  {}",
+                row["pageId"].as_str().unwrap_or_default(),
+                row["state"].as_str().unwrap_or("unknown"),
+                row["title"].as_str().unwrap_or("(untitled)")
             ),
         ));
     }

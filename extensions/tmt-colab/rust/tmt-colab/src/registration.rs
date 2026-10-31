@@ -313,14 +313,8 @@ impl Registration {
             if let Some(work) = graph.row(&id) {
                 page["summary"]["work"] = work;
             }
-            if let Some((parent, task)) = parents.get(&id) {
-                let mut value = serde_json::json!({"page": parent, "task": task});
-                // Additive: the parent task's own title, so the crumb names it without reading
-                // the parent page.
-                if let Some(title) = graph.task_title(parent, task) {
-                    value["title"] = serde_json::json!(title);
-                }
-                page["summary"]["parent"] = value;
+            if let Some((parent, index)) = parents.get(&id) {
+                page["summary"]["parent"] = serde_json::json!({"page": parent, "index": index});
             }
         }
         if let Some(open) = &self.summary_source {
@@ -701,10 +695,10 @@ impl Registration {
                 operation_id,
             )?,
         )?;
-        let child = crate::work_convert::child_page_id(&self.keyring.space_id, operation_id);
+        let child = crate::subpage_create::child_page_id(&self.keyring.space_id, operation_id);
         Ok(recorded.with_child(self.page_epoch(&child).map(|_| child)))
     }
-    /// Make the page a browser's convert operation names, as the owner's own `page.create`: a
+    /// Make the page a browser's create operation names, as the owner's own `page.create`: a
     /// column page with this title and first text, no publisher agent and nothing the browser
     /// chose. The caller holds the sync lock and has authorized the owner device.
     pub(crate) fn create_child(
@@ -730,7 +724,7 @@ impl Registration {
         });
         let body = serde_json::to_vec(&serde_json::json!({
             "space": space, "page": page, "expectedRevision": revision,
-            "operationId": crate::work_convert::create_operation_id(&space, operation_id),
+            "operationId": crate::subpage_create::create_operation_id(&space, operation_id),
             "operation": "page.create",
             "payload": tmt_colab_model::values::encode_binary(&serde_json::to_vec(&payload)?),
         }))?;
@@ -1700,7 +1694,8 @@ mod describe_tests {
             "owner":true,"grantRevision":1})
         .to_string();
         let (_, fingerprints) = service.owner_catalog_fingerprinted().unwrap();
-        // `top` has a finished task of its own and one that follows `leaf`; `leaf` is done.
+        // `top` still holds a task-era value: a plain finished task and one that follows `leaf`.
+        // Unmigrated, it reads `leaf` as its one sub-page; `leaf` is done.
         let work = |tasks: serde_json::Value, order: serde_json::Value, next: u32| json!({"work": {"version":1,"next":next,"tasks":tasks,"order":order}});
         let top_work = work(
             json!({
@@ -1710,12 +1705,7 @@ mod describe_tests {
             json!(["T-1", "T-2"]),
             3,
         );
-        let mut leaf_work = work(
-            json!({"T-1":{"title":"Do","state":"done"}}),
-            json!(["T-1"]),
-            2,
-        );
-        leaf_work["pageState"] = json!("done");
+        let leaf_work = json!({"pageState":"done"});
         let put = |page: &str, fingerprint: &str, meta: Option<&serde_json::Value>| {
             service.summaries.put(
                 page,
@@ -1725,9 +1715,7 @@ mod describe_tests {
                     waiting: false,
                     needs_you: 0,
                     author: None,
-                    work: meta
-                        .and_then(|meta| crate::work_index::page_work(page, meta))
-                        .map(Box::new),
+                    work: meta.and_then(crate::work_index::page_work).map(Box::new),
                 })),
             )
         };
@@ -1746,19 +1734,15 @@ mod describe_tests {
                     .collect()
             };
         let list = rows(&service);
-        // `leaf` is done, so the task that follows it is done and `top` is done: the stage crosses
-        // pages. The row names no per-task state and no assignee id.
+        // `leaf` is done, so `top`'s one direct sub-page is done; the plain task does not count.
         assert_eq!(
             list[top]["summary"]["work"],
-            json!({"stage":"done","done":2,"total":2,"signoff":0,"working":[]})
+            json!({"stage":"done","done":1,"total":1})
         );
-        assert_eq!(
-            list[leaf]["summary"]["work"],
-            json!({"stage":"done","done":1,"total":1,"signoff":0,"working":[]})
-        );
+        assert!(list[leaf]["summary"].get("work").is_none());
         assert_eq!(
             list[leaf]["summary"]["parent"],
-            json!({"page":top,"task":"T-1","title":"Leaf"})
+            json!({"page":top,"index":0})
         );
         assert_eq!(list[top]["state"], "todo");
         assert!(list[top].get("progress").is_none());
@@ -1769,7 +1753,7 @@ mod describe_tests {
         assert_eq!(details["pageState"], "todo");
         assert_eq!(
             details["progress"],
-            json!({"done":2,"inProgress":0,"todo":0,"unknown":0,"total":2})
+            json!({"done":1,"inProgress":0,"todo":0,"unknown":0,"total":1})
         );
         // A fresh page without work has a summary and neither field; a page without a fresh summary
         // has no summary at all.
@@ -1780,11 +1764,11 @@ mod describe_tests {
         assert!(list[top]["summary"].get("parent").is_none());
         assert!(list[unread].get("summary").is_none());
 
-        // The followed page goes stale: its stage is unknown, so the task keeps its own state.
+        // The sub-page goes stale: its state is unknown, so it no longer counts as done.
         put(leaf, "stale fingerprint", Some(&leaf_work));
         let list = rows(&service);
         assert_eq!(list[top]["summary"]["work"]["stage"], "in-progress");
-        assert_eq!(list[top]["summary"]["work"]["done"], 1);
+        assert_eq!(list[top]["summary"]["work"]["done"], 0);
         assert!(list[leaf].get("summary").is_none());
         assert!(list[top].get("progress").is_none());
         let details: serde_json::Value =
@@ -1792,7 +1776,7 @@ mod describe_tests {
                 .unwrap();
         assert_eq!(
             details["progress"],
-            json!({"done":1,"inProgress":0,"todo":0,"unknown":1,"total":2})
+            json!({"done":0,"inProgress":0,"todo":0,"unknown":1,"total":1})
         );
     }
 

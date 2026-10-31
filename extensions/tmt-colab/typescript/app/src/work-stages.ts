@@ -1,15 +1,11 @@
 import { useEffect, useState } from 'react';
 import { rememberPages, rememberedPages, watchRememberedPages } from './quick-switcher-source.js';
 import type { PageSummary, PageTransport } from './transport.js';
-import type { Work } from './work.js';
+import { subpages, type StoredWork } from './work.js';
 
-/** The pages a work value's tasks follow, as one comparable key. */
-function followed(work: Work | undefined): string {
-  if (!work) return '';
-  return work.order
-    .map((id) => work.tasks[id]?.child)
-    .filter((child): child is string => child !== undefined)
-    .join(' ');
+/** The pages a work value lists, as one comparable key. */
+function followed(work: StoredWork | undefined): string {
+  return subpages(work).join(' ');
 }
 
 /**
@@ -21,7 +17,7 @@ function followed(work: Work | undefined): string {
 export function useLinkedPages(
   transport: PageTransport,
   space: string | undefined,
-  work: Work | undefined,
+  work: StoredWork | undefined,
 ): {
   /** Whether the existing owner list has been observed, including an empty list. */
   observed: boolean;

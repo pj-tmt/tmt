@@ -898,10 +898,7 @@ export class Live implements PageBinding {
     }
     settled(result);
     await this.#showsRevision(result.revision);
-    return {
-      ...(result.taskId === undefined ? {} : { taskId: result.taskId }),
-      ...(result.childPage === undefined ? {} : { childPage: result.childPage }),
-    };
+    return result.childPage === undefined ? {} : { childPage: result.childPage };
   }
   refreshProgress(): void {
     void this.#progressReads.refresh();

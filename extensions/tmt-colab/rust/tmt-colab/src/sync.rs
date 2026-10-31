@@ -443,18 +443,16 @@ pub(crate) struct SaveJob {
     save: crate::page::save::Save,
     /// The editor's change as anchored hunks, evaluated when the page moved since its base.
     hunks: Option<Vec<crate::page::patch::Hunk>>,
-    /// A work action instead of a source: `save` then names only the page and the operation, and
-    /// the job prepares from the action.
-    work: Option<crate::page::work::WorkEdit>,
+    /// A work action (a sub-page or summary action) instead of a source: `save` then names only
+    /// the page and the operation, and the job prepares from the action.
+    subpage: Option<crate::page::subpage::SubpageEdit>,
     metadata: Option<crate::page::metadata::MetadataEdit>,
 }
 /// Whether a save's turn under the lock replied, or its hunks are to be evaluated once more on
 /// a page that moved after they were.
-/// What a work action made besides its commit: the task a `task.add` named, the page a
-/// `task.convert` made.
+/// What a sub-page action made besides its commit: the page a `subpage.create` made.
 #[derive(Default)]
 struct Made {
-    task: Option<String>,
     child: Option<String>,
 }
 enum SaveFinish {
@@ -799,53 +797,35 @@ impl<A: Admission> Server<A> {
         loop {
             let read_clock = || clock().map_err(|_| crate::page::Fault::Unavailable.into());
             let mut made = Made::default();
-            let (prepared, task) = if let Some(edit) = &job.metadata {
-                (
-                    crate::page::metadata::prepare(&job.open, edit, &read_clock)
-                        .map(|prepared| (prepared, None)),
-                    None,
-                )
+            let prepared = if let Some(edit) = &job.metadata {
+                crate::page::metadata::prepare(&job.open, edit, &read_clock)
+                    .map(|prepared| (prepared, None))
             } else {
-                match (&job.work, &job.hunks) {
-                    (Some(work), _) if crate::page::work::is_convert(&work.action) => {
+                match (&job.subpage, &job.hunks) {
+                    (Some(subpage), _) if crate::page::subpage::is_create(&subpage.action) => {
                         let mut create = |page: &str, title: &str, source: &str| {
                             self.create_child(job, page, title, source)
                         };
-                        let converted = crate::page::convert::prepare(
+                        let created = crate::page::subpage_create::prepare(
                             &job.open,
-                            work,
+                            subpage,
                             &read_clock,
                             &mut create,
                         );
-                        made.child = converted.child;
-                        match converted.prepared {
-                            Ok((prepared, task)) => (Ok((prepared, None)), task),
-                            Err(error) => (Err(error), None),
-                        }
+                        made.child = created.child;
+                        created.prepared.map(|prepared| (prepared, None))
                     }
-                    (Some(work), _) => {
-                        match crate::page::work::prepare(&job.open, work, &read_clock) {
-                            Ok((prepared, task)) => (Ok((prepared, None)), task),
-                            Err(error) => (Err(error), None),
-                        }
+                    (Some(subpage), _) => {
+                        crate::page::subpage::prepare(&job.open, subpage, &read_clock)
+                            .map(|prepared| (prepared, None))
                     }
-                    (None, Some(hunks)) => (
-                        crate::page::save::prepare_merging(
-                            &job.open,
-                            &job.save,
-                            hunks,
-                            &read_clock,
-                        ),
-                        None,
-                    ),
-                    (None, None) => (
-                        crate::page::save::prepare(&job.open, &job.save, &read_clock)
-                            .map(|prepared| (prepared, None)),
-                        None,
-                    ),
+                    (None, Some(hunks)) => {
+                        crate::page::save::prepare_merging(&job.open, &job.save, hunks, &read_clock)
+                    }
+                    (None, None) => crate::page::save::prepare(&job.open, &job.save, &read_clock)
+                        .map(|prepared| (prepared, None)),
                 }
             };
-            made.task = task;
             let now = clock();
             let mut state = self.0.lock().map_err(|_| Code::Denied)?;
             match now {
@@ -1685,7 +1665,7 @@ impl<A: Admission> State<A> {
                 attachments,
             },
             hunks,
-            work: None,
+            subpage: None,
             metadata: None,
         })
     }
@@ -1698,11 +1678,11 @@ impl<A: Admission> State<A> {
         action: String,
         body: serde_json::Value,
     ) -> Result<SaveJob, Code> {
-        if !crate::page::work::known(&action) && !crate::page::work::is_convert(&action) {
+        if !crate::page::subpage::known(&action) && !crate::page::subpage::is_create(&action) {
             return Err(Code::Invalid);
         }
         let mut job = self.structured_job_base(scope, principal, operation_id.clone())?;
-        job.work = Some(crate::page::work::WorkEdit {
+        job.subpage = Some(crate::page::subpage::SubpageEdit {
             page: scope.page.clone(),
             operation_id,
             action,
@@ -1735,7 +1715,7 @@ impl<A: Admission> State<A> {
                 attachments: None,
             },
             hunks: None,
-            work: None,
+            subpage: None,
             metadata: None,
         })
     }
@@ -1808,12 +1788,14 @@ impl<A: Admission> State<A> {
                 }
                 (Prepared::Write(frozen), merged) => (frozen, merged),
             };
-            let access =
-                if job.save.attachments.is_some() || job.work.is_some() || job.metadata.is_some() {
-                    Access::Publish
-                } else {
-                    Access::Save
-                };
+            let access = if job.save.attachments.is_some()
+                || job.subpage.is_some()
+                || job.metadata.is_some()
+            {
+                Access::Publish
+            } else {
+                Access::Save
+            };
             if job.for_request {
                 self.admission
                     .authorize_link_save(&job.principal, &job.scope)
@@ -1858,7 +1840,6 @@ impl<A: Admission> State<A> {
                     Some(digest) => {
                         SaveResult::merged(&operation, revision, values::encode_binary(&digest))
                     }
-                    None if job.work.is_some() => SaveResult::made(&operation, revision, made.task),
                     None => SaveResult::committed(&operation, revision),
                 },
                 fan_out.then_some((outputs, combined)),
@@ -1888,7 +1869,7 @@ impl<A: Admission> State<A> {
                 &job.scope,
                 if job.metadata.is_some() {
                     "metadataresult"
-                } else if job.work.is_some() {
+                } else if job.subpage.is_some() {
                     "workresult"
                 } else {
                     "saveresult"

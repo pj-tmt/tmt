@@ -65,7 +65,7 @@ export interface PageSnapshot extends PageSummary {
   /** As on the view: the threads and asks follow through the binding once verified. */
   readonly discussionPending?: boolean;
   readonly shell?: Projection['shell'];
-  /** The page's summary and task list (`meta.work`); never on a dashboard. */
+  /** The page's sub-pages and summary (`meta.work`); never on a dashboard. */
   readonly work?: Projection['work'];
   readonly pageState?: Projection['pageState'];
   readonly creator?: Projection['creator'];
@@ -90,10 +90,9 @@ export interface PageSnapshot extends PageSummary {
 export interface SaveOutcome {
   merged: boolean;
 }
-/** What a work action made: the ID of a committed `task.add`, the page of a `task.convert`. */
+/** What a work action made: the page of a `subpage.create`. */
 export interface WorkOutcome {
-  taskId?: string;
-  /** The page a committed `task.convert` made and linked. */
+  /** The page a committed `subpage.create` made and attached. */
   childPage?: string;
 }
 export interface PageBinding {
@@ -111,7 +110,7 @@ export interface PageBinding {
   /** Whether this device may change the page's work (the owner device's alone). */
   canWork?(): boolean;
   /** One closed work action, committed by the serve; the new value follows through `subscribe`.
-   * Throws `SaveRefused` with the serve's code (`COLAB_WIP_LIMIT`, `COLAB_STALE_BASE`, …). */
+   * Throws `SaveRefused` with the serve's code (`COLAB_LINK_REFUSED`, `COLAB_STALE_BASE`, …). */
   work?(action: WorkAction, body: Record<string, unknown>): Promise<WorkOutcome>;
   /** Metadata writes belong only to the authenticated owner device, independently of Work. */
   canMetadata?(): boolean;

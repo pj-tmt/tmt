@@ -1,82 +1,47 @@
 # Page work
 
-A page can carry a two-line summary and a task list: use them when a page drives work (a plan, a
-spec, a review that turns into tasks). A page with tasks is still an ordinary page. Its manual
-page state is independent of progress: use `tmt colab page state PAGE todo|in-progress|done --json`
-to change it. `tmt colab show PAGE --json` reads the state and native progress buckets. The browser
-shows them in the compact panel below the nav. Expand it for the legend and a selectable task list;
-when sub-pages are listed, `Tasks N` opens the unlinked tasks beside that list.
-A shared reader shows the verified state with progress unavailable. The task-derived stage and
-workers remain separate values. `tmt colab ls` shows only current cached
-work and parent links; missing/stale entries are omitted without reading page content. Use
-`task ls PAGE` for freshly folded work.
+A page's work is its sub-pages: an ordered list of the pages directly under it, plus a two-line
+summary. Use them when a page drives work (a plan, a spec, a review that splits into parts): each
+part is a page of its own. A page with sub-pages is still an ordinary page, and there are no tasks
+or assignees. Its manual page state is independent of progress: use
+`tmt colab page state PAGE todo|in-progress|done --json` to change it. Progress counts the direct
+sub-pages by their own page state, never deeper levels; `tmt colab show PAGE --json` reads the
+state and progress buckets. The browser shows them in the compact panel below the nav; expand it
+for the sub-page list. A shared reader shows the verified state with progress unavailable.
+`tmt colab ls` shows only current cached work and parent links; missing/stale entries are omitted
+without reading page content. Use `subpage ls PAGE` for freshly folded work.
 
 ```sh
-tmt colab task add PAGE --title 'Write the guide' --assignee ada --json   # returns taskId
-tmt colab task state PAGE T-1 in-progress --json
-tmt colab task state PAGE T-1 blocked --reason 'Waiting for the API' --json
-tmt colab task assign PAGE T-1 person:ben --json   # no assignee clears it
-tmt colab task set PAGE T-1 --file task.json --json
-tmt colab task rm PAGE T-1 --json
-tmt colab task ls PAGE --json
+tmt colab subpage create PAGE --title 'Write the guide' --json   # makes a page and attaches it; prints childPage
+tmt colab subpage attach PAGE CHILD --json                       # an existing page; --before SUBPAGE to place it
+tmt colab subpage move PAGE CHILD --before SUBPAGE --json        # without --before it goes last
+tmt colab subpage detach PAGE CHILD --json                       # the page itself stays
+tmt colab subpage ls PAGE --json
 tmt colab summary set PAGE --line1 'Release plan' --line2 'Read before the release' --json
 ```
 
-States are `todo`, `in-progress`, `blocked` (needs `--reason`), `in-review` and `done`. A new
-task starts as `todo`, and its ID (`T-1`, `T-2`, ...) is never reused. The summary's first line is
-at most 24 characters and says where the page stands; the second is at most 60 and says what
-comes next. `task set` replaces the title, detail, acceptance criteria, sign-off flag and external
-ID as a whole (`--file` JSON; an omitted field is cleared); state and assignee have their own
-commands. `--signoff` on `task add` marks a task that waits for a person in review; nothing acts on
-the flag yet.
+A sub-page's progress is its page state: set it with `page state` on the sub-page itself. The
+summary's first line is at most 24 characters and says where the page stands; the second is at most
+60 and says what comes next.
 
 Every change applies to the page's current revision, or to `--expected-revision` when you pass one;
 `COLAB_STALE_BASE` means the page changed, so read it again. An invalid value refuses the whole
 change.
 
-## Follow a page
+## Link rules
 
-A task can follow another page, so one piece of work becomes a page of its own:
+A page has one parent, a link never closes a loop, and sub-pages nest at any depth. An attach that
+breaks a rule is `COLAB_LINK_REFUSED` with a `reason`: `second-parent` (another page lists it; the
+message names that page), `cycle` (the page itself or a page above it), `unavailable` (not a page
+of this space) or `invalid-hierarchy` (existing links already conflict). Two writers can still race
+into a page with two parents or a loop; `tmt colab show PAGE --json` flags them in `page.warnings`.
+Repair them with `subpage detach`, which is always admitted.
 
-```sh
-tmt colab task convert PAGE T-3 --json   # makes a page from the task and links it; prints childPage
-tmt colab task link PAGE T-3 CHILD --json
-tmt colab task unlink PAGE T-3 --json
-```
+Pages from before sub-pages held tasks. The serve rewrites them once as sub-pages (the pages those
+tasks followed) and keeps each page's old tasks in `migrations/5825/<pageId>.json` in the space's
+directory; a page it could not rewrite yet shows `work-not-migrated` in `show` and `ls` and is
+tried again at the next serve. Do not recreate old tasks yourself: tell the person where the copy is.
 
-A task that follows a page shows that page's stage: `todo` while the page has no task, `in-progress`
-while it has, `done` when all of them are (`in-review` instead if the task needs sign-off). You
-cannot set its state; `task ls` shows the states it follows. A page has one parent and at most one
-level of sub-pages: a child cannot get children, and a page with children cannot become a child.
-Invalid links are refused as `COLAB_LINK_REFUSED` with a stable `reason` and an explanation.
-Converting on a child is refused before creating a page. Existing conflicting links remain readable;
-`tmt colab show PAGE --json` flags them in `page.warnings`. Repair them with `task unlink`, which remains
-available even if restoring an assigned task exceeds its work-in-progress limit. A task cannot follow a page and have
-an external ID. If `convert` fails after making the page, it prints the page and the `task link`
-command that finishes the job; do not run `convert` again.
-
-## Limit
-
-An agent holds a task while it is assigned to it and the task is `todo` or `in-progress` (a task that
-follows a page is not held), and holds
-at most its limit across all pages (1 unless set). A change that would exceed it is refused as
-`COLAB_WIP_LIMIT` naming the agent and its tasks: finish, block or reassign one first. A person
-changes the limit with `tmt colab settings wip-limit [AGENT] N`; do not raise it yourself to get past a
-refusal.
-
-## GitHub
-
-A task can be pushed to a GitHub issue and marked done from GitHub. Set the space's repository once
-(a person does this): `tmt colab settings github-repo OWNER/REPO`.
-
-```sh
-tmt colab task github push PAGE T-3 --json   # publishes T-3 as an issue, links it as #N
-tmt colab task github sync --json            # marks linked tasks done after a merged Fixes #N
-```
-
-`push` publishes the task's title, detail and acceptance to GitHub, possibly to a public repository:
-run it only for a task the person asked you to share, for one task at a time, and say which repository
-and issue (it prints both). `sync` never publishes anything; it asks GitHub about open linked tasks
-(`#N` external IDs) in as few calls as it can and moves a task to `done` only when a merged pull
-request closed its issue. `COLAB_GITHUB_UNAVAILABLE` means `gh` is missing or not signed in: tell the
-person, do not retry in a loop. Edits made on GitHub are never read back.
+`subpage create` makes the page first, with the title as its heading, then attaches it. If the
+attach fails it prints the page it made and the `subpage attach` command that finishes; it never
+searches for a page to adopt, so running it again makes another page.
