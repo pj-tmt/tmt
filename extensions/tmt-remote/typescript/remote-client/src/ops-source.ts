@@ -26,6 +26,10 @@ export const AGENT_STATES: Record<AgentState, { mark: AgentMark; word: string; t
 };
 
 export interface OpsAgent {
+  /** Stable member identity; names and squad labels grant no authority. */
+  id: string;
+  presence?: string;
+  activity?: { state: string };
   name: string;
   squad: string;
   role: 'lead' | 'member';
@@ -73,6 +77,7 @@ export interface OpsSource {
 export interface OpsPayload {
   squads: readonly { name: string; lead?: { id: string; name: string }; idleAlertMs?: number }[];
   agents: readonly {
+    id: string;
     name: string;
     squad: string;
     role: 'lead' | 'member';
@@ -123,7 +128,16 @@ function unavailableBoard(reason: OwnerReadReason | 'no-session' | 'unreachable'
 
 /** The page's board from one `ok` payload; a payload off the contract is a failed read. */
 export function opsBoard(payload: OpsPayload): OpsBoard {
-  if (!Array.isArray(payload.squads) || !Array.isArray(payload.agents))
+  if (
+    !Array.isArray(payload.squads) ||
+    !Array.isArray(payload.agents) ||
+    payload.agents.some(
+      (agent) =>
+        !agent ||
+        typeof agent.id !== 'string' ||
+        !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(agent.id),
+    )
+  )
     return unavailableBoard('read_failed');
   return {
     squads: payload.squads.map((squad) => ({
@@ -134,6 +148,9 @@ export function opsBoard(payload: OpsPayload): OpsBoard {
     agents: payload.agents.map((agent) => {
       const state = agentState(agent);
       return {
+        id: agent.id,
+        ...(agent.presence ? { presence: agent.presence } : {}),
+        ...(agent.activity ? { activity: { state: agent.activity.state } } : {}),
         name: agent.name,
         squad: agent.squad,
         role: agent.role,

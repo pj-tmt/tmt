@@ -175,7 +175,7 @@ export function terminalCard(options: {
   return card;
 }
 
-export const keyOf = (agent: OpsAgent): string => `${agent.squad}/${agent.name}`;
+export const keyOf = (agent: OpsAgent): string => `${agent.squad}/${agent.id}`;
 
 /** The agents by squad in the order the pages draw them: squads as the board lists them (then any
  * squad only an agent names), each lead first; a squad with no agents only when asked for. */

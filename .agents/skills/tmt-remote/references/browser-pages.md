@@ -205,6 +205,20 @@ changed and gives each reason one sentence with what to do; Digest uses the same
 
 `ops-menu.ts` projects fixed children, observed totals and Agents-state attention into the shared
 rail, with Ops settings last. Missing, unavailable, truncated and null evidence produces no pill.
+`ops-menu.ts` also supplies this machine's squad channels and member DMs through the same
+shared menu: one channel per squad with member children keyed by canonical UUIDs retained by `ops-source.ts`.
+No name-to-identity resolution, extra board read or product-local rail is added. The route retains squad expansion across observations and navigation; the shared leaf owns
+nesting, disclosure, keyboard traversal and the deepest visible selection on desktop and phone.
+`ops-channel.ts` renders local channel Members and DM About panels with four plain states
+(Working, Idle, Unknown, Offline) from explicit presence/activity, not attention or raw board
+colour. Both panels label timers as squad timers; an owner display name never associates one
+to a member UUID. Failed timer reads and partial boards retain unavailable/partial wording.
+DM history is explicitly unavailable with a terminal reference; unread is not shown. The
+browser never discovers request IDs or treats the Remote journal as conversation history.
+Sending and timer/idle-reminder writes remain disabled with their reason. Existing workspace
+sections remain reachable. Unchanged observations retain the selected tab in its always-open panel;
+removed members clear their old facts rather than selecting a namesake.
+
 `ops-page.ts` retains section selection and the read lifetime; `ops-agents.ts`,
 `ops-squads.ts` and `ops-timers.ts` render the observed board through shared
 `ops-parts.ts` presentation helpers. Ops settings (`ops-settings.ts`) has no browser read: it

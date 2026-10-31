@@ -198,6 +198,89 @@ fn directory_adapter_reads_original_delivery_and_final_without_dispatch_replay()
 }
 
 #[test]
+fn recovered_original_without_core_message_state_is_unknown_not_delivered() {
+    if crate::test_isolation::isolated_case(
+        "cloud_pairing::service::tests::squad_interface_tests::recovered_original_without_core_message_state_is_unknown_not_delivered",
+    ) {
+        return;
+    }
+    let core = core_fixture::Core::new();
+    std::fs::write(core.root.join("multi"), "").unwrap();
+    let wire = Arc::new(Wire::new());
+    let ports = Arc::new(Ports {
+        wire: wire.clone(),
+        clock: SystemClock::default(),
+    });
+    let make_ports = || ProjectPorts {
+        http: ports.clone(),
+        clock: ports.clone(),
+        jitter: ports.clone(),
+    };
+    let (owner, _owner_lease) = service(&core.root.join("owner"), &core, make_ports());
+    let (sender, _sender_lease) = service(&core.root.join("sender"), &core, make_ports());
+    let events = pair_with_reciprocal_choice(&owner, &sender, false);
+    let remote = events
+        .iter()
+        .find(|event| event["event"] == "connected")
+        .unwrap()["remote"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    wire.route(&owner);
+    wire.route(&sender);
+    owner.store().unwrap().talk(&sender.machine, true).unwrap();
+    let raw = prepared(&remote);
+    let operation = crate::cloud_command::Request::read(&raw)
+        .unwrap()
+        .request_id;
+    let interface = Firestore::new(&sender, &Empty);
+    std::fs::write(core.root.join("lost"), "").unwrap();
+    assert_eq!(
+        interface.send(&raw, Some(&remote)).unwrap().state,
+        crate::cloud_command::State::Unconfirmed
+    );
+    std::fs::remove_file(core.root.join("lost")).unwrap();
+    owner.reconcile().unwrap();
+    assert_eq!(core.sends(), 1);
+
+    // Recovery proves the original request exists. The fixture deliberately omits
+    // messageState, which cannot prove hand-over or even the Core queued state.
+    assert_eq!(
+        interface.delivery(&remote, &operation).unwrap().state,
+        DeliveryPhase::Unknown
+    );
+    let receipt: Value = serde_json::from_slice(
+        &std::fs::read(core.root.join(format!("receipt-{operation}"))).unwrap(),
+    )
+    .unwrap();
+    let request = receipt["items"][0]["requestId"].as_str().unwrap();
+    assert!(
+        core.calls()
+            .iter()
+            .any(|call| call["operation"] == "requests.show"
+                && call["input"]["requestId"] == request)
+    );
+    assert_eq!(core.sends(), 1, "unknown evidence never repeats dispatch");
+    for (state, expected) in [
+        ("sent", DeliveryPhase::Queued),
+        ("delivered", DeliveryPhase::Delivered),
+    ] {
+        core.message_state(&json!({"state":state,"reason":{"code":"fixture","text":"PRIVATE-REASON"},"latestMs":null,"remainingMs":null,"canSendNow":false}));
+        let observed = interface.delivery(&remote, &operation).unwrap();
+        assert_eq!(observed.operation_id, operation);
+        assert_eq!(observed.state, expected);
+        assert!(
+            !serde_json::to_string(&observed)
+                .unwrap()
+                .contains("PRIVATE")
+        );
+        assert_eq!(core.sends(), 1, "authoritative observation is read only");
+    }
+    sender.stop.store(true, Ordering::Release);
+    owner.stop.store(true, Ordering::Release);
+}
+
+#[test]
 fn native_read_only_capability_gate_and_summary_cleanup_share_the_existing_channel() {
     crate::private_test_case::private_case(
         "cloud_pairing::service::tests::squad_interface_tests::native_read_only_capability_gate_and_summary_cleanup_share_the_existing_channel",

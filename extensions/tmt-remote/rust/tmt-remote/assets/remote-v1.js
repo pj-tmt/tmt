@@ -2871,26 +2871,41 @@ function remoteTabAccess(item, role) {
 //#endregion
 //#region src/remote-shell.ts
 /** Routes supply plain title segments; the shared leaf owns layout and phone truncation. */
-function setRouteTitle(slot, title, ancestors = [], documentTitle = title) {
+function setRouteTitle(slot, title, ancestors = [], documentTitle = title, chips = []) {
 	if (!slot.topBarReady()) return;
 	slot.setTitle(documentTitle);
 	const target = slot.setTopBar().title;
 	const label = [...ancestors, title].join(" / ");
-	if (target.querySelector("h1")?.getAttribute("aria-label") === label) return;
-	const heading = document.createElement("h1");
-	heading.setAttribute("aria-label", label);
-	heading.tabIndex = -1;
-	if (ancestors.length) {
-		const prefix = document.createElement("span");
-		prefix.className = "tmt-ui-topbar-title-prefix";
-		prefix.textContent = `${ancestors.join(" / ")} / `;
-		heading.append(prefix);
+	if (target.querySelector("h1")?.getAttribute("aria-label") === label && (target.querySelector(".tmt-ui-topbar-title-chips")?.textContent ?? "") === chips.join("")) return;
+	if (target.querySelector("h1")?.getAttribute("aria-label") !== label) {
+		const heading = document.createElement("h1");
+		heading.setAttribute("aria-label", label);
+		heading.tabIndex = -1;
+		if (ancestors.length) {
+			const prefix = document.createElement("span");
+			prefix.className = "tmt-ui-topbar-title-prefix";
+			prefix.textContent = `${ancestors.join(" / ")} / `;
+			heading.append(prefix);
+		}
+		const current = document.createElement("span");
+		current.className = "tmt-ui-topbar-title-current";
+		current.textContent = title;
+		heading.append(current);
+		target.replaceChildren(heading);
 	}
-	const current = document.createElement("span");
-	current.className = "tmt-ui-topbar-title-current";
-	current.textContent = title;
-	heading.append(current);
-	target.replaceChildren(heading);
+	const group = document.createElement("span");
+	group.className = "tmt-ui-topbar-title-chips";
+	for (const text of chips) {
+		const chip = document.createElement("span");
+		chip.className = "tmt-ui-chip";
+		const label = document.createElement("span");
+		label.className = "tmt-ui-chip-label";
+		label.textContent = text;
+		chip.append(label);
+		group.append(chip);
+	}
+	target.querySelector(".tmt-ui-topbar-title-chips")?.remove();
+	if (chips.length) target.append(group);
 }
 var current;
 /** The mounted route's part of the one shell, or undefined outside the app (unit tests). */
@@ -2902,7 +2917,7 @@ function hostRemote(slot, signal, observedSession, holdNavigation) {
 	current = slot && signal && {
 		setMenu: (menu, select) => slot.setMenu(menu, select),
 		navigate: (href) => slot.navigate(href),
-		setTitle: (title, ancestors, documentTitle) => setRouteTitle(slot, title, ancestors, documentTitle),
+		setTitle: (title, ancestors, documentTitle, chips) => setRouteTitle(slot, title, ancestors, documentTitle, chips),
 		describe: (address) => slot.describe(address),
 		described: (listener) => slot.described(listener),
 		observedSession: (session) => {
@@ -8237,7 +8252,7 @@ function unavailableBoard(reason) {
 }
 /** The page's board from one `ok` payload; a payload off the contract is a failed read. */
 function opsBoard(payload) {
-	if (!Array.isArray(payload.squads) || !Array.isArray(payload.agents)) return unavailableBoard("read_failed");
+	if (!Array.isArray(payload.squads) || !Array.isArray(payload.agents) || payload.agents.some((agent) => !agent || typeof agent.id !== "string" || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(agent.id))) return unavailableBoard("read_failed");
 	return {
 		squads: payload.squads.map((squad) => ({
 			name: squad.name,
@@ -8247,6 +8262,9 @@ function opsBoard(payload) {
 		agents: payload.agents.map((agent) => {
 			const state = agentState(agent);
 			return {
+				id: agent.id,
+				...agent.presence ? { presence: agent.presence } : {},
+				...agent.activity ? { activity: { state: agent.activity.state } } : {},
 				name: agent.name,
 				squad: agent.squad,
 				role: agent.role,
@@ -8434,7 +8452,7 @@ function terminalCard(options) {
 	card.append(tile, title, el("p", void 0, options.text), commandCopy("tmt ops ui"));
 	return card;
 }
-var keyOf = (agent) => `${agent.squad}/${agent.name}`;
+var keyOf = (agent) => `${agent.squad}/${agent.id}`;
 /** The agents by squad in the order the pages draw them: squads as the board lists them (then any
 * squad only an agent names), each lead first; a squad with no agents only when asked for. */
 function bySquad(board, keepEmpty = false) {
@@ -9105,7 +9123,26 @@ var OPS_SECTIONS = [
 function opsSection(hash) {
 	return OPS_SECTIONS.find((section) => `#${section.id}` === hash)?.id ?? "agents";
 }
-function opsMenu(section, board, pathname) {
+function opsPlace(hash) {
+	try {
+		if (hash.startsWith("#channel/")) {
+			const squad = decodeURIComponent(hash.slice(9));
+			if (squad) return { squad };
+		}
+		const dm = /^#dm\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\/(.+)$/.exec(hash);
+		if (dm) return {
+			memberId: dm[1],
+			squad: decodeURIComponent(dm[2])
+		};
+	} catch {}
+	return opsSection(hash);
+}
+function opsHref(pathname, place) {
+	if (typeof place === "string") return `${pathname}#${place}`;
+	const squad = encodeURIComponent(place.squad);
+	return place.memberId ? `${pathname}#dm/${place.memberId}/${squad}` : `${pathname}#channel/${squad}`;
+}
+function opsMenu(section, board, pathname, disclosure) {
 	const observed = board && !board.unavailable && !board.truncated ? board : void 0;
 	const totals = {
 		agents: observed?.agents.length,
@@ -9125,8 +9162,225 @@ function opsMenu(section, board, pathname) {
 			...item(entry.id, entry.label),
 			total: totals[entry.id],
 			count: entry.id === "agents" && attention ? shellCount(attention) : void 0
-		})) }],
+		})) }, ...!board?.unavailable && board ? bySquad(board, true).map((group) => ({ items: [{
+			id: `channel:${group.name}`,
+			label: `#${group.name}`,
+			href: opsHref(pathname, { squad: group.name }),
+			current: typeof section !== "string" && section.squad === group.name && !section.memberId,
+			expanded: !disclosure?.collapsed.has(group.name),
+			toggle: disclosure ? () => disclosure.toggle(group.name) : void 0,
+			children: group.agents.map((agent) => ({
+				id: `dm:${group.name}:${agent.id}`,
+				label: agent.name,
+				href: opsHref(pathname, {
+					squad: group.name,
+					memberId: agent.id
+				}),
+				current: typeof section !== "string" && section.squad === group.name && section.memberId === agent.id
+			}))
+		}] })) : []],
 		settings: item("settings", "Ops settings")
+	};
+}
+//#endregion
+//#region src/ops-channel.ts
+/** Local channel / DM read panels. The board remains the only source; history and all writes
+* are explicitly unavailable until their separately admitted operations ship. */
+function memberState(agent) {
+	if (agent.presence === "offline") return "Offline";
+	if (agent.activity?.state === "working") return "Working";
+	if (agent.activity?.state === "idle") return "Idle";
+	return "Unknown";
+}
+function channelView(pathname) {
+	const page = el("div", "ops-channel");
+	const context = el("p", browserUiClasses.pageSubtitle, "This machine");
+	const panel = el("section", `${browserUiClasses.tabs} ops-channel-context`);
+	panel.dataset.variant = "flat";
+	panel.dataset.presentation = "compact";
+	const summary = el("p", `${browserUiClasses.sectionHeading} ops-channel-summary`);
+	summary.tabIndex = -1;
+	const tabs = el("div", browserUiClasses.tabList);
+	tabs.setAttribute("role", "tablist");
+	tabs.setAttribute("aria-label", "Channel details");
+	const facts = el("section", browserUiClasses.tabPanel);
+	facts.id = "ops-channel-about";
+	facts.setAttribute("role", "tabpanel");
+	const timers = el("section", browserUiClasses.tabPanel);
+	timers.id = "ops-channel-timers";
+	timers.setAttribute("role", "tabpanel");
+	let selected = 0;
+	const buttons = [0, 1].map((index) => {
+		const button = el("button", browserUiClasses.tab);
+		button.type = "button";
+		button.id = `ops-channel-tab-${index}`;
+		button.setAttribute("role", "tab");
+		button.setAttribute("aria-controls", index ? timers.id : facts.id);
+		button.addEventListener("click", () => select(index));
+		button.addEventListener("keydown", (event) => {
+			if (![
+				"ArrowLeft",
+				"ArrowRight",
+				"Home",
+				"End"
+			].includes(event.key)) return;
+			event.preventDefault();
+			const next = event.key === "Home" ? 0 : event.key === "End" ? 1 : 1 - index;
+			select(next);
+			buttons[next].focus();
+		});
+		return button;
+	});
+	function select(index) {
+		selected = index;
+		buttons.forEach((button, at) => {
+			button.tabIndex = at === index ? 0 : -1;
+			button.setAttribute("aria-selected", String(at === index));
+		});
+		facts.hidden = index !== 0;
+		timers.hidden = index !== 1;
+	}
+	facts.setAttribute("aria-labelledby", buttons[0].id);
+	timers.setAttribute("aria-labelledby", buttons[1].id);
+	tabs.append(...buttons);
+	panel.append(summary, tabs, facts, timers);
+	const history = el("section", "ops-channel-history");
+	const unavailable = el("h2", browserUiClasses.sectionHeading);
+	const explanation = el("p");
+	history.append(unavailable, explanation, commandCopy("tmt ops ui"));
+	const compose = el("section", "ops-channel-compose");
+	const reason = el("p", "ops-detail-note");
+	reason.id = "ops-channel-write-reason";
+	const actions = el("div", browserUiClasses.actions);
+	for (const label of [
+		"Send",
+		"New timer",
+		"Edit idle reminder"
+	]) {
+		const button = el("button", browserUiClasses.action, label);
+		button.type = "button";
+		button.disabled = true;
+		button.setAttribute("aria-describedby", reason.id);
+		actions.append(button);
+	}
+	compose.append(actions, reason);
+	page.append(context, panel, history, compose, pageFoot());
+	select(0);
+	let identity = "";
+	let fingerprint = "";
+	const memberList = el("ul", browserUiClasses.list);
+	const memberRows = /* @__PURE__ */ new Map();
+	function memberRow(agent) {
+		const row = el("li", browserUiClasses.listRow);
+		const title = el("div", browserUiClasses.listTitle);
+		const name = el("a", void 0, agent.name);
+		title.append(name);
+		name.href = opsHref(pathname, {
+			squad: agent.squad,
+			memberId: agent.id
+		});
+		const detail = el("div", browserUiClasses.listMeta);
+		detail.append(el("span", browserUiClasses.listUpdated, agent.role === "lead" ? "Lead" : "Member"), el("span", browserUiClasses.listState, memberState(agent)));
+		row.append(title, detail);
+		return row;
+	}
+	return {
+		node: page,
+		update(board, place) {
+			const key = opsHref(pathname, place);
+			const people = board.agents.filter((agent) => agent.squad === place.squad).sort((a, b) => Number(b.role === "lead") - Number(a.role === "lead"));
+			const member = place.memberId ? people.find((agent) => agent.id === place.memberId) : void 0;
+			const squad = board.squads.find((squad) => squad.name === place.squad);
+			const known = place.memberId ? !!member : !!squad || people.length > 0;
+			const jobs = board.schedules?.filter((job) => job.squad === place.squad);
+			const seen = JSON.stringify({
+				key,
+				people,
+				squad,
+				jobs,
+				known,
+				truncated: board.truncated
+			});
+			if (seen === fingerprint) return;
+			fingerprint = seen;
+			if (identity !== key) {
+				identity = key;
+				memberRows.clear();
+				memberList.replaceChildren();
+				select(0);
+			}
+			context.textContent = `This machine · ${place.squad}`;
+			panel.hidden = !known;
+			history.hidden = !known;
+			compose.hidden = !known;
+			let missing = page.querySelector("[data-ops-channel-missing]");
+			if (!known) {
+				missing ??= el("p", "ops-empty");
+				missing.dataset.opsChannelMissing = "";
+				missing.textContent = board.truncated ? "This selection is not in the partial board. Open Ops in the terminal to see the full list." : place.memberId ? "This member is no longer listed in this squad. Choose a current member from the sidebar." : "This squad is no longer listed. Choose a current squad from the sidebar.";
+				if (!missing.isConnected) page.append(missing);
+				summary.textContent = "Details unavailable";
+				memberRows.clear();
+				memberList.replaceChildren();
+				facts.replaceChildren();
+				timers.replaceChildren();
+				return;
+			}
+			missing?.remove();
+			const timerCount = jobs && !board.truncated ? ` · Timers ${jobs.length}` : " · Timers unavailable";
+			summary.textContent = place.memberId ? `About ${member.name}${timerCount}` : `Members ${board.truncated ? "(partial)" : people.length}${timerCount}`;
+			buttons[0].textContent = place.memberId ? "About" : "Members";
+			buttons[1].textContent = "Squad timers";
+			tabs.setAttribute("aria-label", place.memberId ? "Member details" : "Channel details");
+			if (member) {
+				const details = el("dl", browserUiClasses.facts);
+				for (const [term, value] of [
+					["Name", member.name],
+					["Squad", member.squad],
+					["Role", member.role === "lead" ? "Lead" : "Member"],
+					["State", memberState(member)],
+					["Model", member.model || "Not reported"],
+					["Task", member.task || "Not reported"],
+					["Next step", member.next || "Not reported"]
+				]) details.append(el("dt", void 0, term), el("dd", void 0, value));
+				facts.replaceChildren(details);
+			} else {
+				const ids = new Set(people.map((agent) => agent.id));
+				for (const [id, row] of memberRows) if (!ids.has(id)) {
+					const heldFocus = row.contains(document.activeElement);
+					row.remove();
+					memberRows.delete(id);
+					if (heldFocus) summary.focus();
+				}
+				people.forEach((agent, index) => {
+					let row = memberRows.get(agent.id);
+					if (!row) {
+						row = memberRow(agent);
+						memberRows.set(agent.id, row);
+					}
+					row.querySelector("a").textContent = agent.name;
+					row.querySelector(`.${browserUiClasses.listState}`).textContent = memberState(agent);
+					row.querySelector(`.${browserUiClasses.listUpdated}`).textContent = agent.role === "lead" ? "Lead" : "Member";
+					if (memberList.children[index] !== row) memberList.insertBefore(row, memberList.children[index] ?? null);
+				});
+				if (people.length) {
+					if (memberList.parentElement !== facts) facts.replaceChildren(memberList);
+				} else facts.replaceChildren(el("p", "ops-empty", "No members listed."));
+			}
+			const timerRows = el("ul", browserUiClasses.list);
+			for (const job of jobs ?? []) {
+				const row = el("li", browserUiClasses.listRow);
+				const meta = el("div", browserUiClasses.listMeta);
+				meta.append(el("span", browserUiClasses.listUpdated, job.when));
+				row.append(el("span", browserUiClasses.listTitle, job.what || job.id), meta);
+				timerRows.append(row);
+			}
+			timers.replaceChildren(el("p", "ops-detail-note", "Squad timers · Shown for the whole squad."), jobs === void 0 ? el("p", "ops-empty", "Squad timers are unavailable.") : jobs.length ? timerRows : el("p", "ops-empty", board.truncated ? "No squad timers in this partial read." : "No squad timers are set."), ...board.truncated ? [el("p", "ops-detail-note", "Partial board; totals are not known.")] : []);
+			unavailable.textContent = place.memberId ? "History isn't available in the browser yet" : "Channel messages aren't available in the browser yet";
+			explanation.textContent = place.memberId ? "Open Ops in this machine’s terminal, choose this member and open Talk to read the retained conversation." : "This browser shows members and squad timers. Channel messages and threads are not available yet.";
+			reason.textContent = "Sending, timer changes and idle-reminder changes are not available in the browser yet. Use this machine’s terminal.";
+			select(selected);
+		}
 	};
 }
 //#endregion
@@ -9141,7 +9395,7 @@ function opsPage(shell, source = opsSource) {
 	const note = document.getElementById("ops-note");
 	if (!main || !note) return;
 	const href = (id) => `${location.pathname}#${id}`;
-	const current = () => opsSection(location.hash);
+	const current = () => opsPlace(location.hash);
 	let board;
 	const views = {
 		agents: agentsView(),
@@ -9149,15 +9403,33 @@ function opsPage(shell, source = opsSource) {
 		schedules: timersView()
 	};
 	let settings;
+	const channel = channelView(location.pathname);
+	const collapsedSquads = /* @__PURE__ */ new Set();
 	const paint = () => {
 		const section = current();
 		if (section !== "squads") views.squads.close();
-		shell.setMenu(opsMenu(section, board, location.pathname));
-		const label = OPS_SECTIONS.find((item) => item.id === section).label;
-		shell.setTitle(label, ["Ops"], "Ops");
+		shell.setMenu(opsMenu(section, board, location.pathname, {
+			collapsed: collapsedSquads,
+			toggle(squad) {
+				if (collapsedSquads.has(squad)) collapsedSquads.delete(squad);
+				else collapsedSquads.add(squad);
+				paint();
+			}
+		}));
+		const label = typeof section === "string" ? OPS_SECTIONS.find((item) => item.id === section).label : section.memberId ? board?.agents.find((agent) => agent.id === section.memberId && agent.squad === section.squad)?.name ?? "Member unavailable" : `#${section.squad}`;
+		const chips = [];
+		if (board && !board.unavailable && typeof section !== "string") {
+			const squad = board.squads.find((item) => item.name === section.squad);
+			const timers = board.schedules?.filter((item) => item.squad === section.squad);
+			chips.push(squad ? squad.idleAlertMinutes ? `Idle alert ${squad.idleAlertMinutes} min` : "Idle alert not configured" : "Idle alert unavailable", timers && !board.truncated ? `Timers ${timers.length}` : "Timers unavailable", "Read only");
+		}
+		shell.setTitle(label, ["Ops"], "Ops", chips);
 		if (!board) main.replaceChildren(pageLoading());
 		else if (board.unavailable) main.replaceChildren();
-		else if (section === "settings") {
+		else if (typeof section !== "string") {
+			if (channel.node.parentElement !== main) main.replaceChildren(channel.node);
+			channel.update(board, section);
+		} else if (section === "settings") {
 			settings ??= settingsView(href);
 			if (settings.parentElement !== main) main.replaceChildren(settings);
 		} else {

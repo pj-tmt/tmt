@@ -33,6 +33,11 @@ test.afterAll(async () => {
 });
 
 const agent = (name: string, squad: string, extra: Partial<OpsAgent> = {}): OpsAgent => ({
+  id: `00000000-0000-4000-8000-${[...name]
+    .map((letter) => letter.charCodeAt(0).toString(16))
+    .join('')
+    .slice(0, 12)
+    .padEnd(12, '0')}`,
   name,
   squad,
   role: 'member',
