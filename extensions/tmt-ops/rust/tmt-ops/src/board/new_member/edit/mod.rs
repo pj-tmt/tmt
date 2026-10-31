@@ -96,7 +96,9 @@ impl Edit {
     fn enter_hint(&self, c: &Controller, current: bool) -> &'static str {
         if self.rename_on_enter(c, current) {
             "Enter rename"
-        } else if self.dialog.focus == tmt_tui::components::Focus::Field(0) {
+        } else if self.intent == Intent::Rename
+            && self.dialog.focus == tmt_tui::components::Focus::Field(0)
+        {
             "Enter next"
         } else {
             "Enter choose"
