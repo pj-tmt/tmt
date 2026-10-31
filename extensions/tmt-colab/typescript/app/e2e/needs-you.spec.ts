@@ -711,3 +711,18 @@ test('Clear all retains partial completion and retries the remaining acknowledge
   await expect(page.getByRole('button', { name: /^Needs you:/ })).toHaveCount(0);
   expect(await run(page, 'discussionProof')).toEqual(completed);
 });
+
+test('Clear all confirmation belongs to its page and closes on navigation', async ({ page }) => {
+  await mount(page, { sections: 1 });
+  await page.getByRole('button', { name: 'Needs you: 1', exact: true }).click();
+  await page.getByRole('menuitem', { name: 'Clear all', exact: true }).click();
+  const confirm = page.getByRole('dialog', { name: 'Clear all waiting items?', exact: true });
+  await expect(confirm).toBeVisible();
+  const records = await run(page, 'discussionProof');
+  await page.evaluate(() => (location.hash = '/pages/review-b'));
+  await expect(
+    page.frameLocator('#ask-page-fixture iframe').locator('#review-b-page'),
+  ).toBeVisible();
+  await expect(confirm).toBeHidden();
+  expect(await run(page, 'discussionProof')).toEqual(records);
+});
