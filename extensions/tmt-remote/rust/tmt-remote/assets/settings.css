@@ -327,6 +327,9 @@
   .remote-registry-table .tmt-ui-list-table-row > :has(> [data-phone='name']) { grid-area: 1 / 1 / 4 / -1; display: grid; grid-template: subgrid / subgrid; }
   .remote-registry-table [data-phone='name'] { display: contents; }
   .remote-registry-table .remote-label { grid-area: 1 / 1 / 2 / 3; }
+  /* The name cell spans the row, so line 2's chips are placed, not auto-flowed into new columns. */
+  .remote-registry-table [data-column='connection'] { grid-area: 2 / 1; }
+  .remote-registry-table [data-column='role'] { grid-area: 2 / 2; justify-self: start; }
   .settings-page #remote-list .tmt-ui-list-description { grid-area: 3 / 1 / 4 / -1; margin: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; overflow-wrap: normal; }
   .remote-list-footer, .people-list-footer, .invites-list-footer { flex-direction: column; gap: var(--tmt-ui-space-xs); }
   #people-content > button + .remote-people-table { margin-top: var(--tmt-ui-space-s); }

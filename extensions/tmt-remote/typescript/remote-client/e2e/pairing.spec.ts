@@ -134,6 +134,10 @@ async function assertPhoneRegistry(page: Page, width = 390) {
   expect(connection.y).toBeGreaterThan(name.y);
   expect(Math.abs(connection.y - role.y)).toBeLessThanOrEqual(1);
   expect(role.x).toBeGreaterThan(connection.x);
+  // The menu is at the top right and line 2 starts under the name, as on Mock A's phone rows.
+  const rowBox = (await row.boundingBox())!;
+  expect(rowBox.x + rowBox.width - (menu.x + menu.width)).toBeLessThanOrEqual(16);
+  expect(Math.abs(connection.x - name.x)).toBeLessThanOrEqual(1);
   // Backend, project and address follow as a muted, truncated third line.
   const detail = row.locator('.tmt-ui-list-description');
   const line = (await detail.boundingBox())!;
