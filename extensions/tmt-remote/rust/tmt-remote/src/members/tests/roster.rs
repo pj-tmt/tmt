@@ -21,7 +21,7 @@ fn roster_administrator_is_designation_not_role_label() {
     let own = service::roster(&f.store, Caller::Browser(&user), page(None, 50), 10).unwrap();
     assert!(!own.administrator);
     assert_eq!(own.members.len(), 1);
-    assert_eq!(own.members[0].member_id, user.client_id);
+    assert_eq!(own.members[0].person.member_id, user.client_id);
     assert!(
         service::machines(
             &f.store,
@@ -39,7 +39,7 @@ fn roster_administrator_is_designation_not_role_label() {
         .unwrap();
     let user = f.store.grant(&user.client_id).unwrap().unwrap();
     let own = service::roster(&f.store, Caller::Browser(&user), page(None, 50), 10).unwrap();
-    assert_eq!(own.members[0].role, Role::Owner);
+    assert_eq!(own.members[0].person.role, Role::Owner);
     assert!(!own.administrator);
     assert_eq!(own.members.len(), 1);
     assert!(
@@ -268,4 +268,87 @@ fn member_summary_keeps_unauthorized_facts_null_and_rechecks_disclosure() {
     }
     f.store.revoke(&admin.client_id).unwrap();
     assert!(service::summary(&f.store, Caller::Browser(&admin), 10).is_err());
+}
+
+#[test]
+fn person_use_follows_current_association_without_changing_original_receipts() {
+    let mut f = Fixture::new();
+    let person = f.browser("Person");
+    let second = f.browser("Second");
+    let untouched = f.browser("Never used");
+    let request = f.request(&person, &second);
+    f.store
+        .associate_member(Owner::LocalOwner, &request, 100)
+        .unwrap();
+    let receipt = |store: &Store| {
+        store
+            .connection
+            .query_row(
+                "SELECT outcome FROM management_receipts WHERE id=?1",
+                [&request.operation_id],
+                |r| r.get::<_, String>(0),
+            )
+            .unwrap()
+    };
+    let original = receipt(&f.store);
+    // The association receipt has its original person schema, not read observations.
+    assert!(!original.contains("lastUsedAtMs"));
+    for (client, time) in [(&person.client_id, 70), (&second.client_id, 99)] {
+        f.store
+            .connection
+            .execute(
+                "INSERT INTO device_last_use VALUES(?1,?2)",
+                params![client, time],
+            )
+            .unwrap();
+    }
+    let observed = |store: &Store| {
+        let view = service::roster(store, Caller::LocalOwner, page(None, 50), 200).unwrap();
+        assert_eq!(
+            view.members
+                .iter()
+                .find(|m| m.person.member_id == untouched.client_id)
+                .unwrap()
+                .last_used_at_ms,
+            None
+        );
+        view.members
+            .into_iter()
+            .find(|m| m.person.member_id == person.client_id)
+            .unwrap()
+            .last_used_at_ms
+    };
+    assert_eq!(
+        observed(&f.store),
+        Some(70),
+        "previous association's use must not migrate"
+    );
+    f.store
+        .connection
+        .execute(
+            "UPDATE device_last_use SET used_at_ms=150 WHERE client_id=?1",
+            [&second.client_id],
+        )
+        .unwrap();
+    assert_eq!(
+        observed(&f.store),
+        Some(150),
+        "maximum across associated machines"
+    );
+    f.store.revoke(&second.client_id).unwrap();
+    f.reopen();
+    assert_eq!(
+        observed(&f.store),
+        Some(150),
+        "revoked association retains accepted history"
+    );
+    assert_eq!(
+        receipt(&f.store),
+        original,
+        "reads and new activity never rewrite an original receipt"
+    );
+    let self_view =
+        service::roster(&f.store, Caller::Browser(&person), page(None, 50), 200).unwrap();
+    assert_eq!(self_view.members.len(), 1);
+    assert_eq!(self_view.members[0].last_used_at_ms, Some(150));
 }

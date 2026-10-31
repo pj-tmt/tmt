@@ -78,7 +78,7 @@ pub fn open_page_with(
         state: "skipped",
     };
     if matches!(
-        tmt_invoke::open::decide(flag, setting, json_output, env),
+        tmt_invoke::open::decide(flag, setting, json_output && flag != Flag::Open, env),
         Decision::Skip(_)
     ) {
         return Ok(result);

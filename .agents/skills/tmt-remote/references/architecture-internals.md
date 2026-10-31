@@ -198,7 +198,8 @@ and returns all changed clients for the existing post-commit session owner.
 The contract owns the schema, policy and outcome semantics.
 
 `members::service` owns bounded person and machine projections over that same
-Store. The signed-browser-only `remote.members.summary` aggregate uses the existing person mapping
+Store. Roster-only `PersonObservation` adds association-bounded durable accepted use;
+`Person` remains the immutable mutation/receipt shape. The signed-browser-only `remote.members.summary` aggregate uses the existing person mapping
 and durable accepted-use records; unauthorized row facts stay null. It adds no native/provider
 read or persistence owner. Like roster disclosure, the adapter rechecks current designation and
 grant scope before signing; it bypasses journal adoption and is absent from private control.
@@ -450,7 +451,12 @@ only validated summary inbox carriers. Guard refusal preserves cleanup intent an
 Source compaction retains active attempts and the latest completed summary; generic
 messages/finals keep their existing recovery horizon. Sequence watermarks survive
 compaction. The cache supplies the list after restart without provider reads; absent
-cache is unavailable without an invented observation time.
+cache is unavailable without an invented observation time. `squads_cli` exposes that
+cache through `remote squads --json` and original delivery through `remote delivery
+<operation-id> --remote <alias> --json`; `control::squads` owns their finite private-socket
+adapters. Both use the existing `squads::Interface`; prepared `message --json` keeps
+its transport and intent. Only a directory reply gets the named aggregate bound;
+request/carrier limits do not grow.
 
 `cloud_inbox::finals` binds pushed finals to the original claimed outbox destination and local
 originator under the current grant fence. Core's reply receipt is private binding data, never

@@ -39,7 +39,9 @@ pub const SOCKET: &str = "control.sock";
 const LINE_BYTES: usize = crate::limits::CLOUD_PAIR_CONTROL_BYTES;
 const REQUEST_WAIT: Duration = Duration::from_secs(5);
 mod cloud_message;
+mod squads;
 pub use cloud_message::cloud_message;
+pub use squads::{squad_delivery, squad_list};
 
 /// Contention is not activity: allow brief observations to finish, under one caller bound.
 /// Callers preserve offer -> live -> Store ordering and retain their own busy checks.
@@ -322,6 +324,14 @@ fn session(
     ) else {
         return;
     };
+    if matches!(
+        request["op"].as_str(),
+        Some("squads.list" | "squads.delivery")
+    ) {
+        let answer = squads::serve(&request, door.views.cloud.as_deref());
+        let _ = write_line(&mut stream, &answer);
+        return;
+    }
     if request["op"] == "cloud.message" {
         let answer = cloud_message::serve(&request, door.views.cloud.as_deref());
         let _ = write_line(&mut stream, &answer);
@@ -826,9 +836,38 @@ fn read_line_bounded(
     deadline: Instant,
     messages: bool,
 ) -> Option<Value> {
+    read_line_policy(
+        stream,
+        buffer,
+        stop,
+        deadline,
+        if messages {
+            LinePolicy::MessageRequest
+        } else {
+            LinePolicy::Ordinary
+        },
+    )
+}
+#[derive(Clone, Copy)]
+enum LinePolicy {
+    Ordinary,
+    MessageRequest,
+    SquadDirectory,
+}
+fn read_line_policy(
+    stream: &mut UnixStream,
+    buffer: &mut Vec<u8>,
+    stop: &AtomicBool,
+    deadline: Instant,
+    policy: LinePolicy,
+) -> Option<Value> {
     while Instant::now() < deadline && !stop.load(Ordering::Acquire) {
-        match poll_line_bounded(stream, buffer, messages) {
+        let before = buffer.len();
+        match poll_line_policy(stream, buffer, policy) {
             Ok(Some(value)) => return Some(value),
+            // A directory can contain all 32 bounded summaries. Consume ready
+            // bytes immediately under the same deadline; only idle reads wait.
+            Ok(None) if matches!(policy, LinePolicy::SquadDirectory) && buffer.len() > before => {}
             Ok(None) => thread::sleep(Duration::from_millis(10)),
             Err(_) => return None,
         }
@@ -844,11 +883,31 @@ fn poll_line_bounded(
     buffer: &mut Vec<u8>,
     messages: bool,
 ) -> io::Result<Option<Value>> {
+    poll_line_policy(
+        stream,
+        buffer,
+        if messages {
+            LinePolicy::MessageRequest
+        } else {
+            LinePolicy::Ordinary
+        },
+    )
+}
+fn poll_line_policy(
+    stream: &mut UnixStream,
+    buffer: &mut Vec<u8>,
+    policy: LinePolicy,
+) -> io::Result<Option<Value>> {
     let mut events = [PollFd::new(stream.as_fd(), PollFlags::POLLIN)];
     let ready = poll(&mut events, 0u16).map_err(io::Error::from)? > 0;
     if ready {
-        let mut chunk = [0; 1024];
-        match stream.read(&mut chunk) {
+        let mut chunk = [0; 8192];
+        let chunk = if matches!(policy, LinePolicy::SquadDirectory) {
+            &mut chunk[..]
+        } else {
+            &mut chunk[..1024]
+        };
+        match stream.read(chunk) {
             Ok(0) => return Err(io::ErrorKind::UnexpectedEof.into()),
             Ok(n) => buffer.extend_from_slice(&chunk[..n]),
             Err(e) if e.kind() == io::ErrorKind::WouldBlock => {}
@@ -858,10 +917,12 @@ fn poll_line_bounded(
     if let Some(end) = buffer.iter().position(|b| *b == b'\n') {
         let line: Vec<u8> = buffer.drain(..=end).collect();
         let value = crate::wire::strict_json(&line[..end]).ok_or(io::ErrorKind::InvalidData)?;
-        let limit = if messages && value["op"] == "cloud.message" {
-            crate::limits::CLOUD_MESSAGE_CONTROL_BYTES
-        } else {
-            LINE_BYTES
+        let limit = match policy {
+            LinePolicy::MessageRequest if value["op"] == "cloud.message" => {
+                crate::limits::CLOUD_MESSAGE_CONTROL_BYTES
+            }
+            LinePolicy::SquadDirectory => crate::limits::SQUAD_DIRECTORY_CONTROL_BYTES,
+            _ => LINE_BYTES,
         };
         if end > limit {
             return Err(io::ErrorKind::InvalidData.into());
@@ -869,10 +930,10 @@ fn poll_line_bounded(
         return Ok(Some(value));
     }
     if buffer.len()
-        > if messages {
-            crate::limits::CLOUD_MESSAGE_CONTROL_BYTES
-        } else {
-            LINE_BYTES
+        > match policy {
+            LinePolicy::MessageRequest => crate::limits::CLOUD_MESSAGE_CONTROL_BYTES,
+            LinePolicy::SquadDirectory => crate::limits::SQUAD_DIRECTORY_CONTROL_BYTES,
+            LinePolicy::Ordinary => LINE_BYTES,
         }
     {
         return Err(io::ErrorKind::InvalidData.into());
@@ -1127,11 +1188,16 @@ fn request_with_deadline(
         until.unwrap_or_else(|| Instant::now() + REQUEST_WAIT),
     )
     .map_err(io_error)?;
-    let answer = read_line(
+    let answer = read_line_policy(
         &mut stream,
         &mut Vec::new(),
         &AtomicBool::new(false),
         until.unwrap_or_else(|| Instant::now() + REQUEST_WAIT),
+        if value["op"] == "squads.list" {
+            LinePolicy::SquadDirectory
+        } else {
+            LinePolicy::Ordinary
+        },
     )
     .ok_or_else(|| io_error("missing or invalid control reply; request may have been submitted"))?;
     if let Some(error) = answer.get("error") {

@@ -635,8 +635,9 @@ server challenge (32 lowercase hex characters). No private key is included in a 
 `tmt remote open [short-target]` opens a running local door (default `/remote/`). Targets are the
 [web app routes](#public-browser-routes), `/p/<id>` or `/read/<id>`; query/fragment,
 protocol/mount paths and external redirects refuse. Human output contains only the canonical
-origin plus short target. `--json` returns the versioned result without opening; `--no-open` also
-suppresses opening.
+origin plus short target. `--json` alone returns the versioned result without opening. For this
+Remote page opener, explicit `--open` overrides that JSON suppression; `--no-open` always wins.
+The returned `opened` value reports the actual platform-opener outcome, not the requested flag.
 Other flags/settings/environment checks use the shared opener policy below.
 
 The extension-only `tmt remote launch <short-target>` seam is hidden from help, takes the same
@@ -1072,9 +1073,24 @@ effect fence. Names use the existing 1–64-byte nonblank/control-free rule. Per
 Remote-wide and browser-local catalog names are separate: renaming one never renames another.
 
 A member roster is exactly `{remoteId,administrator:boolean,displayName:null|string,
-members:[person],nextCursor:null|string,invitation:null|invitationView,routes:routeView}`.
+members:[personObservation],nextCursor:null|string,invitation:null|invitationView,routes:routeView}`.
 A person is exactly `{remoteId,memberId,role:"owner"|"user",displayName,sendingEnabled:boolean,
-revision,createdAtMs,revokedAtMs:null|integer}`. The administrator can inspect revoked members;
+revision,createdAtMs,revokedAtMs:null|integer}`.
+
+#### Per-person accepted-use observation
+
+A roster `personObservation` has exactly the `person` fields plus
+`lastUsedAtMs:null|integer`. It is the maximum durable `device_last_use.used_at_ms`
+through that person's current `member_machines` associations, considering only use
+at or after each association's `associated_at_ms`. Historical use by a now-revoked
+machine remains eligible while its association is retained. No eligible observation
+means null, never zero or a presence claim. Reassociation does not transfer the
+previous person's use. This read does not sample Sessions, track new activity or
+call a provider. The immutable `person` shape in mutation results and retained
+original receipts is unchanged. Administrator/self visibility and page bounds
+apply equally to this timestamp.
+
+The administrator can inspect revoked members;
 a user must still have a live current member. A machine page is exactly
 `{remoteId,memberId,machines:[machine],nextCursor:null|string}`. A machine is exactly
 `{clientId,name,kind:"browser"|"addon"|"cli",revision,revoked:boolean,expiresAtMs:null|integer,
@@ -2560,7 +2576,7 @@ plus bounded hourly cleanup and descriptor renewal. These are modeled charges, n
 counts or observed headroom. All enrollment, routing and operation traffic uses the same daily guard.
 Reopening the same Store resumes its native identity, trust, permissions and checkpoints.
 
-The public boundary is `tmt remote message --json`, one bounded version-1 JSON document
+The public send boundary is `tmt remote message --json`, one bounded version-1 JSON document
 on stdin/stdout. `cloud_command` implements [Remote message v1](remote-message-v1.md), which owns the request and
 answer schema, including the local-only `reply` handle. `target.name` is required (1–128 UTF-8
 bytes, no controls); `target.id` may be omitted, but null or a noncanonical UUID is refused. The
@@ -2589,6 +2605,34 @@ presence all permit that identity check. `IDENTITY_CHANGED` (exit 5) maps to the
 `REMOTE_AGENT_STALE` refusal and `NAME_NOT_FOUND` (exit 3) to `REMOTE_AGENT_NOT_FOUND`. Invalid success evidence
 refuses with `REMOTE_CORE_UNAVAILABLE`. Never fall back to name-addressed `check`. Expected name is
 retained with frozen native intent; it is not a caller-chosen role.
+
+#### Public squad directory and original delivery reads
+
+`tmt remote squads --json` reads only the serving owner's verified squad cache;
+it performs no provider request, opens no account and starts no owner. Its exact
+result is `{version:1,machines:[{remote,status,summary?}]}` for other currently
+paired native machines. `status` is `available`, `unavailable` or `incompatible`;
+only an available row has the normalized summary from `squads.summary`. Missing,
+invalid and future-version records degrade independently, without blanking other
+machines. The source `observedAt` is retained across restart; an old observation
+or `presence` enum in it never establishes present reachability. Current grant,
+key, membership and `agents.read` filtering remain the cache owner's boundaries.
+The list is bounded to 32 machines and each summary to 64 KiB. Only its private
+control reply has a separately named aggregate bound with per-row JSON overhead;
+ordinary control frames and all encrypted carriers retain their existing bounds.
+
+`tmt remote delivery <operation-id> --remote <alias> --json` makes one read-only
+observation through the same list/send/delivery interface. Both a canonical original
+operation UUID and an explicit paired Remote alias are required. Its exact result is
+`{version:1,operationId,state,reason?}`: `state` is `queued`, `delivered`, `answered`,
+`failed`, `held`, `unconfirmed` or `unknown`, and an optional reason is a fixed code.
+No provider error text, message or final body is disclosed. `unknown` does not mean
+failed, and uncertainty never recreates an absent carrier or repeats dispatch.
+Observation of an existing attempt uses the existing project guard; refusal remains
+an error, not proof that the original operation failed. Revocation refuses fresh
+observations. The existing prepared-message send command keeps its exact bytes,
+original UUID, authority and journal; this interface creates no new ledger,
+transport, resend worker or automatic retry.
 
 #### Public native agent activation
 

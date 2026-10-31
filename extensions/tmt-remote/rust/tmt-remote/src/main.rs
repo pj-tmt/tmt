@@ -4,6 +4,7 @@ mod message_cli;
 mod open_cli;
 mod pairing_cli;
 mod serve;
+mod squads_cli;
 mod sync_cli;
 
 #[cfg(test)]
@@ -236,6 +237,8 @@ fn grammar() -> Command {
         .subcommand_required(true)
         .subcommand(activation_cli::command())
         .subcommand(message_cli::command())
+        .subcommand(squads_cli::command(false))
+        .subcommand(squads_cli::command(true))
         .subcommand(pairing_cli::command(false))
         .subcommand(pairing_cli::command(true))
         .subcommand(open_cli::command(false))
@@ -413,7 +416,7 @@ fn run(matches: &clap::ArgMatches) -> Result<(), RemoteError> {
     let explicit = matches.get_one::<String>("remote").map(String::as_str);
     if !(matches!(
         name,
-        "link" | "deploy" | "sync" | "message" | "invite" | "join"
+        "link" | "deploy" | "sync" | "message" | "squads" | "delivery" | "invite" | "join"
     ) || name == "status"
         && !arguments.get_flag("objects")
         && !arguments.get_flag("machine")
@@ -426,6 +429,9 @@ fn run(matches: &clap::ArgMatches) -> Result<(), RemoteError> {
     }
     if name == "invite" || name == "join" {
         return pairing_cli::run(arguments, name == "join", explicit);
+    }
+    if matches!(name, "squads" | "delivery") {
+        return squads_cli::run(arguments, name == "delivery", explicit);
     }
     if name == "message" {
         return message_cli::run(explicit);

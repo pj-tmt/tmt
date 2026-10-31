@@ -25,7 +25,7 @@ const roster = (administrator = true): MemberRoster => ({
   remoteId,
   administrator,
   displayName: 'Remote',
-  members: [{ ...person }],
+  members: [{ ...person, lastUsedAtMs: null }],
   nextCursor: null,
   invitation: administrator ? { state: 'no-current-offer' } : null,
   routes: { state: 'unavailable' },

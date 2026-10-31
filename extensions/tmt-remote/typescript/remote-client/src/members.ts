@@ -40,11 +40,15 @@ export interface MemberSummary {
   memberCount: number | null;
   lastActiveAtMs: number | null;
 }
+/** Historical accepted use for a current association; never presence. */
+export interface RemoteMemberObservation extends RemoteMember {
+  lastUsedAtMs: number | null;
+}
 export interface MemberRoster {
   remoteId: string;
   administrator: boolean;
   displayName: string | null;
-  members: RemoteMember[];
+  members: RemoteMemberObservation[];
   nextCursor: string | null;
   invitation: MemberInvitationView | null;
   routes: MemberRouteView;
@@ -331,7 +335,10 @@ export function members(session: Session, options: { timeoutMs?: number } = {}):
         );
         const seen = new Set<string>();
         for (const entry of row.members) {
-          const member = person(entry);
+          const observed = object(entry);
+          valid(Object.hasOwn(observed, 'lastUsedAtMs') && time(observed.lastUsedAtMs));
+          const { lastUsedAtMs: _lastUsedAtMs, ...base } = observed;
+          const member = person(base);
           valid(member.remoteId === row.remoteId && !seen.has(member.memberId));
           seen.add(member.memberId);
         }

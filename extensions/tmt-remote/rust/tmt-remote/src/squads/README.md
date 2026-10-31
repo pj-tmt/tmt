@@ -9,7 +9,12 @@ pairing flow or delivery ledger. Core's prepared-message v1 contract is unchange
 the bounded public Ops invocation. `cloud_inbox` and `cloud_pairing::service` own
 carrier and original-operation observations. A joined publisher under the serving
 Service publishes filtered summaries; this module retains verified cache in the existing private
-Store and adds no public command.
+Store. `squads_cli` and `control::squads` expose the same interface as
+`tmt remote squads --json` and `tmt remote delivery <operation-id> --remote <alias> --json`;
+the existing `tmt remote message --json` remains the prepared-message send command.
+List is cache-only and retains observation timestamps. Delivery observes one original
+ID under the existing guard and never resends. A directory-only control reply bound
+aggregates the existing per-machine caps; ordinary control and carrier limits stay fixed.
 
 ## Summary bytes
 
@@ -201,3 +206,26 @@ about 576 writes per day, before capability exchanges, descriptor reads,
 post-create observations, inbox scans, Rules lookups and checkpoints. Fanout
 multiplies that work. All traffic shares the existing guard, not a new free-plan
 allowance. Provider storage proves publication, never receiver delivery.
+
+## Native CLI emulator qualifier
+
+Infra owns the automated entry (#5767). Build the default-off test feature, then
+run this exact qualifier from the repository root in its isolated CI slot:
+
+```sh
+CARGO_BUILD_JOBS=3 cargo build --offline --locked --manifest-path rust/Cargo.toml -p tmt-remote --bin tmt-remote --features test-emulator
+TMT_REMOTE_QUALIFIER_BIN="$PWD/rust/target/debug/tmt-remote" CARGO_BUILD_JOBS=3 firebase emulators:exec --only auth,firestore --project demo-native-pairing --config extensions/tmt-remote/rust/tmt-remote/tests/emulator/native-squads.firebase.json --non-interactive 'cargo test --offline --locked --manifest-path rust/Cargo.toml -p tmt-remote --lib --features test-emulator cloud_pairing::service::tests::emulator::squads_cli_qualifier::native_cli_squad_change_heartbeat_restart_revoke_and_budget -- --ignored --exact --test-threads=1'
+```
+
+The qualifier validates both numeric loopback emulator hosts and the demo project
+before constructing HTTP. Two private serving stores use the existing invitation
+and encryption owners; native CLI subprocesses then read both caches and send or
+observe one original message. It checks changes, heartbeat sequence advancement,
+offline encrypted inbox drain after restart, revocation, field privacy and a
+persisted project-budget refusal without provider work or lost pending content.
+Schedule ages advance deterministically through the existing scheduler rather
+than sleeping for the heartbeat. Production cadence remains covered by the
+publisher's clock-boundary unit tests. No real account, deployment, host browser,
+tmux server or ambient Core database is used. Ordinary Rules-authorized users
+carry all runtime traffic; emulator admin installs demo Rules and seeds the explicit
+owner entitlement that a real deployment would create.

@@ -30,7 +30,8 @@ fn native_extension_launch_is_versioned_short_only_and_preserves_suppression() {
     for args in [
         vec!["launch", "/remote/settings", "--no-open"],
         vec!["launch", "/remote/settings"],
-        vec!["open", "/remote/settings", "--open", "--json"],
+        vec!["open", "/remote/settings", "--json"],
+        vec!["open", "/remote/settings", "--open", "--no-open", "--json"],
     ] {
         let output = call(&args);
         assert!(
@@ -130,13 +131,18 @@ fn native_extension_launch_is_versioned_short_only_and_preserves_suppression() {
             .unwrap();
         }
         for command in ["launch", "open"] {
-            let output = call(&[command, "/remote/settings", "--open"]);
+            let args = if command == "open" {
+                vec![command, "/remote/settings", "--open", "--json"]
+            } else {
+                vec![command, "/remote/settings", "--open"]
+            };
+            let output = call(&args);
             assert!(
                 output.status.success(),
                 "{command}: {}",
                 String::from_utf8_lossy(&output.stdout)
             );
-            if command == "launch" {
+            if command == "launch" || args.contains(&"--json") {
                 let value: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
                 assert_eq!(
                     value,

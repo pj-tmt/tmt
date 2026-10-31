@@ -11695,7 +11695,10 @@ function members(session, options = {}) {
 				valid$5(row.remoteId === remoteId && typeof row.administrator === "boolean" && (row.displayName === null || memberName(row.displayName)) && Array.isArray(row.members) && row.members.length <= frozen.limit && cursor(row.nextCursor));
 				const seen = /* @__PURE__ */ new Set();
 				for (const entry of row.members) {
-					const member = person(entry);
+					const observed = object$2(entry);
+					valid$5(Object.hasOwn(observed, "lastUsedAtMs") && time(observed.lastUsedAtMs));
+					const { lastUsedAtMs: _lastUsedAtMs, ...base } = observed;
+					const member = person(base);
 					valid$5(member.remoteId === row.remoteId && !seen.has(member.memberId));
 					seen.add(member.memberId);
 				}

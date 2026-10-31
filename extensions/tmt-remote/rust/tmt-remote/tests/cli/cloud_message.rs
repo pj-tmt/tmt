@@ -17,7 +17,7 @@ fn message(pilot: &Pilot, raw: &[u8]) -> std::process::Output {
         .expect("bounded message command");
     child.wait_with_output().unwrap()
 }
-fn owner_socket(pilot: &Pilot) -> UnixListener {
+pub(super) fn owner_socket(pilot: &Pilot) -> UnixListener {
     let directory = pilot.root.join("state/remote");
     fs::create_dir_all(&directory).unwrap();
     let socket = UnixListener::bind(directory.join("control.sock")).unwrap();

@@ -106,7 +106,11 @@ pub(super) fn serve(
         let request = Request::read(&raw)?;
         request.selected(frame["remote"].as_str())?;
         let cloud = cloud.ok_or_else(crate::cloud_command::upgrade)?;
-        cloud.send(&raw, frame["remote"].as_str())
+        use crate::squads::Interface;
+        serde_json::to_value(
+            crate::squads::Firestore::new(cloud, cloud).send(&raw, frame["remote"].as_str())?,
+        )
+        .map_err(crate::store::database)
     })();
     result.unwrap_or_else(|error| error.json_value())
 }

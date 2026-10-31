@@ -330,3 +330,7 @@ pub const SQUAD_SUMMARY_COALESCE_MS: u64 = 5_000;
 pub const SQUAD_SUMMARY_HEARTBEAT_MS: u64 = 300_000;
 /// One bounded other-machine list, before filtering the local machine.
 pub const SQUAD_SUMMARY_MACHINES: usize = 32;
+/// Only the cache directory control reply may aggregate all bounded summaries.
+/// Allow routing/status JSON overhead per row, without enlarging any carrier.
+pub const SQUAD_DIRECTORY_CONTROL_BYTES: usize =
+    SQUAD_SUMMARY_MACHINES * (SQUAD_SUMMARY_BYTES + 1024) + 1024;

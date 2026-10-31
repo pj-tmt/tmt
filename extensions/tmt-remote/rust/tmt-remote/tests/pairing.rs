@@ -241,11 +241,12 @@ fn suppressed_missing_and_failed_openers_do_not_leave_an_automatic_offer_or_leak
             Some(&forbidden as &dyn Fn(&str) -> Outcome),
         ),
         (
-            Flag::Open,
+            Flag::Unset,
             true,
             Some(&forbidden as &dyn Fn(&str) -> Outcome),
         ),
         (Flag::Unset, false, None),
+        (Flag::Open, true, None),
     ] {
         let result = open_page_with(
             &directory,
@@ -302,7 +303,7 @@ fn manual_pairing_survives_plain_short_link_open_and_failure() {
             "skipped",
         ),
         (
-            Flag::Open,
+            Flag::Unset,
             true,
             Some(&forbidden as &dyn Fn(&str) -> Outcome),
             "skipped",
@@ -340,7 +341,7 @@ fn manual_pairing_survives_plain_short_link_open_and_failure() {
             "/remote/settings",
             Flag::Open,
             true,
-            false,
+            true,
             &env,
             Some(&launch),
         )

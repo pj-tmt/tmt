@@ -1,6 +1,8 @@
 //! SQL limits precede materialization. Cursor row positions never carry authority.
 use super::{
-    service::{self, Machine, Machines, MemberViewAccess, Page, Person, Result, Roster},
+    service::{
+        self, Machine, Machines, MemberViewAccess, Page, Person, PersonObservation, Result, Roster,
+    },
     store as sql,
 };
 use crate::{
@@ -70,10 +72,26 @@ pub(super) fn roster(c: &Connection, scope: &MemberViewAccess, page: Page) -> Re
     let limit = service::page_size(&page)?;
     let binding = binding(scope, "members", "");
     let after = after(&page, &binding)?;
-    let mut query=c.prepare("SELECT remote_id,member_id,role,display_name,sending_enabled,revision,created_at_ms,revoked_at_ms,rowid FROM members WHERE remote_id=?1 AND (?2 IS NULL OR member_id=?2) AND rowid>?3 ORDER BY rowid LIMIT ?4").map_err(database)?;
+    let mut query=c.prepare("SELECT remote_id,member_id,role,display_name,sending_enabled,revision,created_at_ms,revoked_at_ms,rowid, (SELECT MAX(u.used_at_ms) FROM member_machines m JOIN device_last_use u ON u.client_id=m.client_id WHERE m.remote_id=members.remote_id AND m.member_id=members.member_id AND u.used_at_ms>=m.associated_at_ms) FROM members WHERE remote_id=?1 AND (?2 IS NULL OR member_id=?2) AND rowid>?3 ORDER BY rowid LIMIT ?4").map_err(database)?;
     let mut rows = query
         .query_map(params![scope.remote, scope.member, after, limit], |r| {
-            Ok((r.get::<_, i64>(8)?, Person::from(sql::row(r)?)))
+            Ok((
+                r.get::<_, i64>(8)?,
+                PersonObservation {
+                    person: Person::from(sql::row(r)?),
+                    last_used_at_ms: r
+                        .get::<_, Option<i64>>(9)?
+                        .map(u64::try_from)
+                        .transpose()
+                        .map_err(|error| {
+                            rusqlite::Error::FromSqlConversionFailure(
+                                9,
+                                rusqlite::types::Type::Integer,
+                                Box::new(error),
+                            )
+                        })?,
+                },
+            ))
         })
         .map_err(database)?
         .collect::<std::result::Result<Vec<_>, _>>()

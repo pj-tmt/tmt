@@ -109,9 +109,12 @@ struct Wire {
 }
 impl Wire {
     fn seed_inbox(&self, id: &str, carrier: &[u8]) {
+        self.seed_inbox_as(PEER, id, carrier);
+    }
+    fn seed_inbox_as(&self, peer: &str, id: &str, carrier: &[u8]) {
         use base64::{Engine, engine::general_purpose::STANDARD};
         let name = format!("{ROOT}/m/{MACHINE}/inbox/{id}");
-        self.documents.lock().unwrap().insert(name.clone(), json!({"name":name,"createTime":STAMP,"fields":{"peer":{"stringValue":PEER},"carrier":{"bytesValue":STANDARD.encode(carrier)},"createdAt":{"timestampValue":STAMP}}}));
+        self.documents.lock().unwrap().insert(name.clone(), json!({"name":name,"createTime":STAMP,"fields":{"peer":{"stringValue":peer},"carrier":{"bytesValue":STANDARD.encode(carrier)},"createdAt":{"timestampValue":STAMP}}}));
     }
 }
 impl Http for Wire {
@@ -921,14 +924,9 @@ fn dense_backlog_over_the_round_cap_drains_after_restart_without_repeating_effec
                 |bytes| key.sign(bytes).to_bytes(),
             )
             .unwrap();
-            wire.seed_inbox(&id, &carrier);
             // Every document has the exact same indexed/create time. Timestamp-only
             // progress cannot distinguish the prefix from its unprocessed suffix.
-            wire.documents
-                .lock()
-                .unwrap()
-                .get_mut(&format!("{ROOT}/m/{MACHINE}/inbox/{id}"))
-                .unwrap()["fields"]["peer"] = json!({"stringValue":peer});
+            wire.seed_inbox_as(&peer, &id, &carrier);
         }
     }
     let stopped = AtomicBool::new(false);
