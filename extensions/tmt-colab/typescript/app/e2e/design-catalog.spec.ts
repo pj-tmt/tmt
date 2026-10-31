@@ -66,7 +66,7 @@ for (const width of [1440, 390])
           await page.evaluate(async (fixture) => {
             const path = '/src/design-document.ts';
             const { designDocument } = await import(path);
-            await (await import(fixture)).change(designDocument);
+            await (await import(fixture)).change(designDocument, 'Shortcut dialog — proposal');
           }, fixture);
           const frame = page.frameLocator('#ask-page-fixture iframe');
           await expect(
@@ -101,6 +101,7 @@ for (const width of [1440, 390])
           await trigger.click();
           await expect(name).toHaveValue('Design reviews draft');
           await expect(checkbox).toBeChecked();
+          await name.focus();
           expect(
             await page.evaluate(async (fixture) => (await import(fixture)).proof(), fixture),
           ).toEqual({ sends: [], actions: [] });
@@ -164,7 +165,11 @@ for (const width of [1440, 390])
                   .getByRole('list', { name: 'Shortcuts', exact: true })
                   .getByRole('link', { name: 'Design', exact: true }),
               ).toHaveCount(0);
-              if (width === 390) await page.locator('.tmt-ui-drawer[open]').press('Escape');
+              if (width === 390) {
+                const opener = page.getByRole('button', { name: 'Open navigation', exact: true });
+                await opener.press('Escape');
+                await expect(opener).toHaveAttribute('aria-expanded', 'false');
+              }
               await expect(catalog.getByRole('heading', { name: 'GUI', exact: true })).toHaveCount(
                 0,
               );
@@ -267,6 +272,21 @@ for (const width of [1440, 390])
               await catalog
                 .getByRole('tablist', { name: 'Design systems', exact: true })
                 .scrollIntoViewIfNeeded();
+              // Returning from the last offscreen preview needs the visible iframe painters, too.
+              const visible = catalog.locator('.design-grid iframe');
+              for (const iframe of await visible.all()) {
+                const box = await iframe.boundingBox();
+                if (box && box.y + box.height > 0 && box.y < 1000)
+                  await iframe
+                    .contentFrame()
+                    .locator('html')
+                    .evaluate(
+                      () =>
+                        new Promise<void>((resolve) =>
+                          requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
+                        ),
+                    );
+              }
             }
 
             if (surface === 'detail') {
