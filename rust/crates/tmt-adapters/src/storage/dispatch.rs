@@ -101,95 +101,112 @@ impl Storage {
         if !valid_retention_days(retention_days) {
             return Err(DispatchError::Invalid);
         }
-        let digest = intent_digest(&input);
         let calendar = super::orchestration::ReceivingCalendar::load(self.connection()?)?;
         with_immediate_transaction(self, "Request dispatch", |transaction| {
-            if let Some((stored_digest, receipt)) =
-                read_dispatch_operation(transaction, &input.operation_id)?
-            {
-                if stored_digest != digest {
-                    return Err(DispatchError::IdempotencyConflict);
-                }
-                if !receipt
-                    .items
-                    .iter()
-                    .map(|item| &item.recipient_id)
-                    .eq(input.recipient_ids.iter())
-                {
-                    return Err(StorageError::new(
-                        StorageErrorCode::Corrupt,
-                        "Invalid dispatch receipt audience",
-                    )
-                    .into());
-                }
-                return Ok((receipt, false));
-            }
-            if let Some(DispatchRoom::Roster { room_id, revision }) = &input.room {
-                let room = super::room::read_room(transaction, room_id)?;
-                if !room.is_some_and(|room| {
-                    room.revision == *revision && room.member_ids == input.recipient_ids
-                }) {
-                    return Err(DispatchError::RoomRosterChanged);
-                }
-            }
-            let now = clock();
-            let expires_at_ms =
-                checked_deadline(now, REQUEST_MIN_EXPIRY_MS).ok_or(DispatchError::Invalid)?;
-            let mut repository = TransactionRequests(transaction, &calendar);
-            let mut service = RequestService::new(&mut repository, || now);
-            let mut items = Vec::with_capacity(input.recipient_ids.len());
-            for recipient_id in &input.recipient_ids {
-                let (request_id, attempt_id) = request_ids();
-                let result = service.enqueue_delivery(
-                    PrepareRequest {
-                        room_id: input.room.as_ref().map(|room| room.room_id().to_owned()),
-                        kind: input.kind,
-                        origin: input.origin,
-                        request_id: request_id.clone(),
-                        message: input.message.clone(),
-                        route: RequestRoute::Inbox {
-                            recipient_identity_id: recipient_id.clone(),
-                        },
-                        wait: false,
-                        expires_at_ms,
-                        originator: input.originator.clone(),
-                        recipient_identity_id: Some(recipient_id.clone()),
-                        preamble: None,
-                    },
-                    attempt_id,
-                    retention_days,
-                    DeliveryPolicy {
-                        mode: input.mode,
-                        ..DeliveryPolicy::default()
-                    },
-                );
-                let acceptance = match result {
-                    Ok(_) => Acceptance::Queued,
-                    Err(RequestError::NotFound) => Acceptance::RecipientUnavailable,
-                    Err(error) => return Err(error.into()),
-                };
-                items.push(DispatchItem {
-                    recipient_id: recipient_id.clone(),
-                    request_id,
-                    acceptance,
-                });
-            }
-            let receipt = DispatchReceipt {
-                operation_id: input.operation_id,
-                created_at_ms: now,
-                items,
-            };
-            let encoded = String::from_utf8(encode_receipt(&receipt)).expect("JSON is UTF-8");
-            transaction.execute(
-                "INSERT INTO office_dispatch_operations (operation_id,intent_digest,receipt) VALUES (?,?,?)",
-                params![receipt.operation_id,digest,encoded],
-            ).map_err(|error| classify(error, "Store dispatch receipt"))?;
-            Ok((receipt, true))
+            dispatch_in_transaction(transaction, input, retention_days, clock, &calendar)
         })
     }
 }
 
-fn read_dispatch_operation(
+// The job admission owner joins this same transaction; there is no second
+// inbox or transport owner. Input normalization and retention checks are retained
+// here as well, so an internal caller cannot bypass ordinary dispatch admission.
+pub(super) fn dispatch_in_transaction(
+    transaction: &rusqlite::Transaction<'_>,
+    input: DispatchInput,
+    retention_days: u64,
+    clock: impl Fn() -> u64,
+    calendar: &super::orchestration::ReceivingCalendar,
+) -> Result<(DispatchReceipt, bool), DispatchError> {
+    let input = input.normalize().ok_or(DispatchError::Invalid)?;
+    if !valid_retention_days(retention_days) {
+        return Err(DispatchError::Invalid);
+    }
+    let digest = intent_digest(&input);
+    if let Some((stored_digest, receipt)) =
+        read_dispatch_operation(transaction, &input.operation_id)?
+    {
+        if stored_digest != digest {
+            return Err(DispatchError::IdempotencyConflict);
+        }
+        if !receipt
+            .items
+            .iter()
+            .map(|item| &item.recipient_id)
+            .eq(input.recipient_ids.iter())
+        {
+            return Err(StorageError::new(
+                StorageErrorCode::Corrupt,
+                "Invalid dispatch receipt audience",
+            )
+            .into());
+        }
+        return Ok((receipt, false));
+    }
+    if let Some(DispatchRoom::Roster { room_id, revision }) = &input.room {
+        let room = super::room::read_room(transaction, room_id)?;
+        if !room.is_some_and(|room| {
+            room.revision == *revision && room.member_ids == input.recipient_ids
+        }) {
+            return Err(DispatchError::RoomRosterChanged);
+        }
+    }
+    let now = clock();
+    let expires_at_ms =
+        checked_deadline(now, REQUEST_MIN_EXPIRY_MS).ok_or(DispatchError::Invalid)?;
+    let mut repository = TransactionRequests(transaction, calendar);
+    let mut service = RequestService::new(&mut repository, || now);
+    let mut items = Vec::with_capacity(input.recipient_ids.len());
+    for recipient_id in &input.recipient_ids {
+        let (request_id, attempt_id) = request_ids();
+        let result = service.enqueue_delivery(
+            PrepareRequest {
+                room_id: input.room.as_ref().map(|room| room.room_id().to_owned()),
+                kind: input.kind,
+                origin: input.origin,
+                request_id: request_id.clone(),
+                message: input.message.clone(),
+                route: RequestRoute::Inbox {
+                    recipient_identity_id: recipient_id.clone(),
+                },
+                wait: false,
+                expires_at_ms,
+                originator: input.originator.clone(),
+                recipient_identity_id: Some(recipient_id.clone()),
+                preamble: None,
+            },
+            attempt_id,
+            retention_days,
+            DeliveryPolicy {
+                mode: input.mode,
+                ..DeliveryPolicy::default()
+            },
+        );
+        let acceptance = match result {
+            Ok(_) => Acceptance::Queued,
+            Err(RequestError::NotFound) => Acceptance::RecipientUnavailable,
+            Err(error) => return Err(error.into()),
+        };
+        items.push(DispatchItem {
+            recipient_id: recipient_id.clone(),
+            request_id,
+            acceptance,
+        });
+    }
+    let receipt = DispatchReceipt {
+        operation_id: input.operation_id,
+        created_at_ms: now,
+        items,
+    };
+    let encoded = String::from_utf8(encode_receipt(&receipt)).expect("JSON is UTF-8");
+    transaction.execute(
+        "INSERT INTO office_dispatch_operations (operation_id,intent_digest,receipt) VALUES (?,?,?)",
+        params![receipt.operation_id,digest,encoded],
+    ).map_err(|error| classify(error, "Store dispatch receipt"))?;
+    Ok((receipt, true))
+}
+
+pub(super) fn read_dispatch_operation(
     connection: &Connection,
     operation_id: &str,
 ) -> Result<Option<(String, DispatchReceipt)>, StorageError> {

@@ -1,4 +1,5 @@
 //! Configuration snapshots/publication and the transaction-local decision journal.
+pub(crate) mod jobs;
 mod receiving;
 mod write;
 use super::{Storage, StorageError, StorageErrorCode, errors::classify};

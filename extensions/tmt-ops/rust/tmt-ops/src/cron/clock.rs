@@ -108,6 +108,18 @@ pub struct Clock {
     directory: PathBuf,
 }
 
+/// A cutover owns the old lock until the source is frozen and Core adoption is
+/// known. Expired JSON is not proof that the previous clock has stopped.
+pub struct QuiescentClock {
+    directory: PathBuf,
+    _lock: Flock<File>,
+}
+impl QuiescentClock {
+    pub(super) fn covers(&self, root: &Path) -> bool {
+        self.directory == root.join("cron")
+    }
+}
+
 impl Clock {
     pub fn new(extension_root: &Path) -> Result<Self, Error> {
         if !extension_root.is_absolute() {
@@ -115,6 +127,24 @@ impl Clock {
         }
         Ok(Self {
             directory: extension_root.join("cron"),
+        })
+    }
+
+    pub fn quiescent_for_cutover(&self) -> Result<QuiescentClock, Error> {
+        let lock = self.lock(true)?.ok_or_else(invalid)?;
+        match fs::symlink_metadata(self.directory.join("clock.json")) {
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(error) => return Err(io(error)),
+            Ok(_) => {
+                return Err(Error::new(
+                    "SQUAD_CRON_CUTOVER_CLOCK_PRESENT",
+                    "Close the existing Ops clock before adopting its jobs. A present or expired holder is not confirmed quiescent.",
+                ));
+            }
+        }
+        Ok(QuiescentClock {
+            directory: self.directory.clone(),
+            _lock: lock,
         })
     }
 

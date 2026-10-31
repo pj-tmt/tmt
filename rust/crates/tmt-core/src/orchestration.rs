@@ -1,5 +1,7 @@
 //! One pure policy resolver. Calendar conversion and durable state belong to ports.
 
+pub mod jobs;
+
 use std::collections::{BTreeMap, BTreeSet};
 
 pub const ORCH_MAX_PLANS: usize = 128;

@@ -4,10 +4,10 @@ mod schedule;
 mod store;
 mod tick;
 
-pub use clock::{Clock, ClockStatus, Holder, Lease};
+pub use clock::{Clock, ClockStatus, Holder, Lease, QuiescentClock};
 pub use schedule::{Schedule, ScheduleInput};
 pub use store::{BUSY_RETRY, STORE_BUSY};
-pub use store::{Job, Jobs, Pause, Store};
+pub use store::{FrozenJobs, Job, Jobs, Pause, Store};
 pub use tick::{Dispatch, Tick, TickReport, operation_id};
 
 /// Expected input/persistence failures, mapped to CLI output by the caller.

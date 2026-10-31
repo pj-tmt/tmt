@@ -279,6 +279,44 @@ frozen claim provenance. Reads, config saves, marker scans, blocked/no-op
 observations and rollback append no decisions. No new command, daemon or timer
 is added. Jobs, catch-up once and the merged `tmt tick` remain slice 3.
 
+## Jobs read projection
+
+`orchestration.read` with `view:"jobs"` accepts optional canonical `squadRoomId`,
+`ownerIdentityId` and exact `jobId`, a limit of 1–128, and an opaque `cursor`.
+The storage query applies selectors before paging in stable job-number order.
+A squad filter matches only the job's explicit room UUID and excludes null-room
+rows. An unfiltered read includes those rows so the All view is complete. No
+room is inferred from the owner's current memberships.
+
+Each row contains `jobId`, stable non-reused `displayId` (`jN`), nullable legacy
+`{roomId,cronId}`, and `target:{squadRoomId,identityId,identityName}`. A non-squad
+job has a null room. An explicitly unowned job, or a job whose owner retired,
+has null recipient/name and a no-owner disposition; reusing a name never adopts
+its jobs. Clients render these as “no squad” and “no owner”. Optional `title`
+and a UTF-8 `messagePreview` of at most 256 bytes are display metadata. The
+bounded exact-job show read returns the original body; dispatch never uses a
+preview as its message.
+
+`revision` is the exact job-definition CAS revision used by pause/resume.
+Manual pause attribution is separate from the effective routine-policy hold and
+its source. Each row exposes its schedule, held slot when present, effective
+reason and nullable `nextRunAtMs`. That instant is the next scheduled due time,
+not a promise of transport. It is null for a manual pause, missing owner or a
+schedule with no next slot. Readiness and future policy changes are not guessed.
+
+`lastRun` is null when there is no recorded run evidence. Otherwise it identifies
+the committed run/journal entry, canonical dispatch operation and request when
+present, immutable acceptance, and the actual recorded delivery/result outcome
+and reference separately. Acceptance never means completion. Missed/skipped
+dispositions appear only when recorded. Page-level
+`historyCoverage:"recorded_only"` disclaims stopped-clock and pre-migration
+history; no client reconstructs those runs.
+
+Job pause/resume uses `orchestration.write` preview/apply with the canonical job
+UUID and this revision. Ops reads and actions use its existing background lanes;
+paint/input never calls Core. Legacy room/c-id selectors are a compatibility
+projection of these same definitions, not a second mutable store.
+
 ## Calendar
 
 One machine IANA zone is configured; absent configuration uses the system's named
