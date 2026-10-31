@@ -127,10 +127,7 @@ impl App {
                 self.estimate_basis = None;
                 self.invalidate_frame_geometry();
             }
-            Overlay::Unread => {
-                self.unread_overlay = None;
-                self.unread.displayed.clear();
-            }
+            Overlay::Unread => self.close_unread(),
             Overlay::SwitchTool => return self.switch_tool_close(),
             Overlay::IdleAlert => return self.idle_alert_close(),
             Overlay::NewMember => return self.new_member_close(),

@@ -452,23 +452,29 @@ pub(in crate::board) fn key(app: &mut App, key: KeyEvent) -> Option<Effect> {
                 state.viewport.newest();
             }
         }
-        KeyCode::Tab => {
-            let next = match focus {
-                Focus::Range => Focus::Each,
-                Focus::Each
-                    if state
-                        .hits
-                        .iter()
-                        .any(|hit| matches!(hit.target, Target::Quota(_))) =>
-                {
-                    Focus::Quota
-                }
-                Focus::Each | Focus::Quota => Focus::Bars,
-                Focus::Bars => Focus::Range,
+        // ↑↓ move between the controls and stop at the ends, so they never reach the board.
+        KeyCode::Up | KeyCode::Down => {
+            let quota = state
+                .hits
+                .iter()
+                .any(|hit| matches!(hit.target, Target::Quota(_)));
+            let order: Vec<Focus> = [Focus::Range, Focus::Each]
+                .into_iter()
+                .chain(quota.then_some(Focus::Quota))
+                .chain([Focus::Bars])
+                .collect();
+            let at = order.iter().position(|f| *f == focus).unwrap_or(0);
+            let next = if key.code == KeyCode::Up {
+                at.saturating_sub(1)
+            } else {
+                (at + 1).min(order.len() - 1)
             };
-            state.set_focus(next);
+            if next != at {
+                state.set_focus(order[next]);
+            }
         }
-        KeyCode::Left | KeyCode::Up => {
+        // ←→ step the value or the bar.
+        KeyCode::Left => {
             state.draft = state.draft.saturating_sub(1);
             if focus == Focus::Bars {
                 state.bar = state.draft;
@@ -476,7 +482,7 @@ pub(in crate::board) fn key(app: &mut App, key: KeyEvent) -> Option<Effect> {
                 state.viewport.reveal(count, bar);
             }
         }
-        KeyCode::Right | KeyCode::Down => {
+        KeyCode::Right => {
             state.draft = (state.draft + 1).min(count - 1);
             if focus == Focus::Bars {
                 state.bar = state.draft;

@@ -3024,7 +3024,8 @@ print(json.dumps(out))
                 KeyCode::Enter,
                 KeyCode::Down,
                 KeyCode::Enter,
-                KeyCode::Tab,
+                // ↓ moves from Range to Each.
+                KeyCode::Down,
                 KeyCode::Enter,
                 KeyCode::Down,
                 KeyCode::Down,

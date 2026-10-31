@@ -1278,7 +1278,7 @@ fn unread_list_previews_do_not_acknowledge_the_unselected_detail() {
 }
 
 #[test]
-fn narrow_unread_stays_unread_until_enter_opens_detail_and_escape_returns_to_list() {
+fn narrow_unread_stays_unread_until_enter_opens_detail_and_left_returns_to_list() {
     let mut app = app_with_two_members();
     install(&mut app, &[(MEMBER, "first", 8_000_000, "final")]);
     app.open_unread(&UnreadScope::Member(MEMBER.into()));
@@ -1305,19 +1305,28 @@ fn narrow_unread_stays_unread_until_enter_opens_detail_and_escape_returns_to_lis
     app.unread_drawn();
     assert!(detail.contains("Full narrow detail."), "{detail}");
     assert_eq!(app.unread.displayed.len(), 1);
-    press(&mut app, KeyCode::Esc);
+    press(&mut app, KeyCode::Left);
     assert!(
         app.unread_overlay.is_some(),
-        "first Escape returns to the narrow list"
+        "Left returns to the narrow list"
     );
     let list = draw_size(&app, 80, 30);
     app.unread_drawn();
     assert!(!list.contains("Full narrow detail."), "{list}");
     assert!(app.unread.displayed.is_empty());
+    press(&mut app, KeyCode::Enter);
+    let detail = draw_size(&app, 80, 30);
+    assert!(detail.contains("← list"), "{detail}");
     press(&mut app, KeyCode::Esc);
     assert!(
         app.unread_overlay.is_none(),
-        "second Escape closes the overlay"
+        "Escape closes the overlay from the detail screen"
+    );
+    app.open_unread(&UnreadScope::Member(MEMBER.into()));
+    let overlay = app.unread_overlay.as_ref().unwrap();
+    assert!(
+        overlay.detail_open && overlay.selected_index() == Some(0),
+        "the same scope reopens on the detail screen"
     );
 }
 
@@ -1678,6 +1687,12 @@ fn tab_scrolls_the_detail_without_changing_the_list_selection() {
     );
     let before = draw_size(&app, 160, 30);
     press(&mut app, KeyCode::Tab);
+    assert!(
+        !app.unread_overlay.as_ref().unwrap().detail_focus,
+        "Tab does nothing"
+    );
+    press(&mut app, KeyCode::Right);
+    assert!(app.unread_overlay.as_ref().unwrap().detail_focus);
     press(&mut app, KeyCode::PageDown);
     let after = draw_size(&app, 160, 30);
     assert_ne!(before, after);
@@ -1703,7 +1718,7 @@ fn tab_scrolls_the_detail_without_changing_the_list_selection() {
             .collect::<Vec<_>>(),
         ["first"]
     );
-    press(&mut app, KeyCode::BackTab);
+    press(&mut app, KeyCode::Left);
     press(&mut app, KeyCode::Down);
     draw_size(&app, 160, 30);
     assert_eq!(

@@ -863,6 +863,8 @@ pub struct App {
     pub(in crate::board) usage_controls: bool,
     pub(super) quota_details: Option<RefCell<super::home::quota_detail::Details>>,
     pub(super) unread_overlay: Option<super::unread_overlay::Overlay>,
+    /// Where Esc left Unread: the same scope reopens on that answer and screen.
+    pub(super) unread_place: Option<super::unread_overlay::Place>,
     /// The painted unread counts a press opens the overlay from, rebuilt every frame.
     pub(in crate::board) unread_hits: RefCell<Vec<super::unread_overlay::Hit>>,
     /// The painted unread count under the pointer; it highlights as the composer's chip does.

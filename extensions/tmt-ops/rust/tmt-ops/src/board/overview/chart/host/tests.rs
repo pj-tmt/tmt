@@ -300,6 +300,46 @@ fn long_ranges_render_exact_buckets_and_reject_old_or_inactive_demand() {
 }
 
 #[test]
+fn up_down_move_between_controls_and_stop_at_the_ends() {
+    crate::status::with_now_ms(fixtures::NOW, || {
+        let _no_commands = crate::runner::forbid_commands();
+        let mut app = board();
+        fixtures::populate(&mut app);
+        press(&mut app, KeyCode::Char('1'));
+        paint(&mut app, 103, 51);
+        let target = app.workspace.selected.clone();
+        crate::board::app::workspace::tests::open_usage_controls(&mut app);
+        assert_eq!(app.usage_chart.borrow().focus, Some(Focus::Range));
+        press(&mut app, KeyCode::Up);
+        assert_eq!(
+            app.usage_chart.borrow().focus,
+            Some(Focus::Range),
+            "↑ on the first control stays"
+        );
+        assert_eq!(app.workspace.selected, target, "and never moves the board");
+        press(&mut app, KeyCode::Down);
+        assert_eq!(app.usage_chart.borrow().focus, Some(Focus::Each));
+        for _ in 0..4 {
+            press(&mut app, KeyCode::Down);
+        }
+        assert_eq!(
+            app.usage_chart.borrow().focus,
+            Some(Focus::Bars),
+            "↓ on the last control stays"
+        );
+        assert_eq!(app.workspace.selected, target, "and never moves the board");
+        let bar = app.usage_chart.borrow().bar;
+        press(&mut app, KeyCode::Left);
+        assert_eq!(
+            app.usage_chart.borrow().bar,
+            bar.saturating_sub(1),
+            "←→ step the bar"
+        );
+        assert_eq!(app.usage_chart.borrow().focus, Some(Focus::Bars));
+    });
+}
+
+#[test]
 fn current_controls_and_keyboard_share_grid_without_recipient_or_draft_changes() {
     crate::status::with_now_ms(fixtures::NOW, || {
         let _no_commands = crate::runner::forbid_commands();
@@ -1000,8 +1040,8 @@ fn quota_chips_are_shared_keyboard_reachable_and_preserve_token_demand_and_pane_
             paint(&mut app, width, 51);
             crate::board::app::workspace::tests::open_usage_controls(&mut app);
             paint(&mut app, width, 51);
-            press(&mut app, KeyCode::Tab);
-            press(&mut app, KeyCode::Tab);
+            press(&mut app, KeyCode::Down);
+            press(&mut app, KeyCode::Down);
             assert_eq!(app.usage_chart.borrow().focus, Some(Focus::Quota));
             press(&mut app, KeyCode::Left);
             press(&mut app, KeyCode::Enter);

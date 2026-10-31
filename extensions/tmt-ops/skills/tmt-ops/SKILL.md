@@ -491,8 +491,10 @@ conversation or jumping with `j` does not mark offscreen answers read. Clicking 
 composer's; each highlights under the pointer) or pressing `u` opens the Unread overlay: the unread answers of that
 agent, squad or pool (everyone for the top bar, or for `u` with nothing selected),
 grouped by agent, oldest first, with unread and read counts. The reader fills the board
-body with a list and selected answer detail side by side. Below 100 columns it opens
-with the list only; Enter opens detail and Esc returns to the list. Only the selected
+body with a list and selected answer detail side by side; ↑↓ choose, → moves ↑↓ and
+PgUp/PgDn into the detail and ← back to the list. Below 100
+columns it opens with the list only; Enter opens detail and ← returns to the list. Esc
+closes Unread on the screen it is on, and the same scope reopens there; Tab does nothing. Only the selected
 detail's visible answer body or terminal unavailable caption is acknowledged after a
 successful draw; list previews, hover, Loading and failures never mark read.
 `r` toggles the selected answer between read and unread, or retries a failed read.
@@ -1838,8 +1840,8 @@ Changing the observation policy starts fresh observations; core history seeds ag
 on the next admitted source entry.
 
 While the usage meter is on, Agents shows the selected provider quota on each
-Usage row. Click 7d/5h in its heading, or use the usage controls (the Usage chart entry of the actions menu, a click on the usage strip, or a key you bind to `usage-controls`; arrows,
-Enter and Tab fields); changing quota never changes the token chart or rereads
+Usage row. Click 7d/5h in its heading, or use the usage controls (the Usage chart entry of the actions menu, a click on the usage strip, or a key you bind to `usage-controls`; ↑↓ change the
+control and stop at the first and last, ←→ choose a value or bar, Enter opens or applies); changing quota never changes the token chart or rereads
 Core. Bars and percentages are neutral. The rate uses the last 2h of observed
 quota changes, divided by actual source elapsed time; its arrow compares with
 the preceding 2h. Chart Time per bar/Range controls do not affect either horizon. A reset

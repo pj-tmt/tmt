@@ -43,7 +43,7 @@ impl Overlay {
         next != self.hover.replace(next)
     }
 
-    fn selection_changed(&mut self) {
+    pub(super) fn selection_changed(&mut self) {
         self.scroll.borrow_mut().step(Step::Top);
         self.painted.borrow_mut().clear();
         self.hover.set(None);
@@ -94,16 +94,22 @@ impl Overlay {
                 .intersects(KeyModifiers::CONTROL | KeyModifiers::ALT)
         {
             match key.code {
-                KeyCode::Esc => {
+                // Esc closes on the screen it is on; the same scope reopens there.
+                KeyCode::Esc | KeyCode::Char('q') => return Input::Close,
+                // ← returns to the list: from the narrow detail screen, or from the wide
+                // detail side; → reads the wide detail.
+                KeyCode::Left => {
                     if self.narrow.get() && self.detail_open {
                         self.detail_open = false;
-                        self.detail_focus = false;
                         self.painted.borrow_mut().clear();
-                        return Input::None;
                     }
-                    return Input::Close;
+                    self.detail_focus = false;
+                    return Input::None;
                 }
-                KeyCode::Char('q') => return Input::Close,
+                KeyCode::Right if !self.narrow.get() => {
+                    self.detail_focus = true;
+                    return Input::None;
+                }
                 KeyCode::Enter => {
                     if self.narrow.get() && !self.detail_open {
                         self.detail_open = true;
@@ -114,14 +120,6 @@ impl Overlay {
                     return self
                         .selected_answer()
                         .map_or(Input::None, |answer| Input::Chat(answer.member.clone()));
-                }
-                KeyCode::Tab => {
-                    self.detail_focus = !self.detail_focus;
-                    return Input::None;
-                }
-                KeyCode::BackTab => {
-                    self.detail_focus = false;
-                    return Input::None;
                 }
                 KeyCode::Char('r') => {
                     if self.page_failed {
@@ -224,8 +222,7 @@ impl App {
         Some(match overlay.input(event, &self.unread.local) {
             Input::None => Effect::None,
             Input::Close => {
-                self.unread_overlay = None;
-                self.unread.displayed.clear();
+                self.close_unread();
                 Effect::None
             }
             Input::Chat(member) => {
