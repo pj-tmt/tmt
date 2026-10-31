@@ -1042,14 +1042,32 @@ test.describe('the Ops route on the owner read', () => {
           await expect(tree.locator(':scope > li:last-child')).toHaveClass('tmt-ui-rail-settings');
           await expect(tree.locator('button.tmt-ui-rail-add')).toHaveCount(0);
           const geometry = await tree.evaluate((node) => ({
-            indents: [...node.querySelectorAll('a.tmt-ui-rail-sub-item')].map(
+            indents: [...node.querySelectorAll('a.tmt-ui-rail-sub-item')]
+              .filter((item) => !item.closest('.tmt-ui-rail-sub-children'))
+              .map((item) => getComputedStyle(item).paddingLeft),
+            nestedIndents: [...node.querySelectorAll('.tmt-ui-rail-sub-children a')].map(
               (item) => getComputedStyle(item).paddingLeft,
             ),
+            nestedPadding: getComputedStyle(node)
+              .getPropertyValue('--tmt-ui-rail-sub-padding-inline')
+              .trim(),
+            branches: [...node.querySelectorAll('.tmt-ui-rail-sub-children')].map((item) => ({
+              indent: getComputedStyle(item).paddingLeft,
+              rule: getComputedStyle(item).borderLeftStyle,
+              edge: getComputedStyle(item).borderLeftWidth,
+            })),
             edge: getComputedStyle(node.querySelector('[aria-current="page"]')!).borderLeftWidth,
             rule: getComputedStyle(node.lastElementChild!, '::before').borderTopStyle,
             overflow: document.documentElement.scrollWidth > innerWidth,
           }));
           expect(new Set(geometry.indents)).toEqual(new Set(['36px']));
+          const nested = labels.includes('#tmt-core');
+          expect(geometry.nestedIndents).toEqual(
+            nested ? [geometry.nestedPadding, geometry.nestedPadding] : [],
+          );
+          expect(geometry.branches).toEqual(
+            nested ? [{ indent: '8px', rule: 'solid', edge: '1px' }] : [],
+          );
           expect(geometry.edge).toBe('0px');
           expect(geometry.rule).toBe('solid');
           expect(geometry.overflow).toBe(false);

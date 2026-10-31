@@ -5883,6 +5883,8 @@ test('the root prefetches one confined search entry and owns one shortcut across
   expect((await events.next()).event).toBe('candidate');
   pair.stdin.write('confirm\n');
   expect((await events.next()).reason).toBe('paired');
+  // Native confirmation precedes the browser's durable save and verified Session.
+  await expect(page.locator('#status')).toContainText('This browser is paired.');
   await page.goto(`${origin}/remote/`);
   await expect(page.locator('#access')).toHaveText('Current browser access confirmed.');
   await page.waitForFunction(() => 'searchProof' in window);
