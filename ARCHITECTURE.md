@@ -525,7 +525,7 @@ the leaf discovers no roots and interprets no Core state or provider configurati
 
 Only public Core JSON; absolute `TMT_EXECUTABLE`/`tmt-invoke`; dispatch pins UUID/name; UUID capture-only.
 Core distrusts Remote. Extensions: public CLI/SDK/`tmt-extension-objects`, never Remote state files.
-Remote: member/channel authority, People/row data, local effect fences, invites/history, join UI, summary CLI/cache/publish/send/delivery (public Ops); UI grants none.
+Remote: member/channel authority, People/row data, local effect fences, invites/history, join UI, shell extras, summary CLI/cache/publish/send/delivery (public Ops); UI grants none.
 Firestore: only Auth/Rules; read-only auto-pair; no companions/skills/shipped emulation.
 
 `talk --remote` → [message v1](contracts/remote-message-v1.md) → serving owner,
@@ -534,9 +534,9 @@ Finals use receipt-bound Core `reply`.
 
 [Contract](contracts/remote-channel-v1.md); [hard lines](contracts/remote-channel-v1.md#user-path);
 [internals](.agents/skills/tmt-remote/references/architecture-internals.md);
-[door/discovery](.agents/skills/tmt-remote/references/door-and-discovery.md);
+[door](.agents/skills/tmt-remote/references/door-and-discovery.md);
 [object backends](.agents/skills/tmt-remote/references/object-backends.md);
-[release gates](.agents/skills/tmt-release/SKILL.md);
+[release](.agents/skills/tmt-release/SKILL.md);
 [extension-serve](contracts/extension-serve-v1.md).
 
 ## Colab extension

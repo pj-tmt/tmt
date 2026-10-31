@@ -150,6 +150,11 @@ member roster and an explicitly opened machine page under the verified Session. 
 retains its own original decision without replay. The public contract owns exact paths and locked-tab
 behavior.
 
+`shell` admits one capability-gated extra display module under the extension's same
+callback, cache age and socket fence. Composition keys extras by `(extension, module)`;
+Remote extension-wide lookups select only primaries. The describe contract owns
+validation, ordering and version-skew rules; the shared leaf owns rail rendering.
+
 `shell-app` owns common top-bar bindings and the global-search bridge. `root-search` keeps one
 confined Colab import per entry and a disposable route/session registry; Navigation comes from
 the same live composition as the rail. Colab's search-session entry owns its transport and dialog,
@@ -448,6 +453,10 @@ budget refusal retains pending intent with a bounded hold, attempted IDs remain
 observation-only, and revoke/current membership fences precede effects.
 After atomic verified cache/watermark commit, existing driver cleanup promptly deletes
 only validated summary inbox carriers. Guard refusal preserves cleanup intent and cache.
+The shared native REST owner evaluates the same project cost policy on a read-only
+usage copy before asking Auth for a token, so an exhausted budget cannot refresh
+credentials over HTTP. Its authoritative charge still rechecks concurrent usage
+after token validation and before Firestore; a cancelled Auth wait consumes no cost.
 Source compaction retains active attempts and the latest completed summary; generic
 messages/finals keep their existing recovery horizon. Sequence watermarks survive
 compaction. The cache supplies the list after restart without provider reads; absent

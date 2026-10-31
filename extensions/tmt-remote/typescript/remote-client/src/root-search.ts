@@ -52,7 +52,9 @@ export function navigationSnapshot(
   };
   for (const item of rail) {
     if (item.disabled) continue;
-    const module = answer.modules.find((module) => module.extension === item.id);
+    const module = answer.modules.find(
+      (module) => module.extension === item.id && !('module' in module),
+    );
     // Home and TMT settings are root entries; every other item needs a live description.
     if (!module && item.id !== 'home' && item.id !== 'settings') continue;
     add(item.id, item.label, item.href, item.icon);

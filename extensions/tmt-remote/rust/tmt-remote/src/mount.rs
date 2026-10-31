@@ -1056,7 +1056,7 @@ pub(crate) fn describe(source: &Source) -> Option<Description> {
     let deadline = Instant::now() + limits::DESCRIBE_WAIT;
     let mut stream = connect_event(&source.socket, deadline).ok()?;
     let request = format!(
-        "GET /.tmt/remote/describe HTTP/1.1\r\nHost: {}\r\ntmt-describe: 1\r\n{MOUNT_HEADER}: {}\r\nConnection: close\r\n\r\n",
+        "GET /.tmt/remote/describe HTTP/1.1\r\nHost: {}\r\ntmt-describe: 1\r\ntmt-describe-features: modules\r\n{MOUNT_HEADER}: {}\r\nConnection: close\r\n\r\n",
         source.host, source.mount
     );
     send(&mut stream, request.as_bytes(), deadline).ok()?;

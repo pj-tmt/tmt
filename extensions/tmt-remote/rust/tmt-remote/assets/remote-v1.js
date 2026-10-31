@@ -10202,7 +10202,7 @@ async function remoteApp(shell, main, bar, settingsStyles, pages) {
 	localRename?.addEventListener("click", () => registry.renameCurrent(localRename), { signal: shell.signal });
 	shell.described((answer) => {
 		if (shell.signal.aborted) return;
-		reportedNeeds = answer?.modules.find((module) => module.extension === "remote")?.needsYou;
+		reportedNeeds = answer?.modules.find((module) => module.extension === "remote" && !("module" in module))?.needsYou;
 		layout();
 	});
 	function observeSummary() {
@@ -11055,7 +11055,7 @@ function navigationSnapshot(answer, rail, here, href) {
 	};
 	for (const item of rail) {
 		if (item.disabled) continue;
-		const module = answer.modules.find((module) => module.extension === item.id);
+		const module = answer.modules.find((module) => module.extension === item.id && !("module" in module));
 		if (!module && item.id !== "home" && item.id !== "settings") continue;
 		add(item.id, item.label, item.href, item.icon);
 		if (!module) continue;
@@ -11315,7 +11315,7 @@ function remotePage(html, run) {
 var COLAB_ENTRY = "assets/colab-module.js";
 /** Colab as the composed answer describes it: its own link, and its entry only if confined. */
 function colabLoad(answer) {
-	const colab = answer?.modules.find((module) => module.extension === "colab");
+	const colab = answer?.modules.find((module) => module.extension === "colab" && !("module" in module));
 	if (!colab) return void 0;
 	return moduleLoad(colab.rail.path, colab.entry, location.href, COLAB_ENTRY);
 }

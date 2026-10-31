@@ -7,7 +7,7 @@ use crate::{
     firebase_auth::{Cancellation, Clock, Http, Jitter, Operation, Request, Time},
     firestore_budget::{
         Decision, ExhaustedEvidence, ExhaustedOutcome, Model, ProviderExhausted, READ_LOOKUPS,
-        Refusal, classify_provider_exhausted,
+        Refusal, charge_native, classify_provider_exhausted,
     },
     limits,
     objects::{BackendError, IoBudget},
@@ -695,8 +695,18 @@ impl NativeRuntime {
             check(io)
         };
         check_call()?;
-        self.budget.usage(&identity.project)?;
+        let mut projected = self.budget.usage(&identity.project)?;
         if let Some(refusal) = self.provider_refusal()? {
+            return Err(SyncError::BudgetExhausted(refusal));
+        }
+        // A cold token request can itself refresh over HTTP. Refuse it with the
+        // same cost policy on a read-only usage copy first. The authoritative
+        // charge below still rechecks concurrent usage after token validation;
+        // an Auth wait cancelled before then consumes no Firestore cost.
+        if let Decision::Refuse(refusal) =
+            charge_native(model, &mut projected, cost, self.clock.now().wall_ms)
+                .map_err(|_| SyncError::Unavailable)?
+        {
             return Err(SyncError::BudgetExhausted(refusal));
         }
         let token = auth.token(io).await.map_err(|_| SyncError::Unavailable)?;
