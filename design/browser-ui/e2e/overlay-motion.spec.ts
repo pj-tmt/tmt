@@ -7,8 +7,9 @@ type Case = {
   url: string;
   surface: string;
   dismiss: string;
-  /** The exit duration token: `base` for dialogs and drawers, `fast` for menus and popovers. */
-  duration: 'base' | 'fast';
+  /** The exit duration: `base` for the Browser dialogs and drawers; under the ui set (#5821) `fast`
+   * for a dialog and a sheet and `quick` (two thirds of fast) for menus, popovers and tooltips. */
+  duration: 'base' | 'fast' | 'quick';
   /** A Browser drawer stays in the document (closed, off-screen); the others unmount. */
   stays?: boolean;
 };
@@ -41,42 +42,43 @@ const cases: Case[] = [
     url: '/?frame=ui-overlay&kind=dialog&theme=dark',
     surface: '[data-slot="dialog-content"]',
     dismiss: '[data-slot="dialog-content"] button >> text=Cancel',
-    duration: 'base',
+    duration: 'fast',
   },
   {
     name: 'UI drawer',
     url: '/?frame=ui-overlay&kind=sheet&theme=dark',
     surface: '[data-slot="sheet-content"]',
     dismiss: '[data-slot="sheet-content"] button >> text=Cancel',
-    duration: 'base',
+    duration: 'fast',
   },
   {
     name: 'UI popover',
     url: '/?frame=ui-overlay&kind=popover&theme=dark',
     surface: '[data-slot="popover-content"]',
     dismiss: 'Escape',
-    duration: 'fast',
+    duration: 'quick',
   },
   {
     name: 'UI tooltip',
     url: '/?frame=ui-overlay&kind=tooltip&theme=dark',
     surface: '[data-slot="tooltip-content"]',
     dismiss: 'Escape',
-    duration: 'fast',
+    duration: 'quick',
   },
   {
     name: 'UI menu',
     url: '/?frame=ui-overlay&kind=menu&theme=dark',
     surface: '[data-slot="dropdown-menu-content"]',
     dismiss: 'Escape',
-    duration: 'fast',
+    duration: 'quick',
   },
 ];
 
-async function durationOf(page: Page, token: 'base' | 'fast') {
+async function durationOf(page: Page, token: 'base' | 'fast' | 'quick') {
   return page.evaluate((name) => {
     const probe = document.createElement('div');
-    probe.style.transitionDuration = `var(--tmt-ui-motion-${name})`;
+    probe.style.transitionDuration =
+      name === 'quick' ? 'calc(var(--tmt-ui-motion-fast) * 2 / 3)' : `var(--tmt-ui-motion-${name})`;
     document.body.append(probe);
     const seconds = parseFloat(getComputedStyle(probe).transitionDuration);
     probe.remove();
@@ -153,7 +155,7 @@ for (const motion of cases) {
     await page.goto(motion.url);
     await expect(page.locator(motion.surface).first()).toBeVisible();
     const duration = await durationOf(page, motion.duration);
-    expect(duration).toBe(motion.duration === 'base' ? 180 : 120);
+    expect(duration).toBe({ base: 180, fast: 120, quick: 80 }[motion.duration]);
     await dismiss(page, motion, true);
     try {
       await expect
