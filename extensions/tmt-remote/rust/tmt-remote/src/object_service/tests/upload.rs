@@ -621,15 +621,10 @@ fn upload_post_effect_deadline_and_result_write_spend_are_unknown_and_channel_li
     ] {
         let env = Env::new();
         let peer = Peer::start(&env, "alpha", Answer::Expect);
-        let service = env
-            .service(
-                &ALPHA,
-                ServiceBounds {
-                    request: Duration::from_millis(400),
-                    ..bounds()
-                },
-            )
-            .unwrap();
+        let service = env.service(&ALPHA, bounds()).unwrap();
+        // Only the first request is spent; the follow-up keeps the contract bound, so a
+        // slow host cannot spend it as well (#2860).
+        service.set_first_request(Duration::from_millis(400));
         let count = Arc::new(AtomicUsize::new(0));
         service.set_hook(Some(Arc::new(move |point, deadline| {
             let selected = point == pause
@@ -891,15 +886,10 @@ fn upload_pre_effect_spend_has_zero_effects_and_keeps_channel() {
     for pause in [Pause::BeforeRequest, Pause::BeforeAdmitWrite] {
         let env = Env::new();
         let peer = Peer::start(&env, "alpha", Answer::Expect);
-        let service = env
-            .service(
-                &ALPHA,
-                ServiceBounds {
-                    request: Duration::from_millis(400),
-                    ..bounds()
-                },
-            )
-            .unwrap();
+        let service = env.service(&ALPHA, bounds()).unwrap();
+        // Only the first request is spent; the follow-up keeps the contract bound, so a
+        // slow host cannot spend it as well (#2860).
+        service.set_first_request(Duration::from_millis(400));
         let once = AtomicBool::new(true);
         service.set_hook(Some(Arc::new(move |point, deadline| {
             if point == pause && once.swap(false, Ordering::AcqRel) {

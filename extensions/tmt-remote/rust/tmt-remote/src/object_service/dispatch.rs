@@ -64,6 +64,8 @@ pub(super) struct Launch<'a> {
     pub(super) source: ConfigSource,
     pub(super) bounds: &'a ServiceBounds,
     pub(super) hook: Hook,
+    #[cfg(test)]
+    pub(super) first_request: Option<Duration>,
     pub(super) origins: &'a Origins,
     pub(super) extension: &'a str,
     pub(super) tunnels: usize,
@@ -128,6 +130,9 @@ pub(super) struct Hub {
     request: Duration,
     #[cfg_attr(not(test), allow(dead_code))]
     hook: Hook,
+    /// The bound of the first request this channel serves, taken once.
+    #[cfg(test)]
+    first_request: Mutex<Option<Duration>>,
     pub(super) stop: AtomicBool,
     ended: Mutex<Option<ChannelEnd>>,
     queue: Mutex<VecDeque<Work>>,
@@ -173,6 +178,8 @@ impl Running {
             source,
             bounds,
             hook,
+            #[cfg(test)]
+            first_request,
             origins,
             extension,
             tunnels,
@@ -197,6 +204,8 @@ impl Running {
             callback: bounds.callback,
             request: bounds.request,
             hook,
+            #[cfg(test)]
+            first_request: Mutex::new(first_request),
             stop: AtomicBool::new(false),
             ended: Mutex::new(None),
             queue: Mutex::new(VecDeque::new()),
@@ -370,6 +379,10 @@ fn take(hub: &Hub) -> Option<Work> {
 fn serve(hub: &Hub, bus: &Bus, next: Work) -> Result<(), ChannelEnd> {
     let Work { request, received } = next;
     let deadline = received + hub.request;
+    #[cfg(test)]
+    let deadline = locked(&hub.first_request)
+        .take()
+        .map_or(deadline, |bound| received + bound);
     let request = match request {
         Input::Object(request) => request,
         Input::Sync(request) => return native::serve(hub, bus, &request, deadline),

@@ -171,6 +171,9 @@ pub struct ObjectService<'s> {
     /// Pauses a worker between a request's two admissions, so a test can spend its time.
     #[cfg(test)]
     hook: Mutex<dispatch::Hook>,
+    /// A shorter request bound for the first request of later channels only.
+    #[cfg(test)]
+    first_request: Mutex<Option<Duration>>,
 }
 
 impl<'s> ObjectService<'s> {
@@ -237,6 +240,8 @@ impl<'s> ObjectService<'s> {
             })),
             #[cfg(test)]
             hook: Mutex::new(None),
+            #[cfg(test)]
+            first_request: Mutex::new(None),
         }))
     }
 
@@ -447,6 +452,11 @@ impl<'s> ObjectService<'s> {
             source,
             bounds: &self.bounds,
             hook,
+            #[cfg(test)]
+            first_request: *self
+                .first_request
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner()),
             origins: &self.origins,
             extension: name,
             tunnels,
@@ -526,6 +536,15 @@ impl<'s> ObjectService<'s> {
             .hook
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner()) = hook;
+    }
+    /// Give only the first request of later channels this bound, so a test can spend it
+    /// quickly while the requests after it keep the full `request` bound.
+    #[cfg(test)]
+    fn set_first_request(&self, bound: Duration) {
+        *self
+            .first_request
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner()) = Some(bound);
     }
 
     /// Stop: later activations are refused, and every channel is ended: its threads are
