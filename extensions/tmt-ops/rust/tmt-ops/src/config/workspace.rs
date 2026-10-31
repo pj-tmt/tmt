@@ -1192,7 +1192,7 @@ mod tests {
     }
 
     #[test]
-    fn factory_measure_key_is_unique_outside_readers_and_t_is_terminal_only_on_members() {
+    fn factory_measure_key_is_unique_outside_readers_and_t_is_never_a_default() {
         for scope in [
             OpsKeyScope::Squad,
             OpsKeyScope::Member,
@@ -1200,12 +1200,8 @@ mod tests {
             OpsKeyScope::Reader,
         ] {
             let factory = config("").workspace_keys(scope, None, None).unwrap();
-            match scope {
-                OpsKeyScope::Member | OpsKeyScope::Reader => {
-                    assert_eq!(factory.bindings["t"].text, "terminal", "{scope:?}");
-                }
-                _ => assert!(!factory.bindings.contains_key("t"), "{scope:?}"),
-            }
+            // `j` opens a built-in member's Terminal view (#5765); `terminal` has no default key.
+            assert!(!factory.bindings.contains_key("t"), "{scope:?}");
             let measure_keys: Vec<_> = factory
                 .bindings
                 .iter()
@@ -1274,8 +1270,7 @@ mod tests {
             assert_eq!(plain.bindings[event].text, name);
         }
         assert_eq!(plain.bindings["p"].text, "pin");
-        assert_eq!(plain.bindings["t"].text, "terminal");
-        for key in ["left", "right", "s", "x"] {
+        for key in ["left", "right", "s", "t", "x"] {
             assert!(!plain.bindings.contains_key(key), "{key}");
         }
         let config = config("[bind]\nj='copy'\n[bind.tmux]\nj='open'\n");

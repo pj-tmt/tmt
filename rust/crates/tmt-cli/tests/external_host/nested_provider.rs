@@ -45,7 +45,9 @@ fn assert_refused(fixture: &Fixture, rows: &[String], output: (i32, String, Stri
         .iter()
         .position(|row| row.starts_with("bindings: "))
         .unwrap();
-    let (prefix, observation) = after[binding].rsplit_once(" | ").unwrap();
+    // The refusal column, then `plain_program` (a refused hook never changes it).
+    let (row, plain) = after[binding].rsplit_once(" | ").unwrap();
+    let (prefix, observation) = row.rsplit_once(" | ").unwrap();
     if observation != "Null" {
         let observation: Value = serde_json::from_str(observation).unwrap();
         assert_eq!(
@@ -58,7 +60,7 @@ fn assert_refused(fixture: &Fixture, rows: &[String], output: (i32, String, Stri
         ));
         assert!(!observation["session"].as_str().unwrap().is_empty());
         assert!(observation["atMs"].as_u64().unwrap() > 0);
-        let normalized = format!("{prefix} | Null");
+        let normalized = format!("{prefix} | Null | {plain}");
         assert!(
             before.contains(&normalized),
             "{case}: admission fields changed"
