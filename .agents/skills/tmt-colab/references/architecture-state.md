@@ -199,7 +199,8 @@ Only current attached targets enter the header, including registered questions; 
 item keeps its records. `needs-you-header.tsx` owns the menu and one confirmed Clear all.
 Readings use `ReadingActions.mark` without advancing navigation. Questions, reviews and
 proposals use `needs-you-acknowledgement.ts`: exact item/version acknowledgements published
-by `ThreadStore` in the admitted viewer's own messages. They never answer, decide or close
+by `ThreadStore` in the admitted viewer's own messages. The native decoder protects these
+acknowledgements from later own-record replacement or removal. They never answer, decide or close
 a domain item. `use-needs-you-versions.ts` binds each version to the inert authored target HTML
 and admitted owner state with SHA-256, excluding neighboring anchor context; changed items return.
 The captured Clear all confirmation outlives projection refresh. Layer-owned jumps only scroll/focus existing targets

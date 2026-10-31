@@ -3695,9 +3695,10 @@ description captured by the header. Neighboring anchor context is excluded. Curr
 and the existing discussion lock precede publication. Outer writer, sender, page and epoch
 must match the admitted viewer; malformed records provide no handled state. A record holds
 1–1000 items, each version at most 64 KiB and the complete record at most 256 KiB UTF-8.
-Reload reads that viewer's admitted own stream; a new or changed version waits again. This
-acknowledgement never creates an answer, proposal decision or review close. The discovery
-summary below remains the owner's recorded pending projection; the header additionally applies
+Reload reads that viewer's admitted own stream; a new or changed version waits again. A published
+acknowledgement is immutable: later own updates cannot change or remove its record, while
+unrelated own records may still be appended. This acknowledgement never creates an answer,
+proposal decision or review close. The discovery summary below remains the owner's recorded pending projection; the header additionally applies
 current placement and viewer acknowledgements.
 
 ### Review sections
