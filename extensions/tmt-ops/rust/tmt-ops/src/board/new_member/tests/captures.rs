@@ -61,6 +61,8 @@ pub(in crate::board) fn case(scene: &str, look: crate::look::Look) -> App {
         .clear();
     let c = app.new_member.as_mut().unwrap();
     c.draft.fields[2] = Editor::from("gpt-6.1-sol");
+    // The plain-shell scenes show the login shell; fix it so the capture is the same on every host.
+    c.draft.shell = "/bin/zsh".into();
     match scene {
         "new-member-loading"|"new-member-form"|"new-member-reopened"=>{},
         "new-member-temporary"=>{c.draft.saved=false;c.at=Focus::Slot(model::Slot::Keep);},
