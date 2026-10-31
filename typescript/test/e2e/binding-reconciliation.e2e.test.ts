@@ -192,13 +192,15 @@ describe('binding publication, reconciliation and presentation', { concurrent: f
           session: { activity: unknownActivity, unbound: null, learning: null },
         },
       ]);
-      const removed = await fixture.runJsonCli<{ error: { code: string } }>([
+      const removed = await fixture.runJsonCli<{ error: { code: string; message: string } }>([
         'rm',
         'Uncertain',
         '--force',
       ]);
-      expect(removed.code).toBe(1);
-      expect(removed.json?.error.code).toBe('RECONCILIATION_FAILED');
+      // An unobserved host never proves the agent ended, so nothing is removed.
+      expect(removed.code).toBe(5);
+      expect(removed.json?.error.code).toBe('AGENT_RUNNING');
+      expect(removed.json?.error.message).toContain('host could not be observed');
       expect(durableState(fixture)).toEqual(before);
       expect(fixture.paneMetadata()).toBe(original);
       fixture.tmux(['set-option', '-s', '@tmt.server-id', serverId]);

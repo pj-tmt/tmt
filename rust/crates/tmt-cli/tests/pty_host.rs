@@ -491,6 +491,20 @@ fn stored_binding_reads_rename_and_force_remove_use_the_pty_host_without_tmux() 
         assert_eq!(marker["name"], "renamed");
         assert_eq!(marker["bindingId"], original.id);
 
+        // A running member is never removed.
+        let refused = world.run(&["rm", "renamed", "--force", "--json"]);
+        assert_eq!(refused.status.code(), Some(5), "{refused:?}");
+        let refused: Value = serde_json::from_slice(&refused.stdout).unwrap();
+        assert_eq!(refused["error"]["code"], "AGENT_RUNNING", "{refused:#}");
+        // A plain program has no recorded session for `tmt stop`; it is ended
+        // in its own terminal, here by EOF, and then removes.
+        terminal.input(b"\x04").unwrap();
+        drop(terminal);
+        let deadline = Instant::now() + WAIT;
+        while world.json(&["ls", "renamed", "--json"])["presence"] == "active" {
+            assert!(Instant::now() < deadline, "the program did not end");
+            std::thread::sleep(Duration::from_millis(50));
+        }
         let removed = world.json(&["rm", "renamed", "--force", "--json"]);
         assert_eq!(removed["removed"], true, "{removed:#}");
         assert_eq!(removed["identity"]["id"], id);
@@ -499,17 +513,6 @@ fn stored_binding_reads_rename_and_force_remove_use_the_pty_host_without_tmux() 
                 .unwrap()
                 .is_none()
         );
-        let ControlReply::State { marker, .. } = terminal
-            .control(Control::Inspect, Duration::from_secs(3))
-            .unwrap()
-        else {
-            panic!("removed binding's supervisor did not return state");
-        };
-        assert!(
-            marker.is_none(),
-            "force-remove did not clear the PTY marker"
-        );
-        drop(terminal);
         assert!(!tmux_called.exists(), "stored PTY operations invoked tmux");
         assert!(world.clean());
     }

@@ -17,6 +17,8 @@ mod driver_switch;
 mod hand_resume;
 #[path = "external_host/identity_pin.rs"]
 mod identity_pin;
+#[path = "external_host/identity_remove.rs"]
+mod identity_remove;
 #[path = "external_host/ls_detected.rs"]
 mod ls_detected;
 #[path = "external_host/move_session.rs"]

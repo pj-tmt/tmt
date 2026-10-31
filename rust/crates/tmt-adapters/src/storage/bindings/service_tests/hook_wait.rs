@@ -64,7 +64,7 @@ impl Mutation {
                 );
             }
             Self::Remove => {
-                binding::remove_identity(storage, endpoint, "Target", true).unwrap();
+                binding::remove_identity(storage, endpoint, "Target", true, |_, _| Ok(())).unwrap();
             }
             Self::NameAutomatic => {
                 binding::name_auto_identity(storage, endpoint, "%1", "Named target", true)

@@ -1,6 +1,9 @@
 use rusqlite::{Connection, params, types::Value};
 use tmt_core::{
-    binding::{BindingError, remove_identity, unbind_identity},
+    binding::{
+        AgentRunning, BindingError, BindingEvidence, RemoveOutcome, remove_identity,
+        remove_identity_by_id, unbind_identity,
+    },
     identity::{IdentityReader, Lifetime, create_or_resolve},
 };
 
@@ -120,7 +123,7 @@ fn remove_unknown_binding_fails_closed_without_mutating_state() {
     let counts = state_counts(storage.connection().unwrap(), &identity.id);
     endpoint.probe_mode = ProbeMode::Unknown;
     assert!(matches!(
-        remove_identity(&mut storage, &mut endpoint, "Alice", true),
+        remove_identity(&mut storage, &mut endpoint, "Alice", true, |_, _| Ok(())),
         Err(BindingError::Unverified)
     ));
     assert_eq!(endpoint.clear_calls, 0);
@@ -150,7 +153,7 @@ fn failed_post_commit_clear_keeps_retirement_and_stale_marker_is_reclaimed() {
         endpoint.conditional_clear = conditional;
         endpoint.clear_result = false;
         endpoint.clear_failure = fail_with_error;
-        remove_identity(&mut storage, &mut endpoint, "Alice", true).unwrap();
+        remove_identity(&mut storage, &mut endpoint, "Alice", true, |_, _| Ok(())).unwrap();
         assert!(storage.find_identity("alice").unwrap().is_none());
         assert_eq!(
             endpoint.pane_mut("%1").marker.as_ref().unwrap().binding_id,
@@ -273,7 +276,7 @@ fn legacy_clear_reserves_the_pane_and_refuses_a_concurrent_successor() {
                     .unwrap();
             }
             "remove" => {
-                remove_identity(&mut storage, &mut endpoint, "Alice", true).unwrap();
+                remove_identity(&mut storage, &mut endpoint, "Alice", true, |_, _| Ok(())).unwrap();
             }
             "failed-auto" => {
                 tmt_core::binding::retire_failed_auto_launch(&mut storage, &mut endpoint, &binding)
@@ -323,8 +326,8 @@ fn changed_identity_after_host_observation_refuses_removal() {
         other.close().unwrap();
     }));
     assert!(matches!(
-        remove_identity(&mut storage, &mut endpoint, "Alice", true),
-        Err(BindingError::Unverified)
+        remove_identity(&mut storage, &mut endpoint, "Alice", true, |_, _| Ok(())),
+        Err(BindingError::Changed)
     ));
     assert_eq!(
         storage.find_identity("renamed").unwrap().unwrap().id,
@@ -382,7 +385,8 @@ fn saved_remove_requires_confirmation_without_endpoint_io_and_force_removes_only
         endpoint.clear_calls,
     );
 
-    let error = remove_identity(&mut storage, &mut endpoint, "Saved", false).unwrap_err();
+    let error =
+        remove_identity(&mut storage, &mut endpoint, "Saved", false, |_, _| Ok(())).unwrap_err();
     assert!(matches!(error, BindingError::ConfirmationRequired));
     assert_eq!(
         calls,
@@ -393,7 +397,8 @@ fn saved_remove_requires_confirmation_without_endpoint_io_and_force_removes_only
             endpoint.clear_calls
         )
     );
-    let removed = remove_identity(&mut storage, &mut endpoint, "Saved", true).unwrap();
+    let removed =
+        remove_identity(&mut storage, &mut endpoint, "Saved", true, |_, _| Ok(())).unwrap();
     assert_eq!(removed.identity.id, identity.id);
     assert!(removed.binding.is_none());
     assert_eq!(
@@ -703,16 +708,97 @@ fn an_identity_uuid_removes_the_identity_and_a_retired_uuid_is_not_found() {
         .identity;
 
     assert!(matches!(
-        remove_identity(&mut storage, &mut endpoint, &alice.id, false),
+        remove_identity(&mut storage, &mut endpoint, &alice.id, false, |_, _| Ok(())),
         Err(BindingError::ConfirmationRequired)
     ));
-    let removed = remove_identity(&mut storage, &mut endpoint, &alice.id, true).unwrap();
+    let removed =
+        remove_identity(&mut storage, &mut endpoint, &alice.id, true, |_, _| Ok(())).unwrap();
     assert_eq!(removed.identity.id, alice.id);
     assert_eq!(storage.find_identity("alice").unwrap(), None);
 
-    match remove_identity(&mut storage, &mut endpoint, &alice.id, true) {
+    match remove_identity(&mut storage, &mut endpoint, &alice.id, true, |_, _| Ok(())) {
         Err(BindingError::NameNotFound(named)) => assert_eq!(named, alice.id),
         other => panic!("{other:?}"),
     }
+    storage.close().unwrap();
+}
+
+#[test]
+fn the_remove_guard_refuses_before_any_change_and_sees_fresh_evidence() {
+    let fixture = Fixture::new();
+    let mut storage = fixture.open();
+    let mut endpoint = FakeEndpoint::new(&["%1"]);
+    let identity =
+        tmt_core::binding::bind_identity(&mut storage, &mut endpoint, "%1", "Alice", true)
+            .unwrap()
+            .identity;
+    let rows = binding_rows(storage.connection().unwrap(), &identity.id);
+    for why in [
+        AgentRunning::Alive,
+        AgentRunning::Unproven,
+        AgentRunning::HostUnobserved,
+    ] {
+        let mut seen = None;
+        let error = remove_identity(
+            &mut storage,
+            &mut endpoint,
+            "Alice",
+            true,
+            |entry, evidence| {
+                seen = Some((entry.identity.id.clone(), evidence.clone()));
+                Err(why)
+            },
+        )
+        .unwrap_err();
+        assert!(
+            matches!(&error, BindingError::AgentRunning(name, got) if name == "Alice" && *got == why)
+        );
+        assert!(error.to_string().contains("Nothing was removed"), "{error}");
+        let (id, evidence) = seen.unwrap();
+        assert_eq!(id, identity.id);
+        assert!(matches!(evidence, BindingEvidence::Active(_)));
+    }
+    assert_eq!(endpoint.clear_calls, 0);
+    assert_eq!(
+        binding_rows(storage.connection().unwrap(), &identity.id),
+        rows
+    );
+    storage.close().unwrap();
+}
+
+#[test]
+fn removal_by_uuid_checks_the_expected_name_and_needs_no_force() {
+    let fixture = Fixture::new();
+    let mut storage = fixture.open();
+    let mut endpoint = FakeEndpoint::new(&["%1"]);
+    let alice = create_or_resolve(&mut storage, "Alice", Lifetime::Saved)
+        .unwrap()
+        .identity;
+    let mut called = false;
+    let outcome = remove_identity_by_id(&mut storage, &mut endpoint, &alice.id, "alice", |_, _| {
+        called = true;
+        Ok(())
+    })
+    .unwrap();
+    assert_eq!(outcome, RemoveOutcome::Conflict(alice.clone()));
+    assert!(!called, "a stale name observes nothing");
+    assert!(storage.find_identity("alice").unwrap().is_some());
+
+    match remove_identity_by_id(&mut storage, &mut endpoint, &alice.id, "Alice", |_, _| {
+        Ok(())
+    })
+    .unwrap()
+    {
+        RemoveOutcome::Removed(entry) => assert_eq!(entry.identity.id, alice.id),
+        other => panic!("{other:?}"),
+    }
+    assert_eq!(storage.find_identity("alice").unwrap(), None);
+    assert_eq!(
+        remove_identity_by_id(&mut storage, &mut endpoint, &alice.id, "Alice", |_, _| Ok(
+            ()
+        ))
+        .unwrap(),
+        RemoveOutcome::NotFound
+    );
     storage.close().unwrap();
 }

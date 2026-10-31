@@ -124,7 +124,7 @@ identity UUID or name, or `"originator":"anonymous"`, which stores no writer ide
 exactly like the CLI without `--identity`. Anonymous is not an authenticated owner and
 grants nothing beyond what same-user CLI calls without an identity can already do; both
 or neither is `API_INPUT_INVALID`. Operations without originator attribution, including
-`identity.meta.apply`, `identity.rename` and `user.identity`, name neither. Their target is input `identityId`. Unknown request fields
+`identity.meta.apply`, `identity.rename`, `identity.stop`, `identity.remove` and `user.identity`, name neither. Their target is input `identityId`. Unknown request fields
 are rejected. Responses reuse existing resource shapes, without a second wrapper.
 Clients must tolerate additive response fields. Public `tmt api` storage opens,
 including `notes.read`, return `STORAGE_NOT_WRITABLE` (exit 1) only for a confirmed
@@ -170,6 +170,8 @@ remain independent of storage access.
 | `identity.meta.apply`    | `identityId` (active canonical UUID), `changes`                                                     | `identityId`, `changed`; atomic conditional metadata update (see below)                                                                                                                                                                 |
 | `user.identity`          | `{}`                                                                                                | `identityId`, `name`, `created`, optional `renamedFrom`: the person's saved identity (see [below](#the-persons-identity))                                                                                                               |
 | `identity.rename`        | `identityId` (canonical UUID), `expectedName`, `name`                                               | `outcome`: `applied`, `conflict` or `not-found`; atomic conditional rename (see below)                                                                                                                                                  |
+| `identity.stop`          | `identityId` (canonical UUID), `expectedName`, `close` (bool)                                       | `outcome`: `stopped`, `already-ended`, `not-running`, `conflict` or `not-found`; with `close`, `pane`: `closed`, `gone` or `kept` (see [below](#verified-stop-and-identity-remove))                                                     |
+| `identity.remove`        | `identityId` (canonical UUID), `expectedName`                                                       | `outcome`: `removed`, `conflict` or `not-found`; refuses `AGENT_RUNNING` (see [below](#verified-stop-and-identity-remove))                                                                                                              |
 | `identities.status`      | `identityIds` (canonical UUIDs, at most 256)                                                        | `identities`: `{id, found}` and, when found, `status`: the `tmt identity status` value or `null`, and `canPassthrough` (see [below](#passthrough-dispatch))                                                                             |
 | `extensions.uses`        | `extension`, `feature`                                                                              | `available`, `installed`, `reason`, `hint` for a declared optional use (see [Optional cross-extension uses](#optional-cross-extension-uses))                                                                                            |
 
@@ -463,6 +465,81 @@ failures return `API_UNAVAILABLE`; inspect current state before retrying. Pane
 markers are cosmetic UUID-bound records: their old display name grants no routing
 or lifetime authority. The CLI retains its best-effort post-commit refresh; the
 API rename needs no host process or endpoint observation.
+
+## Verified stop and identity remove
+
+`identity.stop` and `identity.remove` act on one exact active UUID only while its
+display name equals `expectedName` byte-for-byte, with the same name guard as
+[`identity.rename`](#conditional-identity-rename): no originator, no unknown fields,
+and malformed input is `API_INPUT_INVALID`. A changed name is
+`{outcome:"conflict", identityId, name}` with the current name; an unknown or retired
+UUID is `{outcome:"not-found", identityId}`. Neither writes anything on those
+outcomes. They are the operations behind `tmt stop` and `tmt rm` and share one
+implementation with them.
+
+**Stop.** `identity.stop` runs the verified stop: the agent is stopped only when it
+is a private main process proven by PID and start under a verified pane ownership,
+with one TERM, a 3 s allowance, no KILL and no retry. The binding and the remembered
+session stay, so `tmt resume` works afterwards; a stopped built-in member is no
+longer restored by default. Success, `{outcome, identityId, name}`, means the agent
+is proven not running:
+
+- `stopped`: it was running and exited after the TERM.
+- `already-ended`: the recorded process had already ended; nothing was signalled.
+- `not-running`: the identity has no binding; nothing was signalled and `pane` is absent.
+
+With `close: true`, after the agent is proven not running, Core asks the member's
+host to close the pane only if TMT opened it: tmux reads its `openedByTmt` mark, the
+built-in host ends the program, and another host goes through its driver's
+lifecycle. `pane` is `closed`, `gone` (already closed), or `kept` with `paneReason`,
+Core's sentence for why the pane stayed open (TMT did not open it, the host cannot
+tell or cannot close panes, or the close failed). `kept` is still success: the agent
+has stopped. `tmt stop --close` reports the same case as its `PANE_NOT_CLOSED` exit.
+
+**Every `identity.stop` fault means the agent may still be running.** It uses the
+ordinary fault envelope plus `signalled` (bool): whether a TERM was, or may have
+been, sent. A stop fault never proves the agent ended, so a caller does not treat
+it as permission to delete; it may still call `identity.remove`, whose own check
+refuses `AGENT_RUNNING` while a recorded agent is alive or unproven (a hand-bound
+pane with no recorded agent removes).
+
+**Remove.** `identity.remove` deletes the identity exactly as `tmt rm` does (its
+role and preamble go; exchanges are retained) and needs no Saved-identity force: the caller's own
+confirmation is the consent. It refuses `AGENT_RUNNING`, changing and signalling
+nothing, while the identity's recorded agent process is alive or not proven ended, or
+its host could not be observed:
+
+| Binding                    | Recorded agent process (PID and start) | Removed                                                           |
+| -------------------------- | -------------------------------------- | ----------------------------------------------------------------- |
+| none                       | none                                   | yes                                                               |
+| any observed state         | proven gone                            | yes                                                               |
+| any observed state         | none recorded (a hand-bound pane)      | yes                                                               |
+| any observed state         | alive, suspended or unobservable       | no: `AGENT_RUNNING`                                               |
+| host could not be observed | any                                    | no: `AGENT_RUNNING`, whose message says the host was not observed |
+
+The delete rechecks the name and the captured binding in one IMMEDIATE binding
+transaction, so a binding that changed after the check refuses `IDENTITY_CONFLICT`
+instead of being orphaned. `identity.stop` followed by `identity.remove` is two
+calls, not one transaction: what keeps the guarantee is the remove's own recheck
+(the liveness rule above plus that transaction), never the order of the calls.
+
+| Operation    | Result                                                                                                                         | `signalled`   | Agent afterwards  | Caller's next step                                                                                         |
+| ------------ | ------------------------------------------------------------------------------------------------------------------------------ | ------------- | ----------------- | ---------------------------------------------------------------------------------------------------------- |
+| stop         | `stopped`, `pane` `closed` or `gone`                                                                                           | —             | not running       | remove                                                                                                     |
+| stop         | `stopped`, `pane: kept` with `paneReason`                                                                                      | —             | not running       | remove; show the reason                                                                                    |
+| stop         | `already-ended` or `not-running`                                                                                               | —             | not running       | remove                                                                                                     |
+| stop, remove | `conflict` or `not-found`                                                                                                      | —             | unchanged         | refresh; nothing was written                                                                               |
+| stop         | `RUNTIME_CONFLICT`: shared server, nested runtime, the pane process, a suspended or unverifiable process, or ownership changed | false         | may run           | the person quits it in its pane                                                                            |
+| stop         | `IDENTITY_CONFLICT`: the binding or session changed before the TERM                                                            | false         | may run           | refresh                                                                                                    |
+| stop         | `RESUME_UNAVAILABLE`: no recorded agent session                                                                                | false         | unproven          | remove may follow (its own check decides: a hand-bound pane removes); else the person quits it in its pane |
+| stop         | `RESUME_UNSUPPORTED`: driver not registered, or no private main foreground proof                                               | false         | may run           | the person quits it in its pane                                                                            |
+| stop         | `PROCESS_ERROR`: observation failed, or the TERM went out and it did not exit within 3 s                                       | false or true | may run           | the person quits it in its pane                                                                            |
+| stop, remove | host or storage faults (`TMUX_PERMISSION_DENIED`, `RECONCILIATION_FAILED`, `API_UNAVAILABLE`)                                  | false         | unknown           | inspect, then retry                                                                                        |
+| remove       | `removed`, with `identityId` and `name`                                                                                        | —             | —                 | done                                                                                                       |
+| remove       | `AGENT_RUNNING`                                                                                                                | —             | alive or unproven | stop first                                                                                                 |
+| remove       | `IDENTITY_CONFLICT`: the binding changed between the check and the delete                                                      | —             | unknown           | refresh                                                                                                    |
+
+Results use exit 0; faults use exit 1 with the ordinary fault envelope.
 
 ## Conditional identity metadata
 

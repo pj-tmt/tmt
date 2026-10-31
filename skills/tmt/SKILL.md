@@ -425,7 +425,8 @@ then a `driver:id` address; read `ls --json` (which adds `address` and
 `driver`) rather than parsing that text. Unknown evidence never authorizes retirement.
 Conclusive pane loss or explicit unbind retires temporary identities; saved
 identities remain offline. Native `rm <name>` retires a temporary identity;
-saved removal needs `--force`. Removal never kills a pane and removes only its
+saved removal needs `--force`. It refuses `AGENT_RUNNING` while its recorded agent is
+alive or not proven ended (run `tmt stop <name>` first). Removal never kills a pane and removes only its
 role/preamble, retaining exchanges and historical ownership. Reusing a retired
 name gets a fresh UUID. An ordinary unguarded bind refused because the pane or name is taken (or the
 pane changed) retires the temporary identity it had just created. Only an

@@ -2,9 +2,8 @@
 //! No writer transaction spans the stop wait or the new foreground process.
 
 use crate::{
-    binding_error::{binding_failure, endpoint_failure},
+    binding_error::{binding_failure, endpoint_failure, refusal, stop_refusal},
     output::Failure,
-    verified_stop::{self, Recheck, refusal, stop_failed},
 };
 use std::time::{Duration, Instant};
 use tmt_adapters::{
@@ -16,6 +15,7 @@ use tmt_adapters::{
     },
     runtime::lifecycle::RuntimeLifecycle,
     storage::{IdentityContextSnapshot, Storage},
+    verified_stop::{self, Recheck, stop_failed},
 };
 use tmt_core::{
     binding::{
@@ -196,7 +196,8 @@ pub(super) fn move_binding(
             })?;
         target.discovery = Some(fence);
     }
-    let source = verified_stop::prove(host, &captured, old, session, lifecycle, deadline)?;
+    let source = verified_stop::prove(host, &captured, old, session, lifecycle, deadline)
+        .map_err(stop_refusal)?;
     if source.agent_alive()
         && let Some(handoff) = handoff
     {
@@ -267,8 +268,11 @@ pub(super) fn move_binding(
                 Recheck::OwnershipChanged
             })
         },
-    )?;
-    requested.wait().map_err(stop_failed)?;
+    )
+    .map_err(stop_refusal)?;
+    requested
+        .wait()
+        .map_err(|error| stop_refusal(stop_failed(error)))?;
     *effect = super::LaunchEffect::OldStopped;
     let refreshed = context(paths, identity)?;
     let same_attachment = refreshed.entry.binding.as_ref().is_some_and(|binding| {

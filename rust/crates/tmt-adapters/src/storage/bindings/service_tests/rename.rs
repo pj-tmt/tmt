@@ -87,7 +87,7 @@ fn a_retired_name_is_free_and_a_case_only_rename_changes_the_display_name() {
     let retired = create_or_resolve(&mut storage, "Old", Lifetime::Saved)
         .unwrap()
         .identity;
-    remove_identity(&mut storage, &mut endpoint, "Old", true).unwrap();
+    remove_identity(&mut storage, &mut endpoint, "Old", true, |_, _| Ok(())).unwrap();
     let carol = create_or_resolve(&mut storage, "Carol", Lifetime::Temporary)
         .unwrap()
         .identity;
@@ -648,7 +648,7 @@ fn an_identity_uuid_selects_the_identity_and_a_retired_uuid_is_not_found() {
     assert_eq!(renamed.identity.name, "Ada");
 
     // A name that happens to match a retired UUID is not a way around the retirement.
-    remove_identity(&mut storage, &mut endpoint, &alice.id, true).unwrap();
+    remove_identity(&mut storage, &mut endpoint, &alice.id, true, |_, _| Ok(())).unwrap();
     for selector in [alice.id.as_str(), "7f0c2f2e-0000-4000-8000-000000000000"] {
         match rename_identity::<_, EndpointFailure>(&mut storage, selector, "Again") {
             Err(Error::NameNotFound(named)) => assert_eq!(named, selector),

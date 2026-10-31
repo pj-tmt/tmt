@@ -572,7 +572,7 @@ fn operation(
             })
         }
         Invocation::Remove { name, force } => {
-            binding::remove_identity(storage, endpoint, &name, force)
+            tmt_adapters::verified_stop::remove_by_name(storage, endpoint, &name, force)
                 .map(Report::Removed)
                 .map_err(binding_failure)
         }
