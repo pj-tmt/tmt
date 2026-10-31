@@ -5,6 +5,7 @@ import { components, type ComponentDoc } from './catalog.js';
 import { patterns } from './patterns.js';
 import { motionNotes, Replay } from './motion.js';
 import { tokenPages } from './tokens.js';
+import { tuiPages } from './tui-nav.js';
 import { radiusLabel, setRadius, setTheme, usePreview, type Radius } from './preview.js';
 import { follow } from './router.js';
 
@@ -42,6 +43,18 @@ const sections: { title: string; pages: Page[] }[] = [
         title: doc.name,
         render: () => <ComponentPage doc={doc} />,
       })),
+  },
+  {
+    title: 'TUI components',
+    pages: tuiPages.map((page) => ({
+      href: `/docs/tui/${page.slug}`,
+      title: page.title,
+      render: () => (
+        <Article title={page.title} lead={page.lead}>
+          {page.render()}
+        </Article>
+      ),
+    })),
   },
   {
     title: 'Patterns',
@@ -136,6 +149,9 @@ export function TopBar({ onMenu }: { onMenu?: () => void }) {
         </a>
         <a href="/mock/colab" onClick={follow}>
           Colab mock
+        </a>
+        <a href="/mock/tui/agents" onClick={follow}>
+          TUI mock
         </a>
       </nav>
       <div className="docs-switches">

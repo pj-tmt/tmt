@@ -11,6 +11,7 @@ import { createRoot } from 'react-dom/client';
 import { DocsApp } from './app.js';
 import { setPaletteBFavicon } from './favicon.js';
 import { ColabMock } from './mock-colab.js';
+import { TuiMock } from './tui-nav.js';
 import { usePath } from './router.js';
 
 function Root() {
@@ -19,6 +20,7 @@ function Root() {
     if (path === '/' || path === '') history.replaceState(null, '', '/docs');
   }, [path]);
   if (path.startsWith('/mock/colab')) return <ColabMock path={path} />;
+  if (path.startsWith('/mock/tui')) return <TuiMock path={path} />;
   return <DocsApp path={path === '/' ? '/docs' : path} />;
 }
 
