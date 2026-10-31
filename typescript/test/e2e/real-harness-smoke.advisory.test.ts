@@ -99,6 +99,13 @@ it.each(['claude', 'codex'] as const)(
         { protocol, model, inputText: prompt, text: marker, inputTokens: 12, outputTokens: 8 },
       ],
       sessionSource: provider === 'claude' ? 'claude-code-2.1.285' : 'codex-0.160.0',
+      ...(provider === 'claude'
+        ? {
+            onInputMismatch: (diagnostic: unknown) => {
+              report.inputMismatch = diagnostic;
+            },
+          }
+        : {}),
       // Same-model calls persisted after config changes in run 40156690277.
       // Core approved this bounded, tool-free discriminator; no prompt enters the census.
       sideRequests: [

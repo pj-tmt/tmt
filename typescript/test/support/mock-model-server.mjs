@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { createServer } from 'node:http';
 
 export const MOCK_MODEL_TOKEN = 'tmt-synthetic-model-token';
@@ -20,6 +21,44 @@ function validModel(model) {
 
 function validInputText(text) {
   return typeof text === 'string' && text.trim().length > 0 && Buffer.byteLength(text) <= 8192;
+}
+
+/** Approved synthetic-input diagnostics only; no request/header object reaches this seam. */
+export function describeMockInputMismatch(parsed, scripted) {
+  if ((parsed !== undefined && typeof parsed !== 'string') || typeof scripted !== 'string')
+    throw new TypeError('MOCK_DIAGNOSTIC: parsed text and scripted text only');
+  const actual = parsed === undefined ? undefined : Buffer.from(parsed);
+  const expected = Buffer.from(scripted);
+  const summary = (bytes) => ({
+    bytes: bytes.length,
+    sha256: createHash('sha256').update(bytes).digest('hex'),
+  });
+  let firstDifferingByte = null;
+  if (actual) {
+    let i = 0;
+    while (i < actual.length && i < expected.length && actual[i] === expected[i]) i++;
+    if (i < actual.length || i < expected.length) firstDifferingByte = i;
+  }
+  const excerpt = (text) => {
+    if (text === undefined || (actual && firstDifferingByte === null)) return '';
+    // Replace before slicing, preserving byte offsets even if a window cuts through the token.
+    const bytes = Buffer.from(
+      text.split(MOCK_MODEL_TOKEN).join('*'.repeat(MOCK_MODEL_TOKEN.length))
+    );
+    let start = Math.max(0, Math.min(bytes.length - 256, (firstDifferingByte ?? 0) - 128));
+    let end = Math.min(bytes.length, start + 256);
+    while (start < end && (bytes[start] & 0xc0) === 0x80) start++;
+    while (end > start && (bytes[end] & 0xc0) === 0x80) end--;
+    return bytes.subarray(start, end).toString('utf8');
+  };
+  return {
+    parsed: actual
+      ? { state: 'text', ...summary(actual) }
+      : { state: 'missing_or_unsupported', bytes: null, sha256: null },
+    scripted: summary(expected),
+    firstDifferingByte,
+    excerpts: { parsed: excerpt(parsed), scripted: excerpt(scripted) },
+  };
 }
 
 function lastUserText(input) {
@@ -202,7 +241,10 @@ export async function startMockModelServer({
   sideRequests = [],
   limits = {},
   sessionSource,
+  onInputMismatch,
 }) {
+  if (onInputMismatch !== undefined && typeof onInputMismatch !== 'function')
+    throw new TypeError('MOCK_CONFIG: onInputMismatch must be a diagnostic callback');
   if (
     sessionSource !== undefined &&
     !['claude-code-2.1.285', 'codex-0.160.0'].includes(sessionSource)
@@ -405,8 +447,10 @@ export async function startMockModelServer({
           'MOCK_SCRIPT_EXHAUSTED',
           'No scripted turn remains for this protocol/model'
         );
-      if (queue[0].inputText !== undefined && userText !== queue[0].inputText)
+      if (queue[0].inputText !== undefined && userText !== queue[0].inputText) {
+        onInputMismatch?.(describeMockInputMismatch(userText, queue[0].inputText));
         return refuse(409, 'MOCK_TURN_INPUT', 'Last user text does not match the scripted input');
+      }
       const turn = queue.shift();
       completedTurns++;
       entry.kind = 'turn';

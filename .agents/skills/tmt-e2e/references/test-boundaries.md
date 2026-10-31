@@ -225,7 +225,7 @@ SessionStart qualification requires an admitted public ls/whoami session UUID.
 Claude additionally matches that UUID to the validated request field; Codex
 admission comes from its lifecycle hook, never an HTTP session header.
 The mock exposes only `sessionId`, never raw headers, metadata or request bodies.
-A wire field stays provisional until a hosted census proves it for that pin.
+A wire field stays provisional until a hosted census proves it for that pin. The approved synthetic-input mismatch callback is separate from the census: it reports parsed/scripted UTF-8 lengths and SHA-256 hashes, first differing byte and at most 512 bytes total of UTF-8 excerpts with the synthetic token redacted. Only the Claude advisory fixture opts in; matching remains exact and headers, other messages and full bodies never enter the callback.
 For Core's Codex decode diagnosis, the private container may capture up to eight
 synthetic hook inputs of 64 KiB each through `capture-real-harness-hook.mjs`,
 forwarding identical bytes and status. This does not authorize reading provider

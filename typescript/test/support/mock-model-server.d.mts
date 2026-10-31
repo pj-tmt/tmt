@@ -31,6 +31,17 @@ export type DeclaredSideRequest = {
       unlessLastUserText?: string;
     }
 );
+export interface MockInputMismatch {
+  parsed: { state: 'text' | 'missing_or_unsupported'; bytes: number | null; sha256: string | null };
+  scripted: { bytes: number; sha256: string };
+  firstDifferingByte: number | null;
+  /** UTF-8 excerpts total at most 512 bytes, with the synthetic credential redacted. */
+  excerpts: { parsed: string; scripted: string };
+}
+export function describeMockInputMismatch(
+  parsed: string | undefined,
+  scripted: string
+): MockInputMismatch;
 export interface MockModelSnapshot {
   requestsSeen: number;
   sideRequestsSeen: number;
@@ -54,6 +65,8 @@ export interface MockModelSnapshot {
 export function startMockModelServer(options: {
   turns: ScriptedTextTurn[];
   sideRequests?: DeclaredSideRequest[];
+  /** Opt-in synthetic fixture evidence; ordinary snapshots never retain input text. */
+  onInputMismatch?: (diagnostic: MockInputMismatch) => void;
   /** Wire locations are candidates until matched against hosted public CLI session evidence. */
   sessionSource?: 'claude-code-2.1.285' | 'codex-0.160.0';
   limits?: {

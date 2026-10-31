@@ -3,6 +3,8 @@ import { once } from 'node:events';
 import { afterEach, describe, expect, it } from 'vite-plus/test';
 import {
   MOCK_MODEL_TOKEN,
+  describeMockInputMismatch,
+  type MockInputMismatch,
   startMockModelServer,
   type ScriptedTextTurn,
 } from '../support/mock-model-server.mjs';
@@ -686,5 +688,130 @@ describe('bounded same-model side requests (#4610)', () => {
     servers.push(server);
     expect((await post(server, 'messages', different('messages'))).status).toBe(409);
     expect(server.snapshot().completedTurns).toBe(0);
+  });
+});
+
+describe('bounded synthetic input mismatch diagnostics', () => {
+  it('hashes exact UTF-8 bytes and emits no excerpts for equal text', () => {
+    const diagnostic = describeMockInputMismatch('abc', 'abc');
+    expect(diagnostic.parsed).toEqual({
+      state: 'text',
+      bytes: 3,
+      sha256: 'ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad',
+    });
+    expect(diagnostic.scripted).toEqual({ bytes: 3, sha256: diagnostic.parsed.sha256 });
+    expect(diagnostic.firstDifferingByte).toBeNull();
+    expect(diagnostic.excerpts).toEqual({ parsed: '', scripted: '' });
+  });
+
+  it.each([
+    ['ab', 'abcd', 2],
+    ['abcd', 'ab', 2],
+    ['abc', 'axc', 1],
+    ['\u00e9x', '\u00eax', 1],
+  ] as const)('locates the first differing UTF-8 byte of %j and %j', (parsed, scripted, offset) => {
+    expect(describeMockInputMismatch(parsed, scripted).firstDifferingByte).toBe(offset);
+  });
+
+  it('reports unavailable parsed text and rejects request or header objects at the seam', () => {
+    expect(describeMockInputMismatch(undefined, 'expected')).toMatchObject({
+      parsed: { state: 'missing_or_unsupported', bytes: null, sha256: null },
+      firstDifferingByte: null,
+    });
+    for (const value of [
+      null,
+      7,
+      { headers: { authorization: 'must-not-retain' }, messages: [] },
+    ]) {
+      expect(() => describeMockInputMismatch(value as unknown as string, 'expected')).toThrow(
+        'text only'
+      );
+      expect(() => describeMockInputMismatch('parsed', value as unknown as string)).toThrow(
+        'text only'
+      );
+    }
+  });
+
+  it('bounds both excerpts together and cuts only at UTF-8 boundaries', () => {
+    const prefix = String.fromCodePoint(0x1f680).repeat(79);
+    const parsed = `${prefix}actual${String.fromCodePoint(0x1f680).repeat(100)}`;
+    const scripted = `${prefix}expected${String.fromCodePoint(0x1f680).repeat(100)}`;
+    const diagnostic = describeMockInputMismatch(parsed, scripted);
+    expect(diagnostic.firstDifferingByte).toBe(316);
+    const excerpts = Object.values(diagnostic.excerpts);
+    expect(excerpts.reduce((size, text) => size + Buffer.byteLength(text), 0)).toBeLessThanOrEqual(
+      512
+    );
+    expect(excerpts.join('')).not.toContain('\ufffd');
+    expect(diagnostic.excerpts.parsed).toContain('actual');
+    expect(diagnostic.excerpts.scripted).toContain('expected');
+  });
+
+  it('redacts the synthetic credential before any excerpt window can split it', () => {
+    const parsed = `${'x'.repeat(130)}${MOCK_MODEL_TOKEN}${'y'.repeat(400)}`;
+    const diagnostic = describeMockInputMismatch(parsed, `${'x'.repeat(130)}different`);
+    expect(diagnostic.parsed.bytes).toBe(Buffer.byteLength(parsed));
+    const output = JSON.stringify(diagnostic);
+    expect(output).not.toContain(MOCK_MODEL_TOKEN);
+    expect(output).not.toContain('tmt-synthetic');
+    expect(output).toContain('*'.repeat(MOCK_MODEL_TOKEN.length));
+  });
+
+  it('reports only the refused last-user mismatch without consuming a turn or changing census', async () => {
+    const seen: MockInputMismatch[] = [];
+    const server = await startMockModelServer({
+      turns: [{ ...turn('messages'), inputText: 'synthetic expected' }],
+      onInputMismatch: (value) => seen.push(value),
+    });
+    servers.push(server);
+    const response = await fetch(`${server.baseUrl}/v1/messages`, {
+      method: 'POST',
+      headers: {
+        authorization: `Bearer ${MOCK_MODEL_TOKEN}`,
+        'content-type': 'application/json',
+        'x-private-fixture-header': 'header-not-evidence',
+      },
+      body: JSON.stringify({
+        model: 'fixture-model',
+        messages: [
+          { role: 'assistant', content: 'earlier-message-not-evidence' },
+          { role: 'user', content: 'synthetic actual' },
+        ],
+      }),
+      signal: AbortSignal.timeout(2000),
+    });
+    expect(response.status).toBe(409);
+    expect((await response.json()).error.code).toBe('MOCK_TURN_INPUT');
+    expect(seen).toHaveLength(1);
+    expect(seen[0].excerpts).toEqual({
+      parsed: 'synthetic actual',
+      scripted: 'synthetic expected',
+    });
+    expect(JSON.stringify(seen)).not.toMatch(
+      /header-not-evidence|earlier-message-not-evidence|authorization/
+    );
+    expect(JSON.stringify(seen)).not.toContain(MOCK_MODEL_TOKEN);
+    expect(server.snapshot()).toMatchObject({
+      completedTurns: 0,
+      sideRequestsSeen: 0,
+      failure: { code: 'MOCK_TURN_INPUT' },
+    });
+    expect(JSON.stringify(server.snapshot())).not.toContain('synthetic actual');
+    await post(server, 'messages');
+    expect(seen).toHaveLength(1);
+  });
+
+  it('never diagnoses an exact scripted turn', async () => {
+    const seen: MockInputMismatch[] = [];
+    const server = await startMockModelServer({
+      turns: [{ ...turn('messages'), inputText: 'fixture input' }],
+      onInputMismatch: (value) => seen.push(value),
+    });
+    servers.push(server);
+    const response = await post(server, 'messages');
+    expect(response.status).toBe(200);
+    await response.text();
+    expect(seen).toHaveLength(0);
+    expect(server.snapshot().completedTurns).toBe(1);
   });
 });
