@@ -3243,36 +3243,34 @@ follows a page without a state.
 `task.link` is admitted by the write command, like the work-in-progress limit, because one page's
 document cannot see another's. It is refused as `COLAB_LINK_REFUSED` when the page is the task's own
 page, is not a page of the space (deleted, or one the owner cannot read), already has a parent (a task
-of this page or of any other, naming it), or has the task's page below it (a loop). Sub-pages have at
-most one level: a page that has a parent cannot get children, and a page that has children cannot
-be attached as a child. A top-level page may have many children. A valid same-task/same-child retry
+of this page or of any other, naming it), or has the task's page below it (a loop). Sub-pages nest
+without a depth limit: a sub-page may have sub-pages of its own, and a page with sub-pages may be
+attached under another page. A valid same-task/same-child retry
 is unchanged. CLI JSON puts a stable `reason` beside `error.code` and `error.message`; a rejected
 browser `workresult` puts it beside `code` and `message`:
 
 | `reason`              | Refusal                                                                                      |
 | --------------------- | -------------------------------------------------------------------------------------------- |
 | `second-parent`       | Another task already follows the child; the message names that task and page.                |
-| `child-has-parent`    | The proposed parent already has a parent, so this would create a grandchild.                 |
-| `parent-has-children` | The proposed child already has children.                                                     |
 | `cycle`               | A self-link or a link to an ancestor would close a loop.                                     |
 | `invalid-hierarchy`   | An existing connected hierarchy already has conflicting links; repair it before adding more. |
 | `unavailable`         | The proposed child is not an available page of this space.                                   |
 
 Self/missing-target and second-parent checks precede ancestor-cycle checks; existing-invalid-hierarchy
-checks then precede the two nesting checks. A refused action publishes no page, content, work,
+checks follow. A refused action publishes no page, content, work,
 membership change or successful operation receipt; a rebuildable admission cache may be refreshed.
 Unlink and removal remain available to repair links, including when unlink restores an assigned
 task above its work-in-progress limit. Existing task/value, authority and revision fences still apply.
 
 Two writers on different pages can still race to publish conflicting links; as with the limit this
-is a working agreement, not a cross-page lock. Existing deeper, cyclic or multiple-parent data stays
+is a working agreement, not a cross-page lock. Existing cyclic or multiple-parent data stays
 readable and is never automatically rewritten. `tmt colab show PAGE --json` adds the warning strings
-`subpage-depth-exceeded`, `subpage-cycle`, and/or `subpage-multiple-parents` to `page.warnings` for
+`subpage-cycle` and/or `subpage-multiple-parents` to `page.warnings` for
 pages in the affected connected hierarchy. These explicit diagnostics use the same fresh
 `work_index::scan` graph as admission, refreshing rebuildable cache entries only when their page
 fingerprints change; page content and links are never rewritten. New links involving that hierarchy are refused; unrelated valid
 components remain usable. Readers retain every stored link and resolve the displayed parent by
-the lowest page ID, then the lowest task number; a loop or deeper legacy chain is bounded as above. An archived page keeps its link and its stage
+the lowest page ID, then the lowest task number; a loop or a chain deeper than the stage bound is bounded as above. An archived page keeps its link and its stage
 is followed. The work-in-progress limit does not count a task that follows a page as held: the work is
 held where it is, by that page's own tasks.
 
@@ -3294,8 +3292,8 @@ only while the task is still the one copied; otherwise nothing is linked and the
 page exists and the `task link` command that finishes it. It never searches for a page to adopt, so
 running it again makes another page. A task that follows a page or has an `externalId` is refused
 before any page is made. The CLI and browser also run the shared hierarchy preflight before page
-creation: converting on a child page is `COLAB_LINK_REFUSED` / `child-has-parent`, or
-`invalid-hierarchy` for an existing invalid component, with no new page. The link is checked again
+creation: converting on a page of an existing invalid component is `COLAB_LINK_REFUSED` /
+`invalid-hierarchy`, with no new page; a sub-page converts like any page. The link is checked again
 after creation; if a concurrent change makes that link fail, the existing explicit partial-failure
 result still names the page that was made.
 
@@ -3330,7 +3328,7 @@ with no display agent. The serve prepares it from a snapshot of its own outside 
 browser Save, and runs the write command's admission first: the task the body names exists, the
 action applies, no agent ends up over its work-in-progress limit (`COLAB_WIP_LIMIT`, naming the agent
 and every task it would hold, except that unlink always remains available for repair) and a link
-obeys the one-parent, one-level, available-target and no-loop rules
+obeys the one-parent, available-target and no-loop rules
 (`COLAB_LINK_REFUSED` with the stable `reason` defined above). Both callers run the same function, so the limit cannot drift between the
 command and the browser. An action the contract does not name is a protocol violation. The action
 applies to the revision the serve reads when it prepares, so the action's own preconditions fence it

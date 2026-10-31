@@ -7157,7 +7157,7 @@ fn hierarchy_fixture_action(layout: &Layout, key: &Keyring, page: &str, action: 
 }
 
 #[test]
-fn browser_subpage_refusals_have_reasons_and_convert_creates_no_orphan() {
+fn browser_subpages_nest_and_refusals_have_reasons_and_convert_creates_no_orphan() {
     let (server, layout, key, mut peer) = publish_fixture();
     peer.get_ref()
         .set_read_timeout(Some(Duration::from_secs(60)))
@@ -7211,45 +7211,56 @@ fn browser_subpage_refusals_have_reasons_and_convert_creates_no_orphan() {
         "task.link",
         json!({"taskId":"T-1","pageId":PAGE}),
     );
+    // This page is a child of `parent`, and still takes a child of its own (#5820).
+    let nested = work(
+        &mut peer,
+        107,
+        "task.link",
+        json!({"taskId":"T-1","pageId":other}),
+    );
+    assert_eq!(nested["state"], "committed", "{nested}");
+    let loop_refused = work(
+        &mut peer,
+        108,
+        "task.link",
+        json!({"taskId":"T-2","pageId":parent}),
+    );
+    assert_eq!(loop_refused["reason"], "cycle", "{loop_refused}");
+    // A racing writer closes a loop parent > this page > other > parent; the component is then
+    // invalid and conversion is refused before any page is made.
+    hierarchy_fixture_action(
+        &layout,
+        &key,
+        other,
+        "task.add",
+        json!({"task":{"title":"Follows parent"}}),
+    );
+    hierarchy_fixture_action(
+        &layout,
+        &key,
+        other,
+        "task.link",
+        json!({"taskId":"T-1","pageId":parent}),
+    );
     let before = page_ids(&layout, &key);
     let source = native_page(&layout, &key, PAGE);
     let tasks = native_work(&layout, &key);
-    for (n, action, body, reason) in [
-        (
-            107,
-            "task.link",
-            json!({"taskId":"T-1","pageId":other}),
-            "child-has-parent",
-        ),
-        (
-            108,
-            "task.convert",
-            json!({"taskId":"T-1"}),
-            "child-has-parent",
-        ),
-        (
-            109,
-            "task.link",
-            json!({"taskId":"T-1","pageId":parent}),
-            "cycle",
-        ),
-    ] {
-        let refused = work(&mut peer, n, action, body);
-        assert_eq!(refused["state"], "rejected", "{refused}");
-        assert_eq!(refused["code"], "COLAB_LINK_REFUSED", "{refused}");
-        assert_eq!(refused["reason"], reason, "{refused}");
-        assert!(refused.get("childPage").is_none(), "{refused}");
-        assert_eq!(page_ids(&layout, &key), before);
-        assert_eq!(native_work(&layout, &key), tasks);
-        let after = native_page(&layout, &key, PAGE);
-        assert_eq!(after.source, source.source);
-        assert_eq!(after.revision, source.revision);
-    }
+    let refused = work(&mut peer, 109, "task.convert", json!({"taskId":"T-2"}));
+    assert_eq!(refused["state"], "rejected", "{refused}");
+    assert_eq!(refused["code"], "COLAB_LINK_REFUSED", "{refused}");
+    assert_eq!(refused["reason"], "invalid-hierarchy", "{refused}");
+    assert!(refused.get("childPage").is_none(), "{refused}");
+    assert_eq!(page_ids(&layout, &key), before);
+    assert_eq!(native_work(&layout, &key), tasks);
+    let after = native_page(&layout, &key, PAGE);
+    assert_eq!(after.source, source.source);
+    assert_eq!(after.revision, source.revision);
     // If this operation made a page earlier, a later hierarchy refusal must still name it.
     let replay = work(&mut peer, 103, "task.convert", json!({"taskId":"T-2"}));
-    assert_eq!(replay["reason"], "child-has-parent", "{replay}");
+    assert_eq!(replay["reason"], "invalid-hierarchy", "{replay}");
     assert_eq!(replay["childPage"], parent, "{replay}");
     assert_eq!(page_ids(&layout, &key), before);
+    // Unlink stays available to repair the loop.
     let repaired = work(&mut peer, 110, "task.unlink", json!({"taskId":"T-1"}));
-    assert_eq!(repaired["state"], "unchanged", "{repaired}");
+    assert_eq!(repaired["state"], "committed", "{repaired}");
 }

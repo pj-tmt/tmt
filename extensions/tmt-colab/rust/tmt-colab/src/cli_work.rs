@@ -169,7 +169,7 @@ pub fn task_command() -> Command {
         spec(
             "link",
             "Make a task follow another page",
-            "The task's state then follows that page: todo while the page has no task, in-progress while it has, done when all of its tasks are (in-review instead when the task needs sign-off). A page has at most one parent and one level of sub-pages: a child cannot get children, and a page with children cannot become a child. A loop or an existing invalid hierarchy is refused (COLAB_LINK_REFUSED with a stable reason). Inspect legacy links with tmt colab show PAGE --json and repair them with task unlink. A task with an external ID cannot follow a page, and the state of a task that follows one cannot be set.",
+            "The task's state then follows that page: todo while the page has no task, in-progress while it has, done when all of its tasks are (in-review instead when the task needs sign-off). A page has at most one parent, and sub-pages nest to any depth. A loop or an existing invalid hierarchy is refused (COLAB_LINK_REFUSED with a stable reason). Inspect legacy links with tmt colab show PAGE --json and repair them with task unlink. A task with an external ID cannot follow a page, and the state of a task that follows one cannot be set.",
             example!("tmt colab task link 10000000-0000-4000-8000-000000000001 T-3 20000000-0000-4000-8000-000000000001 --json"),
         )
         .arg(crate::cli_grammar::page())

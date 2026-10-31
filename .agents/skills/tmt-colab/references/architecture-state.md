@@ -1140,7 +1140,7 @@ controls, and the shared and hosted readers keep `ShellNotice`.
 ## Sub-page relationship admission
 
 `work_links::Graph` owns cross-page relationship checks and diagnostics; the stored work value
-keeps accepting old links. Admission permits one parent/task and one level, with no cycles.
+keeps accepting old links. Admission permits one parent/task at any depth, with no cycles.
 `work_admission` maps refusals to `COLAB_LINK_REFUSED` and a stable reason shared by native JSON
 and browser `workresult`. CLI and `page/convert` run its conversion preflight before creation,
 then retain the existing post-create link admission and publication fences. Unlink bypasses WIP

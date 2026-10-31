@@ -1,7 +1,7 @@
 //! Pages that follow pages (contract: Work). A task may follow another page, and its state is then
 //! that page's stage. One page's value cannot see another's, so this is read over what the work index
 //! holds for the whole space: how a page's derived values resolve through the pages its tasks follow,
-//! and the rules `task.link` is admitted by (one parent, one level, no loop, an available page). These are the
+//! and the rules `task.link` is admitted by (one parent, no loop, an available page; any depth). These are the
 //! write owner's rules, never a rule of the stored value, so a race of two writers can leave pages
 //! the rules would refuse; readers then resolve them the same way every time and never loop.
 use crate::{work, work_index::Found};
@@ -24,10 +24,6 @@ pub enum Refusal {
     HasParent { page: String, task: String },
     /// An ancestor of the page, so the link would close a loop.
     Loop,
-    /// The proposed parent is already a child.
-    ChildHasParent,
-    /// The proposed child already has children.
-    ParentHasChildren,
     /// Existing conflicting links must be repaired before adding more.
     InvalidHierarchy,
 }
@@ -37,8 +33,6 @@ impl Refusal {
             Self::Itself | Self::Loop => "cycle",
             Self::Unavailable => "unavailable",
             Self::HasParent { .. } => "second-parent",
-            Self::ChildHasParent => "child-has-parent",
-            Self::ParentHasChildren => "parent-has-children",
             Self::InvalidHierarchy => "invalid-hierarchy",
         }
     }
@@ -225,12 +219,6 @@ impl Graph<'_> {
         {
             warnings.push("subpage-multiple-parents");
         }
-        if component
-            .iter()
-            .any(|id| parents.contains_key(id) && children.contains_key(id))
-        {
-            warnings.push("subpage-depth-exceeded");
-        }
         // Topological removal detects a cycle without recursive reads or a depth assumption.
         let mut incoming: BTreeMap<&str, usize> = component
             .iter()
@@ -264,10 +252,7 @@ impl Graph<'_> {
 
     /// A conversion creates a new child, so check the source page before creation.
     pub fn conversion_refusal(&self, page: &str) -> Option<Refusal> {
-        if !self.warnings(page).is_empty() {
-            return Some(Refusal::InvalidHierarchy);
-        }
-        self.parent(page).map(|_| Refusal::ChildHasParent)
+        (!self.warnings(page).is_empty()).then_some(Refusal::InvalidHierarchy)
     }
 
     /// Why task `task` of `page` may not follow `child`, if it may not.
@@ -297,17 +282,6 @@ impl Graph<'_> {
         }
         if !self.warnings(page).is_empty() || !self.warnings(child).is_empty() {
             return Some(Refusal::InvalidHierarchy);
-        }
-        if self.parent(page).is_some() {
-            return Some(Refusal::ChildHasParent);
-        }
-        if self
-            .0
-            .get(child)
-            .and_then(Option::as_ref)
-            .is_some_and(|work| work.lines.iter().any(|line| line.child.is_some()))
-        {
-            return Some(Refusal::ParentHasChildren);
         }
         None
     }
@@ -633,11 +607,8 @@ mod tests {
                 task: "T-1".into()
             })
         );
-        // The same task is not a second parent, but this existing deeper hierarchy is invalid.
-        assert_eq!(
-            graph.refusal("a", "T-1", "b"),
-            Some(Refusal::InvalidHierarchy)
-        );
+        // The same task is not a second parent, so its retry is admitted.
+        assert_eq!(graph.refusal("a", "T-1", "b"), None);
         // c is below a through b, so a page below it may not follow a.
         assert_eq!(graph.refusal("c", "T-1", "a"), Some(Refusal::Loop));
         assert_eq!(graph.refusal("b", "T-2", "a"), Some(Refusal::Loop));
@@ -648,39 +619,45 @@ mod tests {
                 task: "T-1".into()
             })
         );
-        assert_eq!(
-            graph.refusal("a", "T-2", "d"),
-            Some(Refusal::InvalidHierarchy)
-        );
+        assert_eq!(graph.refusal("a", "T-2", "d"), None);
     }
     #[test]
-    fn one_level_links_allow_siblings_and_retries_but_not_either_kind_of_nesting() {
+    fn links_nest_without_a_depth_limit_but_never_loop_or_take_a_second_parent() {
+        // a > b > c, and d is free.
         let found = found(vec![
             ("a", page(vec![line("T-1", "todo", Some("b"))])),
-            ("b", None),
+            ("b", page(vec![line("T-1", "todo", Some("c"))])),
             ("c", None),
+            ("d", None),
         ]);
         let graph = Graph(&found);
-        assert!(graph.warnings("a").is_empty());
+        for id in ["a", "b", "c", "d"] {
+            assert!(graph.warnings(id).is_empty(), "{id}");
+        }
+        // A retry of the same link, a sibling, a great-grandchild and a page with children below
+        // a free page are all admitted.
         assert_eq!(graph.refusal("a", "T-1", "b"), None);
-        assert_eq!(graph.refusal("a", "T-2", "c"), None);
+        assert_eq!(graph.refusal("a", "T-2", "d"), None);
+        assert_eq!(graph.refusal("c", "T-1", "d"), None);
+        assert_eq!(graph.refusal("d", "T-1", "a"), None);
+        // A loop through any depth and a second parent stay refused.
+        assert_eq!(graph.refusal("c", "T-1", "a"), Some(Refusal::Loop));
+        assert_eq!(graph.refusal("b", "T-2", "a"), Some(Refusal::Loop));
         assert_eq!(
-            graph.refusal("b", "T-1", "c"),
-            Some(Refusal::ChildHasParent)
+            graph.refusal("d", "T-1", "c"),
+            Some(Refusal::HasParent {
+                page: "b".into(),
+                task: "T-1".into()
+            })
         );
-        assert_eq!(
-            graph.refusal("c", "T-1", "a"),
-            Some(Refusal::ParentHasChildren)
-        );
-        assert_eq!(graph.refusal("b", "T-1", "a"), Some(Refusal::Loop));
+        // A sub-page may make a new sub-page of its own.
         assert_eq!(graph.conversion_refusal("a"), None);
-        assert_eq!(graph.conversion_refusal("b"), Some(Refusal::ChildHasParent));
+        assert_eq!(graph.conversion_refusal("c"), None);
     }
 
     #[test]
     fn legacy_diagnostics_keep_every_claim_and_do_not_freeze_unrelated_components() {
         for (edges, warning) in [
-            (vec![("a", "b"), ("b", "c")], "subpage-depth-exceeded"),
             (vec![("a", "c"), ("b", "c")], "subpage-multiple-parents"),
             (vec![("a", "b"), ("b", "a")], "subpage-cycle"),
         ] {
