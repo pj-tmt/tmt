@@ -61,7 +61,6 @@ impl App {
     pub(in crate::board) fn open_checklist(&mut self) -> Effect {
         if self.input.is_some()
             || self.settings.is_some()
-            || self.help
             || self.theme_picker.is_some()
             || self.cron_list.is_some()
         {

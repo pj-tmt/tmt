@@ -883,8 +883,8 @@ tmt ops sq theme rm --squad product            # remove only its base override
 ```
 
 Set and remove keep token overrides and the rest of the user's TOML. They
-refuse if the file changed since it was read. On the board, the `,` settings menu's
-Theme row opens the theme picker (`theme` is also a bindable action, with no default key). Arrow keys or j/k preview in
+refuse if the file changed since it was read. On the board, the `?` panel's
+Theme settings row opens the theme picker (`theme` is also a bindable action, with no default key). Arrow keys or j/k preview in
 memory; ←→ switch all-boards/this-squad scope, Enter saves, and Esc cancels and restores the
 saved look (nothing is kept for a reopen; Tab does nothing).
 Common pool offers all-boards scope only. A squad's own base still wins
@@ -1360,7 +1360,7 @@ later.
 
 ## Use the board checklist
 
-Press `,`, choose **Actions** after the layout/Theme/Token window choices, then
+Press `,`, choose the **Actions** settings row after the layout/Theme/Token window rows, then
 **Checklist**. A configured
 `menu` binding opens the same action menu. A visible selected squad or its member
 in Agents or Digest uses its exact room; the flat list, Common pool and hidden/missing targets
@@ -1398,8 +1398,16 @@ attention, and opens references only when you choose Open reference.
 
 ## Inspect board settings
 
-Press `,` for Workspace settings: Auto/Side/Stack, Theme, Token window and
-Actions. The menu reports current choices; cancel writes nothing. Layout, pins and hidden squads are shared per-user Ops preferences; interactive
+`?` shows the keys with the workspace settings rows below them, and `,` opens the same
+panel on the first settings row: Auto/Side/Stack, Digest window, TOK range, Bindings,
+Launch templates, Theme, Token window, Actions, Panels and, with a squad selected,
+`Squad settings: <squad>`. On the keys, ↑↓ and PgUp/PgDn read and ↓ past the end reaches
+the rows; on the rows, ↑↓ choose and ↑ on the first one reads again. Enter on a value row
+(layout, Digest window, TOK range) applies it and the panel stays open with `(current)`
+moved, so several can be set in a row. Enter on a row that opens a dialog (Theme, Panels,
+Bindings, Launch templates, Actions, Squad settings) opens it above the panel; its Esc or
+an outside press closes just that dialog and shows the panel again on the same row. Esc,
+`q` or `?` close the panel and write nothing; `,` reopens on the last row used. Layout, pins and hidden squads are shared per-user Ops preferences; interactive
 sort belongs to the current view layer. Config saves compare the opening values
 and file bytes, preserving comments and unrelated keys; a conflict keeps the
 current effective choice. Theme can use all-boards or selected-squad scope;
@@ -1444,7 +1452,7 @@ extension consent.
 
 ## Choose a board view
 
-The settings menu offers Auto, Side and Stack for the workspace/conversation
+The settings rows of the `?` panel offer Auto, Side and Stack for the workspace/conversation
 placement, alongside Actions, Theme and Token window. These per-user Ops
 preferences persist through Config's compare-and-set writer; stale-file refusal
 keeps current state and preserves comments and unrelated values. They change
@@ -1797,7 +1805,7 @@ one hour and continues from its included counter watermark. It stores no separat
 usage history and computes no money estimate.
 
 Team enables observation; crew, pr-queue and minimal keep it off by default.
-Common pool omits this named-squad meter. The settings menu's Token window row cycles the summary's windows, as does
+Common pool omits this named-squad meter. The `?` panel's Token window settings row cycles the summary's windows, as does
 the bindable `token-window` action (no default key), or clicking any part of the meter.
 All three paths save the next window to the shared layer; a squad override remains
 in effect until reset in settings. Selected squad usage detail can disclose each configured window.

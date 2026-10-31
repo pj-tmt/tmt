@@ -1,92 +1,235 @@
 //! Help projects board data; shared TUI components own layout, scrolling and modality.
-use super::app::App;
+//! The `?` panel shows the keys above and the workspace settings rows below them.
+use super::{app::App, picker_surface};
 use crate::look::Look;
 use ratatui::{
     Frame,
-    crossterm::event::{Event, KeyCode},
+    crossterm::event::{Event, KeyCode, KeyEventKind},
     layout::Rect,
 };
-use serde_json::{Value, json};
-use std::{collections::BTreeMap, sync::OnceLock};
+use serde_json::json;
+use std::sync::OnceLock;
 use tmt_tui::{
-    binding::{Schema, Schemas, Scopes, Sources},
+    binding::Schema,
     components::{
-        KeyHelp, KeyHelpEntry, KeyHelpSection, ScrollState,
-        surface::{self, ModalSurface, RenderStyle},
+        KeyHelp, KeyHelpEntry, KeyHelpSection, ListRow, PickerEvent, PickerField, PickerInput,
+        surface,
     },
 };
 
 const FILE: &str = "squad.help.xml";
-const MARKUP: &str = r#"<tmt-view version="1"><tmt-modal id="help" title="help" placement="body"><tmt-scroll id="help-body"><tmt-key-help id="help-keys" bind="$.help" heading-token="text" heading-bold="true" section-gap="1"/></tmt-scroll><tmt-text slot="footer" token="muted" bind="$.footer"/></tmt-modal></tmt-view>"#;
+const MARKUP: &str = r#"<tmt-view version="1"><tmt-modal id="help" title="help" placement="body"><tmt-scroll id="help-body"><tmt-key-help id="help-keys" bind="$.help" heading-token="text" heading-bold="true" section-gap="1"/><tmt-list id="choices" bind="$.rows" empty=""><tmt-row class="flex-row gap-1"><tmt-text bind="row.cursor" class="w-1 shrink-0"/><tmt-text bind="row.label" token="text"/></tmt-row></tmt-list></tmt-scroll><tmt-text slot="footer" token="muted" bind="$.footer"/></tmt-modal></tmt-view>"#;
 pub(super) const FOOTER: &str = "↑↓ scroll · PgUp/PgDn page · Esc close";
-struct Data;
-impl Sources for Data {
-    type Source = ();
-    fn compile(&self, _: &str, _: &str, _: &Schemas<'_>) -> Result<(), String> {
-        Err("help has no field sources".into())
-    }
-    fn resolve(&self, _: &(), _: &Scopes<'_>) -> Result<Option<String>, String> {
-        Err("help has no field sources".into())
-    }
-}
+/// The reading footer when settings rows follow the keys.
+pub(super) const READING_FOOTER: &str =
+    "↑↓ scroll · PgUp/PgDn page · ↓ at the end: settings · Esc close";
+const SETTINGS_FOOTER: &str = "↑↓ choose · Enter apply or open · ↑ on the first: keys · Esc close";
 fn template() -> &'static surface::Template<()> {
     static TEMPLATE: OnceLock<surface::Template<()>> = OnceLock::new();
     TEMPLATE.get_or_init(|| {
-        let parsed = tmt_tui::parse(FILE, MARKUP).expect("embedded help markup");
-        let schema = Schema::Object(BTreeMap::from([
-            ("help".into(), KeyHelp::schema()),
-            ("footer".into(), Schema::Scalar),
-        ]));
-        surface::compile(FILE, &parsed, &schema, &Data).expect("embedded help schema")
+        let Schema::Object(mut fields) = picker_surface::schema(&["cursor", "label"]) else {
+            unreachable!("picker scenes are objects")
+        };
+        fields.insert("help".into(), KeyHelp::schema());
+        picker_surface::compile(FILE, MARKUP, Schema::Object(fields))
     })
 }
 
-#[derive(Default)]
 pub(super) struct Help {
-    pub scroll: ScrollState,
-    scene: Option<(Value, ModalSurface)>,
+    ui: picker_surface::State,
+    /// The settings row last chosen: `,` reopens on it.
+    row: Option<String>,
+    /// The row to select once the rows are projected.
+    reselect: Option<String>,
+    /// The last projected rows: (label, divider).
+    settings: Vec<(String, bool)>,
+}
+impl Default for Help {
+    fn default() -> Self {
+        let mut ui = picker_surface::State::new(None, vec![], None);
+        ui.list_focus = false;
+        Self {
+            ui,
+            row: None,
+            reselect: None,
+            settings: Vec::new(),
+        }
+    }
 }
 #[derive(Debug, PartialEq, Eq)]
 pub(super) enum Input {
     Close,
     Scroll,
+    /// Enter or a click on the settings row with this index.
+    Choose(usize),
 }
 impl Help {
-    pub fn open(&mut self) {
+    /// Opens on the keys, or on the first settings row for `,`.
+    pub fn open(&mut self, settings: bool) {
+        let row = self.row.take();
         *self = Self::default();
+        self.ui.list_focus = settings;
+        if settings {
+            self.reselect.clone_from(&row);
+        }
+        self.row = row;
+    }
+    /// The scroll of the whole panel: the keys, then the settings rows.
+    #[cfg(test)]
+    pub fn scroll(&self) -> &tmt_tui::components::ScrollState {
+        &self.ui.picker.list.scroll
+    }
+    /// The index of the selected settings row.
+    #[cfg(test)]
+    pub fn selected_setting(&self) -> Option<usize> {
+        self.selected_setting_index()
+    }
+    fn selected_setting_index(&self) -> Option<usize> {
+        self.ui
+            .picker
+            .list
+            .selected()?
+            .strip_prefix("setting-")?
+            .parse()
+            .ok()
+    }
+    /// Whether the settings rows hold ↑↓ instead of the reading.
+    #[cfg(test)]
+    pub fn settings_focus(&self) -> bool {
+        self.ui.list_focus
+    }
+    fn first_row(&self) -> Option<String> {
+        self.ui
+            .picker
+            .list
+            .rows()
+            .iter()
+            .find(|row| !row.disabled)
+            .map(|row| row.id.clone())
     }
     pub fn input(&mut self, event: &Event) -> Option<Input> {
-        if matches!(event, Event::Key(key) if matches!(key.code, KeyCode::Esc | KeyCode::Char('?') | KeyCode::Char('q')))
+        if let Event::Key(key) = event {
+            if key.kind == KeyEventKind::Release {
+                return None;
+            }
+            if matches!(
+                key.code,
+                KeyCode::Esc | KeyCode::Char('?') | KeyCode::Char('q')
+            ) {
+                return Some(Input::Close);
+            }
+            // ↓ past the end of the keys reaches the settings rows; ↑ on the first row reads again.
+            let first = self.first_row();
+            let scroll = &self.ui.picker.list.scroll;
+            let to_settings = !self.ui.list_focus
+                && key.code == KeyCode::Down
+                && !self.ui.picker.list.rows().is_empty()
+                && scroll.offset() >= scroll.limit();
+            let to_reading = self.ui.list_focus
+                && key.code == KeyCode::Up
+                && self.ui.picker.list.selected() == first.as_deref();
+            if to_settings || to_reading {
+                self.ui.list_focus = to_settings;
+                self.reconcile(&self.settings.clone());
+                self.ui.invalidate();
+                return Some(Input::Scroll);
+            }
+        }
+        let reading_key = !self.ui.list_focus && matches!(event, Event::Key(_));
+        if reading_key
+            || matches!(event, Event::Mouse(mouse) if matches!(mouse.kind, ratatui::crossterm::event::MouseEventKind::ScrollUp | ratatui::crossterm::event::MouseEventKind::ScrollDown))
         {
-            return Some(Input::Close);
+            let moved = self.ui.picker.list.scroll.input(event);
+            if moved {
+                self.ui.invalidate();
+            }
+            return moved.then_some(Input::Scroll);
         }
-        self.scroll.input(event).then_some(Input::Scroll)
+        match self.ui.input(event, PickerField::List)? {
+            PickerInput::Event(PickerEvent::Confirm(id)) => {
+                self.ui.list_focus = true;
+                id.strip_prefix("setting-")?.parse().ok().map(Input::Choose)
+            }
+            _ => Some(Input::Scroll),
+        }
     }
-    fn render(&mut self, frame: &mut Frame, model: KeyHelp, look: Look, body: Rect) -> Rect {
-        let value = json!({"help": model.value(), "footer": FOOTER});
-        if self.scene.as_ref().is_none_or(|(old, _)| old != &value) {
-            let scene = template()
-                .materialize(FILE, &value, &Data)
-                .expect("typed help data");
-            self.scene = Some((value, scene));
+    /// Projects the settings rows; keys may arrive before the first paint.
+    pub fn reconcile(&mut self, settings: &[(String, bool)]) {
+        settings.clone_into(&mut self.settings);
+        let focus = self.ui.list_focus;
+        // While the keys are read the rows hold no selection, so the list never scrolls the
+        // panel to them; ↓ past the end of the keys makes them choosable.
+        let rows: Vec<ListRow> = settings
+            .iter()
+            .enumerate()
+            .map(|(index, (_, divider))| ListRow {
+                id: format!("setting-{index}"),
+                disabled: *divider || !focus,
+            })
+            .collect();
+        self.ui.reconcile(rows);
+        if let Some(id) = self.reselect.take()
+            && self
+                .ui
+                .picker
+                .list
+                .rows()
+                .iter()
+                .any(|row| row.id == id && !row.disabled)
+        {
+            self.ui.select(&id);
         }
-        surface::render(
-            &self.scene.as_ref().unwrap().1,
-            &mut self.scroll,
-            body,
-            frame.buffer_mut(),
-            RenderStyle {
-                theme: &look.theme,
-                depth: look.depth,
-            },
-            |role| {
-                look.selection()
-                    .patch(look.row_span(true, look.role(role), false))
-            },
-        )
-        .expect("admitted help surface")
-        .areas
-        .outer
+        if focus {
+            self.row = self.ui.picker.list.selected().map(str::to_owned);
+        }
+    }
+    fn render(
+        &mut self,
+        frame: &mut Frame,
+        model: KeyHelp,
+        settings: &[(String, bool)],
+        look: Look,
+        body: Rect,
+    ) -> Option<Rect> {
+        self.reconcile(settings);
+        let focus = self.ui.list_focus;
+        let selected = self.ui.picker.list.selected().map(str::to_owned);
+        let value = json!({
+            "help": model.value(),
+            "rows": settings.iter().enumerate().map(|(index, (label, divider))| {
+                let id = format!("setting-{index}");
+                json!({"id": id, "disabled": *divider || !focus, "label": label,
+                    "cursor": if focus && selected.as_deref() == Some(id.as_str()) {"›"} else {""}})
+            }).collect::<Vec<_>>(),
+            "query": "", "status": "", "notes": [],
+            "footer": if focus { SETTINGS_FOOTER } else if settings.is_empty() { FOOTER } else { READING_FOOTER },
+        });
+        self.ui
+            .render(FILE, template(), value.clone(), frame, look, body);
+        // Settings focus keeps the chosen row and the rows after it in view, e.g. when `,`
+        // opens the panel, as far as they fit.
+        let after = self
+            .selected_setting_index()
+            .map_or(0, |index| settings.len().saturating_sub(index + 1));
+        if focus
+            && let Some(id) = selected
+            && self.ui.reveal_group(&id, &id, after) == Some(true)
+        {
+            self.ui.render(FILE, template(), value, frame, look, body);
+        }
+        // While the keys are read the rows hold no selection, so the list prints no position;
+        // the reading's own "N more ↓" is the sign that the settings follow below the fold.
+        if !focus
+            && let Some(area) = self.ui.frame.as_ref().map(|frame| frame.areas.position)
+            && let Some(position) = self.ui.picker.list.scroll.overflow_position()
+        {
+            tmt_tui::components::strip::paint_left(
+                frame.buffer_mut(),
+                area,
+                ratatui::text::Line::styled(position, look.role(tmt_cli_style::Role::Muted)),
+            );
+        }
+        self.ui.outer()
     }
 }
 fn entry(id: &str, keys: &str, description: impl Into<String>) -> KeyHelpEntry {
@@ -333,11 +476,33 @@ pub(super) fn model(app: &App) -> KeyHelp {
             ],
         ));
     }
+    if app.workspace_setting_entries().is_some() {
+        sections.push(section(
+            "settings",
+            "settings",
+            &[("↓", "past the last key: the workspace settings below")],
+        ));
+    }
     KeyHelp { sections }
+}
+
+/// The settings rows under the keys: labels, with dividers disabled.
+pub(super) fn settings(app: &App) -> Vec<(String, bool)> {
+    app.workspace_setting_entries()
+        .unwrap_or_default()
+        .into_iter()
+        .map(|entry| {
+            let divider = matches!(
+                entry.choice,
+                super::app::Choice::Rule | super::app::Choice::Heading
+            );
+            (entry.label, divider)
+        })
+        .collect()
 }
 
 pub(super) fn render(frame: &mut Frame, app: &App, body: Rect) {
     let mut help = app.help_state.borrow_mut();
-    let outer = help.render(frame, model(app), app.look(), body);
-    app.peek_areas.set(super::app::Overlay::Help, Some(outer));
+    let outer = help.render(frame, model(app), &settings(app), app.look(), body);
+    app.peek_areas.set(super::app::Overlay::Help, outer);
 }

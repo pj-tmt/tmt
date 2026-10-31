@@ -1092,8 +1092,7 @@ impl App {
             UsageControls => return super::super::overview::chart::host::focus(self),
             Unread => return self.workspace_unread(),
             Help => {
-                self.help_state.borrow_mut().open();
-                self.help = true;
+                self.open_help(false);
                 return Effect::None;
             }
             Agents | DigestDashboard => {
@@ -1588,11 +1587,34 @@ impl App {
         }
     }
 
+    /// `,`: the `?` panel, on its settings rows below the keys.
     pub(in crate::board) fn workspace_settings(&mut self) -> Effect {
-        use crate::config::OpsLayout;
-        let Some(snapshot) = self.workspace_snapshot() else {
+        if self.workspace_setting_entries().is_none() {
             return self.say("The workspace has not loaded.");
-        };
+        }
+        self.open_help(true);
+        Effect::None
+    }
+    /// `?`: the keys, with the workspace settings below them. The panel is the lowest layer
+    /// (dialogs opened from its rows sit above it), so it never opens under another dialog.
+    pub(in crate::board) fn open_help(&mut self, settings: bool) {
+        if self
+            .overlay()
+            .is_some_and(|overlay| overlay != super::Overlay::Help)
+        {
+            return;
+        }
+        let rows = super::super::help::settings(self);
+        let mut help = self.help_state.borrow_mut();
+        help.open(settings);
+        help.reconcile(&rows);
+        drop(help);
+        self.help = true;
+    }
+    /// The workspace settings rows of the `?` panel; None before the workspace loads.
+    pub(in crate::board) fn workspace_setting_entries(&self) -> Option<Vec<MenuEntry>> {
+        use crate::config::OpsLayout;
+        let snapshot = self.workspace_snapshot()?;
         let current = snapshot.preferences.layout;
         let mut entries: Vec<_> = [
             (OpsLayout::Auto, "Auto layout"),
@@ -1684,16 +1706,7 @@ impl App {
                 choice: Choice::SquadSettings(squad),
             });
         }
-        self.menu = Some(Menu {
-            link: None,
-            prefill: String::new(),
-            title: "Workspace settings · minimum usable size governs placement".into(),
-            entries,
-            selected: 0,
-            anchor: None,
-            surface: Default::default(),
-        });
-        Effect::None
+        Some(entries)
     }
     /// Selects the Agents tab's right pane; choosing the pane already shown changes nothing.
     pub(in crate::board) fn select_right_tab(
