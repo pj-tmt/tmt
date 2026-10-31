@@ -524,6 +524,7 @@ const listMissing = [
   'Data table: header, selection column, row hover actions, column hiding at the compact width (here a table with classes).',
   'Pinned page card: a sheet Surface with icon, title and meta.',
   'Needs-you dot: the 8px waiting dot shared with the Chat unread dot.',
+  'Side menu (#5826 proposal C): item icons, a text Manage action on the Shortcuts heading and one muted count with an orange dot. These are ShellMenu changes in #5831; today the shell draws the gear and the amber pill.',
 ];
 
 export function ListScreen({
