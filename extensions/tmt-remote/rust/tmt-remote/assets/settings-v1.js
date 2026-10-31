@@ -4229,11 +4229,11 @@ var STATES = {
 		tone: "blocked"
 	},
 	interrupted: {
-		label: "Interrupted",
+		label: "Interrupted · needs action",
 		tone: "waiting"
 	},
 	unconfirmed: {
-		label: "Unconfirmed",
+		label: "Unconfirmed · needs action",
 		tone: "waiting"
 	}
 };

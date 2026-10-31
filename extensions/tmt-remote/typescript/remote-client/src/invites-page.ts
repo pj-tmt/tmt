@@ -14,8 +14,9 @@ const STATES: Record<InvitationState, { label: string; tone?: 'working' | 'waiti
     refused: { label: 'Refused' },
     cancelled: { label: 'Cancelled' },
     expired: { label: 'Expired', tone: 'blocked' },
-    interrupted: { label: 'Interrupted', tone: 'waiting' },
-    unconfirmed: { label: 'Unconfirmed', tone: 'waiting' },
+    // Amber and labelled: these outcomes need the owner to check what happened.
+    interrupted: { label: 'Interrupted · needs action', tone: 'waiting' },
+    unconfirmed: { label: 'Unconfirmed · needs action', tone: 'waiting' },
   };
 const ACTIVE: readonly InvitationState[] = ['open', 'awaiting-owner'];
 /** Bounded copy for the contract's create and cancel refusal reasons. */

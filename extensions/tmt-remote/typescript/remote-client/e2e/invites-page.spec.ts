@@ -119,9 +119,16 @@ test('Invites lists issued invitation metadata with Mock D labels and phone rows
     ['inv-1e9b', 'Confirmed'],
     ['inv-a04d', 'Cancelled'],
     ['inv-9d77', 'Expired'],
-    ['inv-c0de', 'Interrupted'],
+    ['inv-c0de', 'Interrupted · needs action'],
   ] as const)
     await expect(table.getByRole('row').filter({ hasText: id })).toContainText(label);
+  // Ben 10-31: Refused stays neutral grey like Cancelled; interrupted outcomes are amber.
+  await expect(
+    table.getByRole('row').filter({ hasText: 'inv-a04d' }).locator('[data-tone]'),
+  ).toHaveCount(0);
+  await expect(
+    table.getByRole('row').filter({ hasText: 'inv-c0de' }).locator('[data-tone="waiting"]'),
+  ).toHaveText('Interrupted · needs action');
   await expect(table.getByRole('row').filter({ hasText: 'inv-1e9b' })).toContainText('—');
   await expect(page.locator('.invites-list-footer')).toContainText('6 invitations · newest first');
   await expect(table).not.toHaveAttribute('style');
