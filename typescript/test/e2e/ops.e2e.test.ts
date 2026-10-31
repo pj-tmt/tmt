@@ -744,7 +744,9 @@ exec ${quote(peer)} ${quote(fixture.executables.cli.executable)} ${quote(scenari
       fixture.tmux(['send-keys', '-l', '-t', board, 'switch-model']);
       fixture.tmux(['send-keys', '-t', board, 'Enter']);
       await fixture.waitForCapture(
-        (screen) => screen.includes('Runs') && screen.includes('--driver=claude') &&
+        (screen) =>
+          screen.includes('Runs') &&
+          screen.includes('--driver=claude') &&
           screen.includes('--model=switch-model'),
         board
       );
