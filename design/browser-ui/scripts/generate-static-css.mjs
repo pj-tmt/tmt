@@ -53,7 +53,7 @@ const fromRefs = (value) =>
 /** Palette B's role mapping for one theme, plus its theme-free metric roles when `metrics` is set. */
 const paletteB = (theme, indent, metrics = false) =>
   [
-    ...['color', 'surface'].flatMap((group) =>
+    ...['color', 'surface', 'shadow'].flatMap((group) =>
       Object.entries(tokens.browser['palette-b'][group]).map(
         ([role, value]) => `${indent}--tmt-ui-${group}-${role}: ${fromRefs(value[theme])};`,
       ),
@@ -133,13 +133,16 @@ const tokenCss = `/* Generated: generate-static-css */
   :root {\n${motion('--tmt-ui-motion', '    ', true)}\n  }
 }
 /* Palette B (#5821): only inside the data-tmt-palette scope, on the element or an ancestor; the
-   default values above stay as they are: light, the system dark unless a light theme is set on the
-   scope or around it, then an explicit dark theme unless the scope itself sets light. */
+   default values above stay as they are: light (also for a light island inside the scope), the system
+   dark unless a light theme is set on the scope or around it, then an explicit dark theme on, inside or
+   around the scope unless the scope itself sets light. */
 [data-tmt-palette='b'] {\n${paletteB('light', '  ', true)}\n}
+[data-tmt-palette='b'] [data-theme='light'] {\n${paletteB('light', '  ')}\n}
 @media (prefers-color-scheme: dark) {
   [data-tmt-palette='b']:not([data-theme='light'], [data-theme='light'] *) {\n${paletteB('dark', '    ')}\n  }
 }
 [data-tmt-palette='b'][data-theme='dark'],
+[data-tmt-palette='b'] [data-theme='dark'],
 [data-theme='dark'] [data-tmt-palette='b']:not([data-theme='light']) {\n${paletteB('dark', '  ')}\n}
 @media (max-width: ${tokens.header['compact-max-width']}) {
   :root {

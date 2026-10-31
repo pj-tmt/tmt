@@ -5,3 +5,26 @@ body {
   color: var(--tmt-ui-color-text);
   font: 14px / 1.5 var(--tmt-ui-font-body);
 }
+/* The palette and radius preview switches (#5821). */
+.gallery-preview {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--tmt-ui-space-xs);
+  margin: var(--tmt-ui-space-s) 0;
+  color: var(--tmt-ui-color-secondary);
+  font-size: 12px;
+}
+.gallery-preview > span {
+  flex-basis: 100%;
+}
+.gallery-preview > a {
+  padding: 2px var(--tmt-ui-space-s);
+  border: var(--tmt-ui-rule-width) solid var(--tmt-ui-surface-rule);
+  border-radius: var(--tmt-ui-radius-s);
+  color: var(--tmt-ui-color-text);
+  text-decoration: none;
+}
+.gallery-preview > a[aria-current='true'] {
+  border-color: var(--tmt-ui-color-accent);
+}

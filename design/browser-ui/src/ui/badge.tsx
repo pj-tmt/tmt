@@ -13,7 +13,8 @@ const badgeVariants = cva(
         // Neutral (#5821): the accent fill belongs to the primary action alone.
         default: 'tmt:bg-secondary tmt:text-secondary-foreground tmt:[a&]:hover:bg-accent',
         secondary: 'tmt:bg-secondary tmt:text-secondary-foreground tmt:[a&]:hover:bg-secondary',
-        destructive: 'tmt:bg-destructive tmt:text-background tmt:[a&]:hover:bg-destructive',
+        // A state, not an action (#5821): neutral fill, the blocked colour on its words and mark.
+        destructive: 'tmt:bg-secondary tmt:text-destructive tmt:[a&]:hover:bg-destructive-soft',
         outline:
           'tmt:border-border tmt:text-foreground tmt:[a&]:hover:bg-accent tmt:[a&]:hover:text-accent-foreground',
         ghost: 'tmt:[a&]:hover:bg-accent tmt:[a&]:hover:text-accent-foreground',

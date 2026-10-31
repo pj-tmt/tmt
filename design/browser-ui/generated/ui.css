@@ -160,6 +160,14 @@
   --tmt-foundation-radius-s: var(--tmt-ui-radius-s);
   --tmt-foundation-radius-l: var(--tmt-ui-radius-l);
 }
+/* Under palette B a disabled button of any variant is neutral grey, never a faded accent (#5821). */
+[data-tmt-palette='b'] [data-tmt-ui] [data-slot='button']:disabled,
+[data-tmt-ui][data-tmt-palette='b'] [data-slot='button']:disabled {
+  border-color: var(--tmt-foundation-border);
+  background: var(--tmt-foundation-muted);
+  color: var(--tmt-foundation-muted-foreground);
+  opacity: 1;
+}
 @media (prefers-reduced-motion: reduce) {
   [data-tmt-ui] {
     --tmt-foundation-motion-fast: 0ms;
@@ -683,9 +691,6 @@
   }
   .tmt\:bg-card {
     background-color: var(--tmt-foundation-card);
-  }
-  .tmt\:bg-destructive {
-    background-color: var(--tmt-foundation-destructive);
   }
   .tmt\:bg-foreground {
     background-color: var(--tmt-foundation-foreground);
@@ -1281,8 +1286,8 @@
     a.tmt\:\[a\&\]\:hover\:bg-accent:hover {
       background-color: var(--tmt-foundation-accent);
     }
-    a.tmt\:\[a\&\]\:hover\:bg-destructive:hover {
-      background-color: var(--tmt-foundation-destructive);
+    a.tmt\:\[a\&\]\:hover\:bg-destructive-soft:hover {
+      background-color: var(--tmt-foundation-destructive-soft);
     }
     a.tmt\:\[a\&\]\:hover\:bg-secondary:hover {
       background-color: var(--tmt-foundation-secondary);

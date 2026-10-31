@@ -126,7 +126,7 @@ export function ThemeBFrame({ params }: { params: URLSearchParams }) {
               <Badge>spec</Badge>
               <Badge variant="secondary">design</Badge>
               <Badge variant="outline">Private</Badge>
-              <Badge variant="destructive">Blocked</Badge>
+              <Badge variant="destructive">✕ Blocked</Badge>
             </div>
             <div className="theme-b-row theme-b-states">
               {states.map(([tone, label]) => (

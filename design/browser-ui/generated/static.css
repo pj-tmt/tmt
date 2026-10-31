@@ -38,6 +38,8 @@
   --tmt-ui-ref-blocked-soft-light: #f6e9e7;
   --tmt-ui-ref-scrim-dark: #000000b3;
   --tmt-ui-ref-scrim-light: #14141466;
+  --tmt-ui-ref-shadow-dark: #00000080;
+  --tmt-ui-ref-shadow-light: #1414141f;
   --tmt-ui-ref-radius: 2px;
   --tmt-ui-ref-radius-step: 2px;
   --tmt-ui-ref-size-1: 11px;
@@ -462,8 +464,9 @@
   }
 }
 /* Palette B (#5821): only inside the data-tmt-palette scope, on the element or an ancestor; the
-   default values above stay as they are: light, the system dark unless a light theme is set on the
-   scope or around it, then an explicit dark theme unless the scope itself sets light. */
+   default values above stay as they are: light (also for a light island inside the scope), the system
+   dark unless a light theme is set on the scope or around it, then an explicit dark theme on, inside or
+   around the scope unless the scope itself sets light. */
 [data-tmt-palette='b'] {
   --tmt-ui-color-text: var(--tmt-ui-ref-ink-900);
   --tmt-ui-color-secondary: var(--tmt-ui-ref-stone-600);
@@ -508,10 +511,57 @@
   --tmt-ui-surface-annotation-action: var(--tmt-ui-ref-red-500);
   --tmt-ui-surface-mention-agent: var(--tmt-ui-ref-paper-100);
   --tmt-ui-surface-mention-person: var(--tmt-ui-ref-paper-100);
+  --tmt-ui-shadow-overlay: 0 18px 60px var(--tmt-ui-ref-shadow-light);
   --tmt-ui-radius-s: var(--tmt-ui-ref-radius);
   --tmt-ui-radius: var(--tmt-ui-ref-radius);
   --tmt-ui-radius-l: calc(var(--tmt-ui-ref-radius) + var(--tmt-ui-ref-radius-step));
   --tmt-ui-radius-badge: var(--tmt-ui-ref-radius);
+}
+[data-tmt-palette='b'] [data-theme='light'] {
+  --tmt-ui-color-text: var(--tmt-ui-ref-ink-900);
+  --tmt-ui-color-secondary: var(--tmt-ui-ref-stone-600);
+  --tmt-ui-color-selected-text: var(--tmt-ui-ref-ink-900);
+  --tmt-ui-color-disabled-text: var(--tmt-ui-ref-stone-300);
+  --tmt-ui-color-focus: var(--tmt-ui-ref-red-500);
+  --tmt-ui-color-edge: var(--tmt-ui-ref-stone-400);
+  --tmt-ui-color-accent: var(--tmt-ui-ref-red-500);
+  --tmt-ui-color-accent-strong: var(--tmt-ui-ref-red-600);
+  --tmt-ui-color-on-accent: var(--tmt-ui-ref-white);
+  --tmt-ui-color-selection-edge: var(--tmt-ui-ref-paper-300);
+  --tmt-ui-color-focus-destructive: var(--tmt-ui-ref-blocked-light);
+  --tmt-ui-color-working: var(--tmt-ui-ref-green-light);
+  --tmt-ui-color-waiting: var(--tmt-ui-ref-amber-light);
+  --tmt-ui-color-review: var(--tmt-ui-ref-violet-light);
+  --tmt-ui-color-blocked: var(--tmt-ui-ref-blocked-light);
+  --tmt-ui-color-link: var(--tmt-ui-ref-ink-900);
+  --tmt-ui-color-annotation-on-action: var(--tmt-ui-ref-white);
+  --tmt-ui-color-annotation-rule: var(--tmt-ui-ref-stone-400);
+  --tmt-ui-color-annotation-rule-selected: var(--tmt-ui-ref-ink-900);
+  --tmt-ui-color-mention-person: var(--tmt-ui-ref-ink-900);
+  --tmt-ui-surface-scrim: var(--tmt-ui-ref-scrim-light);
+  --tmt-ui-surface-command: var(--tmt-ui-ref-paper-50);
+  --tmt-ui-surface-field: var(--tmt-ui-ref-paper-0);
+  --tmt-ui-surface-code: var(--tmt-ui-ref-paper-50);
+  --tmt-ui-surface-paper: var(--tmt-ui-ref-paper-0);
+  --tmt-ui-surface-rail: var(--tmt-ui-ref-paper-50);
+  --tmt-ui-surface-sheet: var(--tmt-ui-ref-paper-50);
+  --tmt-ui-surface-selection: var(--tmt-ui-ref-paper-100);
+  --tmt-ui-surface-hover: var(--tmt-ui-ref-paper-75);
+  --tmt-ui-surface-disabled: var(--tmt-ui-ref-paper-50);
+  --tmt-ui-surface-rule: var(--tmt-ui-ref-paper-200);
+  --tmt-ui-surface-rule-soft: var(--tmt-ui-ref-paper-100);
+  --tmt-ui-surface-working-soft: var(--tmt-ui-ref-green-soft-light);
+  --tmt-ui-surface-waiting-soft: var(--tmt-ui-ref-amber-soft-light);
+  --tmt-ui-surface-blocked-soft: var(--tmt-ui-ref-blocked-soft-light);
+  --tmt-ui-surface-review-soft: var(--tmt-ui-ref-violet-soft-light);
+  --tmt-ui-surface-annotation-highlight: var(--tmt-ui-ref-paper-100);
+  --tmt-ui-surface-annotation-highlight-hover: var(--tmt-ui-ref-paper-200);
+  --tmt-ui-surface-annotation-highlight-selected: var(--tmt-ui-ref-paper-300);
+  --tmt-ui-surface-annotation-panel: var(--tmt-ui-ref-paper-50);
+  --tmt-ui-surface-annotation-action: var(--tmt-ui-ref-red-500);
+  --tmt-ui-surface-mention-agent: var(--tmt-ui-ref-paper-100);
+  --tmt-ui-surface-mention-person: var(--tmt-ui-ref-paper-100);
+  --tmt-ui-shadow-overlay: 0 18px 60px var(--tmt-ui-ref-shadow-light);
 }
 @media (prefers-color-scheme: dark) {
   [data-tmt-palette='b']:not([data-theme='light'], [data-theme='light'] *) {
@@ -558,9 +608,11 @@
     --tmt-ui-surface-annotation-action: var(--tmt-ui-ref-red-500);
     --tmt-ui-surface-mention-agent: var(--tmt-ui-ref-ink-800);
     --tmt-ui-surface-mention-person: var(--tmt-ui-ref-ink-800);
+    --tmt-ui-shadow-overlay: 0 18px 60px var(--tmt-ui-ref-shadow-dark);
   }
 }
 [data-tmt-palette='b'][data-theme='dark'],
+[data-tmt-palette='b'] [data-theme='dark'],
 [data-theme='dark'] [data-tmt-palette='b']:not([data-theme='light']) {
   --tmt-ui-color-text: var(--tmt-ui-ref-bone);
   --tmt-ui-color-secondary: var(--tmt-ui-ref-stone-400);
@@ -605,6 +657,7 @@
   --tmt-ui-surface-annotation-action: var(--tmt-ui-ref-red-500);
   --tmt-ui-surface-mention-agent: var(--tmt-ui-ref-ink-800);
   --tmt-ui-surface-mention-person: var(--tmt-ui-ref-ink-800);
+  --tmt-ui-shadow-overlay: 0 18px 60px var(--tmt-ui-ref-shadow-dark);
 }
 @media (max-width: 760px) {
   :root {

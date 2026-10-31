@@ -26,6 +26,11 @@ it('maps palette B onto existing roles, reading only refs that exist', () => {
       for (const name of [...reads(value.dark), ...reads(value.light)])
         expect(ref[name], `${group}.${role} reads ${name}`).toBeDefined();
     }
+  for (const [role, value] of themed(palette.shadow)) {
+    expect(tokens.browser.shadow[role], `shadow.${role}`).toBeDefined();
+    for (const name of [...reads(value.dark), ...reads(value.light)])
+      expect(ref[name], `shadow.${role} reads ${name}`).toBeDefined();
+  }
   for (const [role, value] of Object.entries(palette.metric) as [string, string][]) {
     expect(tokens.browser.metric[role], role).toBeDefined();
     for (const name of reads(value)) expect(ref[name], `${role} reads ${name}`).toBeDefined();
